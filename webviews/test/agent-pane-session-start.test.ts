@@ -89,6 +89,7 @@ function fakeDaemon(history: ReturnType<typeof record>, harness = "claude-sr2", 
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let rows: AcpmuxRow[] = [];
+  let summary: any;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -97,12 +98,15 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
       token: "t",
       sessionId: CHAT,
     },
-    (snapshot: any) => (rows = snapshot.rows),
+    (snapshot: any) => {
+      rows = snapshot.rows;
+      summary = snapshot.summary;
+    },
     undefined,
     daemon.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client, rows: () => rows };
+  return { client, rows: () => rows, summary: () => summary };
 }
 
 const init = (version: string, model: string) =>
@@ -174,4 +178,58 @@ test("an init without Claude Code's facts (Codex's info update) draws nothing", 
   );
   const { rows } = await connect(daemon);
   expect(rows().filter((row) => row.kind === "sessionStart")).toEqual([]);
+});
+
+test("an info update with the context breakdown and Claude Code's facts keeps both", async () => {
+  const breakdown = {
+    categories: [{ name: "Messages", tokens: 10, kind: "used" }],
+    memoryFiles: [],
+    mcpTools: [],
+    totalTokens: 10,
+    maxTokens: 100,
+  };
+  const both = update({
+    sessionUpdate: "session_info_update",
+    title: null,
+    _meta: {
+      claude: { tools: [], mcp_servers: [], plugins: [], skills: [], model: "claude-opus-5-5", version: "2.1.305" },
+      acpmux: { contextBreakdown: breakdown },
+    },
+  });
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      ["in", "session_info_update", both],
+    ]),
+  );
+  const { rows, summary } = await connect(daemon);
+  expect(
+    rows()
+      .filter((row) => row.kind === "sessionStart")
+      .map((row) => row.sessionStart?.version),
+  ).toEqual(["2.1.305"]);
+  expect(summary()?.contextBreakdown).toEqual(breakdown);
+});
+
+test("a failover drops the last harness's context breakdown", async () => {
+  const breakdown = {
+    categories: [{ name: "Messages", tokens: 10, kind: "used" }],
+    memoryFiles: [],
+    mcpTools: [],
+    totalTokens: 10,
+    maxTokens: 100,
+  };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      [
+        "in",
+        "session_info_update",
+        update({ sessionUpdate: "session_info_update", _meta: { acpmux: { contextBreakdown: breakdown } } }),
+      ],
+      ["mux", "failover", { from: "claude", to: "codex" }],
+    ]),
+  );
+  const { summary } = await connect(daemon);
+  expect(summary()?.contextBreakdown).toBeUndefined();
 });

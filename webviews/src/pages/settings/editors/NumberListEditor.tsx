@@ -60,6 +60,7 @@ export function NumberListEditor({ row, value, disabled, labelId }: EditorProps)
             if (invalid) setInvalid(false);
           }}
           onBlur={add}
+          // ui-allow: the token field's own editing keys (Return or comma adds the number, Backspace in an empty field removes the last).
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === ",") {
               event.preventDefault();

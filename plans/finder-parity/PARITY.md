@@ -129,9 +129,9 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Pri | Status |
 |---|---|---|---|
-| 9.1 | Open (default app) / Open With submenu / Other… / Always Open With | P0 open, P1 Open With | [~] |
-| 9.2 | Open in cmux: text and Markdown in cmux viewer, folder in terminal (cmux-native extras) | P0 | [~] |
-| 9.3 | Share menu (NSSharingServicePicker), AirDrop | P2 | [ ] |
+| 9.1 | Open (default app) / Open With submenu / Other… / Always Open With | P0 open, P1 Open With | [~] Open With (every LaunchServices app, default first, Other…), shared with Home; no Always Open With |
+| 9.2 | Open in cmux: text and Markdown in cmux viewer, folder in terminal (cmux-native extras) | P0 | [x] by FileOpenKind: Markdown, HTML (rendered), images/PDF/media, text/code open in cmux beside the pane; apps and Office/archives in their app |
+| 9.3 | Share menu (NSSharingServicePicker), AirDrop | P2 | [x] Share… (system picker, AirDrop included) |
 | 9.4 | Services menu, Quick Actions (Rotate, Markup, Create PDF, Convert Image, Trim) | P2 | [ ] |
 | 9.5 | Finder Sync extensions (Dropbox badges) | P3 | n/a |
 | 9.6 | iCloud: download/evict ("Remove Download"), status badges (NSMetadataUbiquitousItem…) | P2 | [ ] |

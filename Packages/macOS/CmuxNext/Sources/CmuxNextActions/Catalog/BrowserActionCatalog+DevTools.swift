@@ -77,7 +77,7 @@ nonisolated extension BrowserActionCatalog {
                      ["devtools", "rendering", "layers", "borders", "compositing"]),
             devTools("toggleFPSMeter", t("action.devtools.toggleFPSMeter", "Rendering: Show Frame Rendering Stats"), "speedometer",
                      ["devtools", "rendering", "fps", "frames", "meter"]),
-            devTools("togglePerformanceRecording", t("action.devtools.togglePerformanceRecording", "Developer Tools: Start or Stop Performance Recording"), "record.circle",
+            devTools("togglePerformanceRecording", t("action.devtools.togglePerformanceRecording", "Developer Tools: Start/Stop Performance Recording"), "record.circle",
                      ["devtools", "performance", "record", "profile", "timeline"]),
             devTools("takeHeapSnapshot", t("action.devtools.takeHeapSnapshot", "Developer Tools: Take Heap Snapshot"), "camera.metering.matrix",
                      ["devtools", "memory", "heap", "snapshot"]),
@@ -96,11 +96,15 @@ nonisolated extension BrowserActionCatalog {
     /// focus (`webViewFocused`); no CLI verb (it drives the tools' UI) and no
     /// menu row (the page menu's Inspect folder offers Developer Tools).
     private static func devTools(_ id: String, _ title: String, _ symbol: String, _ keywords: [String]) -> ActionDescriptor {
-        ActionDescriptor(
+        var descriptor = ActionDescriptor(
             id: ActionID(rawValue: "devtools.\(id)"), title: title, keywords: ["developer tools", "web inspector"] + keywords,
             category: .browser, symbol: symbol, surfaces: [.palette], requires: [.webViewFocused], targets: [.pane], destructive: id == "clearSiteData",
             surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .familyMember)
         )
+        // Capture commands call the page engine directly. Until they share the browser host's
+        // secret masker, only an in-app person's palette run may receive their pixels.
+        if id.hasPrefix("capture") { descriptor.isPersonOnly = true }
+        return descriptor
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

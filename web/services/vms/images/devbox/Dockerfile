@@ -39,10 +39,7 @@ ENV LANG=C.UTF-8 \
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
 # exec users, procps for the driver's daemon process discovery (pgrep),
-# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
-# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
-# codex uses the distro's bwrap instead of warning on every launch that it is
-# falling back to its bundled copy.
+# and iproute2 for the desktop's port probes (ss).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -73,11 +70,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     util-linux \
     e2fsprogs \
-    bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+
+# Muse needs a current bubblewrap; Ubuntu 24.04 ships 0.9.0. Build the
+# checksum-pinned upstream release, and divert /usr/bin/bwrap so a later apt
+# install cannot replace it. Keep /usr/bin/bwrap for Ubuntu's AppArmor profile.
+# Codex's Linux sandbox uses this bwrap instead of warning on every launch that
+# it is falling back to its bundled copy.
+# build-devbox-freestyle.ts reads these pins and replays this install command.
+ARG CMUX_IMAGE_BUBBLEWRAP_URL=https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends meson ninja-build libcap-dev \
+  && curl -fsSL -o /tmp/bubblewrap.tar.xz $CMUX_IMAGE_BUBBLEWRAP_URL \
+  && echo "$CMUX_IMAGE_BUBBLEWRAP_SHA256  /tmp/bubblewrap.tar.xz" | sha256sum -c - \
+  && rm -rf /tmp/bubblewrap \
+  && mkdir /tmp/bubblewrap \
+  && tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1 \
+  && meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled \
+  && meson compile -C /tmp/bubblewrap/build \
+  && dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap \
+  && meson install -C /tmp/bubblewrap/build --no-rebuild \
+  && apt-get purge -y meson ninja-build libcap-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz \
+  && test "$(/usr/bin/bwrap --version)" = "bubblewrap 0.13.1" \
+  && test "$(command -v bwrap)" = /usr/bin/bwrap
 
 # The work user: the base's uid-1000 account renamed to `cmux`
 # (web/services/vms/images/workUser.ts). ONE account owns the desktop session,
@@ -213,8 +233,11 @@ COPY desktop/start-vnc.sh /usr/local/bin/start-vnc.sh
 COPY desktop/cmux-desktop-boot /usr/local/bin/cmux-desktop-boot
 COPY desktop/cmux-desktop.service /etc/systemd/system/cmux-desktop.service
 COPY desktop/desktop-env.sh /etc/cmux/desktop-env.sh
-RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
-  && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
+# Cloud browser role (plans/cmux-next/cloud-browser-DESIGN.md CB-2): shipped, never enabled here.
+COPY desktop/cmux-cloud-browser /usr/local/bin/cmux-cloud-browser
+COPY desktop/cmux-cloud-browser.service /etc/systemd/system/cmux-cloud-browser.service
+RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot /usr/local/bin/cmux-cloud-browser \
+  && bash -n /usr/local/bin/cmux-cloud-browser && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
   && mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \
@@ -344,6 +367,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
@@ -363,7 +387,10 @@ RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
        && /usr/local/bin/$a --version >/dev/null || exit 1; \
      done \
   && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
+# The check below proves the owner path (agent-config.sh keeps a caller's model-plane env
+# only on an owner record); the team record every machine boots with is written further down.
 RUN bash -n /etc/cmux/agent-config.sh \
+  && mkdir -p /etc/cmux && echo owner > /etc/cmux/vm-kind \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
@@ -406,15 +433,19 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-vm-kind-sync /usr/local/bin/cmux-vm-kind-sync
 COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
 # The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
 # TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
 # still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-vm-kind-sync \
   && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-vm-kind-sync \
   && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
+  && echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 

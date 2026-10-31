@@ -6,6 +6,16 @@
 
 /** The keyframes every page spinner runs (desktop.css). */
 export const SPINNER_KEYFRAMES = "cmux-spin";
+/** Every shared loop the clock keeps in phase: the spinner, and agent work's breathing dot and
+ * shimmer (WORKING-LOOK, desktop.css), so many working rows move as one. */
+export const SHARED_LOOP_KEYFRAMES: ReadonlySet<string> = new Set([
+  SPINNER_KEYFRAMES,
+  "cmux-breathe",
+  "cmux-shimmer",
+  // The Thinking shimmer's two layers (ShimmerText.tsx): one phase keeps the lit words still.
+  "cmux-shimmer-band",
+  "cmux-shimmer-lit",
+]);
 
 /** The start time (document timeline ms) a loop of `period` ms must have so that its phase at
  * `timelineNow` is (Unix ms) mod `period`. `timeOrigin` is `performance.timeOrigin`, the Unix ms at
@@ -24,9 +34,9 @@ export type SpinnerAnimation = {
   effect: { getTiming(): { duration?: number | string | CSSNumericValue } } | null;
 };
 
-/** Moves `animation` onto the shared phase when it runs the spinner keyframes; true if it did. */
+/** Moves `animation` onto the shared phase when it runs shared loop keyframes; true if it did. */
 export function alignSpinner(animation: SpinnerAnimation, timelineNow: number, timeOrigin: number): boolean {
-  if (animation.animationName !== SPINNER_KEYFRAMES) return false;
+  if (!animation.animationName || !SHARED_LOOP_KEYFRAMES.has(animation.animationName)) return false;
   const duration = animation.effect?.getTiming().duration;
   if (typeof duration !== "number" || !(duration > 0)) return false;
   animation.startTime = spinnerStartTime(timelineNow, timeOrigin, duration);
@@ -43,7 +53,7 @@ export function installSpinnerClock(doc: Document = document): void {
   doc.addEventListener(
     "animationstart",
     (event) => {
-      if (event.animationName !== SPINNER_KEYFRAMES || !(event.target instanceof Element)) return;
+      if (!SHARED_LOOP_KEYFRAMES.has(event.animationName) || !(event.target instanceof Element)) return;
       const now = doc.timeline?.currentTime;
       const origin = doc.defaultView?.performance.timeOrigin;
       if (typeof now !== "number" || typeof origin !== "number") return;

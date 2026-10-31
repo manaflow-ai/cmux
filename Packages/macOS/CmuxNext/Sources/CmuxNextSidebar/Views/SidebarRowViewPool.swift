@@ -7,8 +7,17 @@ import AppKit
 /// row's place or crossfades over it.
 @MainActor
 struct SidebarRowViewPool {
-    /// Upper bound on parked views; enough for a tall window plus overscan.
-    static let limit = 96
+    /// Upper bound on parked views. Parked views stay in the list, hidden, so each one is a subtree
+    /// AppKit walks on every scroll frame: the list sets this to two realization rects of rows
+    /// (`limit(forHeight:rowHeight:)`). A scroll keeps few parked (it rebinds them); a space
+    /// switch parks the page it leaves before it takes back the other space's rows by key.
+    var limit = 64
+
+    /// The parked views a list `height` points tall needs: two pages of its rows at the shortest
+    /// row height (the page a space switch leaves and the one it takes back), at least 32.
+    static func limit(forHeight height: CGFloat, rowHeight: CGFloat) -> Int {
+        max(32, 2 * Int((height / max(rowHeight, 1)).rounded(.up)))
+    }
     private var views: [SidebarRowKey: SidebarRowView] = [:]
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
@@ -41,7 +50,7 @@ struct SidebarRowViewPool {
         }
         order.append(view.key)
         var evicted: [SidebarRowView] = []
-        while order.count > Self.limit {
+        while order.count > limit {
             if let old = views.removeValue(forKey: order.removeFirst()) { evicted.append(old) }
         }
         return evicted
@@ -52,11 +61,13 @@ struct SidebarRowViewPool {
         case .workspace: WorkspaceRowView.self
         case .item: SidebarItemListRowView.self
         case .block: SidebarBlockRowView.self
-        case .tab: SidebarTabRowView.self
         case .group: GroupHeaderRowView.self
         case .section: SectionHeaderRowView.self
         case .emptySection: EmptySectionRowView.self
+        case .emptyGroup: EmptyGroupRowView.self
         case .folder: FolderHeaderRowView.self
+        case .status: StatusHeaderRowView.self
+        case .doneFold, .showMore: SidebarDoneFoldRowView.self
         }
     }
 }

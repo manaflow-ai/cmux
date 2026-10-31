@@ -31,6 +31,8 @@ pub(super) struct Messages {
     pub home_and_socket: &'static str,
     pub stop_sent: &'static str,
     pub shutdown_needs_home: &'static str,
+    pub move_needs_home: &'static str,
+    pub move_no_brain: &'static str,
     pub shutdown_brain: &'static str,
     pub shutdown_timeout: &'static str,
     pub thoughts_on: &'static str,
@@ -39,10 +41,12 @@ pub(super) struct Messages {
     pub work: &'static str,
     pub question: &'static str,
     pub retracted: &'static str,
+    pub usage_help: &'static str,
+    pub usage_no_tool: &'static str,
 }
 
 static ENGLISH: Messages = Messages {
-    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (default 1800, 0: no limit; exit 124)\n  --no-wait-agents     pipe mode: exit when the turn that answers ends, not after the subagents it started\n  --history N          chat: show the last N messages first (default 20)\n  --chief-home DIR     an isolated Chief (its own daemon and brain), also CMUX_CHIEF_HOME;\n                       without it and without --socket the CLI starts your Chief when it is not running\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  --chief ID           with engine or stop: that Chief (cmux chief list), not your default Chief\n  stop                 stop the Chief's running turn\n  shutdown             stop the Chief: its brain, acpmux daemon, agent sessions and session daemon",
+    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief move --to local:DIR|ssh:HOST[:DIR] [--stop-host] [--dry-run] | cmux chief move rollback\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n       cmux chief usage [--since 7d] [--by chief|agent|model] [--json]   (cmux chief usage --help)\n       cmux chief acp [--chief-home DIR] [--timeout SECONDS] [--wait-agents]   the Chief as an ACP agent on stdin/stdout (the agent chat's Chief harness)\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (default 1800, 0: no limit; exit 124)\n  --no-wait-agents     pipe mode: exit when the turn that answers ends, not after the subagents it started\n  --history N          chat: show the last N messages first (default 20)\n  --chief-home DIR     an isolated Chief (its own daemon and brain), also CMUX_CHIEF_HOME;\n                       without it and without --socket the CLI starts your Chief when it is not running\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  --chief ID           with engine or stop: that Chief (cmux chief list), not your default Chief\n  stop                 stop the Chief's running turn\n  shutdown             stop the Chief: its brain, acpmux daemon, agent sessions and session daemon\n  move                 move the Chief (memory, conversations, subagent transcripts) to another home or host;\n                       the old home stays as the rollback (cmux chief move help)",
     help: "Enter sends. Alt+Enter or Ctrl+J adds a line. Up and Down recall sent messages.\nCtrl+C stops the Chief's turn (or clears the input); Ctrl+D quits.\n/model [NAME]   show or set the Chief's model\n/effort [LEVEL] show or set the Chief's effort\n/thoughts       show or hide the Chief's thinking\n/help           this text\n/quit           leave (the Chief keeps working)",
     you: "You",
     chief: "Chief",
@@ -71,6 +75,8 @@ static ENGLISH: Messages = Messages {
     home_and_socket: "give --chief-home or --socket/--session, not both",
     stop_sent: "stopping the Chief's turn",
     shutdown_needs_home: "cmux chief shutdown stops a Chief home: give --chief-home (or none for your Chief), not --socket or --session",
+    move_needs_home: "cmux chief move moves a Chief home: give --chief-home (or none for your Chief), not --socket or --session",
+    move_no_brain: "cmux chief move needs optchat-chief (next to cmux, on PATH, or CMUX_CHIEF_BRAIN_BIN)",
     shutdown_brain: "stopped the Chief at {home} (its acpmux daemon and agent sessions too)",
     shutdown_timeout: "the Chief (pid {pid}) did not stop within {secs} s; its log is host.log in the Chief home",
     thoughts_on: "showing the Chief's thinking",
@@ -79,10 +85,12 @@ static ENGLISH: Messages = Messages {
     work: "[work {status}]",
     question: "[question] {prompt}",
     retracted: "(message removed)",
+    usage_help: "usage: cmux chief usage [--chief ID] [--since 7d] [--until 0] [--bucket hour|day|week|month]\n                        [--by chief|agent|model|harness|kind] [--top N] [--json]\n\n  Tokens, cost, cache hit and turn time of your Chiefs over time, from each Chief's\n  usage ledger on this Mac (one line per Chief turn, compactor node and subagent prompt).\n\n  --chief ID     one Chief (cmux chief list); default: your Chief and every Chief it holds\n  --since D      the window: 24h, 7d, 30d, 90d, 1y or all (default 7d)\n  --until D      end the window D ago (default now)\n  --bucket B     one chart point per hour, day, week or month (default: from the window)\n  --by K         the breakdown: chief (default), agent, model, harness or kind\n  --top N        list the N most expensive units (default 10)\n  --json         the summary as JSON (what the Chief Usage page reads)",
+    usage_no_tool: "this cmux has no Chief tool (optchat-chief) beside it or on PATH; set CMUX_OPTCHAT_CHIEF to its path",
 };
 
 static JAPANESE: Messages = Messages {
-    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (既定 1800、0 で無制限、終了コード 124)\n  --no-wait-agents     パイプモード: 開始したサブエージェントを待たず、答えたターンの終わりに終了\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --chief-home DIR     独立した Chief (専用のデーモンと頭脳)。CMUX_CHIEF_HOME でも可。\n                       指定も --socket もないとき、動いていなければあなたの Chief を開始します\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  --chief ID           engine または stop と使用: 既定の Chief ではなく、その Chief (cmux chief list)\n  stop                 Chief の実行中のターンを停止\n  shutdown             Chief を停止 (頭脳、acpmux デーモン、エージェントのセッション、セッションデーモン)",
+    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief move --to local:DIR|ssh:HOST[:DIR] [--stop-host] [--dry-run] | cmux chief move rollback\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n       cmux chief usage [--since 7d] [--by chief|agent|model] [--json]   (cmux chief usage --help)\n       cmux chief acp [--chief-home DIR] [--timeout SECONDS] [--wait-agents]   Chief を標準入出力の ACP エージェントとして動かす (エージェントチャットの Chief ハーネス)\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (既定 1800、0 で無制限、終了コード 124)\n  --no-wait-agents     パイプモード: 開始したサブエージェントを待たず、答えたターンの終わりに終了\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --chief-home DIR     独立した Chief (専用のデーモンと頭脳)。CMUX_CHIEF_HOME でも可。\n                       指定も --socket もないとき、動いていなければあなたの Chief を開始します\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  --chief ID           engine または stop と使用: 既定の Chief ではなく、その Chief (cmux chief list)\n  stop                 Chief の実行中のターンを停止\n  shutdown             Chief を停止 (頭脳、acpmux デーモン、エージェントのセッション、セッションデーモン)\n  move                 Chief (記憶、会話、サブエージェントの記録) を別のホームやホストへ移動。\n                       元のホームはロールバック用に残ります (cmux chief move help)",
     help: "Enter で送信。Alt+Enter または Ctrl+J で改行。上下キーで送信済みメッセージを呼び出します。\nCtrl+C で Chief のターンを停止 (または入力を消去)、Ctrl+D で終了します。\n/model [NAME]   Chief のモデルを表示または設定\n/effort [LEVEL] Chief の effort を表示または設定\n/thoughts       Chief の思考の表示を切り替え\n/help           このテキスト\n/quit           終了 (Chief は作業を続けます)",
     you: "あなた",
     chief: "Chief",
@@ -111,6 +119,8 @@ static JAPANESE: Messages = Messages {
     home_and_socket: "--chief-home と --socket/--session は同時に指定できません",
     stop_sent: "Chief のターンを停止します",
     shutdown_needs_home: "cmux chief shutdown は Chief ホームを停止します。--socket や --session ではなく --chief-home を指定してください (省略するとあなたの Chief)",
+    move_needs_home: "cmux chief move は Chief ホームを移動します。--socket や --session ではなく --chief-home を指定してください (省略するとあなたの Chief)",
+    move_no_brain: "cmux chief move には optchat-chief が必要です (cmux の隣、PATH 上、または CMUX_CHIEF_BRAIN_BIN)",
     shutdown_brain: "{home} の Chief を停止しました (その acpmux デーモンとエージェントのセッションも)",
     shutdown_timeout: "Chief (pid {pid}) が {secs} 秒以内に停止しませんでした。ログは Chief ホームの host.log です",
     thoughts_on: "Chief の思考を表示します",
@@ -119,6 +129,8 @@ static JAPANESE: Messages = Messages {
     work: "[作業 {status}]",
     question: "[質問] {prompt}",
     retracted: "(メッセージは削除されました)",
+    usage_help: "使い方: cmux chief usage [--chief ID] [--since 7d] [--until 0] [--bucket hour|day|week|month]\n                        [--by chief|agent|model|harness|kind] [--top N] [--json]\n\n  Chief のトークン、費用、キャッシュヒット率、ターン時間の推移を表示します。この Mac の\n  各 Chief の使用量台帳 (Chief のターン、圧縮ノード、サブエージェントのプロンプトごとに 1 行) から読みます。\n\n  --chief ID     1 つの Chief (cmux chief list)。既定: あなたの Chief とその中のすべての Chief\n  --since D      期間: 24h、7d、30d、90d、1y または all (既定 7d)\n  --until D      D 前で期間を終える (既定: 現在)\n  --bucket B     グラフの 1 点を時、日、週、月のどれにするか (既定: 期間から決定)\n  --by K         内訳: chief (既定)、agent、model、harness、kind\n  --top N        費用の高い上位 N 件を表示 (既定 10)\n  --json         要約を JSON で出力 (Chief Usage ページが読む形式)",
+    usage_no_tool: "この cmux の隣にも PATH にも Chief のツール (optchat-chief) がありません。CMUX_OPTCHAT_CHIEF にそのパスを設定してください",
 };
 
 /// The messages for the CLI's language.

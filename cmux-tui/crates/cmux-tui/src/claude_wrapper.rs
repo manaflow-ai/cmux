@@ -31,6 +31,16 @@ const SHIM_MARKER: &str = "# cmux-tui-claude-shim";
 /// Set on the launched Claude so a launcher that re-resolves `claude` from
 /// PATH passes through instead of stacking a second set of hooks.
 const WRAPPER_ACTIVE_ENV: &str = "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE";
+/// The arguments the shim was given, as a JSON array, on the launched agent
+/// (read back by the daemon from the terminal's foreground job).
+pub(crate) const AGENT_ARGS_ENV: &str = "CMUX_TUI_AGENT_ARGS";
+
+/// `args` as the JSON array [`AGENT_ARGS_ENV`] holds.
+pub(crate) fn agent_args_json(args: &[OsString]) -> String {
+    let args = args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+    serde_json::to_string(&args).unwrap_or_else(|_| "[]".to_string())
+}
+
 /// `1` starts Claude without cmux-tui's hooks.
 const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
 /// Merged settings can carry a launcher's credentials, so copies that no
@@ -59,6 +69,9 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     };
     let mut command = Command::new(&claude);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    // The arguments as given, before the hooks are folded in: what a respawn
+    // after a reboot starts Claude with again (relaunch_store::agent_launch).
+    command.env(AGENT_ARGS_ENV, agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {

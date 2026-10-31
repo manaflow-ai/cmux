@@ -33,13 +33,15 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
-    /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
-    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
+    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
+    let focusModeBadgeView = FocusModeBadgeView()
+    private var focusModeBadgeWanted = false
+    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
     private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
@@ -102,6 +104,8 @@ public final class AddressBarView: NSView {
         didSet {
             field.isEditable = !isReadOnly
             field.isSelectable = true
+            // The omnibar shows focus through its own capsule, never AppKit's ring.
+            field.focusRingType = .none
         }
     }
 
@@ -162,6 +166,7 @@ public final class AddressBarView: NSView {
                   !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return BrowserURLDragItem(url: url, title: pageTitle?())
         }
+        registerForDraggedTypes(Self.dropTypes)
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
@@ -184,6 +189,7 @@ public final class AddressBarView: NSView {
         addSubview(chip)
         addSubview(field)
         machineBadgeView.isHidden = true
+        focusModeBadgeView.isHidden = true
         profileBadgeView.isHidden = true
         starButton.isHidden = true
         badges.orientation = .horizontal
@@ -245,12 +251,18 @@ public final class AddressBarView: NSView {
     /// The machine whose localhost this tab sees, as a subtle chip; nil
     /// hides it (plans/cmux-next/remote-localhost.md section 6).
     public func setMachineBadge(_ text: String?, help: String?) {
+        // Called on every render of the chrome; the same badge shows nothing new and moves no layout.
+        if let shown = shownMachineBadge, shown.text == text, shown.help == help { return }
+        shownMachineBadge = (text, help)
         if let text {
             machineBadgeView.show(text: text, help: help ?? text)
         }
         machineBadgeView.isHidden = text == nil
         updateBadgeSpace()
     }
+
+    /// The machine badge last applied (`setMachineBadge`), so an unchanged one returns at once.
+    private var shownMachineBadge: (text: String?, help: String?)?
 
     /// The tab's browser profile as a small avatar; nil hides it (one
     /// profile, or an incognito tab).
@@ -275,8 +287,43 @@ public final class AddressBarView: NSView {
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
+    /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
+    /// the first Escape armed the exit, "Esc again to exit". It fades in and
+    /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
+    public func setFocusModeBadge(armed: Bool?) {
+        if let armed { focusModeBadgeView.show(armed: armed) }
+        let shown = armed != nil
+        guard focusModeBadgeWanted != shown else { return }
+        focusModeBadgeWanted = shown
+        // Fades off (the motion switches; Reduce Motion keeps a short fade): the badge appears and goes at once (no animator
+        // proxy, whose zero-length group can leave the old alpha until the next commit).
+        guard Motion.feedback.animatesFades, Motion.canAnimate(in: focusModeBadgeView) else {
+            focusModeBadgeView.alphaValue = shown ? 1 : 0
+            focusModeBadgeView.isHidden = !shown
+            return updateBadgeSpace()
+        }
+        if !shown {
+            Motion.feedback.animate(.fadeOut, in: focusModeBadgeView, { focusModeBadgeView.animator().alphaValue = 0 }) { [weak self] in
+                // Shown again while fading out: stay visible.
+                guard let self, !focusModeBadgeWanted else { return }
+                focusModeBadgeView.isHidden = true
+                updateBadgeSpace()
+            }
+        } else {
+            focusModeBadgeView.alphaValue = 0
+            focusModeBadgeView.isHidden = false
+            updateBadgeSpace()
+            Motion.feedback.animate(.fadeIn, in: focusModeBadgeView) { focusModeBadgeView.animator().alphaValue = 1 }
+        }
+    }
+
+    /// Whether the focus mode badge shows (or is fading in); tests, diagnostics.
+    public var showsFocusModeBadge: Bool { focusModeBadgeWanted }
+    /// The focus mode badge's text (tests, diagnostics).
+    public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
+
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden
+        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -310,6 +357,16 @@ public final class AddressBarView: NSView {
             return
         }
         pendingFocusSource = .keyboard
+        defer { pendingFocusSource = nil }
+        window?.makeFirstResponder(field)
+    }
+
+    /// The focus coordinator's return to a tab left from its address bar
+    /// (Chromium `OmniboxViewViews::OnTabChanged`): focuses the field with
+    /// the selection it had when focus left, not all selected.
+    public func restoreFocus() {
+        guard field.currentEditor() == nil else { return }
+        pendingFocusSource = .programmatic
         defer { pendingFocusSource = nil }
         window?.makeFirstResponder(field)
     }
@@ -527,6 +584,7 @@ public final class AddressBarView: NSView {
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen
+        if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()

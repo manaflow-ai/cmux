@@ -1,4 +1,5 @@
 /// Whether a glass surface clips its content to its rounded shape.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationGlassClipping {
     /// `liquidGlass`: iOS 26's glass, which draws its own rounded shape.
     /// `contentReachesCorners`: content (a full-width attachment shelf, a

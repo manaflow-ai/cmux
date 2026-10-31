@@ -1,9 +1,11 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// One paired server whose Chief brain session the app shows
 /// (`ServerReach`): its own tree and sidebar section, named after the
@@ -26,6 +28,8 @@ final class ServerMachineSession {
     /// Connect at launch: true until the user disconnects (kept in the registry).
     var autoConnect = true
     @ObservationIgnored private var started = false
+    /// Final removal or replacement fences callbacks that retain this object.
+    @ObservationIgnored private var retired = false
 
     /// Runs when an overlay connection ends (EOF or heartbeat), so the
     /// route is re-resolved at once (a crashed link falls back).
@@ -34,19 +38,21 @@ final class ServerMachineSession {
     /// The app's own bundled `cmux` (overlay route bridge), nil when missing.
     @ObservationIgnored private let cli: URL?
 
+    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the server's event batches.
     init(reach: ServerReach, binary: URL?, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil) {
+         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil, mainWork: MainWorkScheduler) {
         self.reach = reach
         self.cli = cli
         self.localIdentity = localIdentity
         switch reach.route {
         case .ssh(let host):
-            let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID) }
+            let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID,
+                                                      mainWork: mainWork) }
             self.link = link
-            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID)
+            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         case .unix, .overlay:
             link = nil
-            daemon = DaemonService(machineID: reach.machineID)
+            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         }
         emptyWorkspaces = link?.emptyWorkspaces ?? EmptyWorkspaceRepair(daemon: daemon)
     }
@@ -54,6 +60,7 @@ final class ServerMachineSession {
     /// Starts connecting; never blocks: an offline server shows its state in
     /// the sidebar while the daemon loop waits for an event.
     func connect() {
+        guard !retired else { return }
         autoConnect = true
         switch reach.route {
         case .ssh:
@@ -93,6 +100,7 @@ final class ServerMachineSession {
     }
 
     func wake() {
+        guard !retired else { return }
         if let link { link.wake(.user) } else { daemon.retryWake.fire() }
     }
 
@@ -104,11 +112,8 @@ final class ServerMachineSession {
 
     /// Ends the session for good (pairing removed, sign-out, quit).
     func close() {
-        if let link {
-            link.close()
-        } else {
-            daemon.shutdownConnection()
-        }
+        retired = true
+        if let link { link.close() } else { daemon.shutdownConnection() }
         started = false
     }
 }

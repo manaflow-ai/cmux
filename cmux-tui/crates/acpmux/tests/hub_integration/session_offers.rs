@@ -400,7 +400,13 @@ async fn mcp_instructions(server: &str, session_env: &str) -> String {
 async fn the_session_servers_say_when_to_start_and_when_to_suggest() {
     let sub = mcp_instructions("subsession-mcp", acpmux::subsession_mcp::SESSION_ENV).await;
     assert!(sub.contains("start_session only when the user asked"), "{sub}");
-    for tool in ["workspace_open_url", "notification_create", "agent_report"] {
+    for tool in [
+        "workspace_open_url",
+        "notification_create",
+        "workspace_status_set",
+        "app_agent_open",
+        "app_agent_open_tab",
+    ] {
         assert!(sub.contains(tool), "{tool}: {sub}");
     }
     let offers = mcp_instructions("offer-mcp", acpmux::offer_mcp::SESSION_ENV).await;

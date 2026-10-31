@@ -133,17 +133,13 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         return Set(peers.compactMap { $0["install"] as? String })
     }
 
-    /// What to add and remove so the shown servers match `desired`; a server
-    /// already shown keeps its session (and route) when its host stays.
-    /// What to add, remove (and forget) and re-route so the shown servers
-    /// match `desired`: a host that stays keeps its session unless its route
-    /// changed (a link peer appeared or left), which replaces the session
-    /// and keeps its registry record.
+    /// Reuse a session only while its paired installation and route are unchanged.
+    /// A host reinstalled behind the same link socket is a replacement owner.
     static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String], reroute: [ServerReach]) {
         let shownByHost = Dictionary(shown.map { ($0.hostID, $0) }, uniquingKeysWith: { first, _ in first })
         let desiredHosts = Set(desired.map(\.hostID))
         let add = desired.filter { shownByHost[$0.hostID] == nil }
-        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.route != reach.route } ?? false }
+        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.installID != reach.installID || $0.route != reach.route } ?? false }
         return (add, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID), reroute)
     }
 

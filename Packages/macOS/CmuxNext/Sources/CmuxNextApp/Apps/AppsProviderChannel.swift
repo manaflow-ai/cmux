@@ -76,6 +76,9 @@ struct AppsProviderLink {
 final class AppsProviderChannel {
     /// Refusals tried again on the same connection.
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
+    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`); an older daemon's
+    /// `bad-request` registers again without them.
+    static let newerFamilies: Set<String> = ["memory"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
     nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -147,7 +150,6 @@ final class AppsProviderChannel {
     }
 
     var isRegistered: Bool { registeredEpoch != nil && registeredEpoch == epoch }
-    var runningCount: Int { running.count }
 
     /// Source-aware production entrypoint; a retained old event cannot become a new call.
     func handle(_ envelope: DaemonEventEnvelope) -> Bool {
@@ -171,16 +173,25 @@ final class AppsProviderChannel {
 
     private func register() {
         guard let capabilities, let epoch, registeredEpoch != epoch, registering == nil else { return }
-        let families = capabilities.families.sorted()
+        let all = capabilities.families.sorted()
         // task-owner: the connection's registration with its retries; a new epoch cancels it
         registering = Task { [weak self, link, backoff, logger] in
             var backoff = backoff
+            var families = all
             while let connection = link.connection() {
                 guard let refused = await link.register(connection, families) else {
                     guard !Task.isCancelled, let self, self.epoch == epoch else { return }
                     registeredEpoch = epoch
                     registering = nil
                     return
+                }
+                // A daemon from before a family existed refuses the whole registration; keep the
+                // families it knows rather than losing them all (it restarts on the next handoff).
+                if refused == "bad-request", families.contains(where: AppsProviderChannel.newerFamilies.contains) {
+                    families.removeAll(where: AppsProviderChannel.newerFamilies.contains)
+                    logger.info("apps-provider-register refused: bad-request; registering without the newer families")
+                    if families.isEmpty { return }
+                    continue
                 }
                 guard AppsProviderChannel.retried.contains(refused) else {
                     logger.error("apps-provider-register refused: \(refused, privacy: .public); next connection tries again")

@@ -153,6 +153,17 @@ extension TabStripView {
         if let group { groups.chips[group]?.isHovered = true }
     }
 
+    /// `group`'s summary card (`GroupHoverCardSummary`), the same card a sidebar group shows.
+    func groupHoverSummary(_ group: TabGroupItem, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
+        let members = displayed.filter { $0.groupID == group.id }.map { tab in
+            GroupHoverCardMember(title: tab.title.isEmpty ? Strings.untitled : tab.title,
+                                 activity: tab.isWaiting ? .waiting : GroupHoverCardMember.Activity(tab.indicator),
+                                 unread: tab.isUnread ? 1 : 0, lastActivity: tab.hover.since, branch: tab.hover.branch)
+        }
+        let title = group.name.isEmpty ? Strings.groupTabCount(members.count) : group.name
+        return GroupHoverCardSummary.make(title: title, kind: .tabGroup, members: members, options: options, now: now)
+    }
+
     func groupHoverContent(_ group: TabGroupItem) -> TabHoverCardContent {
         let members = displayed.filter { $0.groupID == group.id }.map { $0.title.isEmpty ? Strings.untitled : $0.title }
         return .group(group, memberTitles: members)
@@ -183,7 +194,7 @@ extension TabStripView {
         groups.holdTask?.cancel()
         let sleep = groups.sleep
         groups.holdTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return }
+            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: the one 450 ms click-and-hold delay; mouse-up, a drag or the next hold cancels it
             guard let self, !Task.isCancelled, self.groups.press?.groupID == group, self.groups.drag == nil else { return }
             self.groups.press?.openedEditor = true
             self.groups.chips[group]?.isPressed = false

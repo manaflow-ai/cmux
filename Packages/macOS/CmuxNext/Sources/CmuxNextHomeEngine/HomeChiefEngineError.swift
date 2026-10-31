@@ -15,6 +15,14 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
     /// Agents are off in this build session (`agent_launch_disabled`).
     case agentsDisabled
     case refused(reason: String, message: String)
+    /// A hosted cloud Chief: the Cloud service could not be reached (offline, or the Chief list is not read yet).
+    case cloudUnreachable
+    /// A hosted cloud Chief: no account is signed in, or its sign-in expired.
+    case signedOut
+    /// A hosted cloud Chief: this Cloud service runs no Chief brains.
+    case cloudUnavailable
+    /// A hosted cloud Chief's turn: the Cloud service has no stop for it yet.
+    case cloudStopUnsupported
     case other(String)
 
     public init(_ error: ChiefControlError) {
@@ -30,7 +38,8 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         }
     }
 
-    var text: String {
+    /// The error as the person reads it (the settings card, a refused Stop).
+    public var text: String {
         switch self {
         case .unreachable: HomeEngineStrings.errorUnreachable
         case .localUnreachable: HomeEngineStrings.errorLocalUnreachable
@@ -39,6 +48,10 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         case .notConfigured: HomeEngineStrings.errorNotConfigured
         case .unsupported: HomeEngineStrings.errorUnsupported
         case .agentsDisabled: HomeStrings.chiefAgentsDisabled
+        case .cloudUnreachable: HomeEngineStrings.errorCloudUnreachable
+        case .signedOut: HomeEngineStrings.errorSignedOut
+        case .cloudUnavailable: HomeEngineStrings.errorCloudUnavailable
+        case .cloudStopUnsupported: HomeEngineStrings.errorCloudStopUnsupported
         case .refused(_, let message), .other(let message): String(format: HomeEngineStrings.errorRefusedFormat, message)
         }
     }

@@ -1,3 +1,4 @@
+import { BlockTail, InlineTail } from "./InlineTail";
 // Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx).
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
@@ -8,7 +9,9 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
+import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
@@ -20,12 +23,27 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
-import { codePath, linkPath } from "../chips/paths";
+import { SoftBroken, softBreakNodes } from "./softBreaks";
+import { BareReferenceChip } from "../chips/BareReferenceChip";
+import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { githubReferences } from "../../../githubReferences";
+import {
+  commitReferences,
+  githubReferences,
+  type CommitReference,
+  type GithubReference,
+} from "../../../githubReferences";
+import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
+import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
+import { splitMentions } from "../started/startedSessions";
+import { entranceAllowed } from "../../shared/pageReveal";
+import { isAgentMotionOff } from "../../shared/motion";
+import { animateScroll } from "../threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
+import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -52,9 +70,43 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string): MdBlock[] {
+export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  return parseLines(lines);
+  const blocks = parseLines(lines);
+  return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
+}
+
+function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
+  return blocks.map((block) => {
+    switch (block.type) {
+      case "heading":
+      case "paragraph":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "blockquote":
+        return { ...block, children: decorateBlocks(block.children, messageAt) };
+      case "list":
+        return {
+          ...block,
+          items: block.items.map((item) => ({
+            ...item,
+            text: decorateTimes(item.text, messageAt),
+            children: decorateBlocks(item.children, messageAt),
+          })),
+        };
+      case "table":
+        return {
+          ...block,
+          header: block.header.map((cell) => decorateTimes(cell, messageAt)),
+          rows: block.rows.map((row) => row.map((cell) => decorateTimes(cell, messageAt))),
+        };
+      case "footnote":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "code":
+      case "math":
+      case "hr":
+        return block;
+    }
+  });
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
@@ -264,6 +316,19 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Link a bare `#N` too (default). Off in a quote: quoted words are someone else's, whose `#1`
+   *  is rarely this repository's pull request (Leo 2026-10-29: "these auto render to the pr
+   *  instead of just #1 #2..."). `owner/repo#N` and addresses still link there. */
+  linkBareReferences?: boolean;
+  /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
+  started?: StartedMentions;
+  /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
+   *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
+  commits?: "chip" | "quiet";
+  /** An image path draws as a thumbnail too (default): under its sentence, or in its place in a
+   *  paragraph of images. Off, only its chip: another machine's files in another agent's message
+   *  (IncomingMessageCard.tsx). Markdown image syntax (`![shot](/a.png)`) still draws in place. */
+  thumbnails?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -272,6 +337,9 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
 /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
 export function footnoteOrder(source: string): string[] {
+  // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
+  // A streaming reply runs this on every reveal frame, and most replies have no footnote.
+  if (!source.includes("^") || !source.includes("[")) return [];
   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
   const ids: string[] = [];
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
@@ -357,38 +425,141 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+/// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
+function lineLabel(path: string, written: string): string | undefined {
+  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  return line ? `${pathName(path)}:${line}` : undefined;
+}
+
+const NO_REPOSITORY = "-/-";
+
+function linkedGithubText(
+  text: string,
+  key: string,
+  repository?: string,
+  enabled = true,
+  quietCommits = false,
+  bare = true,
+): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  const refs = githubReferences(text, repository);
+  // A pull request address, so the chip opens the pull request card (an issue redirects there);
+  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
+  // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
+  // With no repository, a bare `#N` still goes to BareReferenceChip, which links it only when the
+  // transcript names its repository.
+  const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
+  const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
+  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
+  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  const outside = (ref: { start: number; end: number }) =>
+    !spans.some((span) => ref.start < span.end && span.start < ref.end);
+  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
+    .sort((a, b) => a.start - b.start)
+    .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
   refs.forEach((reference, index) => {
     if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
+    const sha = quietCommits && "sha" in reference;
     out.push(
-      <UrlChip
-        key={`${key}-${index}`}
-        href={reference.href}
-        icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
-      >
-        {reference.text}
-      </UrlChip>,
+      sha ? (
+        reference.href ? (
+          <a key={`${key}-${index}`} className="cv-sha" href={reference.href} rel="noreferrer">
+            {reference.text}
+          </a>
+        ) : (
+          <span key={`${key}-${index}`} className="cv-sha">
+            {reference.text}
+          </span>
+        )
+      ) : (
+        <UrlChip
+          key={`${key}-${index}`}
+          href={reference.href}
+          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+        >
+          {reference.text}
+        </UrlChip>
+      ),
     );
+    // A bare `#N` names the repository the transcript's evidence says, not only `repository`.
+    if ("bare" in reference && reference.bare)
+      out[out.length - 1] = (
+        <BareReferenceChip
+          key={`${key}-${index}`}
+          number={reference.bare}
+          href={repository ? reference.href : undefined}
+          text={reference.text}
+        />
+      );
     at = reference.end;
   });
   if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
   return out;
 }
 
+/// Every commit SHA in `text` (an agent's message): each links to its commit in the repository it
+/// names (`owner/repo@sha`), else that of the nearest reference before it in the same text
+/// (`hq#2563 (db0677c6)` is a cmuxterm-hq commit), else `repository`; with none it is text.
+function quietCommitReferences(text: string, issues: GithubReference[], repository?: string): CommitReference[] {
+  return commitReferences(text, undefined, true).map((commit) => {
+    if (commit.href) return commit;
+    const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
+    const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
+    const text = commit.sha.length > 10 ? commit.sha.slice(0, 8) : commit.text;
+    return repo ? { ...commit, text, href: `https://github.com/${repo}/commit/${commit.sha}` } : { ...commit, text };
+  });
+}
+
+/// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
+function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  const out: ReactNode[] = [];
+  let index = 0;
+  for (const part of splitTimeTokens(text)) {
+    if (typeof part !== "string") {
+      out.push(<TimeHover key={`${key}-${index++}`} token={part} />);
+      continue;
+    }
+    const pieces = opts.started?.mentions.length ? splitMentions(part, opts.started.mentions) : [part];
+    out.push(
+      ...pieces.flatMap((piece): ReactNode[] => {
+        const current = `${key}-${index++}`;
+        return typeof piece === "string"
+          ? softBreakNodes(
+              linkedGithubText(
+                piece,
+                current,
+                opts.githubRepository,
+                opts.linkGithubReferences !== false,
+                opts.commits === "quiet",
+                opts.linkBareReferences !== false,
+              ),
+              current,
+            )
+          : [
+              <StartedSessionChip
+                key={current}
+                mention={piece.mention}
+                text={piece.text}
+                onOpen={opts.started!.open}
+              />,
+            ];
+      }),
+    );
+  }
+  return out;
+}
+
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
 // paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"
 // and "echo $$ prints the shell's PID, and echo $$" stay text while
-// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space inside either dollar and no digit
-// after the closer, so "$5 and $10" stays text; a `$` never ends one, so "$10 and echo $$" does
-// too; no backtick inside, so "$5 or `$PATH`" does too), a backslash escape (`\$`, `\*`) that
+// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space, `(` or `{` after the opener, no
+// space before or letter/digit after the closer, so "$PATH and $HOME" and
+// `$(cmd)` stay text; no backtick inside, so "$5 or `$PATH`" does too), explicit `\(…\)`, a backslash escape (`\$`, `\*`) that
 // draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?![({])(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?![A-Za-z0-9])|\\\(.+?\\\))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
@@ -399,24 +570,18 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last)
-      out.push(
-        ...linkedGithubText(
-          text.slice(last, m.index),
-          `t${k++}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-        ),
-      );
+    if (m.index! > last) out.push(...proseText(text.slice(last, m.index), `t${k++}`, opts));
     const t = m[0];
-    if (m[1]) {
+    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === t.slice(1, -1)) : undefined;
+    if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
+    else if (m[1]) {
       const path = codePath(t.slice(1, -1));
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} />
+          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
         ) : (
           <code key={k++} className="cv-code">
-            {t.slice(1, -1)}
+            <SoftBroken text={t.slice(1, -1)} />
           </code>
         ),
       );
@@ -430,9 +595,26 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
+      const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
+      const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
-      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      // An agent pointing at an open ask (`cmux://needs-you/<permissionId>`, needsYou/links.ts):
+      // a chip that opens the header's Needs you list on it, so the ask is never restated. With the
+      // list off (not installed from the App Store) it draws as its text, like a link the pane will not open.
+      const ask = href ? undefined : needsYouTarget(lm[2]);
+      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (ask)
+        out.push(
+          <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {renderInline(lm[1], labelOpts)}
+          </button>,
+        );
+      else if (named)
+        out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         out.push(
@@ -460,7 +642,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
-    else if (m[8]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
+    else if (m[8])
+      out.push(<MathInline key={k++} tex={t.startsWith("\\(") ? t.slice(2, -2).trim() : t.slice(1, -1)} />);
     else if (m[9]) out.push(t.slice(1));
     else if (m[10]) {
       const id = t.slice(2, -1);
@@ -470,11 +653,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         const anchor = opts.notes.anchor(id);
         out.push(
           <sup key={k++} className="cv-fnref">
-            <button
-              type="button"
-              aria-describedby={anchor}
-              onClick={() => document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
-            >
+            <button type="button" aria-describedby={anchor} onClick={() => scrollNote(document.getElementById(anchor))}>
               {number}
             </button>
           </sup>,
@@ -483,11 +662,63 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     }
     last = m.index! + t.length;
   }
-  if (last < text.length)
-    out.push(
-      ...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false),
-    );
+  if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+// Native smooth scroll can paint one queued compositor step after cancellation. Transcript
+// footnotes use the shared runner so manual input stops them before the next painted frame.
+// A note inside its own scrolling panel (a capped tool result) is first brought into view
+// there, at once, as scrollIntoView would; then the transcript rides to it.
+function scrollNote(note: HTMLElement | null) {
+  if (!note) return;
+  const node = note.closest<HTMLElement>(".acpmux-scroll");
+  if (!node) return note.scrollIntoView({ block: "nearest", behavior: noteScroll() });
+  for (let inner = note.parentElement; inner && inner !== node; inner = inner.parentElement) {
+    if (inner.scrollHeight <= inner.clientHeight) continue;
+    const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    inner.scrollTop = revealedTop(note, inner);
+  }
+  const target = () => revealedTop(note, node);
+  animateScroll(
+    node,
+    target,
+    noteScroll() === "auto" ? 0 : jumpDuration(target() - node.scrollTop),
+    JUMP_CURVE,
+    undefined,
+    undefined,
+    { explicit: true },
+  );
+}
+
+/// Where `scroller` shows `note` by scrollIntoView's "nearest" rule, inside its scroll range.
+function revealedTop(note: HTMLElement, scroller: HTMLElement): number {
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  return Math.max(0, Math.min(end, scroller.scrollTop + nearest(note, scroller)));
+}
+
+/// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
+function nearest(note: HTMLElement, scroller: HTMLElement): number {
+  const box = note.getBoundingClientRect();
+  const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const paddingBottom =
+    Number.parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).scrollPaddingBottom ?? "0") || 0;
+  const bottom = top + scroller.clientHeight - paddingBottom;
+  const visibleHeight = Math.max(0, bottom - top);
+  const above = box.top < top;
+  const below = box.bottom > bottom;
+  if (above && below) return 0;
+  if (above) return box.height <= visibleHeight ? box.top - top : box.bottom - bottom;
+  if (below) return box.height <= visibleHeight ? box.bottom - bottom : box.top - top;
+  return 0;
+}
+
+/// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
+/// (ui.animations) or the system's Reduce Motion, in one frame, as Jump to latest does (hq#3581).
+function noteScroll(): ScrollBehavior {
+  const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduce ? "auto" : "smooth";
 }
 
 /// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
@@ -524,9 +755,9 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image">
@@ -540,7 +771,27 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
-  return <ReplyImage src={src} alt={alt} fallback={fallback} />;
+  return <ReplyImage src={src} alt={alt} fallback={fallback} thumb />;
+}
+
+/// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of
+/// the width, so a before/after pair sits side by side, captioned by its label or alt text.
+/// A written label (`Before:`) is always its caption; an alt text is one only in a row.
+function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
+  const row = items.length > 1;
+  return (
+    <span className={`cv-thumbs${row ? " is-row" : ""}`} data-count={items.length}>
+      {items.map((item, index) => {
+        const caption = item.label ?? (row ? item.alt : "");
+        return (
+          <span key={index} className="cv-thumbs__item">
+            <InlineImage source={`![${item.alt}](${item.src})`} opts={opts} />
+            {caption && <span className="cv-thumbs__caption">{caption}</span>}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 /// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
@@ -569,6 +820,7 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  trailing,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -580,9 +832,12 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  trailing?: ReactNode;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
-  const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
+  const inline = (text: string) => (
+    <InlineTail trailing={trailing}>{tail ? renderFresh(text, tail, opts) : renderInline(text, opts)}</InlineTail>
+  );
   switch (block.type) {
     case "heading": {
       // h5 and h6 draw as h4, the smallest heading the column has.
@@ -595,17 +850,52 @@ function Block({
       if (!tail && !/\s/.test(link) && isRemoteMedia(link))
         return (
           <p className={`cv-p${motion}`}>
-            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+            <InlineTail trailing={trailing}>
+              <RemoteMedia url={link} alt="" fallback={renderInline(block.text, opts)} />
+            </InlineTail>
           </p>
         );
-      return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
+      // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
+      // the paragraph has finished arriving (a half-written line may still turn into prose).
+      const images = tail || opts.thumbnails === false ? undefined : imageOnlyItems(block.text);
+      if (images)
+        return (
+          <p className={`cv-p cv-p--images${motion}`}>
+            <InlineTail trailing={trailing}>
+              <Thumbs items={images} opts={opts} />
+            </InlineTail>
+          </p>
+        );
+      // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
+      // once the paragraph has finished arriving.
+      const named = tail || opts.thumbnails === false ? [] : proseImages(block.text);
+      return (
+        <>
+          <p className={`cv-p${motion}`}>{inline(block.text)}</p>
+          {named.length > 0 && (
+            <p className={`cv-p cv-p--images${motion}`}>
+              <Thumbs items={named} opts={opts} />
+            </p>
+          )}
+        </>
+      );
     }
     case "hr":
-      return <hr className={`cv-hr${motion}`} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <hr className={`cv-hr${motion}`} />
+        </BlockTail>
+      );
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks
+            blocks={block.children}
+            opts={quoted(opts)}
+            depth={depth}
+            plain={code === "plain"}
+            trailing={trailing}
+          />
         </blockquote>
       );
     case "list": {
@@ -625,57 +915,45 @@ function Block({
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
+              {it.children.length > 0 && (
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  trailing={i === block.items.length - 1 ? trailing : undefined}
+                />
+              )}
             </li>
           ))}
         </L>
       );
     }
-    case "table": {
-      // Long-text columns get a 256px minimum and the rest 128px.
-      const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
-      const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
+    case "table":
       return (
-        <div className={`cv-table-wrap${motion}`}>
-          <table className="cv-table">
-            <thead>
-              <tr>
-                {block.header.map((c, i) => (
-                  <th key={i} style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}>
-                    {renderInline(c, opts)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((r, ri) => (
-                <tr key={ri}>
-                  {r.map((c, i) => (
-                    <td key={i} style={{ textAlign: block.align[i] ?? "left" }}>
-                      {renderInline(c, opts)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <BlockTail trailing={trailing}>
+          <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />
+        </BlockTail>
       );
-    }
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open actions={trailing} />;
+      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} actions={trailing} />;
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
-        return <DiagramBlock lang={block.lang} code={block.code} />;
+        return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
-      if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      if (render) return <RenderCard call={render} actions={trailing} />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
+      return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
     case "math":
-      return <MathDisplay tex={block.tex} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <MathDisplay tex={block.tex} />
+        </BlockTail>
+      );
     case "footnote": {
       const number = opts.notes?.numbers.get(block.id);
       return (
@@ -687,12 +965,51 @@ function Block({
   }
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+/// A list item's image paths, as thumbnails under its text (a last item still arriving has none yet).
+function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptions; streaming: boolean }) {
+  const named = streaming || opts.thumbnails === false ? [] : proseImages(text);
+  return named.length ? (
+    <span className="cv-li__images">
+      <Thumbs items={named} opts={opts} />
+    </span>
+  ) : null;
+}
+
+/// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
+/// (`plainCode`) inside them too: no diagram or render card at any depth.
+/// A quote's options: the same object for the same `opts`, so its memoized blocks stay drawn.
+const quotedOptions = new WeakMap<InlineOptions, InlineOptions>();
+function quoted(opts: InlineOptions): InlineOptions {
+  if (opts.linkBareReferences === false) return opts;
+  let kept = quotedOptions.get(opts);
+  if (!kept) quotedOptions.set(opts, (kept = { ...opts, linkBareReferences: false }));
+  return kept;
+}
+
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  plain = false,
+  trailing,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  plain?: boolean;
+  trailing?: ReactNode;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            trailing={i === blocks.length - 1 ? trailing : undefined}
+          />
         </Fragment>
       ))}
     </>
@@ -706,11 +1023,8 @@ export type FreshTail = { steps: Reveal[]; text: string; now: number };
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
 /// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
 function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
-  // The live edge: a soft bar after the newest character, out of the text's layout (no reflow
-  // when it leaves); it pulses only while the reveal waits for more (`.cv-md.is-waiting`).
-  const caret = <span key="caret" className="cv-caret" aria-hidden="true" />;
   const fresh = tail.text.trimEnd();
-  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return [...renderInline(text, opts), caret];
+  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
   const spans: ReactNode[] = [];
@@ -725,7 +1039,7 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
     end = start;
   }
   if (end > 0) out.push(fresh.slice(0, end));
-  return [...out, ...spans, caret];
+  return [...out, ...spans];
 }
 
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
@@ -736,15 +1050,16 @@ export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
   className?: string;
+  trailing?: ReactNode;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
   fresh?: Reveal[];
   now?: number;
-  /** The reveal has shown everything so far and waits for more: the live edge pulses. */
-  waiting?: boolean;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  /** Epoch timestamp of the message, used to date bare UTC clock times. */
+  messageAt?: number;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -759,16 +1074,21 @@ export function Markdown({
   streaming = false,
   fresh,
   now = 0,
-  waiting = false,
   githubRepository,
   plainCode = false,
+  commits,
+  thumbnails,
+  messageAt,
+  trailing,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
+  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
+  // Blocks first drawn while entrances wait (the page hidden or just shown again).
+  const awayBlocks = useRef(new Set<string>());
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
   // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
@@ -778,6 +1098,8 @@ export function Markdown({
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
   const notePrefix = useId();
+  const startedContext = useStartedMentions();
+  const started = startedContext.mentions.length ? startedContext : undefined;
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
@@ -786,21 +1108,31 @@ export function Markdown({
       githubRepository,
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
+      ...(started ? { started } : {}),
+      ...(commits ? { commits } : {}),
+      ...(thumbnails === false ? { thumbnails } : {}),
     };
-  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
-  // Only a revealed reply (RevealedMarkdown passes `fresh`) draws the live edge.
+  // Only a revealed reply (RevealedMarkdown passes `fresh`) fades its newest text in.
   const freshTail: FreshTail | undefined =
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving.
-  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  // A block that streamed in while the chat was hidden, or that lands before its first frame back,
+  // came while the user was away: it never enters (WebKit would play its suspended entrance on
+  // return, shared/pageReveal.ts). It still hands its code over like any live block.
+  const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock, index: number) => {
     const live = !atMount.current!.has(entry.key);
-    const open = openFence && index === blocks.length - 1;
+    if (live && away) awayBlocks.current.add(entry.key);
+    // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
+    // fence count: a closer still being typed is held back (safeTail.ts), so the card stays open
+    // until the closed one draws the same lines, and an opener held back after a closed fence does
+    // not turn that fence back into an open one.
+    const open = streaming && index === blocks.length - 1 && entry.block.type === "code" && entry.block.open === true;
     if (open) streamedFences.current.add(entry.key);
     return (
       <BlockView
@@ -808,9 +1140,10 @@ export function Markdown({
         block={entry.block}
         opts={opts}
         depth={0}
-        enter={streaming && live}
+        enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
       />
     );
   };
@@ -820,8 +1153,10 @@ export function Markdown({
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  // Notes are displayed in reference order, which may differ from their source order.
+  const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
-    <div className={`cv-md selectable ${className}${streaming && waiting ? " is-waiting" : ""}`}>
+    <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
       {notes.length > 0 && (
         <section className="cv-footnotes" role="doc-endnotes">

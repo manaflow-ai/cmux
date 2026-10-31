@@ -164,11 +164,16 @@ fn claude(env: Value) -> Value {
 /// One prompt in a new session on `harness`: Ok(the reply as JSON) or
 /// Err(the turn's error text), plus the turn_result record.
 async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
+    ask_as(d, harness, "auth").await
+}
+
+/// `ask`, in a session named `name` (one daemon, several sessions).
+async fn ask_as(d: &Daemon, harness: &str, name: &str) -> (Result<Value, String>, Value) {
     let mut rpc = Rpc::connect(&d.socket).await;
     let s = rpc
         .call(
             "session/new",
-            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": "auth"}}}),
+            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": name}}}),
         )
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
@@ -515,6 +520,55 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
+#[tokio::test]
+async fn a_linked_login_environment_cache_is_never_trusted() {
+    let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    // The readiness line comes before the login environment resolves (the
+    // shell runs in `finish_startup`), and no agent spawn waits for it here:
+    // wait for startup to finish before the daemon stops.
+    {
+        let d = start_config(&dir, config.clone(), &[]).await;
+        startup_finished(&d).await;
+    }
+    let runs =
+        || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    assert_eq!(runs(), 1);
+    let cache = dir.join("login-env.json");
+    let planted = dir.join("planted-login-env.json");
+    std::fs::copy(&cache, &planted).unwrap();
+    let mut planted_cache: Value =
+        serde_json::from_slice(&std::fs::read(&planted).unwrap()).unwrap();
+    planted_cache["vars"]["NO_PROXY"] = "from-linked-cache".into();
+    let planted_text = serde_json::to_string(&planted_cache).unwrap();
+    std::fs::write(&planted, &planted_text).unwrap();
+    std::fs::remove_file(&cache).unwrap();
+    std::os::unix::fs::symlink(&planted, &cache).unwrap();
+    {
+        let d = start_config(&dir, config, &[]).await;
+        startup_finished(&d).await;
+    }
+    assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    assert_eq!(std::fs::read_to_string(&planted).unwrap(), planted_text);
+    assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until the daemon reports its startup complete (`_acpmux/status`
+/// `ready`): a login shell it had to wait for has run by then.
+async fn startup_finished(d: &Daemon) {
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["ready"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the daemon never finished its startup: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
 async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
     let deadline = Instant::now() + limit;
@@ -629,6 +683,34 @@ async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
     );
 }
 
+/// The first health answer counts a Claude sign-in the login shell exports
+/// (hq#2569 #2), even when it is asked before the shell has answered: the
+/// health call waits for the daemon's startup, as its own check does,
+/// instead of reading an environment without the login shell. (A slow
+/// shell, 1.5 s here, is the case of a loaded machine or a heavy ~/.zshrc.)
+#[tokio::test]
+async fn the_first_health_answer_counts_a_sign_in_from_a_slow_login_shell() {
+    let dir = scratch("hl", "sleep 1.5\nexport ANTHROPIC_API_KEY=from-login-shell\n");
+    // A Claude CLI by path (no PATH harness finds it).
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    write_executable(
+        &dir.join("bin/claude"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.0 (Claude Code)'\nexit 0\n",
+    );
+    let config = json!({"harnesses": {"cl": {"argv": [dir.join("bin/claude")]}},
+        "defaultHarness": "cl", "permissionPolicy": "approve-all"});
+    let d = start_config(&dir, config, &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let health = rpc.call("_acpmux/harness/health", json!({})).await;
+    let row = health["harnesses"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "cl"))
+        .unwrap_or_else(|| panic!("no cl row: {health}"))
+        .clone();
+    assert_eq!(row["auth"], "signedIn", "{health}");
+    assert_eq!(row["authDetail"], "an API key (ANTHROPIC_API_KEY)", "{health}");
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]
@@ -669,6 +751,35 @@ async fn only_allow_listed_login_variables_reach_the_agent() {
     let d = start_config(&dir, config, &[]).await;
     let (reply, _) = ask(&d, "claude").await;
     assert_eq!(found(&reply)["loginOnly"], json!(["NPM_TOKEN"]));
+}
+
+/// A secret delivered to the machine after the daemon started
+/// (`cmux cloud deliver-secrets` writes `~/.config/cmux/machine-secrets.env`,
+/// which the login shell sources) reaches the next agent, though no
+/// allow-list prefix names it; an undelivered GITHUB_TOKEN still stays in the
+/// daemon, and the delivered value never enters the cache.
+#[tokio::test]
+async fn a_secret_delivered_after_start_reaches_the_next_agent() {
+    let dir = scratch(
+        "deliver",
+        "export ANTHROPIC_API_KEY=sk-login\nexport GITHUB_TOKEN=ghp-login\n\
+         f=\"$HOME/.config/cmux/machine-secrets.env\"; [ -f \"$f\" ] && . \"$f\"\n",
+    );
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask_as(&d, "claude", "before").await;
+    assert_eq!(found(&reply)["loginOnly"], json!([]));
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    std::fs::write(conf.join("machine-secrets.env"), "export DEMO_KEY='dummy-delivered-value'\n")
+        .unwrap();
+    let (reply, _) = ask_as(&d, "claude", "delivered").await;
+    assert_eq!(found(&reply)["loginOnly"], json!(["DEMO_KEY"]));
+    let cache = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+    assert!(!cache.contains("dummy-delivered-value"), "the delivered value is in the cache");
+    assert!(cache.contains("DEMO_KEY"), "the cache lists DEMO_KEY as a secret name: {cache}");
+    std::fs::remove_file(conf.join("machine-secrets.env")).unwrap();
+    let (reply, _) = ask_as(&d, "claude", "revoked").await;
+    assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
 }
 
 /// A version-manager prefix passes, but never a secret under it: the agent

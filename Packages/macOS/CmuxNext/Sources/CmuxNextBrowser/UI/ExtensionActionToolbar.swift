@@ -141,7 +141,7 @@ final class ExtensionActionToolbar {
         let pinsChanged = actions.filter(\.isPinned).map(\.id) != lastActions.filter(\.isPinned).map(\.id)
         // Chrome animates a pin or an unpin (about 0.2 s): the icon fades and the neighbours
         // slide. Not on a tab's first render, not under Reduce Motion.
-        let animate = hasRendered && pinsChanged && Motion.animatesMovement && slot.window != nil
+        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement && slot.window != nil
         hasRendered = true
         let update = { [self] () -> [() -> Void] in
             let pinnedBefore = pinnedCount
@@ -158,7 +158,7 @@ final class ExtensionActionToolbar {
         // Start from the frames on screen now.
         container.layoutSubtreeIfNeeded()
         // The toolbar's move token: about 0.2 s, like Chrome's toolbar icon animation.
-        Motion.animateTimed(.move, in: container, { [self] in
+        Motion.overlays.animateTimed(.move, in: container, { [self] in
             let before = Set(buttons.keys)
             pendingFinish += update()
             let after = Set(buttons.keys)
@@ -207,6 +207,7 @@ final class ExtensionActionToolbar {
             button.frame = frame
             container.addSubview(button)
             leaving[id] = button
+            // motion: allow place(animate: true) runs only inside render()'s Motion.overlays.animateTimed group
             button.animator().alphaValue = 0
             finish.append { [weak self, weak button] in
                 guard let button else { return }
@@ -222,6 +223,7 @@ final class ExtensionActionToolbar {
             if isNew, animate {
                 arriving.insert(action.id)
                 button.alphaValue = 0
+                // motion: allow place(animate: true) runs only inside render()'s Motion.overlays.animateTimed group
                 button.animator().alphaValue = 1
                 let id = action.id
                 finish.append { [weak self] in self?.arriving.remove(id) }
@@ -273,6 +275,11 @@ final class ExtensionActionToolbar {
     func hidePopups() {
         menuController.close()
         host?.hideExtensionPopups()
+    }
+
+    /// The page is closing: the Extensions bubble's panel closes for good.
+    func closeMenuPanel() {
+        menuController.closePanel()
     }
 
     private var handler: (any ExtensionMenuHandling)? {
@@ -327,7 +334,7 @@ final class ExtensionActionToolbar {
         // Pressed while the menu is open, normal again when it closes (Chrome keeps the ink).
         (view as? ExtensionActionButton)?.isMenuOpen = true
         (view as? ChromeIconButton)?.isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
         (view as? ExtensionActionButton)?.isMenuOpen = false
         (view as? ChromeIconButton)?.isMenuOpen = false
         presentedMenu = previous

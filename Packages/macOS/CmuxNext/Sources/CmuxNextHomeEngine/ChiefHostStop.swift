@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import Darwin
 public import Foundation
 
@@ -14,6 +14,24 @@ public nonisolated enum ChiefHostStop {
     @discardableResult
     @concurrent static func stop(home: ChiefHome, isChiefHost: @Sendable (pid_t) -> Bool = ChiefHostStop.isChiefHost) async -> pid_t? {
         guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost), kill(pid, SIGTERM) == 0 else { return nil }
+        return pid
+    }
+
+    /// An update: asks the host that holds the home's lock to hand off when idle (SIGUSR1). Its
+    /// running turn goes on to its end, then it exits without ending its acpmux, and the restart
+    /// (`ChiefBrainWatch` at a relaunch, `ChiefAcpmuxHeal` while the app runs) hands acpmux off and
+    /// starts the next host, so an update never cuts a Chief turn. Only a host whose
+    /// `state/host.handoff` names its own pid takes the signal (an older host would end at once on
+    /// SIGUSR1); returns the pid it asked, nil when it asked none.
+    @discardableResult
+    static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+                                     signal: (pid_t, Int32) -> Bool = { kill($0, $1) == 0 }) -> pid_t? {
+        guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost) else { return nil }
+        let mark = home.root.appendingPathComponent("state/host.handoff")
+        // concurrency-allow: a small local file read; callers run off the main actor
+        guard let text = try? String(contentsOf: mark, encoding: .utf8),
+              let named = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
+              named == pid, signal(pid, SIGUSR1) else { return nil }
         return pid
     }
 
@@ -36,8 +54,19 @@ public nonisolated enum ChiefHostStop {
     /// What End Sessions keeps running in the Chief home's acpmux.
     static let endSessionsKeep: AcpmuxQuit.Keep = .nothing
 
+    /// What End Sessions keeps running in the app's acpmux: nothing when the Chief runs there
+    /// (``ChiefHome/usesAppAcpmux``), so its turn, compactor and subagents end with the person's
+    /// agents; else the Home Chief's sessions, which its own daemon's end covers.
+    public nonisolated static func appAcpmuxEndKeep(chiefUsesAppAcpmux: Bool) -> AcpmuxQuit.Keep {
+        chiefUsesAppAcpmux ? .nothing : .chief
+    }
+
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)
+        // On the app's own acpmux the Chief's sessions end with the app's (QuitAgents, keeping
+        // nothing: ``appAcpmuxEndKeep(chiefUsesAppAcpmux:)``): ending
+        // that daemon here would end the person's chats too.
+        guard !home.usesAppAcpmux else { return }
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The daemon exits (Quit Everything's own end); the Chief's sessions stay on disk.
@@ -46,9 +75,15 @@ public nonisolated enum ChiefHostStop {
 
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        let path = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+        let path = executablePath(pid)
         return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or
+    /// its executable's file is gone.
+    static func executablePath(_ pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
     }
 
     /// Whether a process with executable `path` (nil: `proc_pidpath` failed) and kernel process

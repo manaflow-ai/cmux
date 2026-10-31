@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-tailnet",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-chat-index",
@@ -32,12 +33,15 @@ members = [
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
+    "crates/cmux-worktree-care",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-json",
+    "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -45,6 +49,10 @@ members = [
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
+    "crates/cmux-holder",
+    "crates/cmux-flow-trace",
+    "crates/cmux-holder-v3",
+    "crates/cmux-process",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
@@ -56,8 +64,10 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -71,6 +81,8 @@ members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -83,6 +95,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-kitty-media",
 ]
 default-members = [
     "crates/acpmux",
@@ -97,17 +110,20 @@ default-members = [
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
+    "crates/cmux-worktree-care",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-json",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-pty",
+    "crates/cmux-process",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -117,8 +133,10 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -132,6 +150,8 @@ default-members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -171,10 +191,13 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-automations = { path = "crates/cmux-automations" }
+cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
@@ -183,6 +206,9 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
+cmux-holder = { path = "crates/cmux-holder" }
+cmux-process = { path = "crates/cmux-process" }
+cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
@@ -193,6 +219,8 @@ cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-json = { path = "crates/cmux-json" }
+cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
@@ -210,6 +238,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-vnc = { path = "crates/cmux-vnc" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
@@ -238,6 +267,7 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
@@ -276,13 +306,16 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 # the cross-platform fs-event backend for the fs_watch stream family.
 ignore = "0.4"
 notify = "8"
-iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+# platform-verifier: iroh-relay verifies relay TLS against the OS trust store
+# (Apple Security.framework, Windows, Linux native roots), not its compiled-in
+# webpki list, which still trusted the leaked emSign (eMudhra) roots (#25452).
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
-rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks", "limits"] }
 # Unicode normalization for history search folding (cmux-history). Already in
 # the graph through url -> idna -> idna_adapter at this version; compiled
 # data only, no new transitive code.
@@ -317,11 +350,27 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
-# Fat LTO with one codegen unit, as on main (#19666): the nightly-next client is
-# 79 MB stripped on thin LTO. Each release link takes about 2 minutes longer.
+# Thin LTO. Every tree build compiles this profile, and NEXT nightly waits on the
+# tree. Fat LTO in one codegen unit (#19666) spent about 6 single-threaded
+# minutes linking the cmux-tui binary and 2.5 more on acpmux; thin LTO runs that
+# work in parallel. On a 32 vCPU Linux box, the cmux-tui group went from 606 to
+# 168 s and acpmux from 368 to 135 s. Stripped cmux-tui is 24% larger (105.9 ->
+# 131.7 MB, x86_64 Linux). Terminal throughput and daemon request latency stayed
+# within noise. Dependencies keep one codegen unit each: on cmux-tui that is
+# 4 MB smaller than 16, for the same build time. The three crates on the
+# critical path get 16, so thin LTO has more modules to work on in parallel.
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
+
+[profile.release.package.cmux-tui]
+codegen-units = 16
+
+[profile.release.package.cmux-tui-core]
+codegen-units = 16
+
+[profile.release.package.acpmux]
+codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

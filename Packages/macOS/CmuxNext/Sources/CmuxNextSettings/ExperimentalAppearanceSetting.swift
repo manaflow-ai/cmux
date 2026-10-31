@@ -1,4 +1,5 @@
-/// The off-by-default gate for the wallpaper grid and live appearance tuner.
+/// The off-by-default gate that applies the appearance tuning (Hue, Saturation, Glass
+/// Transparency) to the window tint; off, the tuning has no effect.
 public struct ExperimentalAppearanceSetting: Sendable {
     /// The shared Settings and cmux.json path.
     public let configPath = ["appearance", "experimentalControls"]

@@ -6,10 +6,11 @@
  * /etc/cmux/daemon-instance-id, /etc/cmux/bake-instance-id).
  *
  * The session host's remote entry comes only from /etc/cmux/host.json. Cloud machines use the
- * Freestyle edge carrier; the file holds no secret (bead cx-wx2: nothing but the edge reaches
- * port 1337, proven by ingress-check.ts).
+ * Freestyle edge; the file holds no secret. With the client-grant rollout on,
+ * the edge decides reachability and the daemon still requires enrollment.
  */
 import { CURRENT_BIN } from "./lock";
+import { cloudClientGrantRequired } from "../../services/vms/clientGrant";
 
 export const HOST_UNIT = "cmux-host.service";
 export const HOST_CONFIG_PATH = "/etc/cmux/host.json";
@@ -32,9 +33,10 @@ export async function signMessage(privateKey: CryptoKey, message: string): Promi
   return Buffer.from(sig).toString("base64url");
 }
 
-/** host.json: the edge carrier on the dual-stack wildcard (a VPC address is IPv6). No secret. */
+/** host.json: edge reachability on the dual-stack wildcard; auth rolls to enrolled grants. */
 export function hostConfig(): string {
-  return `${JSON.stringify({ remoteWs: { bind: "[::]:1337", carrier: "freestyle-edge" } }, null, 2)}\n`;
+  const carrier = cloudClientGrantRequired() ? "freestyle-edge-grant" : "freestyle-edge";
+  return `${JSON.stringify({ remoteWs: { bind: "[::]:1337", carrier } }, null, 2)}\n`;
 }
 
 /** The host unit. `extraEnv` (agent tools) reaches the session host and every terminal it creates. */
@@ -43,6 +45,8 @@ export function hostUnit(envLines: readonly string[], storePath: string): string
     "[Unit]",
     "Description=cmux host: bind agent, session host supervisor and Cloud agent (cmux host run)",
     "After=network.target",
+    // Never give up (as acpmux.service): no start limit, 3 s backing off to 60 s.
+    "StartLimitIntervalSec=0",
     "",
     "[Service]",
     "Type=simple",
@@ -59,7 +63,9 @@ export function hostUnit(envLines: readonly string[], storePath: string): string
     ...envLines,
     `ExecStart=${HOST_RUN}`,
     "Restart=always",
-    "RestartSec=2",
+    "RestartSec=3",
+    "RestartSteps=5",
+    "RestartMaxDelaySec=60",
     "",
     "[Install]",
     "WantedBy=multi-user.target",

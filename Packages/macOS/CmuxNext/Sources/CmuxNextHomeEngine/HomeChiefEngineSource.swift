@@ -7,11 +7,18 @@ import Foundation
 public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// This Mac's brain: its traces and memory are here too.
     var isLocal: Bool { get }
-    /// The paired server that runs the brain (nil: this Mac).
+    /// The paired server that runs the brain (nil: this Mac, or the Cloud service).
     var place: String? { get }
+    /// The brain runs on a harness the owner picks (false: a hosted cloud Chief's brain runs
+    /// one engine of its own, and the card hides the Harness row).
+    var choosesHarness: Bool { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
-    /// Sets (nil: clears) any of harness, model and effort in one brain write; the snapshot after.
+    /// Sets (nil: clears) any of harness, model, effort, speed and the reaction classifier fields in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+}
+
+extension HomeChiefEngineSource {
+    public nonisolated var choosesHarness: Bool { true }
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
@@ -69,13 +76,15 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
 /// one; a field not given is left as it is), for the local and the
 /// paired-server brain alike.
 nonisolated enum HomeChiefEngineSet {
+    /// The fields a set sends: the turns' engine and the reaction classifier (a416).
+    static var fieldKeys: Set<String> { ChiefControlClient.engineSetKeys }
+
     @discardableResult
     static func send(_ fields: [String: String?],
                      on connection: DaemonConnection, chief: String? = nil) async throws(HomeChiefEngineError) -> ChiefEngineReport {
-        let sent = { (key: String) in fields[key].map { $0 ?? "default" } }
+        let sent = fields.filter { fieldKeys.contains($0.key) }.mapValues { $0 ?? "default" }
         do {
-            return try await ChiefControlClient(connection).setChiefEngine(harness: sent("harness"), model: sent("model"),
-                                                                           effort: sent("effort"), chief: chief)
+            return try await ChiefControlClient(connection).setChiefEngine(sent, chief: chief)
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {
@@ -117,28 +126,10 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     }
 
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
-        HomeChiefSnapshot(harness: report.choice.harness, model: report.choice.model, effort: report.choice.effort,
-                          avatar: files.avatar(), routeConfigured: false,
-                          turns: report.recent.map(HomeEngineTurn.init(report:))).offering(report)
-    }
-}
-
-extension HomeEngineTurn {
-    /// A turn end the brain summarized (`chief.engine.get` `recent`).
-    nonisolated init(report turn: ChiefEngineReport.Turn) {
-        harness = turn.harness ?? "?"
-        model = turn.model
-        seconds = (turn.ms ?? 0) / 1000
-        tools = turn.tools ?? 0
-        toolErrors = turn.toolErrors ?? 0
-        cost = turn.costUSD
-        reply = turn.reply
-        if let usage = turn.usage {
-            let read = usage.cacheRead ?? 0
-            let total = read + (usage.cacheWrite ?? 0) + (usage.input ?? 0)
-            hitRate = total > 0 ? read / total : nil
-        } else {
-            hitRate = nil
-        }
+        var snapshot = HomeChiefSnapshot(harness: report.choice.harness, model: report.choice.model, effort: report.choice.effort,
+                                         avatar: files.avatar(), routeConfigured: false,
+                                         turns: report.recent.map(HomeEngineTurn.init(report:)))
+        snapshot.speed = report.choice.speed
+        return snapshot.offering(report)
     }
 }

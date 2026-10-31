@@ -798,6 +798,13 @@
       // Tabs that closed; calls on them fail like Playwright's closed page.
       this.closedTargets = new Set();
       this.defaultTimeout = DEFAULT_TIMEOUT;
+      // Agent pointer motion settings (`browser.agentMouse.*`, human-mouse.js).
+      // Tabs nobody sees (headless Chromium) default to instant motion: the
+      // human path is for a person watching the cursor and cost every click
+      // 0.4-0.5 s. Settings and page.mouse.configure still choose.
+      const caps = driver && typeof driver.capabilities === "function" ? driver.capabilities() : [];
+      const unseen = Array.isArray(caps) && caps.includes("headless") ? { motion: "instant" } : {};
+      this.agentMouse = ns.humanMouse.config({ ...unseen, ...((host && host.agentMouse) || {}) });
       this.defaultNavigationTimeout = DEFAULT_TIMEOUT;
       this.errors = [];
       this._lazyCounter = 0;
@@ -1433,7 +1440,30 @@
         if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${hit} intercepts pointer events`);
         await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
       }
-      await perform(target);
+      // The selector in the target's frame, for the host's re-render rule
+      // (gate/press.rs); a ref names one element, so it has none.
+      const lastHop = this._selector.split(" >> internal:control=enter-frame >> ").pop();
+      const pressSelector = /^aria-ref=/.test(lastHop) ? null : lastHop;
+      for (;;) {
+        try {
+          await perform(target.selector || !pressSelector ? target : { ...target, selector: pressSelector });
+          break;
+        } catch (e) {
+          // The host refused the press: the page changed the point after
+          // the check. Nothing was pressed, so the action starts over.
+          if (!/^no press was sent: /.test((e && e.message) || "")) throw e;
+          if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${e.message}`);
+          // A re-render: when the locator now matches the element at the
+          // point, press that one there at once (as after the move above).
+          const again = await this._resolveOne(true).catch(() => null);
+          if (again && again.frame === target.frame && (await again.frame._agent("hitTarget", again.handle, target.local, "button-link").catch(() => "")) === "done") {
+            target = { ...target, handle: again.handle, instant: true };
+            continue;
+          }
+          target = { ...(await this._actionPoint(options, title, states)), instant: true };
+          await this._page.mouse.move(target.x, target.y, { motion: "instant" });
+        }
+      }
       await this._page._afterAction();
     }
 
@@ -1983,6 +2013,9 @@
     if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${title}: x and y: expected numbers, got ${JSON.stringify(x)}, ${JSON.stringify(y)}`);
   }
 
+  // Agent pointer motion (human-mouse.js, plans/cmux-next/human-mouse-DESIGN.md).
+  const HM = ns.humanMouse;
+
   class Mouse {
     constructor(page) {
       this._page = page;
@@ -2002,16 +2035,79 @@
         ...extra,
       }, detached);
     }
+    // The session's motion settings, or null when this call teleports
+    // (`motion: "instant"`, per call or in the settings).
+    _motion(options) {
+      const session = this._page._session;
+      const cfg = session.agentMouse || (session.agentMouse = HM.config(session.host && session.host.agentMouse));
+      const motion = (options && options.motion) || cfg.motion;
+      return motion === "instant" ? null : cfg;
+    }
+    _random() {
+      const session = this._page._session;
+      if (!session.mouseRandom) session.mouseRandom = HM.rng((session.now() * 2654435761) >>> 0);
+      return session.mouseRandom;
+    }
+    _pause(range) {
+      return this._page._session.sleep(HM.pause(range, this._random()));
+    }
+    // Plays a planned path against the session clock. A driver call takes
+    // `lead` ms (the last one measured), so each sample is sent that much
+    // before its time, and a sample already due by then is skipped
+    // (coalesced, as a browser does per frame); the last one is always
+    // sent. The move takes its planned time however slow the driver is.
+    async _glide(to, cfg, extra, width) {
+      const session = this._page._session;
+      const path = HM.planMove({ x: this._x, y: this._y }, to, cfg, this._random(), { width });
+      const start = session.now();
+      let lead = 0;
+      let i = 0;
+      while (i < path.length) {
+        const elapsed = session.now() - start;
+        let j = i;
+        while (j + 1 < path.length && path[j + 1].t <= elapsed + lead) j++;
+        const sample = path[j];
+        if (sample.t - lead > elapsed) await session.sleep(sample.t - lead - elapsed);
+        i = j + 1;
+        // The pointer did not move a whole px: no event, as from a real mouse.
+        if (i < path.length && sample.x === this._x && sample.y === this._y) continue;
+        this._x = sample.x;
+        this._y = sample.y;
+        const sent = session.now();
+        await this._event("move", extra);
+        lead = Math.min(session.now() - sent, cfg.maxMoveMs);
+      }
+    }
+    // Changes this session's motion settings (`browser.agentMouse.*`
+    // names): page.mouse.configure({ motion: "instant" }).
+    configure(settings) {
+      const session = this._page._session;
+      session.agentMouse = HM.config({ ...(session.agentMouse || HM.config()), ...(settings || {}) });
+      return { ...session.agentMouse };
+    }
     async move(x, y, options = {}) {
       checkPoint("mouse.move", x, y);
-      const steps = options.steps || 1;
-      const fromX = this._x;
-      const fromY = this._y;
-      for (let i = 1; i <= steps; i++) {
-        this._x = fromX + ((x - fromX) * i) / steps;
-        this._y = fromY + ((y - fromY) * i) / steps;
-        await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
+      const extra = options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {};
+      // An explicit `steps` is Playwright's straight line of `steps` events.
+      if (options.steps) {
+        const steps = options.steps;
+        const fromX = this._x;
+        const fromY = this._y;
+        for (let i = 1; i <= steps; i++) {
+          this._x = fromX + ((x - fromX) * i) / steps;
+          this._y = fromY + ((y - fromY) * i) / steps;
+          await this._event("move", extra);
+        }
+        return;
       }
+      const cfg = this._motion(options);
+      if (!cfg) {
+        this._x = x;
+        this._y = y;
+        await this._event("move", extra);
+        return;
+      }
+      await this._glide({ x, y }, cfg, extra, options.width);
     }
     async down(options = {}) {
       const button = options.button || "left";
@@ -2025,11 +2121,16 @@
     }
     async click(x, y, options = {}) {
       checkPoint("mouse.click", x, y);
-      await this.move(x, y);
+      await this.move(x, y, options.motion ? { motion: options.motion } : {});
+      const cfg = this._motion(options);
       const count = options.clickCount || 1;
+      // A person rests on the target before pressing.
+      if (cfg) await this._pause(cfg.dwellMs);
       for (let i = 1; i <= count; i++) {
+        if (i > 1 && cfg) await this._pause(cfg.doubleClickGapMs);
         await this.down({ button: options.button, clickCount: i });
         if (options.delay && !this._page._heldDialog) await this._page._session.sleep(options.delay);
+        else if (cfg && !this._page._heldDialog) await this._pause(cfg.holdMs);
         await this.up({ button: options.button, clickCount: i });
         if (this._page._heldDialog) break;
       }
@@ -2040,7 +2141,19 @@
     }
     async wheel(deltaX, deltaY) {
       if (typeof deltaX !== "number" || typeof deltaY !== "number" || !Number.isFinite(deltaX) || !Number.isFinite(deltaY)) throw new Error(`mouse.wheel: deltaX and deltaY: expected numbers, got ${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)}`);
-      await this._event("wheel", { deltaX, deltaY });
+      const cfg = this._motion({});
+      if (!cfg) {
+        await this._event("wheel", { deltaX, deltaY });
+        return;
+      }
+      // A fling: decaying parts on the clock, a late part sent at once.
+      const session = this._page._session;
+      const start = session.now();
+      for (const part of HM.planWheel(deltaX, deltaY, cfg)) {
+        const wait = part.t - (session.now() - start);
+        if (wait > 0) await session.sleep(wait);
+        await this._event("wheel", { deltaX: part.dx, deltaY: part.dy });
+      }
     }
   }
 
@@ -2626,15 +2739,34 @@
       const call = (type, extra, detached) => this._input("input.mouse", {
         targetId: this._targetId, type, x: target.x, y: target.y, button, clickCount: 0, modifiers, ...extra,
       }, detached);
+      // A human path to the target when the pointer is elsewhere (a
+      // locator action already moved it there through mouse.move).
+      // A press the host refused once goes without the dwell and hold: the
+      // page changes the point faster than a person's pause (a re-render).
+      const motion = target.instant ? null : this.mouse._motion(options);
+      if (motion && (this.mouse._x !== target.x || this.mouse._y !== target.y)) {
+        await this.mouse._glide({ x: target.x, y: target.y }, motion, { modifiers });
+      }
       await call("move");
       this.mouse._x = target.x;
       this.mouse._y = target.y;
       const activeBefore = await target.frame._agent("activeHandle").catch(() => undefined);
+      if (motion) await this.mouse._pause(motion.dwellMs);
+      // The press names its target (`expect`): the host checks it again
+      // right before the press goes out and refuses it (`no press was
+      // sent: …`) when the page put another element at the point meanwhile
+      // (gate/press.rs). Only the first press: a second one follows the
+      // first at once, on what the first one pressed.
+      const expect = !options.force && target.handle !== undefined
+        ? { frameId: target.frame._id || null, handle: target.handle, x: target.local.x, y: target.local.y, owners: [], ...(target.selector ? { selector: target.selector } : {}) }
+        : null;
       for (let i = 1; i <= count; i++) {
-        await call("down", { clickCount: i });
+        if (i > 1 && motion) await this.mouse._pause(motion.doubleClickGapMs);
+        await call("down", i === 1 && expect ? { clickCount: i, expect } : { clickCount: i });
         const opened = !!this._heldDialog;
         if (i === 1 && !opened) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
         if (options.delay && !opened) await this._session.sleep(options.delay);
+        else if (motion && !opened) await this.mouse._pause(motion.holdMs);
         await call("up", { clickCount: i }, opened);
         if (this._heldDialog) break;
       }
@@ -2688,6 +2820,9 @@
       if (frame === this._mainFrame) {
         this._mainFrame._id = this._mainFrame._id || p.frameId;
         this._url = p.url;
+        // A new document starts its snapshots over: a diff against another
+        // document's tree says nothing and costs a whole-tree diff.
+        if (p.sameDocument !== true) this._snapshotBaselines = null;
       } else frame._url = p.url;
       this.emit("framenavigated", frame);
     }

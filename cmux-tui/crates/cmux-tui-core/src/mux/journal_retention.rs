@@ -234,14 +234,6 @@ impl Drop for TerminalTeardown<'_> {
 }
 
 impl Mux {
-    /// Non-blocking enqueue of one terminal-lane event (a reconnect gap).
-    pub(crate) fn try_journal_terminal_event(
-        &self,
-        event: crate::journal_ingress::JournalIngressEvent,
-    ) -> Result<(), crate::journal_ingress::JournalIngressTrySendError> {
-        self.journal_ingress.try_send(event)
-    }
-
     /// O(1) reconnect bookkeeping, called by the hosted reader after its
     /// gap record is enqueued (surface/journal_reconnect.rs): mark the
     /// terminal for the next coalesced checkpoint.

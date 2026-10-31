@@ -57,7 +57,7 @@ struct AppSceneRowView: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .animation(reduceMotion ? nil : Motion.animation(.hover), value: isHovered)
+        .animation(reduceMotion ? nil : Motion.feedback.animation(.hover), value: isHovered)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(node.flag("onTap") ? .isButton : [])
     }

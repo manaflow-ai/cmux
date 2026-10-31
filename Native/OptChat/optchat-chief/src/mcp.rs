@@ -8,11 +8,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::prompt::{
-    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, VERSION_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
-};
 use crate::tools::{self, Call};
 
 /// The MCP revision this server speaks when the client names none it knows.
@@ -33,50 +28,7 @@ pub fn tools_for(subagent: bool) -> Value {
 /// zoom and date always, then spawn, tell, profile and chiefs when granted,
 /// then react and reply (a Chief's own conversation, always).
 pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Value {
-    let int = json!({"type": "integer", "minimum": 0});
-    let text = json!({"type": "string", "minLength": 1});
-    let mut list = vec![
-        json!({"name": "zoom", "description": format!("{ZOOM_DESCRIPTION}{ZOOM_AGENT_DESCRIPTION}"),
-         "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
-        json!({"name": "date", "description": DATE_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
-    ];
-    if !subagent && grant.allows("spawn") {
-        list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: on the cloud VM peer (code, tests through the fleet); local: on this Mac (its app, UI, computer use). By default: the `control cloud` setting."}}, "required": ["tasks"], "additionalProperties": false}}));
-    }
-    if !subagent && grant.allows("tell") {
-        list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}, "queue": {"type": "boolean", "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt."}}, "required": ["id", "message"], "additionalProperties": false}}));
-        list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
-            "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
-            "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
-            "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
-            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
-            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
-          "required": ["action"], "additionalProperties": false}}));
-    }
-    if !subagent && grant.allows("profile") {
-        list.push(crate::chief_profile::profile_tool());
-    }
-    if !subagent && grant.allows("chiefs") {
-        list.push(crate::chief_profile::chiefs_tool());
-    }
-    // Read-only, for the Chief and its subagents: never a grant to withhold.
-    list.push(
-        json!({"name": "version", "description": VERSION_DESCRIPTION,
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
-    );
-    // The Chief's own words in its conversation: never a grant to withhold.
-    if !subagent {
-        list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
-        list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
-    }
-    Value::Array(list)
+    chief_kernel::tools::tool_list(subagent, &|tool| grant.allows(tool))
 }
 
 /// How a tool call reaches the memory: the host socket, or a test memory.
@@ -85,6 +37,10 @@ pub trait Backend {
     /// A subagent's server: zoom and date only.
     fn subagent(&self) -> bool {
         false
+    }
+    /// The Chief home this server belongs to (the move tool), if known.
+    fn home(&self) -> Option<PathBuf> {
+        None
     }
     /// The model tools this Chief may use (asked of the host at tools/list).
     fn grant(&self) -> crate::chief_profile::Grant {
@@ -107,6 +63,11 @@ impl Backend for SocketBackend {
 
     fn subagent(&self) -> bool {
         self.1
+    }
+
+    /// `<home>/optchat/tools.sock`: the home is two levels up.
+    fn home(&self) -> Option<PathBuf> {
+        self.0.parent()?.parent().map(Path::to_path_buf)
     }
 
     /// The live host's grant. A host that does not answer the question (an
@@ -154,13 +115,25 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             let answer = if name == "version" {
                 backend.version()
+            } else if name == "move" {
+                match (backend.subagent(), backend.home()) {
+                    (true, _) => Err(format!("unknown tool {name}")),
+                    (false, None) => Err("move: this server does not know its Chief home".into()),
+                    (false, Some(home)) => move_call(&home, &args),
+                }
             } else {
                 Call::parse(name, &args).and_then(|call| match call {
                     Call::Spawn { .. }
-                    | Call::Tell { .. }
                     | Call::React { .. }
                     | Call::Reply { .. }
+                    | Call::Send(_)
+                    | Call::Transcript { .. }
+                    | Call::Stop
+                    | Call::Sleep(_)
+                    | Call::Watch(_)
+                    | Call::Remember { .. }
                     | Call::Control(_)
+                    | Call::CloudWorkspace(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }
                         if backend.subagent() =>
@@ -218,4 +191,70 @@ pub fn run(socket: &Path, subagent: bool) -> std::io::Result<()> {
         std::io::stdout().lock(),
         &SocketBackend(socket.to_owned(), subagent),
     )
+}
+
+/// The `move` tool (plans/cmux-next/chief-migration-DESIGN.md section 8):
+/// the Chief moves itself. `dry_run` checks the target and answers at once;
+/// a real move runs `optchat-chief move --detach`, which waits for this turn
+/// to end, stops the host, and writes its report to `state/move.json`.
+/// `status` reads that report, `reach` probes what this home reached before
+/// a move, `rollback` lets the old copy answer again.
+pub use chief_kernel::tools::{MOVE_DESCRIPTION, move_tool};
+
+/// Runs the move tool for the Chief of `home` with this binary.
+pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
+    let action = args["action"].as_str().unwrap_or("move");
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut argv: Vec<String> = vec!["move".into()];
+    match action {
+        "status" => {
+            return std::fs::read_to_string(home.join("state").join("move.json"))
+                .map_err(|_| "no move has run from this home".to_owned());
+        }
+        "reach" => argv.push("reach".into()),
+        "rollback" => argv.push("rollback".into()),
+        "move" => {
+            let to = args["to"].as_str().ok_or("move needs `to`")?;
+            argv.extend(["--to".into(), to.into()]);
+            argv.push(
+                if args["dry_run"] == true {
+                    "--dry-run"
+                } else {
+                    "--detach"
+                }
+                .into(),
+            );
+            if args["without_transcripts"] == true {
+                argv.push("--without-transcripts".into());
+            }
+            if let Some(name) = args["name"].as_str() {
+                argv.extend(["--name".into(), name.into()]);
+            }
+        }
+        other => return Err(format!("unknown move action {other}")),
+    }
+    for (key, flag) in [
+        ("remote_bin", "--remote-bin"),
+        ("session_token_file", "--session-token-file"),
+    ] {
+        if let Some(v) = args[key].as_str() {
+            argv.extend([flag.into(), v.into()]);
+        }
+    }
+    argv.extend(["--home".into(), home.to_string_lossy().into_owned()]);
+    let out = std::process::Command::new(exe)
+        .args(&argv)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if out.status.success() {
+        Ok(text)
+    } else {
+        Err(text)
+    }
 }

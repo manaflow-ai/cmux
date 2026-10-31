@@ -27,12 +27,18 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
+            applyImage()
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
-            themedToolTip = label
             setAccessibilityLabel(label)
             needsDisplay = true
         }
+    }
+
+    /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
+    private let density = DensityBinding()
+
+    private func applyImage(size: CGFloat = OmnibarStyle.trailingIconSize) {
+        image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
     }
 
     override init(frame: NSRect) {
@@ -45,8 +51,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         image.imageScaling = .scaleNone
         addSubview(image)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            heightAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
+            // The trailing icon with 1 pt around it: 20 pt at Standard.
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
             image.centerXAnchor.constraint(equalTo: centerXAnchor),
             image.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -54,10 +61,24 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
         hover = PointerHover(self) { [weak self] _ in self?.paintFill(animated: true) }
+        density.update { [weak self] in
+            guard let self else { return }
+            // Read the size even while hidden, so the loop keeps following it.
+            let size = OmnibarStyle.trailingIconSize
+            if state != .hidden { applyImage(size: size) }
+        }
+        density.start()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The badge takes the whole press (not its image or label) and the first
+    /// one in a browser window that is not key: one click acts, as Chrome's
+    /// omnibar buttons do (user, 2026-10-28, "click the star twice").
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func accessibilityPerformPress() -> Bool {
         onPress?(self)
@@ -66,6 +87,18 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     override func mouseDown(with event: NSEvent) {
         onPress?(self)
+    }
+
+    /// The star registers no cursor rect of its own: the bar's arrow shows over it
+    /// (`OmnibarPointer`), as over every clickable control.
+    override func resetCursorRects() {}
+
+    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects?.append((rect, object))
+        super.addCursorRect(rect, cursor: object)
     }
 
     override func viewDidHide() {

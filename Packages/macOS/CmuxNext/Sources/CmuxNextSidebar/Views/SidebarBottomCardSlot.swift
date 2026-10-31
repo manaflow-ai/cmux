@@ -24,6 +24,8 @@ struct SidebarBottomCardSlot {
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
+        // The highlights show in the app's one hover card window (one card at a time).
+        update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
@@ -46,9 +48,11 @@ struct SidebarBottomCardSlot {
 
     private enum Shown { case update, nowPlaying, updated, notice }
 
-    /// The card that has the slot: update, then an asked-for notice, then Now Playing, then updated,
-    /// then any other notice.
+    /// The card that has the slot: a question waiting on the person, then update, then an asked-for notice,
+    /// then Now Playing, then updated, then any other notice.
     private var shown: Shown? {
+        // An agent waiting on the person's answer never hides behind another card.
+        if notice.notice?.awaitsAnswer == true { return .notice }
         if update.card != nil { return .update }
         // "Is it checking?" must never hide behind a song (Lawrence 2026-10-19).
         if notice.notice?.userAsked == true { return .notice }

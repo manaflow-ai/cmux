@@ -26,6 +26,10 @@ on:
       - "scripts/tests/test_pr_scoped_lint_gates.py"
       - "scripts/ci/package-conventions-gate.sh"
       - "scripts/ci/crash-class-gate.sh"
+      # The crash-class lint test_pr_scoped_lint_gates.py runs: check-concurrency.sh and what it loads.
+      - "scripts/cmux-next/check-concurrency.sh"
+      - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
@@ -105,6 +109,14 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # The package conventions lint (namespace types, free functions, singletons,
+  # ...) is a style guard. For pull requests and merge groups into
+  # feat-cmux-next it prints its findings as warnings and passes (Leo,
+  # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
+  # tests still fail the job, and so the ios-tests gate.
+  # Everywhere else it still fails. Change `warn` to `fail` to make it block
+  # feat-cmux-next again.
+  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
 
 
 # A newer push to the same pull request replaces its run; dispatches never
@@ -117,6 +129,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The macOS pool mobile-core-package and ios-simulator-build run on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
     # per-family ios-simulator test jobs, which over-reserves until the
@@ -136,7 +149,7 @@ jobs:
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -307,11 +320,13 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
+      style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}
       device_families: ${{ steps.families.outputs.json }}
     steps:
@@ -330,14 +345,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.ref }}
-          # Manual dispatch only needs this workflow revision. Preserve full
-          # history automatically if pull_request routing is re-enabled later,
-          # because that path computes a merge base below.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
-          # Routing needs only commits and trees (merge-base, diff --name-only).
-          # A blobless full-history fetch fits the job timeout; fetching every
-          # blob of every branch did not, which cancelled the job and failed
-          # the required ios-tests aggregate.
+          # Manual dispatch only needs this workflow revision. A pull request
+          # checks out its merge commit and the base tip it was merged onto
+          # (depth 2): diffing the two names the pull request's own files. A
+          # full-history fetch took 40-110 s of this five-minute job.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          # Routing needs only commits and trees (diff --name-only).
           filter: blob:none
           persist-credentials: false
           submodules: false
@@ -385,7 +398,6 @@ jobs:
       - name: Detect iOS changes
         id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -394,14 +406,21 @@ jobs:
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          # HEAD is GitHub's merge of HEAD_SHA onto the base tip. Anything
+          # else (no merge ref, a stale one) runs everything.
+          if [ "$(git rev-parse HEAD^2 2>/dev/null)" != "$HEAD_SHA" ]; then
+            echo "HEAD is not the merge of $HEAD_SHA; running iOS tests and lint."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_lint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # --no-renames keeps this diff inside the blobless clone. Rename
           # detection scores content, so an inexact rename makes git lazily
           # fetch blobs from the promisor remote, and the whole step exits
           # 128 if that fetch fails. It also hides a file moved out of ios/
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
-          git diff --name-only --no-renames "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          git diff --name-only --no-renames HEAD^1 HEAD > /tmp/changed-files.txt
           if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
@@ -410,7 +429,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -420,7 +439,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -437,9 +456,16 @@ jobs:
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: |
+          # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
-          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
+          rc=0
+          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]
@@ -447,6 +473,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
@@ -467,6 +494,12 @@ jobs:
       # and 2026-09-23 never went quiet for more than 45 s, and no single test
       # took longer than 44 s; three hung runs went quiet for 353-1152 s.
       TEST_SILENCE_SECONDS: "180"
+      # swift-packages-linux.yml runs CMUXMobileCore, CmuxSyncStore,
+      # CmuxMobilePairedMac and CmuxMobileShellModel on Linux for every
+      # feat-cmux-next pull request that touches Packages/, so such a pull
+      # request runs them here only with the full-ci label; pushes, dispatches
+      # and other bases still run them on the Mac.
+      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -546,8 +579,21 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # An owned Mac reuses its workspace, but checkout cleans it, so every job
+      # rebuilt the five packages and their dependencies from nothing (11-23 s
+      # per package, 70-100 s a job). Keep each package's .build outside the
+      # workspace on the mini, as swift-package-tests and the cmux-next fast
+      # tier do; a kept build recompiles only what the change touched.
+      # scripts/ci/owned_spm_scratch.py has the rules (fingerprint per Xcode,
+      # Swift, workspace path and bonsplit commit; least recently used pruning).
+      # Any failure leaves the packages to build cold as before.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       - name: Run CMUXMobileCore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
         run: |
           set -euo pipefail
           args=(--package-path Packages/Shared/CMUXMobileCore)
@@ -563,7 +609,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxSyncStore' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxSyncStore' }}
         run: |
           set -euo pipefail
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
@@ -581,7 +627,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
           set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobilePairedMac)
@@ -597,7 +643,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileShellModel package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShellModel' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobileShellModel' }}
         run: |
           set -euo pipefail
           # Pure shell-model queue and ordering regressions live in this package.
@@ -641,6 +687,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
@@ -971,15 +1018,32 @@ jobs:
           fi
           echo "Testing scheme $scheme on simulator $SIMULATOR_ID"
           log_path="$IOS_DERIVED_DATA/logs/cmuxios-unit-tests.log"
-          python3 "$GITHUB_WORKSPACE/scripts/ci/hung_test_watchdog.py" --silence-seconds 300 \
-            --label CmuxiOS --log "$log_path" -- \
-            xcodebuild test \
-              -scheme "$scheme" \
-              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-              -derivedDataPath "$pkg_dd" \
-              -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
-              -skipMacroValidation \
-              -skipPackagePluginValidation
+          run_tests() {
+            python3 "$GITHUB_WORKSPACE/scripts/ci/hung_test_watchdog.py" --silence-seconds 300 \
+              --label CmuxiOS --log "$log_path" -- \
+              xcodebuild test \
+                -scheme "$scheme" \
+                -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+                -derivedDataPath "$pkg_dd" \
+                -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
+                -skipMacroValidation \
+                -skipPackagePluginValidation
+          }
+          # The per-runner DerivedData keeps explicit precompiled modules; a header the build
+          # copies again (ghostty.h, new mtime) makes them stale and the build stops with
+          # "has been modified since the module file ... was built". Clear the module caches
+          # and run once more; any other failure stands.
+          if ! run_tests; then
+            if grep -q "has been modified since the module file" "$log_path"; then
+              echo "::warning::stale precompiled modules in $pkg_dd; clearing them and running again"
+              rm -rf "$pkg_dd/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" \
+                     "$pkg_dd/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
+                     "$pkg_dd/ModuleCache.noindex"
+              run_tests
+            else
+              exit 1
+            fi
+          fi
           grep -Eq '(Executed [1-9][0-9]* tests?|Test run with [1-9][0-9]* tests?)' "$log_path" || {
             echo "::error::CmuxiOS unit tests ran no tests"
             exit 1
@@ -1020,7 +1084,7 @@ jobs:
         with:
           name: ios-simulator-build-log
           path: ${{ env.IOS_DERIVED_DATA }}/logs/*.log
-          retention-days: 7
+          retention-days: 3
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
@@ -1045,7 +1109,7 @@ jobs:
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const CAPABILITY: &str = "loopback-forward-v1";
 /// This client's receive window (the spec default).
@@ -86,8 +86,14 @@ impl PortTunnel for LoopbackTunnel {
             ready: Condvar::new(),
         });
         let mut early = VecDeque::new();
-        let identity =
-            request(&shared, &mut lines, &mut early, json!({"id": 1, "cmd": "identify"}))?;
+        let deadline = Instant::now() + HANDSHAKE;
+        let identity = request(
+            &shared,
+            &mut lines,
+            &mut early,
+            json!({"id": 1, "cmd": "identify"}),
+            deadline,
+        )?;
         let capable = identity["capabilities"]
             .as_array()
             .is_some_and(|caps| caps.iter().any(|c| c == CAPABILITY));
@@ -98,10 +104,10 @@ impl PortTunnel for LoopbackTunnel {
         }
         let info = json!({"id": 2, "cmd": "set-client-info", "name": "cmux-cloud port forward",
             "kind": "loopback-forward", "capabilities": [CAPABILITY]});
-        request(&shared, &mut lines, &mut early, info)?;
+        request(&shared, &mut lines, &mut early, info, deadline)?;
         let open = json!({"id": 3, "cmd": "loopback-open", "stream": STREAM, "host": host,
             "port": port, "window": WINDOW});
-        let opened = request(&shared, &mut lines, &mut early, open)?;
+        let opened = request(&shared, &mut lines, &mut early, open, deadline)?;
         let window = opened["window"].as_u64().and_then(|w| usize::try_from(w).ok()).unwrap_or(0);
         shared.credit().bytes = window;
         shared.socket.set_read_timeout(None).map_err(down)?;
@@ -129,11 +135,13 @@ fn request(
     lines: &mut BufReader<UnixStream>,
     early: &mut VecDeque<Value>,
     line: Value,
+    deadline: Instant,
 ) -> Result<Value, TunnelError> {
     let id = line["id"].clone();
     shared.send(&line).map_err(|e| TunnelError::Down(e.to_string()))?;
     loop {
-        let message = next_line(lines).map_err(|e| TunnelError::Down(e.to_string()))?;
+        let message =
+            next_line_before(lines, deadline).map_err(|e| TunnelError::Down(e.to_string()))?;
         if message.get("event").is_some() {
             early.push_back(message);
             continue;
@@ -149,6 +157,44 @@ fn request(
             code: message["error_code"].as_str().unwrap_or("loopback.error").to_owned(),
             message: text,
         });
+    }
+}
+
+/// One handshake line under an absolute deadline. `BufRead::read_until`
+/// cannot enforce this: a peer can reset a socket's per-read timeout forever
+/// by sending one byte before each interval.
+fn next_line_before(lines: &mut BufReader<UnixStream>, deadline: Instant) -> io::Result<Value> {
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        loop {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "the link handshake timed out",
+                ));
+            };
+            lines.get_ref().set_read_timeout(Some(remaining))?;
+            let available = lines.fill_buf()?;
+            if available.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "the link closed"));
+            }
+            let newline = available.iter().position(|byte| *byte == b'\n');
+            let take = newline.map_or(available.len(), |index| index + 1);
+            if line.len() + take > MAX_LINE as usize {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "a link line is too long"));
+            }
+            line.extend_from_slice(&available[..take]);
+            lines.consume(take);
+            if newline.is_some() {
+                break;
+            }
+        }
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        return serde_json::from_slice(&line)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
     }
 }
 

@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextCompat
 
 /// One drag, every destination (plans/cmux-next/REWRITE.md "Tab drag").
 ///
@@ -25,7 +26,7 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: (any NSObjectProtocol)?
+    var resignObserver: MainActorObservation?
 
     init(services: AppServices) {
         self.services = services
@@ -45,7 +46,7 @@ final class TabDragSession: NSObject {
         let item = Item.tab(start.tabID.rawValue)
         let payload = TabDragPayload.tab(id: start.tabID.rawValue, sourceStripID: start.stripID)
         begin(item: item, payload: payload, frame: start.screenFrame, grabOffset: start.grabOffset, point: start.screenPoint,
-              image: start.snapshot?.cgImage, previewTab: start.tabID.rawValue, draggedCount: 1, pane: pane)
+              image: start.snapshot?.cgImage, onGlass: start.snapshotOnGlass, previewTab: start.tabID.rawValue, draggedCount: 1, pane: pane)
     }
 
     func beginGroup(_ start: TabGroupDragStart, from pane: PaneController) {
@@ -54,13 +55,14 @@ final class TabDragSession: NSObject {
                                               sourceStripID: start.stripID, width: start.screenFrame.width)
         let preview = pane.stripModel.selectedID.flatMap { start.tabIDs.contains($0) ? $0.rawValue : nil } ?? start.tabIDs.first?.rawValue
         begin(item: item, payload: payload, frame: start.screenFrame, grabOffset: start.grabOffset, point: start.screenPoint,
-              image: start.snapshot?.cgImage, previewTab: preview, draggedCount: start.tabIDs.count, pane: pane)
+              image: start.snapshot?.cgImage, onGlass: start.snapshotOnGlass, previewTab: preview, draggedCount: start.tabIDs.count, pane: pane)
     }
 
     /// `pane` is the source strip's pane (tab items); workspace items have
-    /// no pane and name their source `window`.
+    /// no pane and name their source `window`. `onGlass`: `image` was drawn for glass in the
+    /// source's scope (no card), which the ghost follows.
     func begin(item: Item, payload: TabDragPayload?, frame: CGRect, grabOffset: CGPoint, point: CGPoint, image: CGImage?,
-               previewTab: String?, draggedCount: Int, pane: PaneController?, window sourceWindow: WindowController? = nil) {
+               onGlass: Bool, previewTab: String?, draggedCount: Int, pane: PaneController?, window sourceWindow: WindowController? = nil) {
         if drag != nil { finish(commit: false) }
         finishLanding()
 
@@ -70,9 +72,9 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale)
-        var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
-                                        rectSpring: Motion.spring(.track), morphSpring: Motion.spring(.appear))
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
+        var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
+                                        rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
         motion.hasPreview = false
         let windowFrame = window?.window?.frame ?? .zero
@@ -98,9 +100,8 @@ final class TabDragSession: NSObject {
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.finish(commit: false)
         }
         self.drag = drag
         focusDragBegan(item, from: pane)
@@ -253,7 +254,9 @@ final class TabDragSession: NSObject {
     func providers(in controller: WindowController, near point: CGPoint, drag: Drag) -> [any TabDropTargetProviding] {
         let adapters = self.adapters(for: controller, drag: drag)
         var list: [any TabDropTargetProviding] = [adapters.sidebar]
-        for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+        // A pinned dock's strip that takes no other tab takes no drop: the daemon would refuse it
+        // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
+        for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)
@@ -266,7 +269,7 @@ final class TabDragSession: NSObject {
     /// The window's sidebar and layout drop adapters, cached for the drag.
     func adapters(for controller: WindowController, drag: Drag) -> (sidebar: SidebarTabDropTarget, layout: LayoutTabDropTarget) {
         let key = ObjectIdentifier(controller)
-        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar, window: controller), LayoutTabDropTarget(window: controller))
+        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar), LayoutTabDropTarget(window: controller))
         drag.adapters[key] = adapters
         return adapters
     }

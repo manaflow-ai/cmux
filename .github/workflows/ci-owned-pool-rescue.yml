@@ -4,11 +4,10 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
 # busy the run would wait for it indefinitely. This workflow watches such a run
-# and, when one of its jobs has waited past CI_OWNED_POOL_RESCUE_SECONDS,
-# cancels the run and re-runs it; the retry attempt never takes a persistent
-# pool, so it lands on Blacksmith. A job an owned runner refused at job start
-# (it failed in seconds, before any step succeeded) gets its failed jobs re-run
-# instead, which moves them to the picker's retry_runner on Blacksmith.
+# and reports a queue alarm when the pool is full or starts no work. Active
+# current-head PR runs remain intact: Actions cannot re-run them yet. Completed
+# runner refusals retry failed jobs; eligible non-PR runs retain the cancel and
+# re-run policy. Placement for new runs chooses free owned Macs, then Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
 #
 # One sweeper watches the busy sources (SWEEP=1, owned_pool_rescue.sweep()).
@@ -59,6 +58,7 @@ on:
       - CI
       - iOS simulator tests
       - Iroh release gate
+      - cmux NEXT DEV daily
       # Side lanes can create a gated Mac job after workflow_run(requested).
       # Wake the rescue directly so a runner-hook refusal is retried without
       # waiting for the periodic sweeper.
@@ -66,6 +66,7 @@ on:
       - Auth and session lifecycle
       - cmux-next base autofix
       - cmux-next batch queue
+      - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
       - cmux-next PR autofix
@@ -74,6 +75,7 @@ on:
       - cmux-tui artifacts
       - cmux-tui
       - IROH v2
+      - nightly-next launch smoke
       - Relay TLS system trust
       - reload-build
       - SSH remote daemon
@@ -101,6 +103,7 @@ on:
 permissions: {}
 
 env:
+  CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.
@@ -110,10 +113,12 @@ env:
     .github/workflows/ci.yml
     .github/workflows/test-ios.yml
     .github/workflows/iroh-release-gate.yml
+    .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/agent-brands.yml
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml
     .github/workflows/cmux-next-batch.yml
+    .github/workflows/stable-next.yml
     .github/workflows/cmux-next-frame-pacing.yml
     .github/workflows/cmux-next-media.yml
     .github/workflows/cmux-next-pr-autofix.yml
@@ -122,6 +127,7 @@ env:
     .github/workflows/cmux-tui-artifacts.yml
     .github/workflows/cmux-tui.yml
     .github/workflows/iroh-v2.yml
+    .github/workflows/nightly-next-launch-smoke.yml
     .github/workflows/relay-tls.yml
     .github/workflows/reload-build.yml
     .github/workflows/remote-daemon.yml
@@ -135,6 +141,7 @@ concurrency:
 
 jobs:
   rescue:
+    environment: ci-routing-agent
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
     if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path == '.github/workflows/ci.yml' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/test-ios.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/iroh-release-gate.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","pull_request_target","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-'))) && github.event.workflow_run.head_repository.full_name == github.repository && (github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted

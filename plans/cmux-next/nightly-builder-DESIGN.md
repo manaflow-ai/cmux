@@ -1,5 +1,8 @@
 # Dedicated cmux-next nightly builder Mac
 
+> **Moved 2026-10-25.** All nine M6 minis (cmux16..cmux24) are reserved for the cmux Performance Lead
+> (Lawrence). The nightly-next builder now runs on cmux7s (M4 Pro, runner `cmux7s-mac-mini-nightly-next`, `CI_NIGHTLY_NEXT_TRUSTED_RUNNER=glaeda-runner-cmux7s-mac-mini-nightly-next`). It keeps `/Users/cmux` paths (no `/Users/runner` link: that needs sudo), so a paired Linux darling parity run has no matching profile. Install with `scripts/ci/nightly-builder-install.sh HOST`; the old M6 runner is removed.
+
 Owner: Chief subagent "Dedicated nightly builder Mac" (2026-10-20). User ask: "one machine whose job is
 always to build the nightly ... nightlies for cmux-next nightly never, ever get
 blocked, ever."
@@ -130,6 +133,34 @@ paths, as real directories:
 Rollback: `launchctl bootout gui/$(id -u)/ai.manaflow.nightly-builder.runner`,
 restore `.runner` and `.env` from the `.bak-20261020` copies, replace the
 `_work` link with `_work.old-20261020`, then `launchctl bootstrap` the plist.
+
+## Gate daemon tests on cmux22 (2026-10-21, proposed)
+
+On 2026-10-21 nightly-next stopped at ff8d849c for more than 2 h. Each
+feat-cmux-next push's `cmux_next_ daemon tests (macOS)` waited on
+`CI_NEXT_DAEMON_POOL=glaeda-side-std-xcode-26.6`, which is the same label as
+`CI_SIDE_LANE_RUNNER`. About 50 PR and lane jobs share that label, and GitHub
+gives a gate job no priority among them. Without a daemon-tests marker no tree
+can be promoted.
+
+- A second runner on cmux22, `cmux22-next-gate`, with only the label
+  `glaeda-runner-cmux22-next-gate`. Its job-started hook runs
+  `nightly_builder.py admit --role next-gate`, which admits only
+  `cmux-tui-artifacts.yml` job `cmux-next-daemon-tests` for a push to
+  `refs/heads/feat-cmux-next`. The role is an argument of the hook script, not
+  a job variable, so a job cannot choose it.
+- `CI_NEXT_DAEMON_POOL=glaeda-runner-cmux22-next-gate`. Only attempt 1 of a
+  feat-cmux-next push reads it.
+- When a gate job gets the runner, attempt 1 of a feat-cmux-next push skips
+  its tests if the branch head has a different key whose tree is published:
+  the head's run tests that tree, and only the newest tested tree is
+  promoted. An old job then takes about a minute, so one runner keeps up. A
+  branch-wide concurrency group was rejected: an older push that reaches the
+  group later replaces the head's waiting job. Trade-off: if the head's tests
+  fail, the skipped older key stays unmarked until a later run tests it.
+- `scripts/ci/nightly-builder-install.sh` writes a plain `admit` hook. The
+  gate runner's hook must call `admit --role next-gate` (follow-up with the
+  runner registration).
 
 ## Fallback
 

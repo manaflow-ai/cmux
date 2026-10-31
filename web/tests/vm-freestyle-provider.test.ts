@@ -22,6 +22,7 @@ import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
+import { runChild } from "./helpers/run-child";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -92,14 +93,16 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("legacy attach and public SSH remain unavailable", () => {
-    // SSH is an explicit legacy attach verb. It must not become the default
-    // transport advertised for cmux-tui machines.
+  test("legacy attach stays unavailable and SSH is never advertised as a transport", () => {
+    // SSH is an explicit verb backed by a scoped provider identity. It must not
+    // become the default transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
-    expect(provider.openSSH).toBeUndefined();
-    expect(provider.revokeSSHIdentity).toBeUndefined();
+    expect(typeof provider.openSSH).toBe("function");
+    expect(typeof provider.revokeSSHIdentity).toBe("function");
+    expect(provider.attachTransports).toEqual(["cmux-remote"]);
   });
+
 
   test("fork is not implemented, so the capability resolves false", () => {
     // vmCapabilitiesFor() derives `fork` from the method's existence; a machine
@@ -107,6 +110,22 @@ describe("FreestyleProvider transport contract", () => {
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
   });
+});
+
+test("Freestyle enrollment approval sends one valid complete shell command", async () => {
+  const commands: string[] = [];
+  const vm = {
+    exec: async ({ command }: { command: string }) => {
+      commands.push(command);
+      const syntax = await runChild("/bin/sh", ["-n", "-c", command]);
+      expect(syntax.status).toBe(0);
+      return { statusCode: 0, stdout: '{"fingerprint":"device-fingerprint"}', stderr: "" };
+    },
+  };
+  const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+  const result = await providerWith({ client }).approveCmuxRemoteEnrollment(VM_ID, "inv_wait");
+  expect(result).toMatchObject({ approved: true, deviceFingerprint: "device-fingerprint" });
+  expect(commands).toHaveLength(1);
 });
 
 describe("Freestyle fork readiness", () => {
@@ -770,6 +789,18 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("names the owning customer on create and restore, and omits a malformed id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "team-owner" });
+    await providerWith(fake).restore("snap-1", { customerId: "user_owner-2" });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "not a customer id" });
+    await providerWith(fake).create({ image: "sh-devbox" });
+    expect(fake.creates[0]).toMatchObject({ customer: { customerId: "team-owner" } });
+    expect(fake.creates[1]).toMatchObject({ customer: { customerId: "user_owner-2" } });
+    expect(fake.creates[2]).not.toHaveProperty("customer");
+    expect(fake.creates[3]).not.toHaveProperty("customer");
+  });
+
   test("restore passes the rule inline without guest setup", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
@@ -939,7 +970,7 @@ describe("Freestyle client configuration", () => {
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
   });
 });
 
@@ -948,18 +979,124 @@ describe("Freestyle client configuration", () => {
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
-  test("uses persisted network metadata without a guest probe or healing", async () => {
+  const invitationUri = (id: string): string => `cmux://enroll/${Buffer.from(JSON.stringify({
+    version: 1,
+    id,
+    secret: "secret",
+    daemon_public_key: "public-key",
+    daemon_fingerprint: "daemon-fingerprint",
+    daemon_name: "cloud",
+    expires_at_unix: 2_000_000_000,
+    route_hints: [],
+    approval_required: true,
+  })).toString("base64url")}`;
+
+  test("uses the machine's persisted auth mode and decodes the real enrollment invitation id", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
     const commands: string[] = [];
+    const uri = invitationUri("inv_real_id");
     const vm = {
-      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+      exec: async ({ command }: { command: string }) => {
+        commands.push(command);
+        return {
+          statusCode: 0,
+          stdout: JSON.stringify({ uri }),
+          stderr: "",
+        };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "client-grant",
+          networkIpv4: "10.4.0.7",
+          networkIpv6: "fd00:4::7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        route: "ws://10.4.0.7:1337/v1/link",
+        trustedCarrier: false,
+        invitation: { uri, invitationId: "inv_real_id", expiresAtUnix: 2_000_000_000 },
+      });
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toContain("remote enroll create");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("an enrolled fingerprint uses the cryptographic grant without another guest exec", async () => {
+    const vm = {
+      exec: async () => { throw new Error("an enrolled attach must not exec in the guest"); },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
-      providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
+      deviceFingerprint: "device-fingerprint",
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxRemoteAuth: "client-grant",
+        networkIpv4: "10.4.0.7",
+      },
     });
-    expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
-    expect(commands).toEqual([]);
+    expect(endpoint.trustedCarrier).toBe(false);
+    expect(endpoint.invitation).toBeUndefined();
+  });
+
+  test("grant rollout enrolls new clients on trusted images without locking out released clients", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const uri = invitationUri("inv_compat_id");
+    const vm = {
+      exec: async () => ({ statusCode: 0, stdout: JSON.stringify({ uri }), stderr: "" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        trustedCarrier: true,
+        invitation: { invitationId: "inv_compat_id" },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("a trusted image remains attachable when optional invitation minting is unavailable", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const vm = {
+      exec: async () => ({ statusCode: 1, stdout: "", stderr: "old daemon has no enrollment command" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint.trustedCarrier).toBe(true);
+      expect(endpoint.invitation).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
@@ -1120,5 +1257,107 @@ describe("Go provider runtime ceiling", () => {
     const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
     expect(updated).toBe(false);
+  });
+});
+
+// A fake of the SDK's identity namespace: identities, their VM grants and tokens.
+function fakeIdentities(options: { readonly failGrant?: boolean; readonly deleteStatus?: number } = {}) {
+  const identities = new Map<string, { grants: Array<{ vmId: string; allowedLinuxUsers: string[] | null | undefined }>; tokens: string[] }>();
+  const deleted: string[] = [];
+  let next = 0;
+  const handle = (identityId: string) => ({
+    permissions: {
+      vm: {
+        grant: async ({ vmId, allowedLinuxUsers }: { vmId: string; allowedLinuxUsers?: string[] | null }) => {
+          if (options.failGrant) throw new FreestyleApiError(500, { code: "INTERNAL", message: "grant failed" });
+          identities.get(identityId)?.grants.push({ vmId, allowedLinuxUsers });
+          return {};
+        },
+      },
+    },
+    tokens: {
+      create: async () => {
+        const token = `fs-token-${identityId}`;
+        identities.get(identityId)?.tokens.push(token);
+        return { id: `tok-${identityId}`, token };
+      },
+    },
+    delete: async () => {
+      identities.delete(identityId);
+      deleted.push(identityId);
+    },
+  });
+  const client = {
+    identities: {
+      create: async () => {
+        const identityId = `ident-${++next}`;
+        identities.set(identityId, { grants: [], tokens: [] });
+        return { identity: handle(identityId), identityId, data: { id: identityId, managed: false } };
+      },
+      delete: async (identityId: string) => {
+        if (options.deleteStatus !== undefined) throw new FreestyleApiError(options.deleteStatus, { code: "X", message: "delete failed" });
+        if (!identities.has(identityId)) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "no identity" });
+        identities.delete(identityId);
+        deleted.push(identityId);
+      },
+    },
+  } as unknown as Freestyle;
+  return { client, identities, deleted };
+}
+
+describe("FreestyleProvider scoped SSH identities", () => {
+  test("openSSH mints an identity granted only this VM as the work user, with one token", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    expect(endpoint).toMatchObject({
+      transport: "ssh",
+      host: "beta-ssh.freestyle.sh",
+      port: 22,
+      username: `${VM_ID}+cmux`,
+      credential: { kind: "password", value: "fs-token-ident-1" },
+      identityHandle: "ident-1",
+    });
+    expect(fake.identities.get("ident-1")?.grants).toEqual([{ vmId: VM_ID, allowedLinuxUsers: ["cmux"] }]);
+  });
+
+  test("a failed grant deletes the identity it just made", async () => {
+    const fake = fakeIdentities({ failGrant: true });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.openSSH(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+    expect(fake.identities.size).toBe(0);
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity deletes the identity, and is a no-op for unknown or blank handles", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    expect(fake.identities.size).toBe(0);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    await provider.revokeSSHIdentity("  ");
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity surfaces a provider outage so cleanup retries", async () => {
+    const fake = fakeIdentities({ deleteStatus: 503 });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.revokeSSHIdentity("ident-9")).rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("strict destroy", () => {
+  const providerWith = (error: FreestyleApiError) => new FreestyleProvider({
+    client: () => ({ vms: { ref: () => ({ delete: async () => { throw error; } }) } } as unknown as Freestyle),
+  });
+
+  test("only Freestyle's own NOT_FOUND counts as gone; any other 404 is an error", async () => {
+    const notFound = new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such vm" });
+    const route = new FreestyleApiError(404, { code: "ROUTE_NOT_FOUND", message: "no route" });
+    await expect(providerWith(notFound).destroy("vm-1", undefined, { strict: true })).resolves.toBeUndefined();
+    await expect(providerWith(route).destroy("vm-1", undefined, { strict: true })).rejects.toBeInstanceOf(ProviderError);
+    // Without strict the existing idempotent behavior holds.
+    await expect(providerWith(route).destroy("vm-1")).resolves.toBeUndefined();
   });
 });

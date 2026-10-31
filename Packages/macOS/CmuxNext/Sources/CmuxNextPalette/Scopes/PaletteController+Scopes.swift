@@ -18,10 +18,10 @@ extension PaletteController {
         }
     }
 
-    /// Reads the user's aliases and pins (cmux.json) into the searcher. A change ranks the empty
+    /// Reads the user's aliases and pins (cmux.json), with the built-in aliases, into the searcher. A change ranks the empty
     /// query again: the last rank kept for the next open was ranked with the old pins.
     private func applyRankSettings() {
-        let settings = sources.rankSettings?() ?? PaletteRankSettings()
+        let settings = (sources.rankSettings?() ?? PaletteRankSettings()).addingBuiltInAliases()
         let changed = model.searcher.rankSettings.withLock { current in
             defer { current = settings }
             return current != settings

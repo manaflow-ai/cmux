@@ -51,7 +51,12 @@ public actor CmuxConfigFile {
         try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
             if fileManager.fileExists(atPath: classic.path) {
-                try fileManager.copyItem(at: classic, to: next)
+                // Its text, never the file: a classic cmux.json symlinked into a
+                // dotfiles repo would otherwise become next's file too, and next's
+                // settings migration would rewrite classic's settings through it.
+                // concurrency-allow: first-launch seeding, as the copy it replaces; the file is small.
+                let text = try Data(contentsOf: classic.resolvingSymlinksInPath())
+                try text.write(to: next, options: .withoutOverwriting)
             } else {
                 try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
             }

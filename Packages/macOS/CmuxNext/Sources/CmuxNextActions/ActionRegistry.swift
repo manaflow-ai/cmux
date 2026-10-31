@@ -49,6 +49,13 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// More keys for an action than its override (`{"any": [...]}` in
+    /// cmux.json): each one key or a two-key chord, all running it too. The
+    /// override stays the key menus show; replacing it clears these.
+    public internal(set) var alternateShortcuts: [ActionID: [[Shortcut]]] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// App and keybindings.json entries, after the defaults and cmux.json (`KeyBindingLoader`).
     public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
 
@@ -56,19 +63,50 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
+    /// leaves the palette, menus and context menus, and a run is refused with this reason (the
+    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
+    /// ``ContextMenuLayout``); a menu without one is drawn as generated.
+    public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
+    /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
+    public var showsCustomizeMenuItem = true
+    /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
+    @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
     /// the window (browser focus mode, text fields). Nil allows everything.
     @ObservationIgnored public var menuKeyEquivalentGate: (@MainActor (ActionID) -> Bool)?
+    /// Whether the binding table holds the workspaces-as-tabs keys (`KeyBindingDefaults.workspacesAsTabs`).
+    /// The App reads its Debug tunable here; off (the default), the table, the shortcut list and its
+    /// conflicts are the shipped ones.
+    @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
-    /// a click in an open menu. Replaceable in tests.
-    @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }
+    /// a click in an open menu. The App installs it from its input dispatch context (`InputDispatchContext`), as
+    /// ``dispatchingInputEvent``: `NSApp.currentEvent` keeps the last key after its dispatch, so a
+    /// socket or CLI run after a key press would pass for one. False (the default) outside the App;
+    /// replaceable in tests.
+    @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { false }
+    /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
+    /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
+    /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
+    @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
+    /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
+    /// each gate (`action.gate`).
+    let runTiming: any ActionRunTiming
+    /// The end of the gate interval open now (`ActionRegistry+Signposts`), ended before anything
+    /// else is timed so a gate never encloses the run it lets through.
+    @ObservationIgnored var openGateEnd: (@MainActor () -> Void)?
 
     /// Collects missing required arguments (the palette installs itself
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Asks for one argument inline, also an optional one (the palette installs itself here), then
+    /// calls `perform(_:invocation:)` again with it (`ask(_:_:_:)`).
+    @ObservationIgnored public var argumentAsker: (@MainActor (ActionID, ActionInvocation, ActionArgumentAsk) -> Void)?
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
@@ -94,6 +132,13 @@ public final class ActionRegistry {
 
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
+    /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
+    /// the localized notice, for a run no caller waits on (a keyboard, menu or palette run): the App
+    /// shows it where it shows refusals. A capturing caller (the control socket) reports it itself.
+    @ObservationIgnored public var remoteFailureObserver: (@MainActor (_ action: ActionID, _ notice: String) -> Void)?
+    /// Runs of ``ActionEffect/waiting(_:_:)`` effects since launch, by action and reason: the
+    /// actions that still show nothing until a reply (`debug.action_budget`, the latency report).
+    @ObservationIgnored public internal(set) var waitingRuns: [ActionID: [ActionWait: Int]] = [:]
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
@@ -124,12 +169,35 @@ public final class ActionRegistry {
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
 
-    /// An empty registry with no catalog.
-    public init() {}
+    /// An empty registry with no catalog whose runs are not timed.
+    public convenience init() {
+        self.init(catalog: [])
+    }
 
-    /// A registry seeded with `catalog`.
-    public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
+    /// A registry seeded with `catalog` whose runs are not timed (``NoActionRunTiming``): a
+    /// test's registry writes no signposts and adds no run-loop observer.
+    ///
+    /// A separate symbol, not a default argument of ``init(catalog:aliases:runTiming:)``: objects
+    /// compiled before the timing was injected call this one (warm fleet build trees link them).
+    ///
+    /// - Parameters:
+    ///   - catalog: The descriptors.
+    ///   - aliases: Old ids folded into canonical ids.
+    public convenience init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
+        self.init(catalog: catalog, aliases: aliases, runTiming: NoActionRunTiming())
+    }
+
+    /// A registry seeded with `catalog` whose runs `runTiming` times.
+    ///
+    /// - Parameters:
+    ///   - catalog: The descriptors (``ActionCatalog/all`` in the App).
+    ///   - aliases: Old ids folded into canonical ids.
+    ///   - runTiming: Times every run that does work. The App passes ``SignpostActionRunTiming``
+    ///     at its composition root; tests pass a recorder.
+    public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:],
+                runTiming: any ActionRunTiming) {
         self.aliases = aliases
+        self.runTiming = runTiming
         seed(catalog)
     }
 
@@ -189,7 +257,9 @@ public final class ActionRegistry {
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
-        let stored = id == action.id ? action : action.withID(id)
+        var stored = id == action.id ? action : action.withID(id)
+        // Interned here, when bound, so a run's timing looks nothing up (ActionBudgetMonitor).
+        stored.timingIndex = runTiming.intern(id)
         if let index = indexByID[id] {
             actions[index] = stored
         } else {
@@ -267,7 +337,8 @@ public final class ActionRegistry {
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && settingOffReason(descriptor.id) == nil
+            && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
@@ -280,60 +351,30 @@ public final class ActionRegistry {
         return isAvailable(id, in: base.union(facts))
     }
 
+    /// `isAvailable(_:for:)` for a run from outside the app (the CLI, MCP): a `pane:` or `tab:`
+    /// target decides the facts it brings (`ActionContext.decidedByPaneOrTabTarget`) itself, so
+    /// another agent chat or canvas that has the keyboard never stands in for the target's. A
+    /// script's Set Agent Chat Model on a terminal pane is refused here, before anything runs,
+    /// whatever the person focuses. The App's own runs on a chat's tab (its header, from a chat
+    /// that may sit in no pane) keep `isAvailable(_:for:)`.
+    public func isAvailable(_ id: ActionID, forScript invocation: ActionInvocation) -> Bool {
+        guard let kind = invocation.target?.kind, kind == .pane || kind == .tab,
+              let required = descriptor(for: id)?.requires, !required.isDisjoint(with: .decidedByPaneOrTabTarget),
+              let targetContext else { return isAvailable(id, for: invocation) }
+        let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
+            .subtracting(.decidedByPaneOrTabTarget)
+        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)))
+    }
+
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
         if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
         return context.isSuperset(of: descriptor.requires)
     }
 
-    /// Bound, available, and its `isEnabled` predicate passes.
-    public func canPerform(_ id: ActionID) -> Bool {
-        guard let action = action(for: id), isAvailable(id) else { return false }
+    /// Bound, available in `context` (default: the current one), and its `isEnabled` predicate passes.
+    public func canPerform(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
+        guard let action = action(for: id), isAvailable(id, in: context) else { return false }
         return action.isEnabled()
-    }
-
-    // MARK: - Performing
-
-    /// Performs the action if it is bound, available, and enabled. Returns
-    /// whether it ran.
-    @discardableResult
-    public func perform(_ id: ActionID) -> Bool {
-        perform(id, invocation: ActionInvocation())
-    }
-
-    /// Performs an action that takes one argument. The text is parsed with
-    /// the descriptor's first argument; handlers without a schema get it
-    /// through `argumentHandler`.
-    @discardableResult
-    public func perform(_ id: ActionID, argument: String) -> Bool {
-        let schema = descriptor(for: id)?.arguments.first
-        let name = schema?.name ?? "value"
-        let value = schema?.parse(argument) ?? .string(argument)
-        return perform(id, invocation: ActionInvocation(arguments: [name: value]))
-    }
-
-    /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
-    @discardableResult
-    public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
-        settlingPreview(for: id) { performNow(id, invocation: invocation) }
-    }
-
-    private func performNow(_ id: ActionID, invocation: ActionInvocation) -> Bool {
-        if disabledFeature(for: id) != nil { return false }
-        if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
-        guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
-        if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
-        let missing = descriptor(for: id).map { descriptor in
-            descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
-        } ?? false
-        if missing, let argumentCollector {
-            // A menu item or shortcut for an argument-taking action: let the
-            // palette ask for the rest, then run with the full invocation.
-            argumentCollector(id, invocation)
-            return true
-        }
-        if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        runScoped(action, id, invocation)
-        return true
     }
 
     /// IDs of catalog actions without a handler. The App's conformance test
@@ -360,11 +401,12 @@ public final class ActionRegistry {
     /// A target of an argument's kind supplies that argument when the
     /// action does not act on that kind itself: right-clicking a browser
     /// profile and choosing New Tab with Browser Profile… uses that profile,
-    /// while Merge Workspace into… (which acts on a workspace) still asks
-    /// for the other workspace.
+    /// while Merge Workspace Into… (which acts on a workspace) still asks
+    /// for the other workspace, unless the argument names the target itself
+    /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
     static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
-        return target.kind == kind && !descriptor.targets.contains(kind)
+        return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }
 
     static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {

@@ -16,7 +16,12 @@ public struct CookieImporter: Sendable {
     }
 
     /// - Parameter filter: the sites to keep (`--domain`); the default keeps every cookie.
-    public func run(_ profile: BrowserSourceProfile, into target: String, filter: CookieDomainFilter = CookieDomainFilter([String]()),
+    ///
+    /// `@concurrent`: the read below blocks on the source browser's Keychain prompt (a
+    /// `SecItemCopyMatching` that waits for the person). Under NonisolatedNonsendingByDefault a
+    /// plain async method runs on its caller's actor, and the import service calls it from the
+    /// main actor, so the whole app hung until the prompt was answered.
+    @concurrent public func run(_ profile: BrowserSourceProfile, into target: String, filter: CookieDomainFilter = CookieDomainFilter([String]()),
                     now: Date = Date()) async throws -> CookieImportReport {
         let read = try Self.read(profile, keys: keys, now: now)
         var report = CookieImportReport(undecryptable: read.undecryptable, partitioned: read.partitioned, expired: read.expired)

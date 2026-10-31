@@ -40,8 +40,9 @@ public nonisolated struct DiffPageCommand {
 }
 
 /// The markdown page's host commands (diff-host.md S6, webviews/src/pages/markdown/README.md): the
-/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `link` (Cmd-K) and
-/// the zoom commands while a markdown page has the keyboard; the page reads no chord itself.
+/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `reload` (Cmd-R),
+/// `link` (Cmd-K) and the zoom commands while a markdown page has the keyboard; the page reads no
+/// chord itself. The omnibar's buttons and field send `back`, `forward`, `reload` and `open`.
 public nonisolated struct MarkdownPageCommand {
     public nonisolated init() {}
     public static let zoomIn = "zoomIn"
@@ -49,6 +50,10 @@ public nonisolated struct MarkdownPageCommand {
     public static let zoomReset = "zoomReset"
     /// Saves the document (Cmd-S, the `markdownSave` action).
     public static let save = "save"
+    /// Reads the file from disk again and shows it at the same scroll (Cmd-R, `markdownReload`).
+    public static let reload = "reload"
+    /// Opens the absolute markdown path in `text` as the page's next history entry (typed in the omnibar).
+    public static let open = "open"
     /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
     public static let link = "link"
     /// Forgets every table's column widths in the open file (`markdownResetTableWidths`).
@@ -56,13 +61,25 @@ public nonisolated struct MarkdownPageCommand {
     /// Forgets the column widths of the table the user right-clicked (the page's context menu).
     public static let resetContextTableWidths = "resetContextTableWidths"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths]
+    /// The file's viewer comments changed: `text` is the new `{v, comments}` JSON (the page redraws its markers).
+    public static let comments = "comments"
+    /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
+    public static let goToTop = "goToTop"
+    /// The shared find actions (Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E, Hide Find Bar), under the code
+    /// editor's command names (``EditorPageCommand``): the page's find pill (markdownFind.ts).
+    public static let find: Set<String> = [
+        EditorPageCommand.find, EditorPageCommand.findNext, EditorPageCommand.findPrevious,
+        EditorPageCommand.useSelectionForFind, EditorPageCommand.hideFind,
+    ]
+    public static let all: Set<String> = find.union([
+        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    ])
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
-        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
-        "markdownResetTableWidths": resetTableWidths,
+        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward", "markdownReload": reload,
+        "markdownResetTableWidths": resetTableWidths, "markdownGoToTop": goToTop,
     ]
 }
 

@@ -34,7 +34,11 @@ extension ScreenContentView {
     func syncRows(focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool) -> Bool {
         var needsFrames = false
         let scrolling = baseGeometry.rowStacks.filter { $0.value.scrolls }
-        for id in rowScrolls.keys where scrolling[id] == nil { rowScrolls[id] = nil }
+        for id in rowScrolls.keys where scrolling[id] == nil {
+            // A close that leaves the rest fitting the column: its frames glide from where they show.
+            if animated { carryRowOffset(of: id) }
+            rowScrolls[id] = nil
+        }
         for (id, stack) in scrolling {
             guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
             var scroll = rowScrolls[id] ?? RowScroll()
@@ -47,10 +51,27 @@ extension ScreenContentView {
         return needsFrames
     }
 
-    /// Steps the row springs; true while one moves.
-    func stepRows(_ dt: Double, policy: MotionPolicy) -> Bool {
+    /// A row column that stops scrolling drops its offset: its pane and divider springs start where
+    /// they show at that offset, so the change glides instead of jumping by it.
+    private func carryRowOffset(of id: ColumnID) {
+        guard let offset = rowScrolls[id]?.state.spring.value, abs(offset) > 0.25,
+              let column = layout.columns.first(where: { $0.id == id }) else { return }
+        let splits = Set(column.trees.flatMap(\.splits))
+        for pane in column.trees.flatMap(\.panes) { paneFrames[pane]?.y.value -= offset }
+        for kind in Array(dividerFrames.keys) {
+            let inColumn: Bool = switch kind {
+            case let .split(split): splits.contains(split)
+            case let .rowEdge(edge, _): edge == id
+            case .columnEdge: false
+            }
+            if inColumn { dividerFrames[kind]?.y.value -= offset }
+        }
+    }
+
+    /// Steps the row springs on `spring` (the scroll spring, or a close's while the close moves);
+    /// true while one moves.
+    func stepRows(_ dt: Double, spring: SpringParameters) -> Bool {
         var moving = false
-        let spring = policy.spring(.scroll)
         for id in Array(rowScrolls.keys) where rowScrolls[id]?.state.isGestureActive == false {
             if rowScrolls[id]?.state.spring.advance(dt, parameters: spring, epsilon: 0.25) == true { moving = true }
         }
@@ -58,9 +79,9 @@ extension ScreenContentView {
         return moving
     }
 
-    /// Recomputes what hit testing reads from the presented row offsets.
+    /// Recomputes what hit testing reads from the presented row and scroll area offsets.
     func refreshRowShift() {
-        geometry = baseGeometry.shiftingRows(rowOffsets)
+        geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
     }
 
     // MARK: Input (V5)
@@ -87,6 +108,7 @@ extension ScreenContentView {
     }
 
     func beginRowScroll(_ column: ColumnID) {
+        scrollRidesFrames = false
         rowScrolls[column]?.state.reduce(.gestureBegan)
     }
 
@@ -109,6 +131,7 @@ extension ScreenContentView {
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
+        scrollRidesFrames = false
         guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
         rowScrolls[column] = scroll

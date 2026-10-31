@@ -25,8 +25,13 @@ final class ProxyConnection: Sendable {
 
     /// A machine listener's route when the peer is this app or its helpers.
     private func trustedRoute() -> RemoteLocalhostProxy.Route? {
-        guard machineListener, case .hostPort(_, let peer) = client.endpoint,
-              PeerProcess.isTrusted(peerPort: peer.rawValue, localPort: localPort) else { return nil }
+        guard machineListener, case .hostPort(let peerHost, let peerPort) = client.endpoint,
+              PeerProcess.isTrusted(
+                  peerHost: peerHost,
+                  peerPort: peerPort.rawValue,
+                  localHost: .ipv4(.loopback),
+                  localPort: localPort
+              ) else { return nil }
         return proxy.route(forListenerPort: localPort)
     }
 
@@ -56,6 +61,9 @@ final class ProxyConnection: Sendable {
         }
         if LoopbackHost(head.host).isLoopback {
             await tunnel(head, rest: rest, route: route)
+        } else if !route.allowsDirectDestinations {
+            proxy.note("refused direct \(head.host):\(head.port) for \(route.machineName)")
+            try? await client.sendAll(ProxyResponses.status(403, "Forbidden"))
         } else {
             await direct(head, rest: rest)
         }
@@ -125,7 +133,10 @@ final class ProxyConnection: Sendable {
                         return
                     }
                     if let chunk, !chunk.isEmpty {
-                        do { try await tunnel.write(chunk) } catch { return }
+                        do { try await tunnel.write(chunk) } catch {
+                            client.cancel()
+                            return
+                        }
                     }
                     if complete {
                         tunnel.shutdownWrite()
@@ -135,6 +146,7 @@ final class ProxyConnection: Sendable {
             }
             group.addTask {
                 // Machine to browser; ends the connection when the tunnel ends.
+                var receivedTerminalEvent = false
                 for await event in tunnel.events {
                     switch event {
                     case .data(let data):
@@ -146,12 +158,17 @@ final class ProxyConnection: Sendable {
                             return
                         }
                     case .eof:
+                        receivedTerminalEvent = true
                         try? await client.sendFinal()
                     case .closed:
+                        receivedTerminalEvent = true
                         client.cancel()
                         return
                     }
                 }
+                // A bounded tunnel stream may finish after closing an
+                // overloaded upstream without a final event in its buffer.
+                if !receivedTerminalEvent { client.cancel() }
             }
         }
     }

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// Runs the real `serve-web` binary and waits for its `Web UI available at <url>` line.
@@ -30,30 +31,22 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         } catch {
             throw VSCodeServeWebError.launchFailed(error.localizedDescription)
         }
-        let urls = drain(fileDescriptor: pipe.fileHandleForReading.fileDescriptor)
-        let timeout = startupTimeout
+        // The first of the URL line, the output ending, the startup deadline and cancellation
+        // resumes the wait once (no task group waits for a loser).
+        let outcome = FirstOutcome<Result<URL, VSCodeServeWebError>>()
+        drain(fileDescriptor: pipe.fileHandleForReading.fileDescriptor, into: outcome)
+        let deadline = DemandTimer(owner: "vscode-serve-web.startup")
+        deadline.schedule(after: startupTimeout) { outcome.resolve(.failure(.startupTimedOut)) }
+        let result = await withTaskCancellationHandler {
+            await outcome.value()
+        } onCancel: {
+            outcome.resolve(.failure(.stopped))
+            handle.terminate()
+        }
+        deadline.cancel()
         do {
-            let url = try await withTaskCancellationHandler {
-                try await withThrowingTaskGroup(of: URL?.self) { group in
-                    group.addTask {
-                        for await url in urls { return url }
-                        return nil
-                    }
-                    group.addTask {
-                        // The startup deadline itself; cancelled as soon as the URL arrives.
-                        try await Task.sleep(for: timeout)
-                        throw VSCodeServeWebError.startupTimedOut
-                    }
-                    defer { group.cancelAll() }
-                    guard let first = try await group.next(), let url = first else {
-                        throw VSCodeServeWebError.exitedBeforeReady
-                    }
-                    return url
-                }
-            } onCancel: {
-                handle.terminate()
-            }
             try Task.checkCancellation()
+            let url = try result.get()
             return VSCodeServeWebStarted(handle: handle, url: url)
         } catch {
             handle.terminate()
@@ -61,9 +54,10 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         }
     }
 
-    /// Reads the server's output until it ends, yielding the first Web UI URL it prints.
-    private func drain(fileDescriptor: Int32) -> AsyncStream<URL> {
-        let (urls, continuation) = AsyncStream.makeStream(of: URL.self)
+    /// Reads the server's output until it ends: the first Web UI URL it prints resolves
+    /// `outcome`, and the end of the output before one does resolves it as exited.
+    private func drain(fileDescriptor: Int32, into outcome: FirstOutcome<Result<URL, VSCodeServeWebError>>) {
+        // task-owner: drains the server's output for the life of the process; it ends at EOF.
         Task.detached {
             let reader = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: false)
             var found = false
@@ -71,12 +65,11 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
                 for try await line in reader.bytes.lines where !found {
                     if let url = URL(vscodeServeWebOutput: line) {
                         found = true
-                        continuation.yield(url)
+                        outcome.resolve(.success(url))
                     }
                 }
             } catch {}
-            continuation.finish()
+            outcome.resolve(.failure(.exitedBeforeReady))
         }
-        return urls
     }
 }

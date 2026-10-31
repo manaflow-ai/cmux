@@ -10,11 +10,13 @@
 // The real agent pane (the dev entry) in Chromium and WebKit, with a stand-in host that keeps the
 // posted snapshot as AgentPaneNewTab.warmed does, and a stand-in acpmux daemon whose chat list comes
 // late. A script from the document's start records what the Chats list and the location strip
-// show on every DOM change and every frame; a warm open must paint one state only.
+// show on every DOM change and every frame; a warm open must paint one state only. The host's
+// handshake and the daemon's chat list are held until the page has painted without them.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-warm-first-frame.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -42,7 +44,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   const HOME = "/Users/you";
   const ATLAS = `${HOME}/src/atlas`;
   const BILLING = `${HOME}/src/billing`;
-  // Hours old, so no age label turns over while a test runs.
+  // Hours old, so no age label turns over while a test runs. Two sessions and one device chat fill
+  // the three cards of the Cards template (templates.ts), so the device chat is on the page.
   const now = Date.now();
   const hours = (count: number) => now - count * 3_600_000 - 600_000;
   const sessions = [
@@ -64,20 +67,21 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       updatedAt: hours(3),
       title: "Invoice rounding",
     },
-    {
-      sessionId: "s-docs",
-      cwd: ATLAS,
-      harness: "claude",
-      status: "idle",
-      turnCount: 2,
-      updatedAt: hours(5),
-      title: "Write the API docs",
-    },
   ];
   // The chat index's device chats the host pushes after the handshake (AgentPaneDeviceChat).
   const device = [{ key: "codex:d-old", harness: "codex", title: "Older device chat", updatedAt: hours(30) }];
-  /// How long the daemon takes to list its chats.
-  let listDelay = 0;
+  /// The daemon's chat list: answered once `held` settles; `asked` runs as a page asks for it.
+  let list = { held: Promise.resolve(), asked: () => {} };
+  /// Holds the daemon's chat list from now until `open()`; `asked` settles once a page asked for it.
+  function holdList() {
+    let open!: () => void;
+    let asked!: () => void;
+    const held = new Promise<void>((resolve) => (open = resolve));
+    const wasAsked = new Promise<void>((resolve) => (asked = resolve));
+    list = { held, asked };
+    return { open, asked: wasAsked };
+  }
+  type ListHold = ReturnType<typeof holdList>;
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -97,7 +101,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
           else if (message.method === "_acpmux/watch") {
-            if (listDelay) await Bun.sleep(listDelay);
+            list.asked();
+            await list.held;
             result = { sessions };
           } else if (message.method === "_acpmux/sessions") result = { sessions: [] };
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -124,28 +129,33 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   type Context = Record<string, unknown>;
 
   /// Loads a page with `context` injected as the document commits (AgentPaneNavigation) and
-  /// records each distinct Chats list and location strip it paints.
-  async function load(browserContext: BrowserContext, context: Context, handshakeDelay = 300): Promise<Page> {
+  /// records each distinct Chats list and location strip it paints. A held host answers the
+  /// handshake and the project list once the test calls the page's `__openHost()`.
+  async function load(browserContext: BrowserContext, context: Context, holdHost = true): Promise<Page> {
     const page = await browserContext.newPage();
-    await page.exposeFunction("__postWarm", (warm: unknown) => {
-      warmed = JSON.stringify(warm);
-    });
+    await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
-      ({ endpoint, context, handshakeDelay, device }) => {
+      ({ endpoint, context, holdHost, device }) => {
         const w = window as unknown as Record<string, unknown> & {
-          __postWarm(warm: unknown): void;
           cmuxAcpmuxBridge?: { applyDeviceChats?(chats: unknown): void };
         };
         w.__cmuxNewTabContext = context;
-        const later = (ms: number, value: unknown) =>
-          new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
+        let openHost!: () => void;
+        const host = holdHost ? new Promise<void>((resolve) => (openHost = resolve)) : Promise.resolve();
+        w.__openHost = () => openHost?.();
+        const later = (value: unknown) => Promise.resolve({ ok: true, value });
+        const held = (value: unknown) => host.then(() => ({ ok: true, value }));
+        // Each `newTab.warm` the page posted, as JSON text.
+        const posts: string[] = [];
+        w.__posts = posts;
+        w.__projectsListed = false;
         const answer = (request: { method: string; params?: { warm?: unknown } }): unknown => {
           switch (request.method) {
             case "ready":
               // The host pushes the device chats as it accepts the handshake (AgentPaneBridge).
-              setTimeout(() => w.cmuxAcpmuxBridge?.applyDeviceChats?.(device), handshakeDelay + 50);
-              return later(handshakeDelay, {
+              void host.then(() => setTimeout(() => w.cmuxAcpmuxBridge?.applyDeviceChats?.(device), 0));
+              return held({
                 protocolVersion: 1,
                 transport: "acpmux-websocket",
                 endpoint,
@@ -156,18 +166,21 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
                 machineName: "cosmic-gray",
               });
             case "newTab.context":
-              return later(0, { newTab: context });
+              return later({ newTab: context });
             case "newTab.warm":
-              w.__postWarm(request.params?.warm);
-              return later(0, null);
+              posts.push(JSON.stringify(request.params?.warm));
+              return later(null);
             case "project.list":
-              return later(handshakeDelay, {
+              return held({
                 projects: [`${String(context.home)}/src/atlas`, `${String(context.home)}/src/billing`],
+              }).then((answer) => {
+                w.__projectsListed = true;
+                return answer;
               });
             case "transport.gesture":
-              return later(0, { ticket: "gesture" });
+              return later({ ticket: "gesture" });
             default:
-              return later(0, null);
+              return later(null);
           }
         };
         w.webkit = { messageHandlers: { agentSession: { postMessage: answer } } };
@@ -191,28 +204,51 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
           characterData: true,
           attributes: true,
         });
-        const frame = () => {
-          read();
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        window.cmuxAfterPaint(read);
       },
-      { endpoint, context, handshakeDelay, device },
+      { endpoint, context, holdHost, device },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     return page;
   }
 
-  /// What `page` painted from now until its handshake, chats and projects have all answered.
-  async function settle(page: Page): Promise<string[]> {
+  /// Two frames painted from now on.
+  const twoFrames = (page: Page) => page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+
+  /// What `page` painted from now until its handshake, chats and projects have all answered: the
+  /// host answers once the page has painted its New Tab screen, the daemon lists the chats once the
+  /// page has painted the handshake, and the page has posted the listed chats with the device chats.
+  async function settle(page: Page, chats: ListHold): Promise<string[]> {
+    await page.locator(".nt-screen").waitFor({ timeout: 30_000 });
+    await twoFrames(page);
+    await page.evaluate(() => (window as unknown as { __openHost(): void }).__openHost());
+    await chats.asked;
+    await twoFrames(page);
+    chats.open();
+    await page.waitForFunction(
+      () => {
+        const w = window as unknown as { __posts: string[]; __projectsListed: boolean };
+        return w.__projectsListed && w.__posts.some((post) => post.includes("s-atlas") && post.includes("d-old"));
+      },
+      null,
+      { timeout: 30_000 },
+    );
     await page.locator(".nt-card", { hasText: "Fix the atlas build" }).waitFor({ timeout: 30_000 });
-    await page.waitForTimeout(listDelay + 900);
+    await twoFrames(page);
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     return painted;
   }
 
-  const base = { kind: "agent", hotkeys: {}, home: HOME, projects: [ATLAS, BILLING], host: "cosmic-gray" };
+  // Cards, the template these frames were drawn on (an unset one is Minimal, which has no cards).
+  const base = {
+    kind: "agent",
+    hotkeys: {},
+    home: HOME,
+    projects: [ATLAS, BILLING],
+    host: "cosmic-gray",
+    template: "cards",
+  };
   /// Each way a New Tab opens, as NewTabPage.page() makes its context.
   const entries: [string, Context][] = [
     // Cmd-T from a chat in atlas: the tab's folder and location.
@@ -228,12 +264,14 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   /// A page of this Mac that listed the chats posts them; the host keeps that as `warmed`.
   async function warmUp(browserContext: BrowserContext) {
     warmed = undefined;
-    listDelay = 0;
-    const source = await load(browserContext, { ...base }, 0);
+    holdList().open();
+    const source = await load(browserContext, { ...base }, false);
     await source.locator(".nt-card", { hasText: "Fix the atlas build" }).waitFor({ timeout: 30_000 });
     // The post after the host's device chats push carries them too.
-    for (let tries = 0; tries < 50 && !(warmed as string | undefined)?.includes("d-old"); tries += 1)
-      await source.waitForTimeout(100);
+    const posted = () =>
+      (window as unknown as { __posts: string[] }).__posts.filter((post) => post.includes("d-old")).at(-1);
+    await source.waitForFunction(posted, null, { timeout: 5_000 }).catch(() => {});
+    warmed = await source.evaluate(posted);
     await source.close();
   }
 
@@ -246,9 +284,9 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
         await warmUp(browserContext);
         // This page's own chat list comes late, as a fresh page's does.
-        listDelay = 1_200;
+        const chats = holdList();
         const page = await load(browserContext, { ...context, warm: warmed });
-        const painted = await settle(page);
+        const painted = await settle(page, chats);
         await page.close();
         await browserContext.close();
         console.info(`${name} ${entry} warm: ${painted.length} state(s) ${JSON.stringify(painted)}`);
@@ -269,10 +307,12 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
       await warmUp(browserContext);
       // A spare made before any page listed chats, whose own list has not come yet.
-      listDelay = 2_500;
+      const chats = holdList();
       const spare = await load(browserContext, { ...base });
       await spare.locator(".nt-field").waitFor();
-      await spare.waitForTimeout(400);
+      await spare.evaluate(() => (window as unknown as { __openHost(): void }).__openHost());
+      await chats.asked;
+      await twoFrames(spare);
       // Cmd-T adopts it: the host dispatches the opening's context (AgentPaneView.adoptNewTab).
       await spare.evaluate(
         (detail) => {
@@ -281,8 +321,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         },
         { ...base, cwd: ATLAS, warm: warmed },
       );
-      listDelay = 0;
-      const painted = await settle(spare);
+      const painted = await settle(spare, chats);
       await spare.close();
       await browserContext.close();
       console.info(`${name} adopted spare warm: ${painted.length} state(s) ${JSON.stringify(painted)}`);
@@ -299,9 +338,9 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
     "%s: a cold launch with nothing listed yet fills the list once",
     async (name) => {
       const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
-      listDelay = 1_200;
+      const chats = holdList();
       const page = await load(browserContext, { ...base });
-      const painted = await settle(page);
+      const painted = await settle(page, chats);
       await page.close();
       await browserContext.close();
       console.info(`${name} cold: ${painted.length} state(s) ${JSON.stringify(painted)}`);

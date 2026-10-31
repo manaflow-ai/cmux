@@ -117,16 +117,12 @@ impl App {
         }
     }
 
+    /// The session's agent takes a prompt mid-turn: acpmux's `steering` on its list row.
     pub fn selected_supports_steer(&self) -> bool {
-        self.selected_session().and_then(|s| s.get("agentInfo")).map(|_| true).unwrap_or(false)
-            && self
-                .selected_id()
-                .and_then(|id| self.details.get(&id))
-                .and_then(|d| {
-                    d.pointer("/agentCapabilities/_meta/steering/supported")
-                        .and_then(Value::as_bool)
-                })
-                .unwrap_or(false)
+        self.selected_session()
+            .and_then(|s| s.get("steering"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
     }
 
     pub(super) fn show_toast(&mut self, text: impl Into<String>) {

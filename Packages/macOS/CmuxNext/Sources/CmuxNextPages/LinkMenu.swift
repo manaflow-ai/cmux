@@ -10,6 +10,24 @@ public struct LinkMenuRow: Sendable, Equatable {
         case open, openInTextEditor, openWith, openWithOther, revealInFinder, copyPath
         /// One app in an Open In or Open With submenu.
         case app
+
+        /// The row's SF Symbol (the catalog's for the same action: Open Link in New Tab, Copy
+        /// Link, Reveal in Finder, Copy Path); nil for an app row, which shows the app's icon.
+        var symbol: String? {
+            switch self {
+            case .openInCmuxBrowser: "globe"
+            case .openInNewCmuxTab: "plus.square.on.square"
+            case .openInDefaultBrowser: "arrow.up.right.square"
+            case .openIn, .openWith: "arrow.up.forward.app"
+            case .copyLink: "link"
+            case .open: "doc"
+            case .openInTextEditor: "square.and.pencil"
+            case .openWithOther: "ellipsis.circle"
+            case .revealInFinder: "folder"
+            case .copyPath: "doc.on.doc"
+            case .app: nil
+            }
+        }
     }
 
     public var kind: Kind
@@ -44,8 +62,11 @@ public struct LinkMenu {
     public var openInNewTab: ((URL) -> Void)?
     /// Overrides Copy Link and Copy Path (tests); nil: the router's.
     public var copy: ((String) -> Void)?
+    /// Whether a row may still act, checked when it runs and when its panel answers (an agent
+    /// chat's: still on this Mac); nil: always.
+    public var allowed: (@MainActor () -> Bool)?
     /// The most apps a submenu lists.
-    static let appLimit = 24
+    nonisolated static let appLimit = 24
 
     public init(router: LinkRouter = .shared, openInNewTab: ((URL) -> Void)? = nil) {
         self.router = router
@@ -87,13 +108,33 @@ public struct LinkMenu {
     // MARK: App lists (LaunchServices, when a menu opens)
 
     /// The browsers that open `url`, the default first, without this app.
+    /// The shared workspace's answer is kept per scheme (``LinkMenuAppCache``).
     public func browsers(for url: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url), excluding: Bundle.main.bundleURL)
+        let ask: @Sendable () -> [URL] = { [url] in
+            let workspace = NSWorkspace.shared
+            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
+                                excluding: Bundle.main.bundleURL)
+        }
+        guard workspace === NSWorkspace.shared, let scheme = url.scheme?.lowercased() else {
+            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
+                                excluding: Bundle.main.bundleURL)
+        }
+        // http and https open in the same browsers.
+        return LinkMenuAppCache.shared.apps(for: "link:" + (scheme == "https" ? "http" : scheme), compute: ask)
     }
 
-    /// The apps that open `file`, its default first.
+    /// The apps that open `file`, its default first. The shared workspace's answer is kept per
+    /// content type (``LinkMenuAppCache``); a file without one is asked every time.
     public func apps(for file: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        Self.ordered(workspace.urlsForApplications(toOpen: file), first: workspace.urlForApplication(toOpen: file), excluding: nil)
+        guard workspace === NSWorkspace.shared,
+              let type = try? file.resourceValues(forKeys: [.contentTypeKey]).contentType else {
+            return Self.ordered(workspace.urlsForApplications(toOpen: file), first: workspace.urlForApplication(toOpen: file), excluding: nil)
+        }
+        let kept = LinkMenuAppCache.shared.apps(for: "type:" + type.identifier) { [type] in
+            NSWorkspace.shared.urlsForApplications(toOpen: type)
+        }
+        // The default stays per file: Get Info's "Open with" can name another app for one document.
+        return Self.ordered(kept, first: workspace.urlForApplication(toOpen: file), excluding: nil)
     }
 
     /// `files.textEditor` when it names an installed app, else the system's app for source code
@@ -112,7 +153,11 @@ public struct LinkMenu {
     }
 
     /// The link rows with this Mac's browsers.
-    public func linkRows(for url: URL) -> [LinkMenuRow] { linkRows(for: url, browsers: browsers(for: url)) }
+    public func linkRows(for url: URL) -> [LinkMenuRow] {
+        // Rows exist only for http(s): ask LaunchServices for nothing else.
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return [] }
+        return linkRows(for: url, browsers: browsers(for: url))
+    }
 
     /// The path rows with this Mac's apps and the text editor setting.
     public func pathRows(for file: URL, isDirectory: Bool) -> [LinkMenuRow] {
@@ -137,7 +182,7 @@ public struct LinkMenu {
         return folders.map { $0.appending(path: bundleName) }.first { paths.fileExists(atPath: $0.path) }
     }
 
-    static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {
+    nonisolated static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {
         var seen = Set<String>()
         let own = own?.standardizedFileURL.path
         return ([first].compactMap { $0 } + apps).filter { app in
@@ -165,9 +210,11 @@ public struct LinkMenu {
         rows.map { row in
             let item = PageMenuAction.item(row.title) { perform(row, link: link, file: file) }
             if let app = row.app, row.kind == .app {
-                let icon = NSWorkspace.shared.icon(forFile: app.path)
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
+                item.image = LinkMenuAppCache.icon(for: app)
+            } else if let symbol = row.kind.symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                // Every cmux menu row shows its action's symbol, as the action registry's menus do.
+                image.isTemplate = true
+                item.image = image
             }
             if !row.children.isEmpty {
                 let submenu = NSMenu(title: row.title)
@@ -180,6 +227,7 @@ public struct LinkMenu {
     }
 
     func perform(_ row: LinkMenuRow, link: URL?, file: URL?) {
+        guard allowed?() ?? true else { return }
         let copy = copy ?? router.copy
         if let link {
             switch row.kind {
@@ -211,11 +259,17 @@ public struct LinkMenu {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.prompt = Strings.open
-        let router = router
+        let menu = self
         panel.begin { response in
             guard response == .OK, let app = panel.url else { return }
-            router.open(file, withApplicationAt: app)
+            menu.openChosen(app, for: file)
         }
+    }
+
+    /// Other…'s answer: `file` in `app`, unless the menu may no longer act.
+    func openChosen(_ app: URL, for file: URL) {
+        guard allowed?() ?? true else { return }
+        router.open(file, withApplicationAt: app)
     }
 
     enum Strings {

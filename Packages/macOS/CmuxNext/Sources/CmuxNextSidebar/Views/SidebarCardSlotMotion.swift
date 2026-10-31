@@ -18,7 +18,7 @@ final class SidebarCardSlotMotion: MotionAnimating {
     private let policy: @MainActor () -> MotionPolicy
 
     /// - Parameter policy: The motion settings, read at each change (`Motion.policy`).
-    init(policy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+    init(policy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         self.policy = policy
     }
 
@@ -32,7 +32,16 @@ final class SidebarCardSlotMotion: MotionAnimating {
             self.height = SpringValue(target)
             return target
         }
-        guard height.target != target else { return height.value }
+        guard height.target != target else {
+            // A spring no clock steps any more (the window's scheduler went inactive and dropped
+            // it, `MotionClock.run`) would hold the list short of the card for good (2026-10-20:
+            // the Updated card floated over the last rows): it lands on its target.
+            if height.value != target, !MotionClock.forView(view).isRunning(self) {
+                height.snap()
+                self.height = height
+            }
+            return height.value
+        }
         height.target = target
         let animates = policy().animatesMovement && view.window != nil && !view.inLiveResize
             && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)

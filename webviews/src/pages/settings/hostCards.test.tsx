@@ -3,12 +3,25 @@
 // writes appearance.background on Appearance, Terminal shows the Ghostty facts,
 // and Advanced shows the settings file and every problem of the last load.
 import { act } from "react";
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
+
+/// Runs `act` with `ms` of the page's timers passing on a fake clock: the dwell is the behavior.
+async function elapse(ms: number, run: () => void) {
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      run();
+      jest.advanceTimersByTime(ms);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+}
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
@@ -29,10 +42,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   expect(document.activeElement?.getAttribute("aria-label")).toBe("The Starry Night");
 
   const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
-  await act(async () => {
-    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  });
+  await elapse(200, () => tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   await settle();
   expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({
     key: "appearance.background",
@@ -115,9 +125,11 @@ test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the
   expect(decodeURIComponent(segments[1]!)).toBe(id);
 });
 
-test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
+test("Shuffle Paintings is a tile that keeps appearance.background daily", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
-  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;
+  const tile = page.container.querySelector<HTMLButtonElement>(
+    '[data-card="backdrop"] [aria-label="Shuffle Paintings"]',
+  )!;
   expect(tile).not.toBeNull();
   await act(async () => tile.click());
   await settle();
@@ -151,10 +163,7 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
 
   const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
   const appPreviews = runs(page, "cmux.settings.preview").length;
-  await act(async () => {
-    none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  });
+  await elapse(200, () => none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   await settle();
   expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
     workspace: "ws-1",
@@ -198,7 +207,7 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   await settle();
   expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).toBeNull();
   const row = picker.querySelector<HTMLElement>("[data-workspace-opacity]")!;
-  expect(row.textContent).toContain("Follows the work's own tint");
+  expect(row.textContent).toContain("Follows All Workspaces");
   const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
   await act(async () => {
     slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
@@ -218,11 +227,11 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
   expect(runs(page, "cmux.settings.set").length).toBe(0);
 
-  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use the Work's Own")!;
+  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use All Workspaces")!;
   await act(async () => reset.click());
   await settle();
   expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: null });
-  expect(row.textContent).toContain("Follows the work's own tint");
+  expect(row.textContent).toContain("Follows All Workspaces");
   page.unmount();
 });
 
@@ -255,10 +264,9 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
-  await act(async () => {
+  await elapse(200, () => {
     tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
     tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
   });
   await settle();
   expect(runs(page, "cmux.settings.preview").length).toBe(0);
@@ -301,6 +309,44 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   expect(buttons.filter((title) => title === "Reload Configuration").length).toBe(1);
   expect(text).toContain("Resets everything in cmux.json. Custom actions stay.");
   expect(text).not.toContain("cmux-next.json");
+  page.unmount();
+});
+
+test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wallpaper pane", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const moving = { collection: "video", collection_title: "Moving wallpapers", video: true };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "system:/aerials/4KSDR240FPS/A1.mov", title: "Tahoe Morning", attribution: "", ...moving },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "",
+          ...moving,
+          downloaded: false,
+        },
+      ],
+    }),
+  );
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const ready = picker.querySelector<HTMLButtonElement>('[aria-label="Tahoe Morning"]')!;
+  const pending = picker.querySelector<HTMLButtonElement>('[aria-label="Iceland Dusk"]')!;
+  expect(ready.classList.contains("backdrop-pending")).toBe(false);
+  expect(ready.querySelector("img")).not.toBeNull();
+  // No thumbnail to fetch for a movie that is not on disk: an empty tile with a cloud.
+  expect(pending.classList.contains("backdrop-pending")).toBe(true);
+  expect(pending.querySelector("img")).toBeNull();
+  expect(pending.querySelector("svg.backdrop-download")).not.toBeNull();
+  await act(async () => pending.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(
+    runs(page, "cmux.settings.set").filter((p) => (p as { key: string }).key === "appearance.background").length,
+  ).toBe(0);
   page.unmount();
 });
 

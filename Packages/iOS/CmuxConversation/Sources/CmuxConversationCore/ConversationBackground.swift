@@ -270,6 +270,7 @@ public struct ConversationBackgroundLook: Sendable, Hashable, Identifiable {
 }
 
 /// Shared copy for backgrounds, so iOS and macOS read the same.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationBackgroundStrings {
     public static var editBackground: String {
         String(localized: "conversation.background.edit", defaultValue: "Edit Background", bundle: .module)

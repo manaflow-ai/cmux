@@ -1,4 +1,4 @@
-// Settings > Mobile: the cnx phone host the app runs (Packages/macOS/CmuxNext CnxHostSupervisor).
+// Settings > Mobile: the iPhone host the app runs (Packages/macOS/CmuxNext MobileHostSupervisor).
 // The switch is the schema row mobile.allowIPhoneConnections above this card; the card is the
 // host's live state (`iphone` in the host lists, through cmux.settings.host.changed), every text
 // localized by the host. Room for more mobile parts goes here.
@@ -98,7 +98,6 @@ export function MobileCard() {
                         <button
                           type="button"
                           className="button"
-                          title={state.remove_help}
                           aria-label={`${state.remove_title} ${phone.title}`}
                           data-remove-phone={phone.id}
                           onClick={() => void store.removePhone(phone.id)}

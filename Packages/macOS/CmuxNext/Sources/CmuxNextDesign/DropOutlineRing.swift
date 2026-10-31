@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The tab drop outline's look, shared by every surface that previews a
 /// drop (the layout overlay, the sidebar). Debug Settings tunables.
@@ -62,7 +63,7 @@ public final class DropOutlineRing {
         }
         place(rect, cornerRadius, animated: animated, spring)
         if appearing || layer.opacity < 1 {
-            if animated { Motion.set(layer, "opacity", to: NSNumber(value: 1), fade: .fadeIn) } else { setNow("opacity", NSNumber(value: 1)) }
+            if animated { Motion.panes.set(layer, "opacity", to: NSNumber(value: 1), fade: .fadeIn) } else { setNow("opacity", NSNumber(value: 1)) }
         }
         self.rect = rect
     }
@@ -70,7 +71,7 @@ public final class DropOutlineRing {
     public func hide(animated: Bool) {
         guard rect != nil else { return }
         rect = nil
-        if animated { Motion.set(layer, "opacity", to: NSNumber(value: 0), fade: .fadeOut) } else { setNow("opacity", NSNumber(value: 0)) }
+        if animated { Motion.panes.set(layer, "opacity", to: NSNumber(value: 0), fade: .fadeOut) } else { setNow("opacity", NSNumber(value: 0)) }
     }
 
     /// Re-reads the colors; call inside the host view's theme scope.
@@ -92,9 +93,9 @@ public final class DropOutlineRing {
             setNow("cornerRadius", corner)
             return
         }
-        Motion.set(layer, "bounds", to: bounds, spring: spring)
-        Motion.set(layer, "position", to: position, spring: spring)
-        Motion.set(layer, "cornerRadius", to: corner, spring: spring)
+        Motion.panes.set(layer, "bounds", to: bounds, spring: spring)
+        Motion.panes.set(layer, "position", to: position, spring: spring)
+        Motion.panes.set(layer, "cornerRadius", to: corner, spring: spring)
     }
 
     private func setNow(_ keyPath: String, _ value: Any) {

@@ -8,6 +8,7 @@ enum HistoryAppStrings {
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
     static var nothingForward: String { t("history.refusal.nothingForward", "No later location to go forward to") }
+    static var nothingLast: String { t("history.refusal.nothingLast", "No last location to go to") }
     static var nothingClosed: String { t("history.refusal.nothingClosed", "No recently closed tab to reopen") }
     static var noSession: String { t("history.refusal.noSession", "No agent session with that ID") }
     static var noResume: String { t("history.refusal.noResume", "cmux does not know how to resume this agent") }
@@ -41,6 +42,8 @@ enum HistoryAppStrings {
     static var locationsTitle: String { t("history.page.locations", "Location History") }
     static var closedTitle: String { t("history.page.closed", "Recently Closed") }
     static var searchTitle: String { t("history.page.search", "Search History") }
+    /// Search's section for browser page visits (the sidebar's Search button).
+    static var browserHistoryTitle: String { t("history.section.browser", "Browser History") }
     static var commandsTitle: String { t("history.page.commands", "Command History") }
     static var commandsPlaceholder: String { t("history.page.commandsPlaceholder", "Search commands…") }
     static var agentsTitle: String { t("history.page.agents", "Agent Sessions") }
@@ -80,6 +83,7 @@ enum HistoryAppStrings {
         case "opencode": "OpenCode"
         case "amp": "Amp"
         case "gemini": "Gemini"
+        case "muse": "Muse Code"
         default: provider
         }
     }

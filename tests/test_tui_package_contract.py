@@ -260,10 +260,10 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         )
         + "\n"
     )
-    write_executable(
-        launcher / "bin/cmux.js",
-        "cmux launcher 1.2.3",
-    )
+    # The shipped launcher: it forwards `--version` to the platform binary, whose release line
+    # the contract checks.
+    (launcher / "bin").mkdir()
+    shutil.copy2(ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js", launcher / "bin/cmux.js")
 
     relay_launcher = root / "cmux-relay"
     relay_launcher.mkdir()
@@ -411,6 +411,8 @@ def test_npm_contract_rejects_a_binary_that_reports_another_release(tmp_path: Pa
 
     assert result.returncode != 0, result.stdout
     assert "--version" in result.stderr and VERSION in result.stderr, result.stderr
+    # The installed launcher forwards to the binary, so the refusal quotes the binary's line.
+    assert f"found 'cmux 0.1.0 ({BUILD_COMMIT})'" in result.stderr, result.stderr
 
 
 def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:

@@ -26,6 +26,7 @@ on:
       - scripts/ci/cloud_overflow_switch.py
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
+      - scripts/ci/signing_runner_variables.py
   workflow_dispatch:
 
 permissions:
@@ -57,19 +58,23 @@ jobs:
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           CMUX_CI_RUNNER_VARIABLES: |
             CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
+            CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
+            CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
@@ -81,5 +86,6 @@ jobs:
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: python3 scripts/ci/check_repo_variables.py

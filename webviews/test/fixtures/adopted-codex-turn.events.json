@@ -1,0 +1,327 @@
+[
+  {
+    "at": 1790931600000,
+    "dir": "mux",
+    "kind": "turn_started",
+    "msg": {
+      "client": "adopt",
+      "control": "local",
+      "prompt": "Bump the version to 1.3.0 and note it in the changelog",
+      "promptId": "adopted-prompt-0",
+      "turnId": "adopted-0"
+    },
+    "seq": 1
+  },
+  {
+    "at": 1790931600000,
+    "dir": "mux",
+    "kind": "user_message",
+    "msg": {
+      "client": "adopt",
+      "promptId": "adopted-prompt-0",
+      "text": "Bump the version to 1.3.0 and note it in the changelog",
+      "turnId": "adopted-0"
+    },
+    "seq": 2
+  },
+  {
+    "at": 1790931605790,
+    "dir": "in",
+    "kind": "tool_call",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "kind": "execute",
+          "rawInput": {
+            "command": "git status --short",
+            "cwd": "/home/dev/demo"
+          },
+          "sessionUpdate": "tool_call",
+          "status": "in_progress",
+          "title": "git status --short",
+          "toolCallId": "exec-1"
+        }
+      }
+    },
+    "seq": 3
+  },
+  {
+    "at": 1790931606000,
+    "dir": "in",
+    "kind": "tool_call_update",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "rawOutput": {
+            "duration_ms": 210,
+            "exit_code": 0
+          },
+          "sessionUpdate": "tool_call_update",
+          "status": "completed",
+          "toolCallId": "exec-1"
+        }
+      }
+    },
+    "seq": 4
+  },
+  {
+    "at": 1790931608950,
+    "dir": "in",
+    "kind": "tool_call",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "kind": "execute",
+          "rawInput": {
+            "command": "grep -n '^version' Cargo.toml",
+            "cwd": "/home/dev/demo"
+          },
+          "sessionUpdate": "tool_call",
+          "status": "in_progress",
+          "title": "grep -n '^version' Cargo.toml",
+          "toolCallId": "exec-2"
+        }
+      }
+    },
+    "seq": 5
+  },
+  {
+    "at": 1790931609000,
+    "dir": "in",
+    "kind": "tool_call_update",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "content": [
+            {
+              "content": {
+                "text": "3:version = \"1.2.0\"\n",
+                "type": "text"
+              },
+              "type": "content"
+            }
+          ],
+          "rawOutput": {
+            "duration_ms": 50,
+            "exit_code": 0
+          },
+          "sessionUpdate": "tool_call_update",
+          "status": "completed",
+          "toolCallId": "exec-2"
+        }
+      }
+    },
+    "seq": 6
+  },
+  {
+    "at": 1790931611960,
+    "dir": "in",
+    "kind": "tool_call",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "kind": "execute",
+          "rawInput": {
+            "command": "sed -n 1,8p CHANGELOG.md",
+            "cwd": "/home/dev/demo"
+          },
+          "sessionUpdate": "tool_call",
+          "status": "in_progress",
+          "title": "sed -n 1,8p CHANGELOG.md",
+          "toolCallId": "exec-3"
+        }
+      }
+    },
+    "seq": 7
+  },
+  {
+    "at": 1790931612000,
+    "dir": "in",
+    "kind": "tool_call_update",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "content": [
+            {
+              "content": {
+                "text": "# Changelog\n\n## 1.2.0\n- Faster startup\n",
+                "type": "text"
+              },
+              "type": "content"
+            }
+          ],
+          "rawOutput": {
+            "duration_ms": 40,
+            "exit_code": 0
+          },
+          "sessionUpdate": "tool_call_update",
+          "status": "completed",
+          "toolCallId": "exec-3"
+        }
+      }
+    },
+    "seq": 8
+  },
+  {
+    "at": 1790931670000,
+    "dir": "in",
+    "kind": "tool_call",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "kind": "edit",
+          "locations": [
+            {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/CHANGELOG.md"
+                }
+              },
+              "line": 1,
+              "path": "/home/dev/demo/CHANGELOG.md"
+            },
+            {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/Cargo.toml"
+                }
+              },
+              "line": 1,
+              "path": "/home/dev/demo/Cargo.toml"
+            }
+          ],
+          "rawInput": {
+            "changes": [
+              {
+                "additions": 3,
+                "deletions": 0,
+                "path": "/home/dev/demo/CHANGELOG.md",
+                "type": "update"
+              },
+              {
+                "additions": 1,
+                "deletions": 1,
+                "path": "/home/dev/demo/Cargo.toml",
+                "type": "update"
+              }
+            ]
+          },
+          "sessionUpdate": "tool_call",
+          "status": "in_progress",
+          "title": "Edit 2 files",
+          "toolCallId": "exec-4"
+        }
+      }
+    },
+    "seq": 9
+  },
+  {
+    "at": 1790931670000,
+    "dir": "in",
+    "kind": "tool_call_update",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "content": [
+            {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/CHANGELOG.md",
+                  "fragment": true
+                }
+              },
+              "newText": "# Changelog\n\n## 1.3.0\n- Bump the version to 1.3.0\n\n## 1.2.0\n",
+              "oldText": "# Changelog\n\n## 1.2.0\n",
+              "path": "/home/dev/demo/CHANGELOG.md",
+              "type": "diff"
+            },
+            {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/Cargo.toml",
+                  "fragment": true
+                }
+              },
+              "newText": "[package]\nname = \"demo\"\nversion = \"1.3.0\"\nedition = \"2021\"\n",
+              "oldText": "[package]\nname = \"demo\"\nversion = \"1.2.0\"\nedition = \"2021\"\n",
+              "path": "/home/dev/demo/Cargo.toml",
+              "type": "diff"
+            }
+          ],
+          "sessionUpdate": "tool_call_update",
+          "status": "completed",
+          "toolCallId": "exec-4"
+        }
+      }
+    },
+    "seq": 10
+  },
+  {
+    "at": 1790931692000,
+    "dir": "in",
+    "kind": "agent_message_chunk",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "content": {
+            "text": "Bumped demo to 1.3.0 and added a 1.3.0 entry to CHANGELOG.md.",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    "seq": 11
+  },
+  {
+    "at": 1790931692000,
+    "dir": "mux",
+    "kind": "turn_end",
+    "msg": {
+      "stopReason": "end_turn",
+      "turnId": "adopted-0",
+      "turnSeq": 1
+    },
+    "seq": 12
+  },
+  {
+    "at": 1790931692000,
+    "dir": "mux",
+    "kind": "turn_result",
+    "msg": {
+      "promptId": "adopted-prompt-0",
+      "status": "completed",
+      "stopReason": "end_turn",
+      "turnId": "adopted-0",
+      "turnSeq": 1
+    },
+    "seq": 13
+  }
+]

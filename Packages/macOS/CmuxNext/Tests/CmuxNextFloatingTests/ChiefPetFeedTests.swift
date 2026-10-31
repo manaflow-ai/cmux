@@ -97,7 +97,7 @@ import Testing
         let pet = CGRect(x: 600, y: 100, width: 64, height: 77)
         let above = ChiefPetBubblePanel.frame(height: 62, over: pet, in: visible)
         #expect(above.minY == pet.maxY + ChiefPetBubblePanel.gap)
-        #expect(above.midX == pet.midX)
+        #expect(above.minX == pet.minX, "a pet on the left half: the notices extend right from its leading edge")
         let high = CGRect(x: 1400, y: 820, width: 64, height: 77)
         let below = ChiefPetBubblePanel.frame(height: 62, over: high, in: visible)
         #expect(below.maxY <= high.minY)

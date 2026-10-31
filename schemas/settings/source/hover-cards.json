@@ -34,7 +34,7 @@
         },
         {
           "key": "sidebar.hoverCards.delay",
-          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.",
+          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). Chrome's tab hover card delay at standard tab width (800 ms plus 500 ms, Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.",
           "title": {
             "key": "settings.sidebar.hoverCards.delay",
             "text": "Hover Card Delay"
@@ -50,7 +50,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 250,
+          "default": 1300,
           "keywords": [
             "hover",
             "card",
@@ -255,6 +255,266 @@
             "rows",
             "lines",
             "limit"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.workspaceGroups",
+          "name": "groupsWorkspaceGroups",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.workspaceGroups",
+            "text": "Cards on Workspace Groups"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.workspaceGroups.help",
+            "text": "A summary card opens when the pointer rests on a workspace group's header."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "workspace",
+            "summary"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.tabGroups",
+          "name": "groupsTabGroups",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.tabGroups",
+            "text": "Cards on Tab Groups"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.tabGroups.help",
+            "text": "A summary card opens when the pointer rests on a tab group's chip."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "tab",
+            "summary"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.delay",
+          "name": "groupsDelay",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\" Longer than a row's card so a sweep across headers opens none.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.delay",
+            "text": "Group Card Delay"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.delay.help",
+            "text": "How long the pointer rests on a group before its summary card opens."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 5000,
+            "step": 100,
+            "unit": "milliseconds"
+          },
+          "default": 1500,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "delay",
+            "milliseconds"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.order",
+          "name": "groupsOrder",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\" Which part leads the group card; the rest follow in their usual order.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.order",
+            "text": "Group Card Leads With"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.order.help",
+            "text": "Which part of a group's card comes first."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "status",
+              "title": {
+                "key": "settings.choice.groupCardStatus",
+                "text": "Status"
+              }
+            },
+            {
+              "value": "members",
+              "title": {
+                "key": "settings.choice.groupCardMembers",
+                "text": "Members"
+              }
+            },
+            {
+              "value": "activity",
+              "title": {
+                "key": "settings.choice.groupCardActivity",
+                "text": "Latest Activity"
+              }
+            }
+          ],
+          "default": "status",
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "order",
+            "first"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.maxMembers",
+          "name": "groupsMaxMembers",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\" The most member names a group card lists; the rest show as +N more.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.maxMembers",
+            "text": "Group Card Members"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.maxMembers.help",
+            "text": "The most members a group's card lists by name."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 50,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 8,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "members",
+            "count"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.status",
+          "name": "groupsSectionStatus",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.sections.status",
+            "text": "Group Card: Status"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.sections.status.help",
+            "text": "Show how many members work, wait, failed or have unread items."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "status",
+            "working",
+            "waiting",
+            "unread"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.members",
+          "name": "groupsSectionMembers",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.sections.members",
+            "text": "Group Card: Members"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.sections.members.help",
+            "text": "Show the member count and the members' names."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "members",
+            "workspaces",
+            "tabs",
+            "names"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.activity",
+          "name": "groupsSectionActivity",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.sections.activity",
+            "text": "Group Card: Latest Activity"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.sections.activity.help",
+            "text": "Show the member that changed last, and when."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "activity",
+            "latest",
+            "recent"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.git",
+          "name": "groupsSectionGit",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.sections.git",
+            "text": "Group Card: Branches"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.sections.git.help",
+            "text": "Show the members' git branches."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "git",
+            "branch"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.ports",
+          "name": "groupsSectionPorts",
+          "note": "Lawrence 2026-10-20: \"hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too.\"",
+          "title": {
+            "key": "settings.sidebar.hoverCards.groups.sections.ports",
+            "text": "Group Card: Ports"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.groups.sections.ports.help",
+            "text": "Show the members' listening ports."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "group",
+            "ports",
+            "server"
           ]
         }
       ]

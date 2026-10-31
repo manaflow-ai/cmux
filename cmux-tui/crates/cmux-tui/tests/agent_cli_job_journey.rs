@@ -13,7 +13,7 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::Settings;
@@ -214,7 +214,8 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     let machine = selected_identity["machine_id"].clone();
     let session = selected_identity["session_resource_id"].clone();
     assert!(session.as_str().is_some_and(|id| id.starts_with("session_") && id.len() == 40));
-    assert_ne!(machine, identity(&other)["machine_id"]);
+    let home_identity = identity(&other);
+    assert_ne!(machine, home_identity["machine_id"]);
     let same_machine = identity(&another_session);
     assert_eq!(same_machine["machine_id"], machine);
     assert_ne!(same_machine["session_resource_id"], session);
@@ -227,15 +228,51 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     let mut wrong_session = Client::proved(&another_session);
     assert_eq!(wrong_session.rpc(intent.clone())["error_code"], "agent_cli_job.session_mismatch");
     assert!(!selected_acp.marker.exists() && !other_acp.marker.exists());
+    // A separate home daemon keeps the intent before the remote owner sees it.
+    let ledger_request = |command: &str| {
+        json!({"cmd":command,
+        "expected_machine_id":home_identity["machine_id"],
+        "expected_session_id":home_identity["session_resource_id"]})
+    };
+    let mut retained = ledger_request("agent-cli-intents-record");
+    retained["intents"] = json!([{"key":"original-update-intent","root_key":"original-root",
+        "machine":machine,"session":session,"cli":"claude","profiles":["work-profile"]}]);
+    assert_eq!(foreign.rpc(retained)["ok"], true);
     let mut client = Client::proved(&selected);
     let mut commands = intent.clone();
     commands["argv"] = json!(["/bin/sh", "-c", "false"]);
     assert_eq!(client.rpc(commands)["error_code"], "agent_cli_job.bad_request");
-    let started = client.rpc(intent.clone());
-    assert_eq!(started["ok"], true, "{started}");
+    // Lose the creation reply with the client connection. Recovery only reads;
+    // it must never submit the execution RPC to discover whether it happened.
+    writeln!(client.0.get_mut(), "{intent}").unwrap();
+    drop(client);
+    let mut client = Client::proved(&selected);
+    let mut lookup = intent.clone();
+    lookup["cmd"] = json!("agent-cli-update-job-resolve");
+    let until = Instant::now() + Duration::from_secs(20);
+    let started = loop {
+        let resolved = client.rpc(lookup.clone());
+        assert_eq!(resolved["ok"], true, "{resolved}");
+        if resolved["data"]["state"] == "created" {
+            break json!({"data":resolved["data"]["receipt"]});
+        }
+        assert!(
+            matches!(
+                resolved["data"]["state"].as_str(),
+                Some("not_found" | "prepared" | "pending")
+            ),
+            "{resolved}"
+        );
+        assert!(Instant::now() < until, "original job was not recoverable: {resolved}");
+        std::thread::sleep(Duration::from_millis(2));
+    };
     assert_eq!(started["data"]["machine"], machine);
     assert_eq!(started["data"]["session"], session);
-    assert_eq!(started["data"]["replayed"], false);
+    assert_eq!(started["data"]["replayed"], true);
+    let mut attach = ledger_request("agent-cli-intents-attach");
+    attach["key"] = json!("original-update-intent");
+    attach["receipt"] = started["data"].clone();
+    assert_eq!(foreign.rpc(attach)["ok"], true);
     assert!(!started.to_string().contains("secret-token"));
     let path = started["data"]["path"].clone();
     let terminal = path["terminal_id"].clone();
@@ -264,7 +301,7 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     );
     selected_acp.stop();
     other_acp.stop();
-    let replay = client.rpc(intent.clone());
+    let replay = client.rpc(intent);
     assert_eq!(replay["ok"], true, "{replay}");
     assert_eq!(replay["data"]["path"], path);
     assert_eq!(replay["data"]["replayed"], true);
@@ -278,12 +315,30 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     assert_eq!(restarted["machine_id"], machine, "restart must retain canonical owner");
     assert_eq!(restarted["session_resource_id"], session, "restart must retain canonical session");
     let mut reconnected = Client::proved(&selected);
-    let recovered = reconnected.rpc(intent);
+    let resolution = reconnected.rpc(lookup);
+    assert_eq!(resolution["ok"], true, "{resolution}");
+    assert_eq!(resolution["data"]["state"], "created");
+    let recovered = json!({"ok":true,"data":resolution["data"]["receipt"]});
     assert_eq!(recovered["ok"], true, "{recovered}");
     assert_eq!(recovered["data"]["path"], path);
     assert_eq!(recovered["data"]["replayed"], true);
     assert_eq!(reconnected.v2("terminal.wait_exit", wait, &machine, None), exited);
     assert_eq!(lines(), [selected_acp.cli.to_str().unwrap(), "update"], "replay must not rerun");
     assert!(!other_acp.marker.exists(), "another owner cannot satisfy the job");
+    drop(foreign);
+    assert!(other.server("stop").output().unwrap().status.success());
+    ensure(&other);
+    let mut home = Client::proved(&other);
+    let restored = home.rpc(ledger_request("agent-cli-intents-list"));
+    assert_eq!(restored["ok"], true, "{restored}");
+    assert_eq!(restored["data"]["intents"][0]["key"], "original-update-intent");
+    assert_eq!(restored["data"]["intents"][0]["machine"], machine);
+    assert_eq!(restored["data"]["intents"][0]["session"], session);
+    assert_eq!(restored["data"]["intents"][0]["receipt"]["path"], path);
+    assert_eq!(
+        lines(),
+        [selected_acp.cli.to_str().unwrap(), "update"],
+        "ledger recovery must not execute"
+    );
     assert_eq!(fs::read_to_string(root.join("selected/auto.json")).unwrap(), "[\"work-profile\"]");
 }

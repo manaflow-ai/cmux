@@ -26,6 +26,13 @@ extension Motion {
     /// ends (`ResizeCoordinator`), so the PTY reflows once, at the final size.
     public static var isFullScreenTransitioning: Bool { LiveResizeWindows.shared.isFullScreenTransitionActive }
 
+    /// Whether `window` is between `willEnterFullScreen` and `didEnterFullScreen` (or the exit pair):
+    /// its terminals hold their grid until it ends (`ResizeCoordinator`); other windows' do not.
+    public static func isFullScreenTransitioning(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return LiveResizeWindows.shared.isTransitioning(window)
+    }
+
     /// Ends `window`'s full screen transition that AppKit gave up on: its
     /// delegate's `windowDidFailToEnterFullScreen` or
     /// `windowDidFailToExitFullScreen` (no notification is posted for them).
@@ -40,7 +47,7 @@ extension Motion {
 /// windows in a full screen transition (`willEnterFullScreen` to
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
-/// Observes every window from the first read of `Motion.policy`, long before
+/// Observes every window from the first read of `Motion.basePolicy`, long before
 /// a person can drag an edge.
 final class LiveResizeWindows {
     static let shared = LiveResizeWindows()

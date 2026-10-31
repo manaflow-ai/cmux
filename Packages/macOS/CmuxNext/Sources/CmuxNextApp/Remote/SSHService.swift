@@ -5,6 +5,7 @@ import CmuxNextRemote
 import Foundation
 import Observation
 import os
+import CmuxNextWakeups
 
 /// SSH machines: "Connect to Machine…", their sessions in `MachineRegistry`,
 /// the saved-hosts list, disconnect and forget, and installing the pinned
@@ -38,8 +39,14 @@ final class SSHService {
     /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
     @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
-    init(machines: MachineRegistry, bundleID: String?) {
+    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event
+    /// batches run on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+
+    /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
+    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler) {
         self.machines = machines
+        self.mainWork = mainWork
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
@@ -209,7 +216,42 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession) {
         guard !policyDisabled else { return }
-        if session.linkStatus == .offline { session.connect() } else { session.wake(.user) }
+        // A retry gets a fresh error from the new attempt. Do not let the
+        // recovery sheet copy the previous attempt while the link is working.
+        session.lastError = nil
+        switch Self.reconnectStep(link: session.linkStatus, daemon: session.daemon.startup, daemonFailed: session.daemonFailure != nil) {
+        case .connect: session.connect()
+        case .reconnectDaemon: session.reconnectDaemon()
+        case .wake: session.wake(.user)
+        case .newAttempt:
+            session.beginConnectionAttempt()
+            session.wake(.user)
+        case .nothing: break
+        }
+    }
+
+    /// What Reconnect does for a link in status `link` whose daemon startup is `daemon`.
+    enum ReconnectStep: Equatable { case connect, reconnectDaemon, wake, newAttempt, nothing }
+
+    static func reconnectStep(link: SSHConnectionMachine.Status, daemon: DaemonStartupState, daemonFailed: Bool) -> ReconnectStep {
+        switch link {
+        case .offline, .unreachable, .failed:
+            // These failures leave the gate open for automatic backoff, so a user
+            // Retry must start a fresh attempt rather than only waking the loop.
+            return .connect
+        case .connected:
+            // A healthy transport has no reconnect to perform. If only the daemon
+            // handshake failed, retry that daemon attempt explicitly; otherwise a
+            // plain Reconnect must not arm a timeout on a live connection.
+            return daemonFailed ? .reconnectDaemon : .nothing
+        case .reconnecting where daemon == .connected:
+            // A transient interruption under an established daemon connection: the link may
+            // recover with its socket and connection intact, and no didConnect would then cancel
+            // a new startup deadline. Only wake the link.
+            return .wake
+        default:
+            return .newAttempt
+        }
     }
 
     func disconnect(_ session: SSHMachineSession) {
@@ -259,7 +301,7 @@ final class SSHService {
         // A connect to the same machine while the toast showed took it back.
         guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
         forgetSavedHost(pending.machineID)
-        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapabilities.shared.profiles),
+        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
               let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)
@@ -277,8 +319,11 @@ final class SSHService {
 
     private func makeSession(_ host: SSHHost) -> SSHMachineSession? {
         guard let binary else { return nil }
-        let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment)
+        let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment,
+                                        mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)
         return session

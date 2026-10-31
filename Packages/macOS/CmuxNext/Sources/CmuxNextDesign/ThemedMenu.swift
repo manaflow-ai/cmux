@@ -1,107 +1,86 @@
 public import AppKit
 
 extension NSMenu {
-    /// Draws this menu's rows, and its submenus', in `scope`'s accent instead of the system accent
-    /// (follow-up to #19754). NSMenu always highlights in the system accent and only follows light
-    /// and dark, so every row becomes a `ThemedMenuRowView` that draws its own highlight in
-    /// `Palette.accentFill` with `Palette.onAccent` ink. Separators and rows that already have a
-    /// view (the workspace color swatches) are left as they are; such a view that is a
-    /// `ThemedMenuItemView` is handed the scope to draw in. Call it last, once the menu is
-    /// built, with the scope of the view that was right-clicked.
+    /// Opens this menu, and its submenus, in the light or dark system look of `scope`, the view
+    /// that was right-clicked. Every row stays a plain `NSMenuItem` that AppKit draws: the system
+    /// background, menu font, row height, highlight, separators, submenus and key equivalents
+    /// (Lawrence 2026-10-23: "make sure our right click stuff context menu is standard macos ...
+    /// we don't want ANYTHING custom besides the icons"). Icons are the items' images
+    /// (`NSImage.menuSymbol`). A row that has its own view (the sidebar workspace and group menus'
+    /// name and colors header) keeps it; a `ThemedMenuItemView` is handed the scope to draw in.
+    /// A native row's image goes in the menu grid's icon box (`MenuMetrics.iconSize`, its shape
+    /// kept), so AppKit's one image column is the grid's in every menu and every row's text starts
+    /// on `MenuMetrics.textX(iconColumn:)`: an avatar or a wide symbol no longer moves it.
+    /// Call it last, once the menu is built.
     ///
-    /// The items keep their titles, key equivalents, states and submenus, so type-select, arrow
-    /// keys and submenus work as before. Their action goes through a `ThemedMenuDispatch`, which
-    /// runs it once however it arrives: AppKit's Return or key equivalent, a click on the row
-    /// (AppKit sends no action for a click on a view row), or Return delivered to the row.
+    /// `runsInPlace` is kept for callers: a native row always runs as the menu closes.
     @discardableResult
-    public func themeRows(in scope: ThemeScope) -> NSMenu {
+    public func themeRows(in scope: ThemeScope, runsInPlace: @escaping @MainActor (NSMenuItem) -> Bool = { _ in false }) -> NSMenu {
         appearance = scope.appearance
-        themeRows(in: scope, session: ThemedMenuSession())
+        for item in items where !item.isSeparatorItem {
+            (item.view as? any ThemedMenuItemView)?.adoptMenuScope(scope)
+            if item.view == nil, let image = item.image { item.image = image.fittedToMenuIconBox() }
+            if let submenu = item.submenu { submenu.themeRows(in: scope) }
+        }
         return self
     }
 
-    private func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
-        // Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and
-        // passes every call on to the delegate the menu had (a choices submenu's coordinator).
-        if !(delegate is ThemedMenuHighlightRelay) {
-            let relay = ThemedMenuHighlightRelay(forward: delegate)
-            session.keep(relay)
-            delegate = relay
+    /// Rows added since the menu was themed (a search's results while it is open) are native
+    /// rows already; their icons go in the grid's box as the first rows' did, so filtering never
+    /// changes an icon's size. Rows already fitted are left as they are.
+    public func themeAddedRows() {
+        fitRowIcons()
+    }
+
+    /// Every native row's image, its submenus' too, in the grid's icon box.
+    private func fitRowIcons() {
+        for item in items where !item.isSeparatorItem && item.view == nil {
+            if let image = item.image { item.image = image.fittedToMenuIconBox() }
+            item.submenu?.fitRowIcons()
         }
-        for item in items where !item.isSeparatorItem {
-            if let view = item.view as? any ThemedMenuItemView {
-                view.adoptMenuScope(scope)
-            } else if item.view == nil {
-                item.view = ThemedMenuRowView(item: item, scope: scope, session: session)
-            }
-            if let submenu = item.submenu {
-                submenu.appearance = scope.appearance
-                submenu.themeRows(in: scope, session: session)
-            }
+    }
+
+    /// Runs `body` once the row chosen in this menu has run. AppKit runs a chosen row before
+    /// `popUp` returns, so code that follows `popUp` and settles the menu's outcome (a page menu
+    /// that ends a dismissed request) runs it on the next turn of the run loop.
+    public func afterThemedRowRuns(_ body: @escaping @MainActor () -> Void) {
+        let step = ThemedMenuAfterRun { [self] in
+            _ = self
+            body()
         }
+        RunLoop.main.perform(#selector(ThemedMenuAfterRun.run), target: step, argument: nil, order: 0, modes: [.default])
     }
 }
 
-/// One opening of a themed menu, shared by its submenus: its action runs at most once.
-final class ThemedMenuSession {
-    private(set) var hasRun = false
-    /// A menu's delegate is weak; the rows hold the session, the session holds the relays.
-    private var relays: [ThemedMenuHighlightRelay] = []
-
-    func keep(_ relay: ThemedMenuHighlightRelay) { relays.append(relay) }
-
-    /// The menu (re)opened: its rows may run again.
-    func reset() { hasRun = false }
-
-    /// Runs `body` unless something in this opening already ran.
-    func runOnce(_ body: () -> Void) {
-        guard !hasRun else { return }
-        hasRun = true
-        body()
-    }
-}
-
-/// A themed row's item target: sends the item's own action to its own target once per opening,
-/// and validates through that target, so a disabled action stays disabled.
-final class ThemedMenuDispatch: NSObject, NSMenuItemValidation {
-    private weak var target: AnyObject?
-    private let action: Selector
-    private let session: ThemedMenuSession
-
-    init(target: AnyObject?, action: Selector, session: ThemedMenuSession) {
-        self.target = target
-        self.action = action
-        self.session = session
-    }
-
-    @objc func run(_ sender: NSMenuItem) {
-        session.runOnce { _ = NSApplication.shared.sendAction(action, to: target, from: sender) }
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let receiver: AnyObject? = target ?? (NSApplication.shared.target(forAction: action, to: nil, from: menuItem) as? NSObject)
-        guard let receiver else { return false }
-        return (receiver as? any NSMenuItemValidation)?.validateMenuItem(menuItem) ?? true
-    }
-}
-
-/// A themed menu's delegate: redraws the row losing and the row taking the highlight, then
-/// forwards to the menu's previous delegate, which keeps its own behavior.
-final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
-    private weak var forward: (any NSMenuDelegate)?
-
-    init(forward: (any NSMenuDelegate)?) {
-        self.forward = forward
-    }
-
-    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        for row in [menu.highlightedItem?.view, item?.view] {
-            if let row = row as? ThemedMenuRowView { row.highlightChanged() } else { row?.needsDisplay = true }
+extension NSImage {
+    /// This image in the menu grid's square icon box (`MenuMetrics.iconSize`), its shape kept:
+    /// scaled down to fit when larger, centered when smaller. An image already the box's size is
+    /// returned as it is, so theming a menu twice changes nothing. A template stays a template
+    /// (the menu tints it like the title) and the description VoiceOver reads is kept.
+    public func fittedToMenuIconBox() -> NSImage {
+        let side = MenuMetrics.iconSize
+        let box = NSSize(width: side, height: side)
+        let natural = size
+        guard natural != box, natural.width > 0, natural.height > 0 else { return self }
+        let source = self
+        let fitted = NSImage(size: box, flipped: false) { rect in
+            let fit = min(1, rect.width / natural.width, rect.height / natural.height)
+            let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
+            source.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
+                                   width: drawn.width, height: drawn.height))
+            return true
         }
-        forward?.menu?(menu, willHighlight: item)
+        fitted.isTemplate = isTemplate
+        fitted.accessibilityDescription = accessibilityDescription
+        return fitted
     }
+}
 
-    func menuWillOpen(_ menu: NSMenu) { forward?.menuWillOpen?(menu) }
-    func menuDidClose(_ menu: NSMenu) { forward?.menuDidClose?(menu) }
-    func menuNeedsUpdate(_ menu: NSMenu) { forward?.menuNeedsUpdate?(menu) }
+/// `afterThemedRowRuns`'s step: the run loop keeps its target until it runs.
+final class ThemedMenuAfterRun: NSObject {
+    private let body: @MainActor () -> Void
+
+    init(_ body: @escaping @MainActor () -> Void) { self.body = body }
+
+    @objc func run() { body() }
 }

@@ -1,4 +1,4 @@
-//! `acpmux process list|show|kill`: the background processes an agent left
+//! `acpmux process list|show|kill|background`: the background processes an agent left
 //! running (a dev server, a watcher, a long test run), from the command line
 //! (`docs/background-processes.md`, `plans/cmux-next/background-task-terminal-DESIGN.md`).
 //!
@@ -10,6 +10,8 @@
 //!   closes the view; nothing typed reaches the process. cmux opens this in a
 //!   tab beside a chat when a background task row is clicked.
 //! - `kill`: `_acpmux/process/kill`.
+//! - `background`: `_acpmux/process/background`, Ctrl-B from the command
+//!   line: a Claude Code chat's running work goes to the background.
 //!
 //! Output is read with `_acpmux/process/tail` in pages from byte 0;
 //! `process/watch` is not built yet, so `--follow` asks for new bytes every
@@ -26,6 +28,7 @@ use tokio::sync::mpsc;
 use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ProcessCmd {
@@ -57,6 +60,15 @@ pub enum ProcessCmd {
     Kill {
         /// The process id from `process list`.
         process: String,
+    },
+    /// Move a Claude Code chat's running work to the background (Ctrl-B).
+    #[command(alias = "bg")]
+    Background {
+        /// The chat (a session name or id).
+        session: String,
+        /// Only the task this tool call started (default: every foreground task).
+        #[arg(long = "tool-call")]
+        tool_call: Option<String>,
     },
 }
 
@@ -91,6 +103,21 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             client.request(method::MUX_PROCESS_KILL, json!({"processId": process})).await?;
             if json_out {
                 print_json(&json!({"ok": true}));
+            }
+            Ok(())
+        }
+        ProcessCmd::Background { session, tool_call } => {
+            let mut params = json!({"sessionId": session});
+            if let Some(tool) = tool_call {
+                params.set("toolCallId", json!(tool));
+            }
+            let v = client.request(method::MUX_PROCESS_BACKGROUND, params).await?;
+            if json_out {
+                print_json(&v);
+            } else if v.get("backgrounded").and_then(Value::as_bool) == Some(true) {
+                println!("moved to the background");
+            } else {
+                println!("nothing was running in the foreground");
             }
             Ok(())
         }

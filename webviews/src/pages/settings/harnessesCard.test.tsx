@@ -13,6 +13,185 @@ const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[
 const ids = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness);
 
+test("owner job receipts stay pending until a terminal exit; a lost reply blocks another update, an unknown exit does not", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const show = async (state: string, extra = {}) => {
+    await act(async () =>
+      page.provider.setHarnesses({
+        ...base,
+        jobs: [
+          {
+            machine: "machine_original",
+            session: "session_original",
+            cli: "codex",
+            profiles: ["codex"],
+            terminal: "term_original",
+            state,
+            ...extra,
+          },
+        ],
+      } as typeof base),
+    );
+    await settle();
+  };
+  await show("created");
+  let job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.dataset.agentUpdateJob).toBe("created");
+  expect(job?.textContent).toContain("Update terminal created");
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
+  await show("pending");
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.textContent).toContain("Waiting for update to finish");
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>(
+      '[data-harness-update-card="codex"] [data-harness-action="updateCard"]',
+    )?.disabled,
+  ).toBe(true);
+  await show("exited", { exit_code: 23 });
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.textContent).toContain("Exit code: 23");
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(false);
+  await show("unknown");
+  expect(card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]")?.textContent).toContain(
+    "Outcome unknown",
+  );
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
+  // An end observation without a process result is settled: it says so and allows another update.
+  await show("exited", { outcome: "unknown" });
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.dataset.agentUpdateJob).toBe("exited");
+  expect(job?.textContent).toContain("Outcome unknown");
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(false);
+  page.unmount();
+});
+
+test("a recovered unstarted intent resumes only by an explicit click with its retained key", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const show = async (canResume: boolean, state = "unknown") => {
+    await act(async () =>
+      page.provider.setHarnesses({
+        ...base,
+        jobs: [
+          {
+            machine: "machine_original",
+            session: "session_original",
+            cli: "codex",
+            profiles: ["codex"],
+            intent_key: "retained-original-key",
+            state,
+            can_resume: canResume,
+          },
+        ],
+      } as typeof base),
+    );
+    await settle();
+  };
+  await show(true);
+  const resume = card(page.container)!.querySelector<HTMLButtonElement>('[data-harness-action="resumeUpdate"]');
+  expect(resume?.textContent).toContain("Resume original update");
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([]);
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
+  await act(async () => resume!.click());
+  await settle();
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "resumeUpdate", intent: "retained-original-key" },
+  ]);
+  for (const state of ["unknown", "pending", "created"]) {
+    await show(false, state);
+    expect(card(page.container)!.querySelector('[data-harness-action="resumeUpdate"]')).toBeNull();
+  }
+  page.unmount();
+});
+
+test("an intent nothing runs for can be dismissed by an explicit click with its retained key", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const show = async (canDismiss: boolean, state = "unknown") => {
+    await act(async () =>
+      page.provider.setHarnesses({
+        ...base,
+        jobs: [
+          {
+            machine: "machine_original",
+            session: "session_original",
+            cli: "codex",
+            profiles: ["codex"],
+            intent_key: "retained-original-key",
+            state,
+            can_resume: false,
+            can_dismiss: canDismiss,
+          },
+        ],
+      } as typeof base),
+    );
+    await settle();
+  };
+  await show(true);
+  const dismiss = card(page.container)!.querySelector<HTMLButtonElement>('[data-harness-action="dismissUpdate"]');
+  expect(dismiss?.textContent).toContain("Dismiss");
+  expect(card(page.container)!.querySelector('[data-harness-action="resumeUpdate"]')).toBeNull();
+  await act(async () => dismiss!.click());
+  await settle();
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "dismissUpdate", intent: "retained-original-key" },
+  ]);
+  for (const state of ["unknown", "pending", "created"]) {
+    await show(false, state);
+    expect(card(page.container)!.querySelector('[data-harness-action="dismissUpdate"]')).toBeNull();
+  }
+  page.unmount();
+});
+
+test("a channel the update owner cannot run (a Homebrew cask) offers no Update or Update All", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const cask = {
+    id: "claude",
+    name: null,
+    kind: "claude-stdio",
+    source: "path",
+    problem: null,
+    version: "2.0.5",
+    latest: "2.0.9",
+    outdated: true,
+    auth: "signedIn" as const,
+    update: { command: "brew upgrade --cask claude-code", elevated: false },
+    ownerUpdate: false,
+  };
+  await act(async () => page.provider.setHarnesses({ loading: false, problem: null, harnesses: [cask] }));
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-harness="claude"] [data-harness-action="update"]')).toBeNull();
+  expect(element.querySelector('[data-harness-action="updateAll"]')).toBeNull();
+  const manualCard = element.querySelector<HTMLElement>('[data-harness-update-card="claude"]')!;
+  expect(manualCard.textContent).toContain("Run the command below to update Claude Code");
+  expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
+  expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(cask.update.command);
+  // Its auto-update choice stays: acpmux runs that itself.
+  expect(element.querySelector('[data-harness="claude"] input[data-harness-auto]')).not.toBeNull();
+  page.unmount();
+});
+
 test("the card lists the host's harnesses with their names and reads them again when it opens", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
@@ -76,10 +255,25 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
   expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.3.1");
   expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.4.0");
   expect(codex.querySelector('[data-harness-auth="signedOut"]')).not.toBeNull();
+  const updateCard = element.querySelector<HTMLElement>('[data-harness-update-card="codex"]')!;
+  expect(updateCard.textContent).toContain("Update Codex for reliable chats");
+  expect(updateCard.textContent).toContain("Installed 0.3.1 · 0.4.0 available");
+  expect(updateCard.textContent).toContain("Compatibility fixes");
+  const updateButton = updateCard.querySelector<HTMLButtonElement>('[data-harness-action="updateCard"]')!;
+  expect(updateButton).not.toBeNull();
+  expect(document.getElementById(updateButton.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "Update Codex for reliable chats",
+  );
   // An update that writes a folder this user cannot: the exact command, never a button that runs it.
   const claude = element.querySelector<HTMLElement>('[data-harness="claude"]')!;
   expect(claude.querySelector('[data-harness-action="update"]')).toBeNull();
   expect(claude.querySelector("[data-harness-command]")!.textContent).toBe(
+    "sudo npm install -g @anthropic-ai/claude-code@latest",
+  );
+  const manualCard = element.querySelector<HTMLElement>('[data-harness-update-card="claude"]')!;
+  expect(manualCard.textContent).toContain("Needs admin rights. Run in a terminal:");
+  expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
+  expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(
     "sudo npm install -g @anthropic-ai/claude-code@latest",
   );
   expect(claude.querySelector("[data-harness-auth]")).toBeNull();
@@ -91,10 +285,12 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
     await act(async () => element.querySelector<HTMLButtonElement>(selector)!.click());
     await settle();
   };
+  await press('[data-harness-update-card="codex"] [data-harness-action="updateCard"]');
   await press('[data-harness="codex"] [data-harness-action="update"]');
   await press('[data-harness-action="updateAll"]');
   await press('[data-harness-action="refresh"]');
   expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "update", id: "codex" },
     { action: "update", id: "codex" },
     { action: "updateAll" },
   ]);
@@ -164,5 +360,24 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
   expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
   expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
+  page.unmount();
+});
+
+test("an expired sign-in badges Agents and says so on its row, like a signed-out one", async () => {
+  const { harnessesNeedAttention } = await import("./harnesses");
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const harnesses = (base?.harnesses ?? []).map((row) => ({ ...row, outdated: false, auth: "signedIn" as const }));
+  const expired = {
+    ...base,
+    harnesses: harnesses.map((row) => (row.id === "codex" ? { ...row, auth: "expired" as const } : row)),
+  } as typeof base;
+  expect(harnessesNeedAttention({ ...base, harnesses } as typeof base)).toBe(false);
+  expect(harnessesNeedAttention(expired)).toBe(true);
+  await act(async () => page.provider.setHarnesses(expired));
+  await settle();
+  const codex = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
+  expect(codex.querySelector('[data-harness-auth="expired"]')?.textContent).toBe("Signed out");
   page.unmount();
 });

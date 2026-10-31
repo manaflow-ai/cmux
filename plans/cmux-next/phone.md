@@ -1,6 +1,9 @@
 # Phone surface: one iPhone tab, three backends
 
-Status: design + first slice (Simulator backend, recording bundle, feedback clip).
+Status (2026-10-20): phases 1-3 done (Simulator and real iPhone over simctl/devicectl,
+recordings, Send to Chief, live Simulator screen and input, `cmux phone` CLI/MCP;
+Android follows `simulators-DESIGN.md`). Phase 4 (live USB view of a real iPhone)
+is not started. Phase 5 (vphone-cli VM) stays gated on the user's go-ahead.
 Owner module: `Packages/macOS/CmuxNext/Sources/CmuxNextPhone` (+ `CmuxNextPhoneTests`).
 Request: an actual iPhone mirrored into cmux, driven by people and agents,
 with one-click "record and send as product feedback".
@@ -93,23 +96,23 @@ Actions (registered once in the action catalog, `cli: true`, palette-visible):
 `phone.screenshot`, `phone.record.start`, `phone.record.stop`,
 `phone.feedback.send` (stop + send clip to Chief), `phone.input.tap`,
 `phone.input.swipe`, `phone.input.text`, `phone.openurl`, `phone.list`.
-CLI: `cmux phone open|boot|screenshot|record|stop|feedback|open-url|paste` (two words each; tap, swipe and type come with phase 2)
+CLI: `cmux phone open|boot|shutdown|list|screenshot|record|stop|feedback|open-url|paste|tap|swipe|type|button|rotate|ui|logs|install|launch|appearance|locale|location` (two words each)
 maps 1:1 onto those actions (Rust CLI forwards to `action.run`). MCP: the same
 actions appear in the `phone` tool family through the action catalog, so agents
 drive the phone exactly like a person.
 
 ## Phases
 
-1. (this slice) Module, Simulator backend over simctl, device list, screenshot,
+1. (done) Module, Simulator backend over simctl, device list, screenshot,
    recording bundle with event log and device log, feedback clip summary,
    tests with fake runner. Real-device screenshot/record via devicectl in the
    same backend shape.
-2. Live Simulator frames + HID input through SimulatorKit (private framework,
+2. (done) Live Simulator frames + HID input through SimulatorKit (private framework,
    dlopen'd; behind a capability check, falls back to phase 1).
-3. Phone tab in the App layer (AppKit view: device frame + screen layer, click =
+3. (done) Phone tab in the App layer (AppKit view: device frame + screen layer, click =
    tap, drag = swipe, typing = keys), palette/CLI/MCP wiring.
-4. Real iPhone live view over USB (CoreMediaIO), Wi-Fi stills.
-5. vphone-cli VM backend (after user confirmation): API client, screen stream
+4. (not started) Real iPhone live view over USB (CoreMediaIO), Wi-Fi stills.
+5. (gated) vphone-cli VM backend (after user confirmation): API client, screen stream
    decoder (VideoToolbox), input RPC, recording by writing the stream.
 
 ## Non-goals / rules

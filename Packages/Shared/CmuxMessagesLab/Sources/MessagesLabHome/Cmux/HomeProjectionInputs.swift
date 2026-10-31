@@ -27,7 +27,7 @@ struct HomeProjectionInputs: Equatable {
         transcriptVersion = store.transcriptVersion[conversation, default: 0]
         summary = store.summary(conversation)
         row = store.rows.first { $0.summary.id == conversation }
-        typing = store.typing[conversation]
+        typing = store.typing.value(for: conversation)
         streams = store.streams(in: conversation)
         live = store.liveRun(in: conversation)
         confirmed = store.isConfirmed(conversation)

@@ -3,6 +3,9 @@
 
 use super::*;
 
+#[path = "agent_cli_intent_tests.rs"]
+mod intents;
+
 const COMMAND: &str = "agent-cli-update-job";
 
 struct Caller {
@@ -59,6 +62,116 @@ fn prepared() -> Value {
 fn request(mux: &Mux, cli: &str, key: &str) -> Value {
     json!({"id":1,"cmd":COMMAND,"expected_machine_id":mux.machine_public_id,
         "expected_session_id":mux.session_public_id,"cli":cli,"idempotency_key":key})
+}
+
+fn resolve_request(mux: &Mux, cli: &str, key: &str) -> Value {
+    let mut value = request(mux, cli, key);
+    value["cmd"] = json!("agent-cli-update-job-resolve");
+    value
+}
+
+#[test]
+fn bun_installation_binding_owner_job_keeps_admission_replay_and_receipt_privacy() {
+    let plan = json!({"cli":"codex","argv":["/usr/bin/env", "-u", "XDG_CONFIG_HOME",
+        "BUN_INSTALL_GLOBAL_DIR=/private/owner/packages", "BUN_INSTALL_BIN=/private/owner/bin",
+        "/private/owner/bun", "add", "-g", "@manaflow-ai/codex@latest"]});
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), plan);
+    let mux = owner.mux("bun-bound-job");
+    let unverified = Caller::new(&mux, false);
+    assert_code(
+        &unverified.call(&mux, request(&mux, "codex", "unverified")),
+        "agent_cli_job.not_trusted",
+    );
+    let caller = Caller::new(&mux, true);
+    let mut spoofed = request(&mux, "codex", "spoofed");
+    spoofed["env"] = json!({"BUN_INSTALL_BIN":"/other"});
+    assert_code(&caller.call(&mux, spoofed), "agent_cli_job.bad_request");
+    let first = caller.call(&mux, request(&mux, "codex", "bound-intent"));
+    assert_eq!(first["ok"], true, "{first}");
+    let replayed = caller.call(&mux, request(&mux, "codex", "bound-intent"));
+    assert_eq!(replayed["ok"], true, "{replayed}");
+    assert_eq!(replayed["data"]["replayed"], true);
+    assert_eq!(first["data"]["path"], replayed["data"]["path"]);
+    assert!(!first.to_string().contains("BUN_INSTALL"));
+    assert!(!first.to_string().contains("private/owner"));
+    assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/update/prepare"]);
+}
+
+#[test]
+fn cmux_next_agent_cli_job_resolve_recovers_a_receipt_without_preparing_or_executing() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-resolve-created");
+    let caller = Caller::new(&mux, true);
+    let first = caller.call(&mux, request(&mux, "claude", "original-intent"));
+    assert_eq!(first["ok"], true, "{first}");
+    mux.set_acpmux_socket(None);
+    let before = mux.with_state(|state| state.workspaces.len());
+    for _ in 0..2 {
+        let resolved = caller.call(&mux, resolve_request(&mux, "claude", "original-intent"));
+        assert_eq!(resolved["ok"], true, "{resolved}");
+        assert_eq!(resolved["data"]["state"], "created");
+        assert_eq!(resolved["data"]["receipt"]["path"], first["data"]["path"]);
+        assert_eq!(resolved["data"]["receipt"]["revision"], first["data"]["revision"]);
+        assert_eq!(resolved["data"]["receipt"]["machine"], json!(mux.machine_public_id));
+        assert_eq!(resolved["data"]["receipt"]["session"], json!(mux.session_public_id));
+        assert_eq!(resolved["data"]["receipt"]["replayed"], true);
+        let text = resolved.to_string();
+        assert!(
+            !text.contains("argv")
+                && !text.contains("private/owner")
+                && !text.contains("generation")
+        );
+    }
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), before);
+    assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/update/prepare"]);
+}
+
+#[test]
+fn cmux_next_agent_cli_job_resolve_an_absent_intent_never_creates_or_prepares_it() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-resolve-absent");
+    let caller = Caller::new(&mux, true);
+    let before = mux.with_state(|state| state.workspaces.len());
+    let resolved = caller.call(&mux, resolve_request(&mux, "claude", "never-dispatched"));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(resolved["data"], json!({"state":"not_found"}));
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), before);
+    assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn cmux_next_agent_cli_job_resolve_refuses_untrusted_or_retargeted_reads() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-resolve-admission");
+    let untrusted = Caller::new(&mux, false);
+    assert_code(
+        &untrusted.call(&mux, json!({"id":1,"cmd":"agent-cli-update-job-resolve"})),
+        "agent_cli_job.not_trusted",
+    );
+    let caller = Caller::new(&mux, true);
+    let mut foreign = resolve_request(&mux, "claude", "original");
+    foreign["expected_session_id"] = json!("session_11111111111111111111111111111111");
+    assert_code(&caller.call(&mux, foreign), "agent_cli_job.session_mismatch");
+    for field in ["actor", "argv", "socket", "origin"] {
+        let mut bad = resolve_request(&mux, "claude", "original");
+        bad[field] = json!("claim");
+        assert_code(&caller.call(&mux, bad), "agent_cli_job.bad_request");
+    }
+    assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn cmux_next_agent_cli_job_resolve_a_different_cli_cannot_reuse_the_receipt() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-resolve-conflict");
+    let caller = Caller::new(&mux, true);
+    assert_eq!(caller.call(&mux, request(&mux, "claude", "original"))["ok"], true);
+    mux.set_acpmux_socket(None);
+    assert_code(
+        &caller.call(&mux, resolve_request(&mux, "codex", "original")),
+        "idempotency.conflict",
+    );
+    assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/update/prepare"]);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+import CmuxNextDesign
 public import CoreGraphics
 
 /// The host's lease state as the cursor needs it (automation-lease.md).
@@ -11,8 +12,17 @@ public enum AgentCursorLeaseState: Sendable, Equatable {
 /// call `leaseDidChange`.
 @MainActor
 public final class AgentCursorOverlayModel: AgentCursorRendering {
-    /// The resting heading of a cmux-cua cursor (tip up-left).
-    public static let restingHeading = Double.pi / 4
+    /// The resting heading of the arrow (tip up-left): the direction from its
+    /// tip to its body's center, 63° below the x axis for the leaning arrow
+    /// (``AgentCursorLayer/arrowPath``), so a glide turns it along travel.
+    public static let restingHeading = 63 * Double.pi / 180
+
+    /// A move this soon (ms) after the session's previous move is a sample
+    /// of a streamed human path (plans/cmux-next/human-mouse-DESIGN.md): the
+    /// cursor follows it instead of starting a new glide.
+    static let followWindowMs = 100.0
+    /// The longest one follow segment lasts (s): a late sample catches up.
+    static let maxFollowSeconds = 0.05
 
     private struct Cursor {
         var point: CGPoint?
@@ -21,17 +31,26 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         var lastEvent: AutomationInputEvent?
         /// What the session is typing (the keystroke caption).
         var caption = AgentKeystrokeCaption()
+        /// `tMs` of the session's last move, while it may be streaming a path.
+        var lastMoveMs: Double?
     }
 
     private let resolver: AgentCursorTargetResolving
     private let host: AgentCursorLayerHosting
     private let motion: GlideMotion
+    /// Movement animates (the a274 motion gate: off under Reduce Motion);
+    /// when false every placement snaps.
+    private let animatesMovement: @MainActor () -> Bool
     private var cursors: [String: Cursor] = [:]
 
-    public init(resolver: AgentCursorTargetResolving, host: AgentCursorLayerHosting, motion: GlideMotion = GlideMotion()) {
+    /// - Parameter animatesMovement: read per input; nil (the default) reads
+    ///   the app's motion policy (`Motion.animatesMovement`). Tests pin it.
+    public init(resolver: AgentCursorTargetResolving, host: AgentCursorLayerHosting, motion: GlideMotion = GlideMotion(),
+                animatesMovement: (@MainActor () -> Bool)? = nil) {
         self.resolver = resolver
         self.host = host
         self.motion = motion
+        self.animatesMovement = animatesMovement ?? { Motion.cursor.animatesMovement }
     }
 
     public func render(_ event: AutomationInputEvent) {
@@ -77,7 +96,19 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 target = end
                 drop = nil
             }
-            if let from = cursor.point {
+            let streamed = streamGap(event, cursor: &cursor, replay: replay)
+            host.apply(.confine(session: session, bounds: clip))
+            if !animatesMovement() {
+                // Reduce Motion: the cursor appears where the input lands.
+                host.apply(.place(session: session, point: drop ?? target))
+            } else if let from = cursor.point, let gap = streamed, drop == nil {
+                if from != target {
+                    host.apply(.glide(session: session, plan: motion.follow(
+                        fromX: from.x, fromY: from.y, toX: target.x, toY: target.y,
+                        duration: min(gap, Self.maxFollowSeconds), heading: Self.restingHeading
+                    )))
+                }
+            } else if let from = cursor.point {
                 var plan: GlidePlan?
                 if from != target {
                     plan = motion.plan(fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading)
@@ -106,6 +137,20 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
             host.apply(.hide(session: session))
             cursor.point = nil
         }
+    }
+
+    /// The seconds since the session's previous move when `event` continues
+    /// a streamed path (a move within `followWindowMs` of a move), else nil.
+    /// Records the move's time; any other input ends the stream.
+    private func streamGap(_ event: AutomationInputEvent, cursor: inout Cursor, replay: Bool) -> Double? {
+        guard !replay else { return nil }
+        guard event.kind == .move else {
+            cursor.lastMoveMs = nil
+            return nil
+        }
+        defer { cursor.lastMoveMs = event.tMs }
+        guard let last = cursor.lastMoveMs, event.tMs >= last, event.tMs - last <= Self.followWindowMs else { return nil }
+        return (event.tMs - last) / 1000
     }
 
     /// Called with a target the cursor no longer follows (its session's lease

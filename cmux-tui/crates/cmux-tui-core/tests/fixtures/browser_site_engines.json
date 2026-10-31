@@ -1,0 +1,64 @@
+{
+  "about": "browser.siteEngines matching cases. CmuxNextSettings (BrowserSiteEngines, Swift) and cmux-tui-core (browser_site_engines, Rust) both test against this file, so the app and the daemon pick the same engine for a URL.",
+  "defaults": {
+    "spotify.com": "webkit",
+    "netflix.com": "webkit",
+    "disneyplus.com": "webkit",
+    "max.com": "webkit",
+    "hulu.com": "webkit",
+    "primevideo.com": "webkit",
+    "amazon.com/gp/video": "webkit",
+    "tv.apple.com": "webkit",
+    "music.apple.com": "webkit"
+  },
+  "suites": [
+    {
+      "rules": "defaults",
+      "cases": [
+        ["https://open.spotify.com/track/1", "webkit"],
+        ["https://spotify.com/", "webkit"],
+        ["https://www.netflix.com/browse", "webkit"],
+        ["https://www.disneyplus.com/", "webkit"],
+        ["https://play.max.com/", "webkit"],
+        ["https://www.hulu.com/hub/home", "webkit"],
+        ["https://www.primevideo.com/", "webkit"],
+        ["https://www.amazon.com/gp/video/detail/B0", "webkit"],
+        ["https://www.amazon.com/gp/video", "webkit"],
+        ["https://tv.apple.com/", "webkit"],
+        ["https://music.apple.com/us/browse", "webkit"],
+        ["https://music.youtube.com/", null],
+        ["https://www.amazon.com/", null],
+        ["https://www.amazon.com/gp/videos", null],
+        ["https://apple.com/", null],
+        ["https://notspotify.com/", null],
+        ["https://spotify.com.evil.example/", null],
+        ["file:///tmp/spotify.com", null],
+        ["cmux://spotify.com", null],
+        ["https://example.com/?u=spotify.com", null]
+      ]
+    },
+    {
+      "rules": {
+        "example.com": "webkit",
+        "app.example.com": "chromium",
+        "example.com/docs": "chromium",
+        "example.com/docs/old": "webkit",
+        "HTTPS://*.Shop.Example.ORG/": "webkit",
+        "bad.example": "gecko",
+        "   ": "chromium",
+        "/path": "chromium"
+      },
+      "cases": [
+        ["https://www.example.com/", "webkit"],
+        ["https://app.example.com/docs", "chromium"],
+        ["https://example.com/docs/new", "chromium"],
+        ["https://example.com/docs/old/a", "webkit"],
+        ["https://example.com/docsx", "webkit"],
+        ["https://OPEN.shop.example.org./x", "webkit"],
+        ["https://shop.example.org", "webkit"],
+        ["https://bad.example/", null],
+        ["http://example.com/DOCS/new", "chromium"]
+      ]
+    }
+  ]
+}

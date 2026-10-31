@@ -24,9 +24,17 @@ final class SimulatorHIDTransport {
     private typealias ButtonFunction = @convention(c) (Int32, Int32, Int32) -> UnsafeMutableRawPointer?
 
     private static let service = "com.apple.coredevice.feature.remote.hid.digitizer"
+    /// The Indigo button event source of Simulator's Toggle Software Keyboard (classic cmux's worker sent the same).
+    private static let softwareKeyboardSource: Int32 = 0x3F0
     private let path: Path
+    private let device: NSObject
+    private let legacyButton: ButtonFunction?
+    /// The legacy Indigo client the software keyboard toggle needs on the dtuhid path, opened on first use.
+    private var keyboardClient: NSObject?
 
     init(device: NSObject, runtime: SimulatorKitRuntime) throws {
+        self.device = device
+        legacyButton = runtime.symbol("IndigoHIDMessageForButton").map { unsafeBitCast($0, to: ButtonFunction.self) }
         if let connection = Self.dtuhid(device) {
             path = .dtuhid(connection)
             return
@@ -106,6 +114,24 @@ final class SimulatorHIDTransport {
         }
     }
 
+    /// Presses and releases Simulator's software keyboard toggle. It is an Indigo event source with
+    /// no dtuhid usage, so the dtuhid path opens the legacy client for it.
+    func toggleSoftwareKeyboard() throws {
+        let client: NSObject
+        switch path {
+        case .indigo(let legacy, _, _, _, _): client = legacy
+        case .dtuhid:
+            guard let opened = keyboardClient ?? Self.legacyClient(device) else {
+                throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard with this Xcode")
+            }
+            keyboardClient = opened
+            client = opened
+        }
+        guard let legacyButton else { throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard with this Xcode") }
+        try sendIndigo(legacyButton(Self.softwareKeyboardSource, 1, 0x33), via: client)
+        try sendIndigo(legacyButton(Self.softwareKeyboardSource, 2, 0x33), via: client)
+    }
+
     private func send(_ type: String, _ payload: xpc_object_t) throws {
         guard case .dtuhid(let connection) = path else { return }
         let message = xpc_dictionary_create(nil, nil, 0)
@@ -117,7 +143,15 @@ final class SimulatorHIDTransport {
     }
 
     private func sendIndigo(_ message: UnsafeMutableRawPointer?) throws {
-        guard case .indigo(let client, _, _, _, _) = path, let message else {
+        guard case .indigo(let client, _, _, _, _) = path else {
+            if let message { free(message) }
+            throw PhoneError.unsupported(mode: .simulator, what: "input with this Xcode")
+        }
+        try sendIndigo(message, via: client)
+    }
+
+    private func sendIndigo(_ message: UnsafeMutableRawPointer?, via client: NSObject) throws {
+        guard let message else {
             throw PhoneError.unsupported(mode: .simulator, what: "input with this Xcode")
         }
         let selector = privateSelector("sendWithMessage:freeWhenDone:completionQueue:completion:")
@@ -135,6 +169,7 @@ final class SimulatorHIDTransport {
         typealias Connect = @convention(c) (xpc_object_t) -> xpc_connection_t?
         typealias Enable = @convention(c) (xpc_connection_t) -> Void
         let lookup = privateSelector("lookup:error:")
+        // concurrency-allow: dlopen(nil) returns the main program's handle; it maps nothing
         guard let process = dlopen(nil, RTLD_NOW),
               let endpointSymbol = dlsym(process, "xpc_endpoint_create_mach_port_4sim"),
               let connectSymbol = dlsym(process, "xpc_connection_create_from_endpoint"),

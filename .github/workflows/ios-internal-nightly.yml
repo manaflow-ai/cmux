@@ -1,7 +1,7 @@
-name: cnx-ios INTERNAL builder (cmux-next)
-run-name: ${{ github.event_name == 'push' && 'cnx-ios INTERNAL builder branch moved' || format('cnx-ios INTERNAL {0}', inputs.sha) }}
+name: cmux-next iPhone INTERNAL builder
+run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder branch moved' || format('cmux-next-ios INTERNAL {0}', inputs.sha) }}
 
-# Continuous TestFlight builds of cmux-next's iPhone app (cnx-ios, App Store
+# Continuous TestFlight builds of cmux-next's iPhone app (cmux-next-ios, App Store
 # Connect app "cmux INTERNAL", dev.cmux.app.internal) for internal testers.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 #
@@ -9,8 +9,9 @@ run-name: ${{ github.event_name == 'push' && 'cnx-ios INTERNAL builder branch mo
 # branch rc/cnx-ios-builder (the `release` environment admits rc/**). The
 # workflow file and the signing script therefore come from that frozen branch;
 # feat-cmux-next code (inputs.sha) runs only in `archive`, which reads no
-# secret. Archive on the dedicated mini (cmux23), sign/validate/upload on an
-# ephemeral GitHub-hosted Mac.
+# secret. Archive on the dedicated mini while it is free, else Blacksmith; sign/validate/upload on an
+# ephemeral Blacksmith Mac. "What to Test" is written by `notes`, which holds
+# no signing secret (scripts/ci/ios_internal_notes.py).
 on:
   # A push to rc/cnx-ios-builder (an admin fast-forward) only registers this
   # dispatch-only workflow with GitHub, which refuses to dispatch a workflow it
@@ -24,7 +25,7 @@ on:
         required: true
         type: string
       base:
-        description: last uploaded commit; "What to Test" lists base..sha
+        description: last uploaded commit; "What to Test" lists base..sha (empty finds it in App Store Connect)
         required: false
         default: ''
         type: string
@@ -35,25 +36,75 @@ permissions:
 # One build runs, at most one waits, and a newer dispatch replaces the waiting
 # one, so the newest feat-cmux-next head always builds next.
 concurrency:
-  group: cnx-ios-internal-next
+  group: cmux-mobile-internal-next
   cancel-in-progress: false
 
 jobs:
+  # The archive prefers the dedicated mini (vars.CI_IOS_INTERNAL_RUNNER, its own
+  # glaeda-runner-<runner name> label, warm caches) but never waits on it: this
+  # job hands it on only while that mini is online and idle (up to 5 min while
+  # busy), else the archive takes Blacksmith. Before, runs-on read the variable
+  # directly, and a set variable never falls through, so every archive waited
+  # on one mini (scripts/ci/ios_internal_runner.py). No PR pool: the archive is
+  # what ships to TestFlight. Reads the runner list only; no feat-cmux-next code.
+  pick-archive-runner:
+    name: Pick the archive runner
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # The routing App key, as every other runner picker reads it.
+    environment: ci-routing-agent
+    permissions:
+      contents: read
+    outputs:
+      dedicated: ${{ steps.pick.outputs.dedicated }}
+      attempt: ${{ steps.pick.outputs.attempt }}
+    steps:
+      - name: Checkout the picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Mint the runner-list token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && vars.CI_IOS_INTERNAL_RUNNER != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the dedicated mini while it can take the job, else Blacksmith
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
+        run: python3 scripts/ci/ios_internal_runner.py
+
   archive:
     name: Archive (unsigned, no secrets)
-    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    # vars.CI_IOS_INTERNAL_RUNNER names the dedicated mini's runner label
-    # (glaeda-runner-cmux23-ios-internal); unset, the archive runs hosted.
-    runs-on: ${{ vars.CI_IOS_INTERNAL_RUNNER || 'macos-26' }} # github-hosted-required: fallback when the dedicated builder variable is unset
+    needs: pick-archive-runner
+    # !cancelled(): a failed picker leaves its outputs empty and the archive takes Blacksmith.
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'"
+    # The pick counts only on the attempt it was made for, so a re-run of failed
+    # jobs that keeps the picker's outputs takes Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
       build_number: ${{ steps.stamp.outputs.build_number }}
     env:
       SHA: ${{ inputs.sha }}
-      # The dedicated mini keeps ~/cnx-ios-builds/.cache (xcframework, cargo,
-      # SwiftPM) warm between builds; a hosted fallback builds under its temp.
-      HOSTED_FALLBACK: ${{ vars.CI_IOS_INTERNAL_RUNNER == '' }}
+      # The dedicated mini keeps ~/cmux-mobile-builds/.cache (xcframework, cargo,
+      # SwiftPM) warm between builds; a Blacksmith fallback builds under its temp.
+      HOSTED_FALLBACK: ${{ !(needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '') }}
     steps:
       - name: Check the commit
         run: |
@@ -87,7 +138,7 @@ jobs:
 
       - name: Version and build number
         id: stamp
-        run: python3 scripts/ci/ios_internal_builder.py stamp --project-yml cnx-ios/project.yml
+        run: python3 scripts/ci/ios_internal_builder.py stamp --project-yml cmux-next-ios/project.yml
 
       - name: Archive
         env:
@@ -95,21 +146,33 @@ jobs:
           BUILD_NUMBER: ${{ steps.stamp.outputs.build_number }}
         run: |
           set -euo pipefail
-          root="$HOME/cnx-ios-builds"
-          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cnx-builds"
-          export CNX_BUILDS_ROOT="$root"
-          cnx-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
+          root="$HOME/cmux-mobile-builds"
+          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
+          export CMUX_MOBILE_BUILDS_ROOT="$root"
+          cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
             --marketing-version "$MARKETING" --build-number "$BUILD_NUMBER"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
           mkdir -p "$RUNNER_TEMP/handoff"
-          ditto -c -k --keepParent "$out/CnxApp.xcarchive" "$RUNNER_TEMP/handoff/CnxApp.xcarchive.zip"
+          ditto -c -k --keepParent "$out/CmuxMobileApp.xcarchive" "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip"
           cp "$out/MANIFEST.md" "$RUNNER_TEMP/handoff/"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # Fails the build before the signer gets it: what App Store Connect
+      # rejects only after an upload (ITMS-90626, 90683, ...). The checker
+      # is the built commit's; testflight-build.sh also runs it.
+      - name: App Store review rules (built app)
+        run: |
+          set -euo pipefail
+          root="$HOME/cmux-mobile-builds"
+          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
+          out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
+          python3 -I scripts/cmux-next/check-app-store-rules.py --source .
+          python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
 
       - name: Hand the archive to the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cnx-ios-internal-archive-${{ github.run_id }}
+          name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff/
           retention-days: 3
           if-no-files-found: error
@@ -118,16 +181,106 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/handoff"
 
+  # Only when the dispatch has no base (the first build after a manual or
+  # retired-lane upload): the newest processed build's note records the commit
+  # it was built from (its first line, written by `notes`). This job holds the
+  # App Store Connect key only, reads one list, and hands on a commit id.
+  previous-build:
+    name: Last build in App Store Connect (read only)
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && inputs.base == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # Never fails the run: the trigger reads run conclusions as "uploaded or not".
+    continue-on-error: true
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      ref: ${{ steps.asc.outputs.ref }}
+    steps:
+      - name: Checkout the builder branch (trusted script)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      # A failure here only widens the note's range lookup to the run history;
+      # it must not fail the run (the trigger reads run conclusions).
+      - name: Read the commit the newest processed build records
+        id: asc
+        continue-on-error: true
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          key_dir="$RUNNER_TEMP/asc"; mkdir -p "$key_dir"; chmod 700 "$key_dir"
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_dir/AuthKey.p8"
+          chmod 600 "$key_dir/AuthKey.p8"
+          ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8" python3 -I scripts/ci/ios_internal_notes.py asc-previous
+
+  # "What to Test": the Changelog lines of the PRs in base..sha that change the
+  # app (scripts/ci/ios_internal_notes.py). No signing secret: a read-only
+  # token, and the builder branch's script reading feat-cmux-next history as data.
+  notes:
+    name: What to Test (no secrets)
+    needs: previous-build
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    env:
+      SHA: ${{ inputs.sha }}
+      BASE: ${{ inputs.base }}
+      ASC_REF: ${{ needs.previous-build.outputs.ref }}
+    steps:
+      - name: Checkout the builder branch (trusted script)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # History (trees, no file contents) for git log over base..sha; the
+          # work tree is the script only.
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: scripts/ci
+
+      # A failed note never stops the upload: the signer then sends the first line only.
+      - name: Write the note
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
+          git fetch -q --no-tags --filter=blob:none origin "$SHA"
+          mkdir -p "$RUNNER_TEMP/notes"
+          python3 -I scripts/ci/ios_internal_notes.py notes --sha "$SHA" --base "$BASE" --asc-ref "$ASC_REF" \
+            --out "$RUNNER_TEMP/notes/what-to-test.txt"
+          sed 's/^/    /' "$RUNNER_TEMP/notes/what-to-test.txt" >> "$GITHUB_STEP_SUMMARY"  # indented: a fence in a PR line cannot break out
+
+      - name: Hand the note to the signer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cnx-ios-internal-notes-${{ github.run_id }}
+          path: ${{ runner.temp }}/notes/what-to-test.txt
+          retention-days: 3
+          if-no-files-found: ignore
+
   upload:
     name: Sign, validate, upload to cmux INTERNAL
-    needs: archive
-    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: macos-26 # github-hosted-required: ephemeral signer, the signing key stays off owned machines
+    needs: [archive, notes]
+    if: ${{ !cancelled() && needs.archive.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }} # ephemeral signer (Blacksmith is trusted like hosted); the signing key stays off owned machines
     timeout-minutes: 75
     environment: release
     env:
       SHA: ${{ inputs.sha }}
-      BASE: ${{ inputs.base }}
       ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
@@ -142,12 +295,11 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin "$SHA" feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
           git cat-file -e "$SHA^{commit}"
-          [ -z "$BASE" ] || git fetch --no-tags origin "$BASE" || true
 
       - name: Check the builder branch carries the signing script
         run: |
-          [ -x cnx-ios/scripts/testflight-build.sh ] || {
-            echo "::error::rc/cnx-ios-builder has no cnx-ios/scripts/testflight-build.sh. An admin fast-forwards it to a feat-cmux-next commit that has cnx-ios (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)."
+          [ -x cmux-next-ios/scripts/testflight-build.sh ] || {
+            echo "::error::rc/cnx-ios-builder has no cmux-next-ios/scripts/testflight-build.sh. An admin fast-forwards it to a feat-cmux-next commit that has cmux-next-ios (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)."
             exit 1
           }
 
@@ -160,7 +312,7 @@ jobs:
       - name: Download the archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cnx-ios-internal-archive-${{ github.run_id }}
+          name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff
 
       - name: Materialize App Store Connect API key
@@ -183,13 +335,15 @@ jobs:
           set -euo pipefail
           [ -n "${IOS_DISTRIBUTION_CERTIFICATE_BASE64:-}" ] && [ -n "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:-}" ] \
             || { echo "Missing IOS_DISTRIBUTION_CERTIFICATE_BASE64 / _PASSWORD in the release environment" >&2; exit 1; }
-          keychain=cnx-internal-next.keychain
+          keychain=cmux-mobile-internal.keychain
           password="$(uuidgen)"
           cert="$RUNNER_TEMP/ios-distribution.p12"
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$cert"
           security delete-keychain "$keychain" >/dev/null 2>&1 || true
           security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
+          # Idle lock within the job timeout (75 min); signing ends long before it
+          # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
+          security set-keychain-settings -lut 3600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
           security import "$cert" -k "$keychain" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           rm -f "$cert"
@@ -204,48 +358,61 @@ jobs:
           [ -n "${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64:-}" ] || { echo "no internal profile secret; testflight-build.sh downloads the current one"; exit 0; }
           profile="$RUNNER_TEMP/asc/internal.mobileprovision"
           printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64" | base64 --decode > "$profile"
-          echo "CNX_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
+          echo "CMUX_MOBILE_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
+
+      # The note comes from the `notes` job; this job only reads it. Without
+      # one, the first line still records the commit for the next build.
+      - name: Download the What to Test note
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cnx-ios-internal-notes-${{ github.run_id }}
+          path: ${{ runner.temp }}/notes
 
       - name: What to Test
         run: |
           set -euo pipefail
-          {
-            echo "cmux-next iPhone, continuous build of feat-cmux-next ${SHA:0:10}. Internal testers only."
-            if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-              echo
-              echo "Changes since the last build (${BASE:0:10}):"
-              git log --no-merges --format='- %s' "$BASE..$SHA" -- cnx-ios Packages/iOS Packages/Shared cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport | head -40
-            fi
-          } | cut -c1-200 | head -c 3800 > "$RUNNER_TEMP/what-to-test.txt"
+          note="$RUNNER_TEMP/notes/what-to-test.txt"
+          if [ ! -s "$note" ]; then
+            mkdir -p "$RUNNER_TEMP/notes"
+            printf 'cmux-next iPhone, feat-cmux-next %s. Internal testers only.\n' "${SHA:0:12}" > "$note"
+          fi
+          cp "$note" "$RUNNER_TEMP/what-to-test.txt"
           cat "$RUNNER_TEMP/what-to-test.txt"
 
       - name: Sign, validate, upload
         id: upload
         env:
-          CNX_CI_ASC: "1"
+          CMUX_MOBILE_CI_ASC: "1"
+          # The notification content extension's App Store profile that lists
+          # CI's certificate (downloaded with the release key; verify/rich-push.md).
+          CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Content
+          # The same for the notification service extension (verify/notifications-trust.md).
+          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Service
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/archive"
-          ditto -x -k "$RUNNER_TEMP/handoff/CnxApp.xcarchive.zip" "$RUNNER_TEMP/archive"
-          CNX_BUILDS_ROOT="$RUNNER_TEMP/cnx-builds" cnx-ios/scripts/testflight-build.sh --ref "$SHA" \
-            --from-archive "$RUNNER_TEMP/archive/CnxApp.xcarchive" --upload --internal-only \
+          ditto -x -k "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip" "$RUNNER_TEMP/archive"
+          CMUX_MOBILE_BUILDS_ROOT="$RUNNER_TEMP/cmux-mobile-builds" cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" \
+            --from-archive "$RUNNER_TEMP/archive/CmuxMobileApp.xcarchive" --upload --internal-only \
             --what-to-test "$(cat "$RUNNER_TEMP/what-to-test.txt")"
-          out="$(find "$RUNNER_TEMP/cnx-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
+          out="$(find "$RUNNER_TEMP/cmux-mobile-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the manifest and logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cnx-ios-internal-${{ github.run_id }}
+          name: cmux-mobile-internal-${{ github.run_id }}
+          retention-days: 3
           path: |
-            ${{ runner.temp }}/cnx-builds/*-testflight/MANIFEST.md
-            ${{ runner.temp }}/cnx-builds/*-testflight/ExportOptions.plist
-            ${{ runner.temp }}/cnx-builds/*-testflight/logs/
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/logs/
           if-no-files-found: ignore
 
       - name: Delete signing material
         if: always()
         run: |
-          security delete-keychain cnx-internal-next.keychain >/dev/null 2>&1 || true
+          security delete-keychain cmux-mobile-internal.keychain >/dev/null 2>&1 || true
           rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/archive" "$RUNNER_TEMP/handoff"

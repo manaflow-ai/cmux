@@ -2,19 +2,23 @@
 // unevenly, with big random gaps between 'Claude Opus', 'Medium', 'Normal' and 'Trusted this
 // chat's…'. Use one consistent gap, group related controls, and right-align the trailing cluster").
 //
-// The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box's row is [+] ………
-// [Interrupt · mic · Send]; the quiet row under it is [permission mode · Plan] ……… [model · effort].
+// The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
+// prompt and [↵ · Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
+// composer); the quiet row under it is [permission mode · Plan] ……… [model]. The model button names
+// its effort too ("Opus 5.5  Medium", Leo 2026-10-20): there is no effort chip.
 // Each row keeps the rhythm on its own.
 // What a person sees between two controls is the space between what each draws (its text, its
 // icons' boxes, or Send's disc), not between their transparent hit boxes, so this measures that.
 // An icon counts as its box, not its strokes: icons share one grid, so equal box gaps read as equal.
-// The effort chip and the mic may be absent (a short row, or effort folded into the model chip):
+// The mic may be absent (a short row):
 //   - inside a group, every control is the same distance from the next (within 1 px);
 //   - between the leading groups, every gap is the same, and larger than the in-group gap;
-//   - inside the chips (model, effort, permission mode, Interrupt), the text sits the same distance
+//   - inside the chips (model, permission mode, Interrupt), the text sits the same distance
 //     from the chip's leading and trailing edges, and an icon or chevron the same distance from the
 //     text, in every chip of the same row;
-//   - the trailing cluster ends at the bar's content edge, so Send lines up with the row's padding.
+//   - in the box, + and the last control sit the same distance from the box's sides: the + glyph's
+//     center and the last control's center 22 px in (composer-alignment-centers.test.ts, 2026-10-27).
+//     How far they sit off the box's bottom follows the prompt's last line, so that test owns it.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, a running Claude chat
 // with text typed so Interrupt shows beside the mic and Send) in Chromium at four pane widths.
@@ -22,16 +26,16 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
-type Span = { left: number; right: number };
+type Span = { left: number; right: number; bottom?: number };
 type Control = {
   name: string;
   /** The control's hit box. */
   box: Span;
   /** What it draws, leading to trailing: text runs and icons (Send: its disc). */
-  parts: { kind: "text" | "icon" | "disc"; left: number; right: number }[];
+  parts: { kind: "text" | "icon" | "disc"; left: number; right: number; bottom?: number }[];
   /** The shared down-chevron's optical correction, when this control has one. */
   chevronY?: number;
 };
@@ -42,16 +46,16 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   function measure(selector: string): Row {
     const bar = document.querySelector<HTMLElement>(selector)!;
     const barRect = bar.getBoundingClientRect();
+    const barBottom = barRect.bottom;
     const style = getComputedStyle(bar);
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
-      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["mode", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
-      ["steer", ".acpmux-steer"],
+      ["steer", ".acpmux-steer-now"],
       ["mic", ".acpmux-mic"],
-      ["send", ".acpmux-send"],
+      ["send", ".acpmux-send:not(.acpmux-steer-now)"],
     ];
     const shown = (element: Element) => {
       for (let node: Element | null = element; node && node !== bar; node = node.parentElement) {
@@ -72,8 +76,8 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^)]+)\)/)?.[1] ?? "NaN")
           : undefined;
       const disc = getComputedStyle(element).backgroundColor;
-      if (name === "send" && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
-        parts.push({ kind: "disc", left: rect.left, right: rect.right });
+      if ((name === "send" || name === "steer") && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
+        parts.push({ kind: "disc", left: rect.left, right: rect.right, bottom: rect.bottom });
       else {
         const walk = (node: Node) => {
           if (node instanceof SVGSVGElement) {
@@ -117,11 +121,11 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         walk(element);
       }
       parts.sort((a, b) => a.left - b.left);
-      return [{ name, box: { left: rect.left, right: rect.right }, parts, chevronY }];
+      return [{ name, box: { left: rect.left, right: rect.right, bottom: rect.bottom }, parts, chevronY }];
     });
     controls.sort((a, b) => a.box.left - b.box.left);
     return {
-      bar: { left: barRect.left, right: barRect.right },
+      bar: { left: barRect.left, right: barRect.right, bottom: barBottom },
       content: {
         left: barRect.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
         right: barRect.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
@@ -143,7 +147,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string, scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}&theme=${encodeURIComponent(scheme === "light" ? "Apple System Colors Light" : "Apple System Colors")}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant, theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -152,46 +156,36 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 760, height: 300 } });
-    await warm.goto(stageURL("queued", "light"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-row", { browser, params: { variant: "queued" } });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
-  /** A running Claude chat with a prompt typed, so Interrupt, the mic and Send all show. */
+  /** A running Claude chat with a prompt typed, so the mic, ↵ and Stop all show. */
   const row = async (width: number, scheme: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL("queued", scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
     await page.keyboard.type("Also cover the 503 path");
-    await page.locator(".acpmux-steer").waitFor();
+    await page.locator(".acpmux-steer-now").waitFor();
     await page.evaluate(() => document.fonts.ready);
     // Let the row's fit pass (composerRowFit.ts) settle after the typed text.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const inner = await page.evaluate(measure, ".acpmux-composer-inner");
+    // The box's own controls lay out in the box itself (the bar draws no box of its own).
+    const inner = await page.evaluate(measure, ".acpmux-composer-box");
     const foot = await page.evaluate(measure, ".acpmux-composer-foot");
     await page.close();
     return { inner, foot };
   };
 
   // The leading groups, then the trailing cluster (last) of each row.
-  const GROUPS = [["plus"], ["mode", "plan"], ["model", "effort"], ["steer", "mic", "send"]];
+  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["steer", "mic", "send"]];
   const TRAILING = new Set([2, 3]);
   const group = (name: string) => GROUPS.findIndex((members) => members.includes(name));
   const drawn = (control: Control): Span => ({
@@ -231,9 +225,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           }
           // Inside each chip: the text's inset from the leading and trailing edges, and the space
           // between an icon or chevron and the text.
-          for (const control of controls.filter((control) =>
-            ["model", "effort", "mode", "plan", "steer"].includes(control.name),
-          )) {
+          for (const control of controls.filter((control) => ["model", "mode", "plan"].includes(control.name))) {
             const { parts, box } = control;
             const gaps = parts.slice(1).map((part, index) => part.left - parts[index]!.right);
             insides.push({
@@ -246,8 +238,17 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
               shape: parts.map((part) => part.kind).join("+"),
             });
           }
+          // The quiet row's hover pill is the native selection pill's size (Leo 2026-10-22: "the
+          // highlight pill is too small"): its text sits 8 px in from the pill's leading edge.
+          if (rowName === "foot")
+            for (const inside of insides)
+              if (inside.lead < 7.5)
+                problems.push(
+                  `foot: ${inside.name}'s pill starts ${inside.lead.toFixed(1)} px before its text, not 8 px`,
+                );
           // Location and composer pickers share the same optical correction for their down-chevron.
-          for (const control of controls.filter(({ name }) => ["model", "effort", "mode"].includes(name)))
+          // The model button draws none, as Claude Code's (Leo 2026-10-20); the mode keeps its own.
+          for (const control of controls.filter(({ name }) => name === "mode"))
             if (control.chevronY === undefined || Math.abs(control.chevronY - 0.75) > 0.05)
               problems.push(`${control.name} chevron transform is ${control.chevronY ?? "missing"}, expected 0.75`);
           console.log(
@@ -291,23 +292,26 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           }
         }
         const names = (measured: Row) => measured.controls.map((control) => control.name);
-        // The effort chip and the mic may leave a short row (or fold into the model chip); the
-        // rest always shows, each in its row.
+        // The mic may leave a short row; the rest always shows, each in its row.
         for (const name of ["plus", "steer", "send"])
           if (!names(rows.inner).includes(name)) problems.push(`${name} is not in the box's row`);
         for (const name of ["model", "mode"])
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
-        // The + glyph and Send's disc sit the same distance from the box row's sides.
+        // The box's columns (composer-alignment-centers.test.ts, Leo's report 2026-10-27, which
+        // replaced Claude desktop's 16 px + glyph inset of 2026-10-20): the + button and the last
+        // control (the mic; Stop sits left of it) are 28 px boxes 8 px in from the box's sides, so
+        // the + glyph's center and the last control's center both sit 22 px in. Their distance off
+        // the bottom centers them on the prompt's last line, which follows the chat's font size
+        // (#26523), so it no longer equals the side inset.
         const { inner } = rows;
-        const send = inner.controls.find((control) => control.name === "send");
-        const lead = inner.controls[0] ? drawn(inner.controls[0]).left - inner.bar.left : 0;
-        const trail = send ? inner.bar.right - drawn(send).right : 0;
-        if (Math.abs(lead - trail) > 1)
-          problems.push(`the row's drawn edges differ: ${lead.toFixed(1)} px leading, ${trail.toFixed(1)} px trailing`);
-        if (send && Math.abs(send.box.right - inner.content.right) > 1)
-          problems.push(
-            `Send ends ${(inner.content.right - send.box.right).toFixed(1)} px before the bar's content edge`,
-          );
+        const first = inner.controls[0];
+        const last = inner.controls.at(-1);
+        const leadCenter = first ? (drawn(first).left + drawn(first).right) / 2 - inner.bar.left : 0;
+        const trailCenter = last ? inner.bar.right - (last.box.left + last.box.right) / 2 : 0;
+        if (first && Math.abs(leadCenter - 22) > 1)
+          problems.push(`the + glyph's center sits ${leadCenter.toFixed(1)} px in, not 22 px`);
+        if (last && Math.abs(trailCenter - 22) > 1)
+          problems.push(`${last.name}'s center sits ${trailCenter.toFixed(1)} px in from the right, not 22 px`);
         expect(problems).toEqual([]);
       });
 });

@@ -6,6 +6,7 @@ import Foundation
 /// MobileSMS's view tree in the simulators (iPhone 17 Pro, 402 pt, and
 /// iPhone 17 Pro Max, 440 pt) and the unread capsule from a dark-mode
 /// iPhone 17 Pro Max screenshot of real Messages.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationHeaderGeometry {
     /// The back and trailing circles.
     public static let buttonSize: CGFloat = 44
@@ -110,6 +111,7 @@ public enum ConversationHeaderGeometry {
 /// opaque in light mode and 60% in dark mode (UIKit's pocket backdrop alpha
 /// 0.85 / 0.6, confirmed by sampling MobileSMS bubbles under the header);
 /// the ramp keeps the same shape.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTopEdgeGeometry {
     /// (offset from the header's bottom, wash opacity) in light mode.
     public static let lightStops: [(CGFloat, CGFloat)] = [

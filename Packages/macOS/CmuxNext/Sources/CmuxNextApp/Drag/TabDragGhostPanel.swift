@@ -3,12 +3,16 @@ import CmuxNextBridge
 import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
+import CmuxNextTabs
 
 /// The drag ghost: one borderless, non-activating panel that ignores the
 /// mouse and floats above every window. It draws the dragged tab's image
 /// and, as `cardness` rises, unfolds a Liquid Glass preview card under it
 /// with a live content thumbnail (terminal or browser snapshot). Over a
-/// strip the card folds back into an inline tab.
+/// strip the card folds back into an inline tab. In a translucent window the
+/// tab image has no card of its own (`WindowBackdrop.dragsOnGlass`): the glass is under it from
+/// the first frame, shaped like the tab until the card unfolds, so a picked-up
+/// tab stays glass instead of turning into a solid theme block.
 ///
 /// The panel has a fixed size (the largest card plus shadow room) and only
 /// moves, so a frame costs one window move and a few layer frames.
@@ -28,14 +32,18 @@ final class TabDragGhostPanel {
     /// size depends on them).
     private let pad: CGFloat
     private let inset: CGFloat
+    /// The tab image stands on the glass (a translucent window): the glass shows at every
+    /// cardness, and the glass edge, not a shadow, lifts it.
+    let onGlass: Bool
 
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat) {
+    /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
+    ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
+    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
+        self.onGlass = onGlass
         self.tabSize = tabSize
         self.grabOffset = grabOffset
-        let pad = DragTunables.ghostPanelPad.value
-        let inset = DragTunables.ghostCardInset.value
-        self.pad = pad
-        self.inset = inset
+        pad = DragTunables.ghostPanelPad.value
+        inset = DragTunables.ghostCardInset.value
         cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: inset)
         panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + pad * 2,
                            height: max(cardSize.height, tabSize.height * 1.6) + pad * 2)
@@ -61,7 +69,7 @@ final class TabDragGhostPanel {
         // The ghost is the whole content of a clear panel: before Liquid
         // Glass the card blurs the desktop under it.
         glass.samplesBehindWindow = true
-        glass.alphaValue = 0
+        glass.alphaValue = onGlass ? 1 : 0
         root.addSubview(glass)
 
         let overlay = CALayer()
@@ -80,7 +88,7 @@ final class TabDragGhostPanel {
         tabLayer.contentsScale = scale
         tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
         // The raised elevation step (PopupStyle.elevation2): a tight lift, not a dark halo.
-        tabLayer.shadowOpacity = Float(PopupStyle.elevation2.alpha)
+        tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha)
         tabLayer.shadowRadius = PopupStyle.elevation2.layerRadius
         tabLayer.shadowOffset = PopupStyle.elevation2.layerOffset()
         overlay.addSublayer(tabLayer)
@@ -131,13 +139,13 @@ final class TabDragGhostPanel {
         let tabLocal = tab.offsetBy(dx: -origin.x, dy: -origin.y)
         let current = layout.card.offsetBy(dx: -origin.x, dy: -origin.y)
         glass.frame = current
-        glass.alphaValue = c
+        glass.alphaValue = onGlass ? 1 : c
         let thumbHeight = max(0, current.height - tab.height - inset * 3)
         thumbLayer.frame = CGRect(x: current.minX + inset, y: current.minY + inset,
                                   width: max(0, current.width - inset * 2), height: thumbHeight)
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
-        tabLayer.shadowOpacity = Float(PopupStyle.elevation2.alpha * (1 - c))
+        tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha * (1 - c))
         let s = layout.scale
         if s != 1 {
             // The root layer's anchor is (0, 0) (AppKit), so the pivot is explicit.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 
 /// What the Markdown omnibar asks of its tab's owner (``FilePageService``).
 struct MarkdownOmnibarActions {
@@ -12,12 +13,18 @@ struct MarkdownOmnibarActions {
     var liveLink: (URL) async -> URL?
     /// Opens a web URL in a cmux browser tab beside the page.
     var openInBrowser: (URL) -> Void
+    /// Back, Forward and Reload (Cmd-[, Cmd-], Cmd-R): the page's link history and the file again
+    /// from disk (the page's `back`, `forward` and `reload` commands).
+    var back: () -> Void
+    var forward: () -> Void
+    var reload: () -> Void
 }
 
-/// The Markdown tab's top bar (plans/cmux-next/markdown-omnibar-DESIGN.md section 2): the browser's
-/// own omnibar row (``OmnibarToolbarView``, one implementation with the browser tab: field, glass,
-/// suggestions, keys) showing the file's full path, a repo chip with the file's git state, and the
-/// Share menu on the page-info chip and the repo chip. It only uses the omnibar's public API.
+/// The Markdown tab's top bar (plans/cmux-next/markdown-omnibar-DESIGN.md sections 2 and 2b): the
+/// browser's own omnibar row (``OmnibarToolbarView``, one implementation with the browser tab:
+/// Back, Forward and Reload, field, glass, suggestions, keys) showing the file's path, a repo chip
+/// with the file's git state, and the Share menu on the page-info chip and the repo chip. It only
+/// uses the omnibar's public API.
 final class MarkdownOmnibarBar: NSView {
     let toolbar: OmnibarToolbarView
     private let reader: MarkdownFileLocationReader
@@ -25,11 +32,12 @@ final class MarkdownOmnibarBar: NSView {
     private var file: URL?
     private(set) var location: MarkdownFileLocation?
     private var reading: Task<Void, Never>?
-    private lazy var height = heightAnchor.constraint(equalToConstant: toolbar.preferredHeight)
+    private var canBack = false
+    private var canForward = false
 
     init(suggestionEngine: OmniboxSuggestionEngine, reader: MarkdownFileLocationReader = MarkdownFileLocationReader(),
          actions: MarkdownOmnibarActions) {
-        toolbar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
+        toolbar = OmnibarToolbarView(suggestionEngine: suggestionEngine, navigation: true)
         self.reader = reader
         self.actions = actions
         super.init(frame: .zero)
@@ -40,8 +48,10 @@ final class MarkdownOmnibarBar: NSView {
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            height,
         ])
+        toolbar.onBack = actions.back
+        toolbar.onForward = actions.forward
+        toolbar.onReload = actions.reload
         let bar = toolbar.addressBar
         bar.onEvent = { [weak self] event in self?.handle(event) }
         bar.onPageInfo = { [weak self] in self?.popUpShareMenu() }
@@ -52,12 +62,6 @@ final class MarkdownOmnibarBar: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // The row's height follows the window's pixel grid, as the browser toolbar's does.
-        height.constant = toolbar.preferredHeight
-    }
-
     /// The tab shows `file` (nil: the empty state): the field shows its path; the chip follows
     /// once git answers.
     func show(_ file: URL?) {
@@ -65,6 +69,7 @@ final class MarkdownOmnibarBar: NSView {
         guard file != self.file else { return }
         self.file = file
         location = nil
+        updateNavigation()
         toolbar.addressBar.update(url: file, security: .local)
         toolbar.addressBar.setMachineBadge(nil, help: nil)
         reading?.cancel()
@@ -74,6 +79,18 @@ final class MarkdownOmnibarBar: NSView {
             guard let self, !Task.isCancelled, self.file == file else { return }
             self.apply(location)
         }
+    }
+
+    /// The page's link history moved (`cmux.markdown.history`): Back and Forward follow it.
+    func setHistory(canBack: Bool, canForward: Bool) {
+        self.canBack = canBack
+        self.canForward = canForward
+        updateNavigation()
+    }
+
+    /// Back and Forward follow the page's history; Reload needs a file (not the empty state).
+    private func updateNavigation() {
+        toolbar.setNavigation(canGoBack: canBack, canGoForward: canForward, canReload: file != nil)
     }
 
     /// The git state may have changed (a save): read it again.
@@ -153,7 +170,7 @@ final class MarkdownOmnibarBar: NSView {
             Task { if let link = await actions.liveLink(file) { actions.openInBrowser(link) } }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.revealInFinder) {
-            NSWorkspace.shared.activateFileViewerSelecting([file])
+            NSWorkspace.shared.revealInBackground([file])
         })
         menu.addItem(.separator())
         let later = NSMenuItem(title: MarkdownShareStrings.liveShareLater, action: nil, keyEquivalent: "")

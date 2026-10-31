@@ -39,6 +39,15 @@ extension MessagesLabHomeView {
         return nil
     }
 
+    /// Reply to Selection from the keyboard or the palette (`home.replyToSelection`): the selected
+    /// text of one message is the reply's quote. False when there is no such selection.
+    public func replyToSelection() -> Bool {
+        guard controller.intents?.canReply == true, let quote = controller.selectionQuote(),
+              controller.intents?.canInteract(with: quote.source.messageId) != false else { return false }
+        controller.replyToSelection(quote)
+        return true
+    }
+
     /// Automation (DEBUG socket): Reply… in the context menu of the shown bubble whose text is
     /// `text` (the thread view's when one is open), built and chosen by the right-click's path.
     /// The open drill path after it, nil when no such bubble shows.

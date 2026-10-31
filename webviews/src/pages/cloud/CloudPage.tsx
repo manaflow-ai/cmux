@@ -3,20 +3,52 @@
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
 import { MigrationBanner, PlanNotice } from "./Notices";
-import { AccountOps } from "./ops";
 import type { CloudStore } from "./store";
+import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
+  // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
+  // reads again on its own); then the disconnected state with Retry.
+  const down = snap.connection === "disconnected";
+  const failed = snap.connection === "failed";
+  const downLasting = useLasting(down);
+  const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
+  const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
+  // The header switches between the list and the storefront once the team has a machine.
+  const viewSwitch =
+    signedIn && snap.rows.length > 0 ? (
+      <button
+        type="button"
+        className="cloud-button cloud-view-switch"
+        onClick={() => store.setView(snap.view === "get" ? "machines" : "get")}
+      >
+        {t(snap.view === "get" ? L.storeYourMachines : L.storeBrowse)}
+      </button>
+    ) : null;
   const body = () => {
-    if (snap.connection === "disconnected")
+    if (down && !downLasting) return null;
+    if (failed)
+      return (
+        <div className="cloud-message cloud-failed" role="alert">
+          <p>{t(L.actionFailed)}</p>
+          {snap.error && <p className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</p>}
+          {store.canRetry && (
+            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
+              {t(L.retry)}
+            </button>
+          )}
+        </div>
+      );
+    if (down)
       return (
         <div className="cloud-message cloud-disconnected">
           <p>{t(L.disconnected)}</p>
@@ -29,23 +61,23 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       );
     if (!snap.auth || (snap.loading && snap.rows.length === 0))
       return <div className="cloud-message cloud-loading">{t(L.loading)}</div>;
-    if (!snap.auth.signedIn)
+    // Signed out, with no machines yet, or at `#/get`: the storefront (Storefront.tsx).
+    if (!snap.auth.signedIn || storefront)
       return (
-        <div className="cloud-message cloud-signed-out">
-          <h2 className="cloud-message-title">{t(L.signedOutTitle)}</h2>
-          <p>{t(L.signedOutBody)}</p>
-          {snap.unavailable.includes(AccountOps.signIn) ? (
-            <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
-          ) : (
-            <button
-              type="button"
-              className="cloud-button primary cloud-signin-button"
-              onClick={() => void store.signIn()}
-            >
-              {t(L.signIn)}
-            </button>
+        <>
+          {snap.refusal && (
+            <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
-        </div>
+          {snap.blocked === "no_snapshot_configured" && (
+            <div className="cloud-error cloud-blocked" role="alert">
+              <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
+              <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
+                {t(L.dismissError)}
+              </button>
+            </div>
+          )}
+          <Storefront store={store} state={snap} strings={strings} />
+        </>
       );
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
@@ -68,23 +100,16 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
                 {t(L.create)}
               </button>
             </div>
-            {snap.rows.length === 0 ? (
-              <div className="cloud-message cloud-empty">
-                <h3 className="cloud-message-title">{t(L.empty)}</h3>
-                <p>{t(L.emptyBody)}</p>
-              </div>
-            ) : (
-              <MachineList
-                rows={snap.rows}
-                layout={snap.layout}
-                selection={snap.selection}
-                strings={strings}
-                onSelect={(id) => void store.select(id)}
-                onOpen={(id) => void store.connect(id)}
-                onPause={(id) => void store.pause(id)}
-                onResume={(id) => void store.resume(id)}
-              />
-            )}
+            <MachineList
+              rows={snap.rows}
+              layout={snap.layout}
+              selection={snap.selection}
+              strings={strings}
+              onSelect={(id) => void store.select(id)}
+              onOpen={(id) => void store.connect(id)}
+              onPause={(id) => void store.pause(id)}
+              onResume={(id) => void store.resume(id)}
+            />
           </section>
           {selected?.machine && snap.detail?.machine === selected.id ? (
             <MachineDetailView
@@ -110,8 +135,9 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     <div className="cloud-page">
       <header className="cloud-header">
         <h1 className="cloud-title">{t(L.title)}</h1>
+        {viewSwitch}
       </header>
-      {snap.error && snap.connection !== "disconnected" && (
+      {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>

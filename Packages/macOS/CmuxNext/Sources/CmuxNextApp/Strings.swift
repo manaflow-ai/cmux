@@ -15,6 +15,9 @@ enum Strings {
     static var menuCut: String { String(localized: "menu.edit.cut", defaultValue: "Cut", bundle: .module) }
     static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
     static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
+    static var menuPasteAndMatchStyle: String {
+        String(localized: "menu.edit.pasteAndMatchStyle", defaultValue: "Paste and Match Style", bundle: .module)
+    }
     static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
@@ -33,7 +36,5 @@ enum Strings {
     static var localMachine: String { String(localized: "sidebar.machine.local", defaultValue: "This Mac", bundle: .module) }
     static var untitledTerminal: String { String(localized: "tab.untitled.terminal", defaultValue: "Terminal", bundle: .module) }
     static var untitledBrowser: String { String(localized: "tab.untitled.browser", defaultValue: "New Tab", bundle: .module) }
-    static var renameTabTitle: String { String(localized: "rename.tab.title", defaultValue: "Rename Tab", bundle: .module) }
-    static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
     static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
 }

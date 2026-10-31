@@ -35,6 +35,7 @@ use crate::state::prelude::*;
 use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
 use crate::workspace_registry::FrontendBrowserRecord;
+use cmux_json::JsonSet as _;
 
 /// Where a new conversation tab goes: a pane (or the focused pane), a
 /// workspace, which gets its first screen and pane when it has none (the
@@ -167,8 +168,8 @@ impl Mux {
                 // `pinned-dock-alone-v1`: a split right of Home's dock alone is a new column
                 // beside it, as wide as a link Home opens there (`workspace.open_url`).
                 let beside_lone_dock = direction == "right"
-                    && self.with_state(|state| crate::mux::pane_in_lone_pinned_column(state, pane));
-                let width = beside_lone_dock.then_some(crate::mux::LONE_DOCK_NEIGHBOR_WIDTH);
+                    && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
+                let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
                 self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
             }
         };
@@ -223,7 +224,7 @@ impl Mux {
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
-                    ids["split_id"] = Value::String(split_id.clone());
+                    ids.set("split_id", Value::String(split_id.clone()));
                 }
                 Ok(ids)
             }

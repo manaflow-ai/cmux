@@ -1,5 +1,5 @@
-public import CmuxTheme
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// One work's catalog record, generated from `art/manifest.json` with
 /// `scripts/cmux-next/art/generate_backdrop_art.py` (cx-t2x.7).
@@ -27,9 +27,10 @@ public nonisolated struct BackdropArtEntry: Sendable {
     let palette: [UInt32]
     /// Whether the dark, quiet side for text is the left one.
     let quietLeft: Bool
-    /// The default theme tint over the art, before the legibility floor.
+    /// Catalog data the window no longer reads: the tint once suggested for the work, and the
+    /// darkest and lightest pixels of the full image as 0xRRGGBB. Every picture now gets the same
+    /// tint (`WindowBackdrop`).
     let tint: Double
-    /// The darkest and lightest pixels of the full image as 0xRRGGBB.
     let darkest: UInt32
     let lightest: UInt32
 
@@ -44,8 +45,6 @@ public nonisolated struct BackdropArtEntry: Sendable {
             quietZone: quietLeft
                 ? .init(x: 0.02, y: 0.06, width: 0.42, height: 0.88)
                 : .init(x: 0.56, y: 0.06, width: 0.42, height: 0.88),
-            preferredTintOpacity: tint,
-            range: BackdropArtRange(darkest: ThemeRGB(hex: darkest), lightest: ThemeRGB(hex: lightest)),
             subjectBox: BackdropSubjectBox(minX: subject.minX, minY: subject.minY, maxX: subject.maxX, maxY: subject.maxY)
         )
     }

@@ -156,6 +156,10 @@ final class PromptBarView: NSView {
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.ok, prominent: true, response: .accept)
+        case .beforeUnload(let isReload):
+            messageLabel.stringValue = "\(isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle)\n\(Strings.beforeUnloadMessage)"
+            addButton(Strings.cancel, prominent: false, response: .cancel)
+            addButton(isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, prominent: true, response: .accept)
         case .textInput(let message, let defaultText):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             inputField.stringValue = defaultText ?? ""

@@ -75,8 +75,9 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
-            // A PNG of the window as on screen, never focusing or raising it
-            // (agents read the app without Screen Recording; ScreenshotHandlers).
+            // A PNG of the window as on screen, never focusing or raising it (a person copies
+            // it without Screen Recording; ScreenshotHandlers). An agent's or a script's
+            // capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "window.screenshot",
                 title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
@@ -149,7 +150,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.globalSearch", defaultValue: "Search All Windows…", bundle: .module),
                 keywords: ["find", "global"], defaultShortcut: Shortcut("f", modifiers: [.option, .command]),
                 category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
-                arguments: [CatalogArgument.textString],
+                arguments: [CatalogArgument.textString.optional],
                 cliName: "app search-all-windows", mainMenu: .window
             ),
             // Opens one palette scope (plans/cmux-next/palette-scopes.md):
@@ -188,6 +189,18 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["switch", "jump", "switcher"], defaultShortcut: Shortcut("p", modifiers: [.command]),
                 category: .window, symbol: "arrow.right.square", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.workspaceWorkspace], cliName: "app go-to-workspace", mainMenu: .window
+            ),
+            // Cmd-Shift-A: Search, everything in one list: open workspaces and tabs plus browser history,
+            // agent chats, closed tabs and past commands (plans/cmux-next/search-everything-DESIGN.md
+            // section 10.1). Cmd-P (`goToWorkspace`) lists only what is open. The id predates that
+            // split; user key files name it, so it stays.
+            ActionDescriptor(
+                id: "search.chats",
+                title: String(localized: "action.search.chats", defaultValue: "Search Everything…", bundle: .module),
+                keywords: ["search", "everything", "history", "chats", "agents", "chief", "find", "acp"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]),
+                category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.queryString], cliName: "app search-chats", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "palette.openTaskManager",

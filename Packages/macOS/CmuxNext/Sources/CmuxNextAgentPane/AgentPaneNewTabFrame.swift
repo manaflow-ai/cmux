@@ -1,10 +1,13 @@
 public import AppKit
 import CmuxNextWakeups
 
-/// The app's last New Tab page frame (cx-ec99): a New Tab page that has not painted draws it, so
-/// Cmd-T never shows an empty pane. It is kept with what it shows: a change of the chat list or of
-/// the picked model drops it (and every page's own remembered frame, `AgentPageRedraw`), so no page
-/// ever draws old chats or an old model; its size and appearance must match the pane's.
+/// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
+/// painted draws the one at its size, so Cmd-T never shows an empty pane. Each size keeps its own,
+/// so a split pane's frame never replaces the whole area's that Cmd-N's new workspace shows (Leo
+/// 2026-10-20: the page shifted in a new workspace opened from a split one). They are kept with
+/// what they show: a change of the chat list or of the picked model drops them (and every page's
+/// own remembered frame, `AgentPageRedraw`), so no page ever draws old chats or an old model; a
+/// frame's size and appearance must match the pane's.
 @MainActor
 public final class AgentPaneNewTabFrame {
     public static let shared = AgentPaneNewTabFrame()
@@ -20,15 +23,22 @@ public final class AgentPaneNewTabFrame {
     public private(set) var content = Content()
     /// Bumped on every content change: a frame from an older generation shows old content.
     public private(set) var generation: UInt64 = 0
-    private var frame: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
+    private var frames: [(image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)] = []
+    /// Frames kept: the sizes of a split workspace's panes and of the whole area.
+    static let sizes = 4
 
     public init() {}
 
     /// The frame drawn at `size` (zero: a pane not laid out yet) and `appearance`, with today's content.
     public func image(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
-        guard let frame, frame.generation == generation, frame.appearance == appearance,
-              size == .zero || size == frame.size else { return nil }
-        return frame.image
+        frames.last { $0.generation == generation && $0.appearance == appearance && (size == .zero || size == $0.size) }?.image
+    }
+
+    /// Keeps `image` as the frame at `size` and `appearance`, the newest one.
+    func store(_ image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64) {
+        frames.removeAll { $0.size == size && $0.appearance == appearance }
+        frames.append((image, size, appearance, generation))
+        if frames.count > Self.sizes { frames.removeFirst(frames.count - Self.sizes) }
     }
 
     /// What one page draws: the chat list and model it last drew, and how many answers it got.
@@ -66,7 +76,7 @@ public final class AgentPaneNewTabFrame {
             settle.schedule(after: .milliseconds(400)) { @MainActor in
                 withExtendedLifetime(settle) {}
                 defer { redraw?.givesNewTabFrame = false }
-                guard let self, let view, let host, let redraw, view.model.newTab != nil, view.isDescendant(of: host),
+                guard let self, let view, let host, let redraw, view.model.newTab != nil, !view.pageDrawsOverCovers, view.isDescendant(of: host),
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
                 let takenAt = self.generation, before = self.shows(view.model)
@@ -74,9 +84,9 @@ public final class AgentPaneNewTabFrame {
                 // One page frame first: an answer handed to the page before this is drawn by then.
                 await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
                 guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
-                      let snapshot = try? await view.webView.takeSnapshot(configuration: nil), snapshot.size == size,
+                      let snapshot = await redraw.snapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
-                self.frame = (snapshot, size, appearance, takenAt)
+                self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
             }
         }
     }
@@ -99,6 +109,7 @@ public final class AgentPaneNewTabFrame {
     /// `model`'s New Tab page picked an agent or model (or dismissed the harness hint).
     public func modelChanged(_ pick: AgentPaneRememberedPick, by model: AgentPaneModel) {
         let picked = pick.agent + "/" + (pick.model ?? "") + (pick.dismissesHarnessHint ? "/hint-dismissed" : "")
+            + (pick.started.map { "/started:" + $0 } ?? "")
         pages[ObjectIdentifier(model), default: Page(model: model)].picked = picked
         update(\.model, picked)
     }
@@ -107,6 +118,6 @@ public final class AgentPaneNewTabFrame {
         guard content[keyPath: field] != value else { return }
         content[keyPath: field] = value
         generation &+= 1
-        frame = nil
+        frames = []
     }
 }

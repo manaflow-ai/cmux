@@ -16,9 +16,28 @@ public final class AgentTurnStateFeed {
     public static var shared: AgentTurnStateFeed?
     /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
     public static var drained: ((Int, Duration) -> Void)?
+    /// A session the app's own acpmux deleted (``deletesSession(_:)``): the app deletes what it
+    /// kept for it (its chat uploads).
+    public static var purged: ((String) -> Void)?
+    /// A session of acpmux peer `peer` changed on the app's own acpmux (not a mirror's), `stale`
+    /// when the peer dropped and its rows turned unreachable: its sessions change when it connects
+    /// and when it drops. The app offers a peer that connects later to the daemon update
+    /// (`AcpmuxPeerReconnects`). Called once per such change: keep it O(1).
+    public static var peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)?
+
+    /// Whether a `_acpmux/session_changed`'s params say this acpmux deleted one of its own chats:
+    /// `purged`, but not a peer's or the Cloud VM's row (`peer`: that daemon's copy left, as every
+    /// chat's does when a Cloud lease ends, under the chat's own id) and not the closed copy Bring
+    /// Back replaces under the same id (`replaced`). Those chats still exist.
+    public nonisolated static func deletesSession(_ params: [String: Any]) -> Bool {
+        params["kind"] as? String == "purged" && params["peer"] == nil && params["replaced"] as? Bool != true
+    }
 
     private let socket: String
     private let turns: AgentTurnStateStore
+    /// The store's source of this watch (``AgentTurnStateStore/localSource`` for the app's
+    /// own acpmux, else the mirrored host).
+    private let source: String
     private let lanes: AgentLaneStore
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -27,16 +46,37 @@ public final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
-    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
+    /// - Parameters:
+    ///   - socketPath: The acpmux socket to watch.
+    ///   - turns: The store the watch writes.
+    ///   - lanes: The activity lanes the watch writes; a mirrored acpmux's watch passes its own
+    ///     store, since a page replaces every lane.
+    ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
+    ///     acpmux on this Mac whose chats the store also mirrors.
+    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
+                mirroring host: String? = nil) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        lanes.socketPath = socketPath
+        source = host ?? AgentTurnStateStore.localSource
+        if let host { turns.mirroredHosts.insert(host) }
     }
+
+    /// The app's own acpmux pushed peer `peer`'s link state (`_acpmux/peer_state_changed`:
+    /// `connected` only after the handshake), or, with `peer` nil, its watch (re)opened and the
+    /// whole peer list may have moved. Only this Mac's own daemon's pushes reach it: a mirrored
+    /// acpmux's (`mirroring`) never call it, and a peer's own states never travel over a peer link.
+    /// Called once per change (the daemon sends one only when a state changes): keep it O(1).
+    public var peerStateChanged: (@MainActor (_ peer: String?, _ state: String?) -> Void)?
+
+    /// Whether this watch mirrors another acpmux than the app's own (it leaves `watching` alone).
+    private var isMirror: Bool { source != AgentTurnStateStore.localSource }
 
     /// Starts the watch (idempotent). `localHost` is this Mac's
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
-        if turns.localHost == nil { turns.localHost = localHost() }
+        if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
@@ -93,11 +133,18 @@ public final class AgentTurnStateFeed {
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state, last message and the muted sessions.
         case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
-                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
+                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane],
+                  startedBy: [String: String])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
-        /// message and mute.
+        /// message and mute, the session that started it (nil for a root, or purged), whether this
+        /// acpmux deleted it (``deletesSession(_:)``), and for a session of an acpmux peer, that
+        /// peer and whether its row went stale (the peer dropped); nil for a purged one.
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?)
+                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
+                    deleted: Bool = false, peer: (name: String, stale: Bool)? = nil)
+        /// One `_acpmux/peer_state_changed`: peer `peer`'s link is now `state` (connected,
+        /// connecting, degraded, reconnecting or offline; a removed peer's last is offline).
+        case peerState(peer: String, state: String)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
@@ -106,14 +153,24 @@ public final class AgentTurnStateFeed {
                 states.reset(result)
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
                              titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
-                             details: AgentChatDetail.details(result), lanes: Self.lanes(result))
+                             details: AgentChatDetail.details(result), lanes: Self.lanes(result),
+                             startedBy: AgentTurnStateStore.startedBy(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
-                let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
+                let purged = params["kind"] as? String == "purged"
+                let summary = purged ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
                                title: change.title, generatedTitle: change.generatedTitle,
                                detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
-                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) })
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) },
+                               startedBy: summary.flatMap(AgentTurnStateStore.startedBy(summary:)),
+                               deleted: AgentTurnStateFeed.deletesSession(params),
+                               peer: (params["peer"] as? String).flatMap { name in
+                                   summary.map { (name: name, stale: $0["stale"] as? Bool == true) }
+                               })
+            } else if message["method"] as? String == "_acpmux/peer_state_changed", let params = message["params"] as? [String: Any],
+                      let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
+                self = .peerState(peer: peer, state: state)
             } else {
                 return nil
             }
@@ -129,20 +186,30 @@ public final class AgentTurnStateFeed {
         }
     }
 
-    private func handle(_ message: Message) {
+    func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes):
+        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes, let startedBy):
             backoff.reset()
-            if !turns.watching { turns.watching = true }
+            if !isMirror, !turns.watching { turns.watching = true }
             turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
-                          generatedTitles: generatedTitles, details: details)
+                          generatedTitles: generatedTitles, details: details, source: source)
+            turns.replaceStartedBy(startedBy, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
-        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
+            if !self.lanes.live { self.lanes.live = true }
+            // A fresh page (the first, or after a reconnect): the peer list is read again.
+            if !isMirror { peerStateChanged?(nil, nil) }
+        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
+                     let startedBy, let deleted, let peer):
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
             turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail)
+                        generatedTitle: generatedTitle, detail: detail, source: source)
+            turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
+            if deleted, !isMirror { Self.purged?(session) }
+            if let peer, !isMirror { Self.peerSessionChanged?(peer.name, peer.stale) }
+        case .peerState(let peer, let state):
+            if !isMirror { peerStateChanged?(peer, state) }
         }
     }
 
@@ -150,10 +217,11 @@ public final class AgentTurnStateFeed {
         guard subscription === connection else { return }
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
-        turns.watching = false
+        if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
-        turns.clearLive()
+        turns.clearLive(source: source)
         lanes.lanes = [:]
+        lanes.live = false
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

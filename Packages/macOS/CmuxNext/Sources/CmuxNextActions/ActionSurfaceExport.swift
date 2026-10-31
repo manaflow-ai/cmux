@@ -67,7 +67,7 @@ public nonisolated enum ActionSurfaceExport {
     /// (text, or null), in table order, each key sequence once.
     public static func defaultAliases(for id: ActionID) -> [[String: Any]] {
         let entries = KeyBindingDefaults.actionAliases + KeyBindingDefaults.listNavigation
-            + KeyBindingDefaults.paletteKeys + KeyBindingDefaults.scopedDefaults
+            + KeyBindingDefaults.paletteKeys + KeyBindingDefaults.scopedDefaults + KeyBindingDefaults.homeChatSwitching
         var seen: [[Shortcut]] = []
         var aliases: [[String: Any]] = []
         for entry in entries where entry.command == id && !seen.contains(entry.keys) {

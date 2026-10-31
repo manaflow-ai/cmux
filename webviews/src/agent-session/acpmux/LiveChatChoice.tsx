@@ -4,7 +4,7 @@ import { useT } from "./i18n";
 /// `claude --resume <id>`, a TUI that wrote it minutes ago); acpmux refused it (`adopt.live`).
 /// Resuming it here too would put two harnesses on one conversation. The line says so, names the
 /// process when acpmux found one, and offers Fork It (Claude Code: a new chat from this one) and
-/// Open Anyway.
+/// Open Anyway. It drops in from the top of the chat (ui/popupSurface.css `data-enter`).
 export function LiveChatChoice({
   canFork,
   command,
@@ -16,7 +16,7 @@ export function LiveChatChoice({
 }) {
   const t = useT();
   return (
-    <div className="acpmux-link-missing acpmux-live-chat" role="alert">
+    <div className="acpmux-link-missing acpmux-live-chat" role="alert" data-enter="top">
       <p>{t("adopt.live.notice")}</p>
       {command && <code className="acpmux-live-chat-command">{command}</code>}
       <p className="acpmux-live-chat-actions">

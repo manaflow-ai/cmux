@@ -20,6 +20,10 @@ import Testing
 /// budget; (2) while a reply streams, a width pass re-measures the kept rows and derives only the
 /// newest message's rows and the stream again, not every loaded message.
 @MainActor @Suite(.serialized) struct HomeStreamingResizeTests {
+    /// These tests make a `MessagesWindowView` without a Home pane: springs.json comes from the package, as
+    /// `HomeMarkdownPolicy.install()` sets it for a pane (Springs.swift fails loudly without it, MessagesLab cdee8d9).
+    init() { HomeMarkdownPolicy.installSprings() }
+
     static let me = ParticipantID("user_me")
     static let chief = ParticipantID("agent_chief")
     static let id = ConversationID("conv_stream_resize")
@@ -61,6 +65,7 @@ import Testing
         let summary = ConversationSummary(id: id, title: "Chief", participants: people, lastSeq: Seq(messages),
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: me)
+        core.replies = .streaming // the stream bubbles (HomeReplyDisplay)
         let (conv, w) = core.install(id, items: items, summary: summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
@@ -78,9 +83,8 @@ import Testing
     /// The Chief's reply streams one more chunk (the whole reply so far, as HomeStore holds it).
     static func stream(_ rig: inout Rig, _ chunk: String) {
         rig.text += chunk
-        var draft = HomeTurnDraft(participant: chief, turn: turn)
-        draft.segments[0] = rig.text
-        for action in rig.core.stream(draft, state: rig.store.state) { rig.store.dispatch(action) }
+        let row = HomeStreamRow(turn: turn, author: chief, text: rig.text)
+        for action in rig.core.streams([row], state: rig.store.state) { rig.store.dispatch(action) }
     }
 
     /// One width change as a divider drag makes it: the frame only, then AppKit's layout pass.

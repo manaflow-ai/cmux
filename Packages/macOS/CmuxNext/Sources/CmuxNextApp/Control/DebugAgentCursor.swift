@@ -48,6 +48,9 @@ enum DebugAgentCursor {
                     "x": .number(position.x), "y": .number(position.y), "hidden": .bool(cursor.root.isHidden),
                     "paused": .bool(cursor.isPaused), "tag": cursor.tagText.map(JSON.string) ?? .null,
                     "caption": cursor.captionString.map(JSON.string) ?? .null,
+                    "link": controller.agentCursorTags.agentCursorTags().first { $0.id == session }.map { tag -> JSON in
+                        .object(["help": .string(tag.help), "frame": rect(tag.frame)])
+                    } ?? .null,
                 ])
             }
         })

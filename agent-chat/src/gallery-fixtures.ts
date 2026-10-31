@@ -1,4 +1,4 @@
-import type { Block, CommandGroup, Provider, ProviderCapabilities, SessionActions, SessionOption } from "./session";
+import type { Block, CommandGroup, PendingQuestion, Provider, ProviderCapabilities, SessionActions, SessionOption } from "./session";
 
 export const galleryProviders: Provider[] = [
   { id: "claude", label: "Claude Code", installed: true, installCommand: "npm i -g @anthropic-ai/claude-code" },
@@ -158,6 +158,8 @@ export const turnSummaryBlocks: Block[] = [
   { kind: "tool", toolId: "search-picker", name: "rg", detail: "RepositoryPicker", status: "ok", out: "Sources/RepositoryPicker.tsx\nSources/WorkspaceView.swift" },
   { kind: "tool", toolId: "list-files", name: "ls", detail: "Sources", status: "ok", out: "RepositoryPicker.tsx\nWorkspaceView.swift\n" },
   { kind: "tool", toolId: "edit-picker", name: "apply_patch", detail: "RepositoryPicker.tsx +1 -1", status: "ok", out: "*** Begin Patch\n*** Update File: RepositoryPicker.tsx\n+fixed\n-old\n*** End Patch" },
+  { kind: "tool", toolId: "described-command", name: "shell", detail: "bun test --filter @cmux/webviews -- --runInBand --reporter=verbose", description: "Run focused tests", status: "ok", out: "86 tests passed" },
+  { kind: "tool", toolId: "fallback-command", name: "shell", detail: "git show --stat --oneline --decorate HEAD && git status --short", status: "ok", out: "clean" },
   { kind: "assistant", text: "Updated the picker to preserve the selected repository while filtering.", open: false },
   { kind: "footer", text: "1432 in · 82 out · 4.2s" },
 ];
@@ -166,7 +168,7 @@ export const turnSummaryBlocks: Block[] = [
 // agent after its reply.
 export const agentMessageBlocks: Block[] = [
   { kind: "user", text: "Cut the 1.4 release branch." },
-  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges." },
+  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges.\n\n## Release notes\n\n- Verify the signed archive\n- Post the changelog\n- Keep the rollback link\n\n```bash\n./scripts/release-notes.sh\n```" },
   { kind: "assistant", text: "Branch `release/1.4` is ready. I'll hold the tag until #15302 merges.", open: false },
   { kind: "footer", text: "3.1s" },
   { kind: "message", id: "m-2", from: "reviewer", body: "#15302 merged. The tag is clear." },
@@ -187,3 +189,28 @@ export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_,
 ]).flat();
 
 export const galleryActions: SessionActions = { fork: true, handoff: true };
+
+// Codex request_user_input, normalized the way adapters/codex.ts emits it.
+export const galleryQuestions: PendingQuestion[] = [
+  {
+    questionId: "codex-choice",
+    items: [
+      {
+        id: "db_engine",
+        header: "Database",
+        question: "Which database should the service use?",
+        options: [
+          { label: "Postgres", description: "Managed Postgres with point-in-time restore." },
+          { label: "SQLite", description: "One file next to the service." },
+        ],
+        allowsOther: true,
+        secret: false,
+      },
+      { id: "service_name", header: "Name", question: "What should the service be called?", options: [], allowsOther: true, secret: false },
+    ],
+  },
+  {
+    questionId: "codex-secret",
+    items: [{ id: "token", header: "Token", question: "Paste the deploy token for staging.", options: [], allowsOther: true, secret: true }],
+  },
+];

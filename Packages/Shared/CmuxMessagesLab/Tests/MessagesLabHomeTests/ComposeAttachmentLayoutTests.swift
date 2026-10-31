@@ -52,4 +52,11 @@ import Testing
     @Test func noAttachmentsAddNoHeight() {
         #expect(ComposeAttachmentStrip.layout([], width: 600, scale: 2).height == 0)
     }
+
+    /// A file pill's type icon is looked up once per type (a second pill of the type reuses it).
+    @Test func filePillIconsAreLookedUpOncePerType() {
+        let first = ComposeInlineAttachmentView.icon(forMimeType: "application/pdf")
+        let second = ComposeInlineAttachmentView.icon(forMimeType: "application/pdf")
+        #expect(first === second)
+    }
 }

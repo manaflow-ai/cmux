@@ -71,7 +71,7 @@ struct SubtleElevationTests {
 
     @Test func theTabDragGhostCastsTheRaisedStep() throws {
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
-                                      grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2)
+                                      grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
         let root = try #require(ghost.panel.contentView?.layer)
         let casting = Self.layers(in: root).filter { $0.shadowOpacity > 0 }
         #expect(!casting.isEmpty)
@@ -94,7 +94,7 @@ struct SubtleElevationTests {
         let cell = TabCell(item: TabItem(id: TabID("t"), title: "cmux"))
         cell.isLifted = true
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
-                                      grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2)
+                                      grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
         let views: [NSView] = [dock, try #require(ghost.panel.contentView),
                                CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))]
         // Each view's layer tree, and its subviews' (a layer-backed subview outside a window is

@@ -3,6 +3,8 @@
 ;; tool included) inherits it and cannot leave it. It is the only sandbox
 ;; (Claude Code's own cannot nest in it; hub/remote_sandbox.rs), and acpmux
 ;; proves it with a canary at each spawn.
+;; Linux enforces this same parsed policy through bwrap, seccomp, the
+;; user-notify supervisor and the proxy, with a canary at every spawn.
 ;;
 ;; Parameters (sandbox-exec -D, all canonical paths, no trailing slash):
 ;;   CWD                 the session folder
@@ -71,34 +73,15 @@
 (deny file-link)
 (deny file-mount)
 (deny user-preference-write)
-(deny mach-lookup
-  (global-name "com.apple.DiskArbitration.diskarbitrationd")
-  (global-name "com.apple.diskimagesiod")
-  (global-name "com.apple.diskimages.fsck")
-  (global-name "com.apple.pasteboard.1")
-  (global-name "com.apple.lsd.modifydb"))
-
-;; No keychain: its service would answer for every item of the user (gh,
-;; cloud and browser tokens). acpmux hands Claude Code its own credential
-;; by env instead (hub/remote_sandbox.rs).
-(deny mach-lookup
-  (global-name "com.apple.SecurityServer")
-  (global-name "com.apple.securityd.xpc")
-  (global-name "com.apple.securityd.general")
-  (global-name "com.apple.securityd.ckks")
-  (global-name "com.apple.securityd.sos")
-  (global-name "com.apple.securityd.aps")
-  (global-name "com.apple.securityd.systemkeychain")
-  (global-name "com.apple.security.octagon")
-  (global-name "com.apple.security.escrow-update")
-  (global-name "com.apple.security.kcsharing")
-  (global-name "com.apple.security.KeychainStasher")
-  (global-name "com.apple.security.agent")
-  (global-name "com.apple.security.authhost")
-  (global-name "com.apple.keychainsharingmessagingd")
-  (global-name "com.apple.ctkd.token-client")
-  (global-name "com.apple.ctkd.slot-client")
-  (global-name "com.apple.ctkd.slot-registry"))
+;; Mach services are an allowlist. In particular, no securityd, Keychain,
+;; launchd, pasteboard, disk-image or LaunchServices endpoint can be looked
+;; up by Claude or anything it starts. These two services carry no user
+;; credential: command-line runtimes use preferences for read-only defaults
+;; and unified logging for diagnostics. Preference writes stay denied above.
+(deny mach-lookup)
+(allow mach-lookup
+  (global-name "com.apple.cfprefsd.agent")
+  (global-name "com.apple.system.logger"))
 
 ;; Secrets a remote chain never reads.
 (deny file-read*

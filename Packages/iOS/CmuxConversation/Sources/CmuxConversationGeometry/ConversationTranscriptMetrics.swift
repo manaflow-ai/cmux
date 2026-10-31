@@ -3,6 +3,7 @@ import CoreGraphics
 /// Transcript sizing rules read from ChatKit on iOS 26.5 and 27.0 (iPhone 17
 /// Pro and Pro Max simulators, Large text), shared by every surface that
 /// lays out bubbles.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTranscriptMetrics {
     /// What ChatKit keeps free beside the widest balloon: `CKUIBehavior
     /// balloonMaxWidthForTranscriptWidth:` takes the transcript width less the
@@ -58,6 +59,9 @@ public enum ConversationTranscriptMetrics {
     public static let nonContiguousSpace: CGFloat = 10
     public static let smallSpace: CGFloat = 6
     public static let mediumSpace: CGFloat = 10
+    /// `selfReplyTranscriptSpace`: around an inline reply (its quote above,
+    /// the next row below).
+    public static let replyBlockSpace: CGFloat = 24
     public static let mediumLargeSpace: CGFloat = 16
 
     /// The caption 2 line spacing (line height plus leading) at Large, 13 pt

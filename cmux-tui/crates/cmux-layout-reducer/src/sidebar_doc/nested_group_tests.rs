@@ -1,6 +1,5 @@
 //! Nested groups (plans/cmux-next/remote-groups-DESIGN.md R1-R4): a group
-//! may hold groups up to [`MAX_GROUP_DEPTH`] levels (host > project >
-//! branch), a subtree never mixes machines, a moved group carries its whole
+//! may hold groups up to [`MAX_GROUP_DEPTH`] levels (16), a subtree never mixes machines, a moved group carries its whole
 //! subtree, closing the last workspace removes emptied ancestors, and view
 //! rows carry the depth.
 
@@ -80,6 +79,18 @@ fn three_levels(doc: &mut Doc) {
     .expect("three levels of groups are allowed");
 }
 
+/// A chain of `levels` groups `{prefix}1` > `{prefix}2` > ... under `parent` in machine A's section.
+fn chain(doc: &mut Doc, prefix: &str, parent: Option<&str>, levels: usize) {
+    let sec = machine_section_id(A);
+    let mut above = parent.map(str::to_string);
+    for level in 1..=levels {
+        let id = format!("{prefix}{level}");
+        apply(doc, &[group(&id, &id, &sec, above.as_deref(), vec![])])
+            .unwrap_or_else(|refusal| panic!("{id} refused: {refusal}"));
+        above = Some(id);
+    }
+}
+
 #[test]
 fn a_group_can_hold_a_group() {
     let mut doc = doc();
@@ -94,13 +105,14 @@ fn a_group_can_hold_a_group() {
 }
 
 #[test]
-fn three_levels_fit_and_a_fourth_is_refused() {
+fn the_deepest_level_fits_and_one_more_is_refused() {
     let mut doc = doc();
-    three_levels(&mut doc);
+    chain(&mut doc, "g", None, MAX_GROUP_DEPTH);
     check(&doc).unwrap();
     let sec = machine_section_id(A);
+    let deepest = format!("g{MAX_GROUP_DEPTH}");
     assert_eq!(
-        apply(&mut doc, &[group("g_too_deep", "x", &sec, Some("g_leaf"), vec![])]),
+        apply(&mut doc, &[group("g_too_deep", "x", &sec, Some(&deepest), vec![])]),
         Err(Refusal::Nesting)
     );
 }
@@ -130,12 +142,16 @@ fn moving_a_group_under_a_group_respects_the_height_of_its_subtree() {
     };
     apply(&mut doc, &[fits]).expect("two-level subtree under a top-level group fits");
     assert_eq!(doc.item("g_branch").unwrap().parent.as_deref(), Some("g_other"));
-    // g_other now has three levels; it cannot go under anything.
+    // g_other now has three levels; under a chain that leaves fewer than three levels it does not fit.
     let mut doc2 = doc.clone();
-    apply(&mut doc2, &[group("g_top", "top", &sec, None, vec![])]).unwrap();
+    chain(&mut doc2, "t", None, MAX_GROUP_DEPTH - 2);
     let too_deep = Op::Move {
         items: vec!["g_other".into()],
-        to: Target { section: sec, parent: Some("g_top".into()), ..Target::default() },
+        to: Target {
+            section: sec,
+            parent: Some(format!("t{}", MAX_GROUP_DEPTH - 2)),
+            ..Target::default()
+        },
     };
     assert_eq!(apply(&mut doc2, &[too_deep]), Err(Refusal::Nesting));
 }
@@ -294,7 +310,10 @@ fn items_in_order_lists_a_subtree_depth_first() {
 fn repair_lifts_a_chain_that_is_too_deep_or_cycles() {
     let sec = machine_section_id(A);
     let mut items = Vec::new();
-    for (id, parent) in [("g1", None), ("g2", Some("g1")), ("g3", Some("g2")), ("g4", Some("g3"))] {
+    let ids: Vec<String> = (1..=MAX_GROUP_DEPTH + 1).map(|level| format!("g{level}")).collect();
+    for (index, id) in ids.iter().enumerate() {
+        let id = id.as_str();
+        let parent = index.checked_sub(1).map(|above| ids[above].as_str());
         let mut item = Item::new(
             id,
             &sec,
@@ -327,16 +346,131 @@ fn repair_lifts_a_chain_that_is_too_deep_or_cycles() {
     assert!(check(&doc).is_err());
     assert!(repair(&mut doc));
     check(&doc).expect("repaired");
-    assert_eq!(doc.item("g3").unwrap().parent.as_deref(), Some("g2"), "within the limit kept");
-    assert!(doc.item("g4").is_some(), "repair never deletes a group");
+    let last = format!("g{MAX_GROUP_DEPTH}");
+    let above = format!("g{}", MAX_GROUP_DEPTH - 1);
+    assert_eq!(
+        doc.item(&last).unwrap().parent.as_deref(),
+        Some(above.as_str()),
+        "within the limit kept"
+    );
+    let past = format!("g{}", MAX_GROUP_DEPTH + 1);
+    assert_eq!(doc.item(&past).unwrap().parent, None, "past the limit lifted, never deleted");
     assert!(doc.item("cyc_a").is_some() && doc.item("cyc_b").is_some());
 }
 
 #[test]
-fn drag_does_not_nest_yet_and_a_dragged_tree_is_self() {
+fn drag_nests_a_group_within_the_depth_and_a_dragged_tree_is_self() {
     let mut doc = doc();
     three_levels(&mut doc);
     let sec = machine_section_id(A);
+    apply(&mut doc, &[group("g_solo", "solo", &sec, None, vec![ws(A, "a2")])]).unwrap();
+    // A chain under g_leaf down to the deepest level: g_leaf is level 3, d1 level 4, ...
+    chain(&mut doc, "d", Some("g_leaf"), MAX_GROUP_DEPTH - 3);
+    let deepest = format!("d{}", MAX_GROUP_DEPTH - 3);
+    let next = format!("d{}", MAX_GROUP_DEPTH - 4);
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+    let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
+    assert!(table["g_project"].into, "one-level group into a level-1 group");
+    assert!(table["g_leaf"].into, "into a level-3 group makes level 4");
+    assert!(table[&next].into, "into the level above the deepest makes the deepest");
+    assert!(!table[&deepest].into, "into a group at the deepest level would go past it");
+    assert!(table["g_project"].before, "a group still lands beside a top-level group");
+    let table = accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
+    assert!(!table["g_solo"].into, "a tree at the deepest level fits under no group");
+    for key in ["g_branch", "g_leaf"] {
+        assert_eq!(table[key].refusal.as_deref(), Some("self"), "{key} is under the dragged tree");
+    }
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    assert!(table[&deepest].into, "a workspace drops into the deepest group");
+}
+
+/// Reordering a group never nests it by accident (the "Perf" group drawn one gutter in, user
+/// 2026-10-21): the gap after a group's last member row looks the same as the gap after the group, so
+/// a dragged group lands beside a row only at its own level or above. It goes into a group only
+/// through that group's header ("into"), the one drop that shows which group takes it.
+#[test]
+fn a_dragged_group_lands_beside_rows_only_at_its_own_level_or_above() {
+    let mut doc = doc();
+    let sec = machine_section_id(A);
+    apply(
+        &mut doc,
+        &[
+            group("g_panes", "Panes & layout", &sec, None, vec![ws(A, "a1")]),
+            group("g_perf", "Perf", &sec, None, vec![ws(A, "a2")]),
+            group("g_nightly", "Nightly & CI", &sec, None, vec![]),
+            group("g_sub", "sub", &sec, Some("g_panes"), vec![]),
+        ],
+    )
+    .unwrap();
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+
+    // A top-level group over another group's member rows: no gap there (the list falls back to
+    // before or after that whole group); its header still nests on purpose.
+    let table = accept::drag_begin(&doc, &rows, &["g_perf".to_string()]);
+    let member = &table[&ws(A, "a1")];
+    assert!(
+        !member.before && !member.after,
+        "a member row's gap would nest Perf in Panes: {member:?}"
+    );
+    assert!(!table["g_sub"].before && !table["g_sub"].after, "beside a subgroup is one level in");
+    assert!(table["g_panes"].into, "the header still takes the group on purpose");
+    assert!(
+        table["g_panes"].before && table["g_panes"].after,
+        "beside a top-level group stays open"
+    );
+    assert!(table["g_nightly"].before && table["g_nightly"].after);
+
+    // A subgroup reorders among its siblings and moves out to any level above.
+    let table = accept::drag_begin(&doc, &rows, &["g_sub".to_string()]);
+    assert!(table[&ws(A, "a1")].before && table[&ws(A, "a1")].after, "among its parent's members");
+    assert!(table["g_nightly"].before && table["g_nightly"].after, "out to the top level");
+    assert!(
+        !table[&ws(A, "a2")].before && !table[&ws(A, "a2")].after,
+        "not across into another group"
+    );
+
+    // A workspace still lands anywhere a group's members sit.
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    assert!(table[&ws(A, "a1")].before && table[&ws(A, "a1")].after);
+}
+
+/// Six levels of groups (Lawrence 2026-10-23: "i want to see deeply nested groups"): each level
+/// nests, the document passes the full check, the view lists every level with its depth, a drag
+/// can still go into the sixth level, and repair keeps the chain.
+#[test]
+fn six_levels_of_groups_nest_view_and_take_a_drop() {
+    let mut doc = doc();
+    let sec = machine_section_id(A);
+    let mut parent: Option<String> = None;
+    for level in 1..=6 {
+        let id = format!("g{level}");
+        let items = if level == 6 { vec![ws(A, "a1")] } else { vec![] };
+        apply(&mut doc, &[group(&id, &id, &sec, parent.as_deref(), items)])
+            .unwrap_or_else(|refusal| panic!("level {level} refused: {refusal}"));
+        parent = Some(id);
+    }
+    check(&doc).expect("a six-level tree passes the full check");
+    assert!(!repair(&mut doc.clone()), "repair leaves a six-level tree alone");
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+    for level in 1..=6u8 {
+        let key = format!("g{level}");
+        assert_eq!(rows.iter().find(|r| r.key == key).map(|r| r.depth), Some(level - 1), "{key}");
+    }
+    assert_eq!(rows.iter().find(|r| r.key == ws(A, "a1")).map(|r| r.depth), Some(6));
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    assert!(table["g6"].into, "a workspace drops into the sixth level");
     apply(&mut doc, &[group("g_solo", "solo", &sec, None, vec![ws(A, "a2")])]).unwrap();
     let live = vec![
         LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
@@ -344,12 +478,5 @@ fn drag_does_not_nest_yet_and_a_dragged_tree_is_self() {
     ];
     let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
     let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
-    assert!(!table["g_project"].into, "the sidebar does not draw nested groups yet");
-    assert!(table["g_project"].before, "a group still lands beside a top-level group");
-    let table = accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
-    for key in ["g_branch", "g_leaf"] {
-        assert_eq!(table[key].refusal.as_deref(), Some("self"), "{key} is under the dragged tree");
-    }
-    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
-    assert!(table["g_leaf"].into, "a workspace drops into a nested group");
+    assert!(table["g6"].into, "a group drops into the sixth level, making a seventh");
 }

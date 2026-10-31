@@ -156,7 +156,7 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
 
-    fn wake_terminal_reaper(&self) {
+    pub(super) fn wake_terminal_reaper(&self) {
         if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
             events.wake();
         }
@@ -191,6 +191,9 @@ impl Mux {
             let mut registry = self.workspace_registry.lock().unwrap();
             if let Err(error) = registry.prune_terminal_keep() {
                 self.report_internal_diagnostic(format!("terminal keep prune failed: {error}"));
+            }
+            if let Err(error) = registry.prune_terminal_resume_commands() {
+                self.report_internal_diagnostic(format!("resume command prune failed: {error}"));
             }
             registry.kept_terminals()?
         };
@@ -332,7 +335,9 @@ impl Mux {
     /// ends, so neither the host's exit nor the next owner's reconciliation
     /// detaches it: the next owner shows the same screens, splits and tabs,
     /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
-    /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    /// there: on the workspace's first show (`on_show`), or at connect for a
+    /// terminal that ran an agent session, so the agent resumes. Terminals
+    /// without a tab end as in [`Self::end_all_terminals`].
     pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(true)
     }
@@ -345,7 +350,15 @@ impl Mux {
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
         // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
-        let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
+        // A kept plain shell or command starts on its workspace's first show:
+        // restarting all at the next connect took a PTY for every workspace
+        // nobody opens (a913). A kept agent still restarts at connect, so it
+        // resumes.
+        let kept = if keep_layout {
+            self.record_kept_tabs(&terminals, KeptStart::OnShowUnlessAgent)?
+        } else {
+            HashSet::new()
+        };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         let mut to_close = Vec::new();
@@ -435,7 +448,12 @@ impl Mux {
     /// host's fact: the foreground process's directory, else the OSC 7 or
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
-    fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
+    /// `start`: when a frontend starts each kept tab again.
+    fn record_kept_tabs(
+        &self,
+        terminals: &[RegistryTerminal],
+        start: KeptStart,
+    ) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
         {
@@ -453,12 +471,19 @@ impl Mux {
                     continue;
                 }
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
-                placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
+                let on_show = match start {
+                    KeptStart::OnShow => true,
+                    // A failed read keeps the old start at connect: an agent is never left unresumed.
+                    KeptStart::OnShowUnlessAgent => registry
+                        .terminal_relaunch_record(&terminal.terminal_id)
+                        .is_ok_and(|record| record.is_none_or(|record| record.agent.is_none())),
+                };
+                placed.push((terminal.terminal_id.clone(), tab_ids, runtime, on_show));
             }
         }
         let mut rows = Vec::new();
         let mut kept = HashSet::new();
-        for (terminal_id, tab_ids, runtime) in placed {
+        for (terminal_id, tab_ids, runtime, on_show) in placed {
             let cwd = runtime.as_ref().and_then(|surface| {
                 surface
                     .process_id()
@@ -472,11 +497,78 @@ impl Mux {
                 tab_id,
                 cwd: cwd.clone(),
                 title: title.clone(),
+                on_show,
             }));
             kept.insert(terminal_id);
         }
         self.commit_kept_tabs(&rows)?;
         Ok(kept)
+    }
+
+    /// `park-tabs` (`tab-park-v1`): ends the shells of the terminals the tabs
+    /// at `surfaces` show and keeps their tabs, recorded first, as
+    /// [`Self::end_all_terminals_keeping_layout`] does for every terminal.
+    /// Tabs that show no live terminal are skipped. Returns the surfaces whose
+    /// terminal was parked.
+    pub(crate) fn park_terminal_tabs(
+        &self,
+        surfaces: &[SurfaceId],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let by_content: Vec<(SurfaceId, TerminalPublicId)> = self.with_state(|state| {
+            surfaces
+                .iter()
+                .filter_map(|surface| match state.resource_indexes.content_ids.get(surface) {
+                    Some(ContentPublicId::Terminal(id)) => Some((*surface, id.clone())),
+                    _ => None,
+                })
+                .collect()
+        });
+        if by_content.is_empty() {
+            return Ok(Vec::new());
+        }
+        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        let mut chosen = Vec::new();
+        let mut parked_surfaces = Vec::new();
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            for terminal in terminals {
+                if !matches!(
+                    terminal.lifecycle,
+                    TerminalLifecycle::Running
+                        | TerminalLifecycle::Launching
+                        | TerminalLifecycle::Adopting
+                ) {
+                    continue;
+                }
+                let Some(public_id) = registry.terminal_resource_id(&terminal.terminal_id)? else {
+                    continue;
+                };
+                let mine: Vec<SurfaceId> = by_content
+                    .iter()
+                    .filter(|(_, id)| *id == public_id)
+                    .map(|(surface, _)| *surface)
+                    .collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                parked_surfaces.extend(mine);
+                chosen.push(terminal);
+            }
+        }
+        // Every tab is recorded before any shell is asked to exit, so no exit removes one.
+        let kept = self.record_kept_tabs(&chosen, KeptStart::OnShow)?;
+        let mut failures = Vec::new();
+        for terminal in chosen.iter().filter(|terminal| kept.contains(&terminal.terminal_id)) {
+            if let Err(error) = self.end_terminal_keeping_tabs(terminal) {
+                failures.push(terminal.terminal_id.clone());
+                eprintln!("cmux-tui: could not park terminal {}: {error:#}", terminal.terminal_id);
+            }
+        }
+        if !failures.is_empty() {
+            // A terminal that still runs must not keep a record, or its later exit would keep its tab.
+            self.forget_kept_tabs_of(&failures)?;
+        }
+        Ok(parked_surfaces)
     }
 
     /// Removes the keep-layout records of the tabs of `terminal_ids`.
@@ -509,7 +601,7 @@ impl Mux {
     /// fact); the store's records keep its tabs.
     fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
         let runtime = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let public_id = registry.terminal_resource_id(&terminal.terminal_id)?;
             drop(registry);
             let state = self.state.lock().unwrap();
@@ -538,6 +630,17 @@ impl Mux {
         }
         registry.any_kept_tab(&tab_ids)
     }
+}
+
+/// When a frontend starts a kept tab (`kept_tabs`) again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeptStart {
+    /// When its workspace is first shown (`relaunch.on_show`): `park-tabs`.
+    OnShow,
+    /// On first show, except a terminal whose relaunch record names an agent
+    /// session: that one restarts when a frontend connects, so the agent
+    /// resumes (End Sessions, Keep Layout).
+    OnShowUnlessAgent,
 }
 
 /// Longest `end_all_terminals` waits for a progressing host-close pool
@@ -650,12 +753,14 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let mut thread_events = events.lock().unwrap().clone();
     let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
         let mut schedule = ReapSchedule::default();
+        let mut reclaim = pty_reclaim::ReclaimClock::default();
         loop {
             if thread_stop.load(Ordering::Acquire) {
                 break;
             }
             let Some(mux) = weak.upgrade() else { break };
             mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+            mux.reclaim_ptys_if_low(&mut reclaim);
             // Never hold the mux across the wait: the thread must not keep
             // the mux alive after its other owners are gone.
             drop(mux);

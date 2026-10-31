@@ -82,6 +82,18 @@ public struct ConsoleErrorCapture {
 
     /// The log line for one report: `[warn] ` for warnings, then the message, then the top
     /// stack frame as an `at …` line.
+    /// Logs one message of ``script`` that reached the host another way than WebKit's handler (a
+    /// Chromium page's binding): the same redacted line the WebKit receiver logs.
+    ///
+    /// - Parameter body: The posted object (`level`, `message`, `stack`).
+    public func record(_ body: Any) {
+        guard let body = body as? [String: Any] else { return }
+        let text = Self.logText(level: body["level"] as? String ?? "error", message: body["message"] as? String ?? "",
+                                stack: body["stack"] as? String ?? "")
+        // Redacted above, so public: the journal must read the text back.
+        Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
+    }
+
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
         let redactor = ErrorRedactor()
         let prefix = level == "warn" ? "[warn] " : ""

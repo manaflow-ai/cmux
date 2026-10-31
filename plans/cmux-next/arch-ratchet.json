@@ -1,0 +1,761 @@
+{
+  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
+  "method": "arch_counts",
+  "method_version": 6,
+  "measured_sha": "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4",
+  "measured_date": "2026-10-24",
+  "rows": {
+    "layer_hard": {
+      "title": "hard layer edges (core/service/domain -> ui/app)",
+      "ratchet": true
+    },
+    "layer_soft": {
+      "title": "soft layer edges (service -> domain)",
+      "ratchet": true
+    },
+    "layer_upward": {
+      "title": "other upward layer edges (core -> service/domain)",
+      "ratchet": true
+    },
+    "layer_unplaced": {
+      "title": "targets missing from architecture-layers.json",
+      "ratchet": true
+    },
+    "stateful_singletons": {
+      "title": "stateful singletons (stored static or file-scope global of a stateful type)",
+      "ratchet": true
+    },
+    "global_mutable_statics": {
+      "title": "global mutable statics (static or file-scope var, lock, cache)",
+      "ratchet": true
+    },
+    "assume_isolated_outside_adapters": {
+      "title": "MainActor.assumeIsolated outside seam adapters",
+      "ratchet": true
+    },
+    "assume_isolated_total": {
+      "title": "MainActor.assumeIsolated, all sites",
+      "ratchet": false
+    },
+    "app_broadcast_names": {
+      "title": "app-internal Notification.Name broadcasts",
+      "ratchet": true
+    },
+    "observer_sites": {
+      "title": "NotificationCenter/KVO observer sites",
+      "ratchet": true
+    },
+    "blocking_allow_escapes": {
+      "title": "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()",
+      "ratchet": true
+    },
+    "app_lines": {
+      "title": "CmuxNextApp Swift lines",
+      "ratchet": false
+    }
+  },
+  "totals": {
+    "layer_hard": 33,
+    "layer_soft": 12,
+    "layer_upward": 3,
+    "layer_unplaced": 0,
+    "stateful_singletons": 199,
+    "global_mutable_statics": 476,
+    "assume_isolated_outside_adapters": 151,
+    "assume_isolated_total": 203,
+    "app_broadcast_names": 13,
+    "observer_sites": 340,
+    "blocking_allow_escapes": 0,
+    "app_lines": 143610
+  },
+  "packages": {
+    "CmuxAuthRuntime": {
+      "stateful_singletons": 1
+    },
+    "CmuxHomeRender": {
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 2
+    },
+    "CmuxMobileRPC": {
+      "layer_hard": 1
+    },
+    "CmuxMobileSupport": {
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 4
+    },
+    "CmuxNextActions": {
+      "global_mutable_statics": 2,
+      "assume_isolated_total": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextAgentActivity": {
+      "stateful_singletons": 2,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextAgentCursor": {
+      "layer_hard": 1
+    },
+    "CmuxNextAgentCursorVisibility": {
+      "layer_upward": 1
+    },
+    "CmuxNextAgentIntegrations": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextAgentLanes": {
+      "stateful_singletons": 5,
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextAgentPane": {
+      "stateful_singletons": 22,
+      "global_mutable_statics": 26,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 4,
+      "app_broadcast_names": 1,
+      "observer_sites": 7
+    },
+    "CmuxNextAgentUpdates": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextApp": {
+      "stateful_singletons": 33,
+      "global_mutable_statics": 72,
+      "assume_isolated_outside_adapters": 21,
+      "assume_isolated_total": 32,
+      "observer_sites": 104,
+      "app_lines": 143610
+    },
+    "CmuxNextApps": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 1
+    },
+    "CmuxNextBookmarks": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextBridge": {
+      "layer_hard": 5,
+      "stateful_singletons": 5,
+      "global_mutable_statics": 1
+    },
+    "CmuxNextBrowser": {
+      "stateful_singletons": 13,
+      "global_mutable_statics": 21,
+      "assume_isolated_outside_adapters": 19,
+      "assume_isolated_total": 22,
+      "app_broadcast_names": 1,
+      "observer_sites": 15
+    },
+    "CmuxNextBrowserAutomation": {
+      "layer_hard": 1,
+      "global_mutable_statics": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextBrowserCore": {
+      "stateful_singletons": 2,
+      "app_broadcast_names": 1
+    },
+    "CmuxNextBrowserHistory": {
+      "layer_hard": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextBrowserHost": {
+      "layer_hard": 1
+    },
+    "CmuxNextChiefPetWiring": {
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextChromiumWarmup": {
+      "layer_hard": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextCloud": {
+      "stateful_singletons": 2
+    },
+    "CmuxNextCodeRouter": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextCompat": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 6
+    },
+    "CmuxNextComputerUse": {
+      "layer_hard": 1,
+      "layer_soft": 1,
+      "stateful_singletons": 2
+    },
+    "CmuxNextControl": {
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextCookieImport": {
+      "observer_sites": 3
+    },
+    "CmuxNextCrashReporting": {
+      "global_mutable_statics": 11
+    },
+    "CmuxNextDaemon": {
+      "stateful_singletons": 3,
+      "global_mutable_statics": 4
+    },
+    "CmuxNextDaemonService": {
+      "layer_hard": 3,
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "global_mutable_statics": 3,
+      "observer_sites": 1
+    },
+    "CmuxNextDesign": {
+      "stateful_singletons": 26,
+      "global_mutable_statics": 66,
+      "assume_isolated_outside_adapters": 26,
+      "assume_isolated_total": 33,
+      "app_broadcast_names": 4,
+      "observer_sites": 82
+    },
+    "CmuxNextDesignTokens": {
+      "stateful_singletons": 2,
+      "observer_sites": 1
+    },
+    "CmuxNextDevices": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextDictation": {
+      "stateful_singletons": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextDiff": {
+      "layer_hard": 2,
+      "layer_soft": 1,
+      "global_mutable_statics": 2
+    },
+    "CmuxNextFileGrid": {
+      "assume_isolated_total": 2
+    },
+    "CmuxNextFilesUI": {
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextFloating": {
+      "observer_sites": 3
+    },
+    "CmuxNextFocusUI": {
+      "stateful_singletons": 2,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextHome": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2,
+      "observer_sites": 4
+    },
+    "CmuxNextHomeEngine": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextHostedChief": {
+      "layer_hard": 1
+    },
+    "CmuxNextIcons": {
+      "global_mutable_statics": 2
+    },
+    "CmuxNextImportCards": {
+      "stateful_singletons": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextKeepAwake": {
+      "layer_soft": 2,
+      "stateful_singletons": 1
+    },
+    "CmuxNextLayout": {
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 5,
+      "assume_isolated_total": 5,
+      "observer_sites": 2
+    },
+    "CmuxNextMacScreen": {
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 4,
+      "observer_sites": 6
+    },
+    "CmuxNextMobileHost": {
+      "layer_hard": 4,
+      "layer_soft": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextNowPlaying": {
+      "layer_hard": 3,
+      "global_mutable_statics": 3,
+      "observer_sites": 4
+    },
+    "CmuxNextPages": {
+      "stateful_singletons": 7,
+      "global_mutable_statics": 7,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 6
+    },
+    "CmuxNextPalette": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 2,
+      "observer_sites": 1
+    },
+    "CmuxNextPhone": {
+      "assume_isolated_total": 3,
+      "observer_sites": 1
+    },
+    "CmuxNextPhoneAccess": {
+      "layer_soft": 1
+    },
+    "CmuxNextPopups": {
+      "observer_sites": 2
+    },
+    "CmuxNextProcessEnvironment": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextRemote": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextRemoteBrowser": {
+      "observer_sites": 8
+    },
+    "CmuxNextRemoteLocalhostService": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextRemoteView": {
+      "assume_isolated_total": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextRemoteViewSessions": {
+      "global_mutable_statics": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextServer": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextServerHelperDaemon": {
+      "stateful_singletons": 2
+    },
+    "CmuxNextSettings": {
+      "layer_hard": 1,
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextSettingsWindow": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextSidebar": {
+      "stateful_singletons": 9,
+      "global_mutable_statics": 10,
+      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_total": 24,
+      "app_broadcast_names": 3,
+      "observer_sites": 15
+    },
+    "CmuxNextSignposts": {
+      "stateful_singletons": 9,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextStash": {
+      "layer_hard": 1
+    },
+    "CmuxNextTabs": {
+      "stateful_singletons": 4,
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 10,
+      "observer_sites": 4
+    },
+    "CmuxNextTasks": {
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextTerminal": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 23,
+      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_total": 20,
+      "app_broadcast_names": 1,
+      "observer_sites": 11
+    },
+    "CmuxNextUpdater": {
+      "observer_sites": 2
+    },
+    "CmuxNextWakeups": {
+      "stateful_singletons": 6,
+      "global_mutable_statics": 1,
+      "assume_isolated_total": 5,
+      "observer_sites": 1
+    },
+    "CmuxNextWebUpdates": {
+      "layer_hard": 3,
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextWorkspaceNaming": {
+      "layer_upward": 2
+    },
+    "CmuxNextWorkspaceRepair": {
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxScreenKitUI": {
+      "stateful_singletons": 1
+    },
+    "CmuxUpdater": {
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxVNCWebRTC": {
+      "stateful_singletons": 1
+    },
+    "MessagesLabHome": {
+      "stateful_singletons": 21,
+      "global_mutable_statics": 180,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 29
+    },
+    "MessagesLabSidebar": {
+      "global_mutable_statics": 13,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 6
+    },
+    "StackAuth": {
+      "stateful_singletons": 2,
+      "global_mutable_statics": 2
+    },
+    "cmux-vnc-host": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2
+    }
+  },
+  "layer_edges": {
+    "hard": [
+      "CmuxMobileRPC (domain) -> CmuxMobileSupport (ui)",
+      "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
+      "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
+      "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextBridge (domain) -> CmuxAgentBrands (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextLayout (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextSidebar (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextTabs (ui)",
+      "CmuxNextBrowserAutomation (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextBrowserHistory (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextBrowserHost (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextChromiumWarmup (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextComputerUse (service) -> CmuxNextAgentActivity (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextApps (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextLayout (ui)",
+      "CmuxNextDiff (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextDiff (service) -> CmuxNextPages (ui)",
+      "CmuxNextHostedChief (service) -> CmuxNextHomeEngine (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextDesign (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextPages (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextRemoteBrowser (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextAgentPane (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextBrowser (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextSidebar (ui)",
+      "CmuxNextRemoteLocalhostService (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextSettings (domain) -> CmuxNextDesign (ui)",
+      "CmuxNextStash (service) -> CmuxNextHistory (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextUpdater (ui)"
+    ],
+    "soft": [
+      "CmuxNextAgentIntegrations (service) -> CmuxNextSettings (domain)",
+      "CmuxNextAgentUpdates (service) -> CmuxNextSettings (domain)",
+      "CmuxNextComputerUse (service) -> CmuxNextSettings (domain)",
+      "CmuxNextControl (service) -> CmuxNextSettings (domain)",
+      "CmuxNextDaemonService (service) -> CmuxNextBridge (domain)",
+      "CmuxNextDiff (service) -> CmuxNextSettings (domain)",
+      "CmuxNextKeepAwake (service) -> CmuxNextBridge (domain)",
+      "CmuxNextKeepAwake (service) -> CmuxNextSettings (domain)",
+      "CmuxNextMobileHost (service) -> CmuxNextSettings (domain)",
+      "CmuxNextPhoneAccess (service) -> CmuxNextSettings (domain)",
+      "CmuxNextRemoteLocalhostService (service) -> CmuxNextSettings (domain)",
+      "CmuxNextWebUpdates (service) -> CmuxNextSettings (domain)"
+    ],
+    "upward": [
+      "CmuxNextAgentCursorVisibility (core) -> CmuxNextAgentCursor (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextBridge (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)"
+    ],
+    "unplaced": []
+  },
+  "exceptions": [
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "First-click fix (user 2026-10-30: buttons need two clicks). All logic is in CmuxNextDesign (FirstClickPolicy, FirstClickAudit); the App keeps only the one call it must own, in ShellWindow.sendEvent (Windows/ShellWindow+Events.swift, 4 lines: a 2-line comment and the call split over 2 lines; a lower package cannot override the App's NSWindow subclass), and the DEBUG-only `debug.first_click` forward in Control/DebugWindowsControl.swift (5 lines, beside the other debug.* routes the App's control router composes).",
+      "author": "first-click subagent (Chief, Buttons respond first click)",
+      "owner": "PL-arch",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at 4743358fd681f62ddfd717a7deb0c2b2a983ca69",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "274ef5c1a5e73135f8b39d2ef871758710879596"
+      ],
+      "applied_sha": "91d4ac2fea5d628468f6e69ab62d6b6c3257226c"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "16332dd2ced8e83b3359aa38b04a6c09797434e0"
+      ],
+      "applied_sha": "91d4ac2fea5d628468f6e69ab62d6b6c3257226c"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "697207923231265a321d075bd66591e377ba2b7c"
+      ],
+      "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "697207923231265a321d075bd66591e377ba2b7c"
+      ],
+      "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "layer_hard",
+      "allow": 2,
+      "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
+      "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8.",
+      "applied_sha": "1fb69bf23aaf93ed996f1183458a047b7a7b84d2"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaletteScope.swift:45 `private static let shared = OSAllocatedUnfairLock(uncheckedState: Shared())`: it replaces four unsynchronized statics (the 2026-10-28 PaletteScope state and the stored Fixture.paletteGeneration) with one lock, because render workers read the process palette and the base generation while the main thread writes them (a data race the nonisolated(unsafe) marks hid). The state is read through the computed Fixture.theme, Fixture.baseGeneration and Fixture.paletteGeneration (Vendor/catalyst/Fixture.swift:63-94) from the vendored catalyst renderer's static drawing helpers (RowDrawing, Transcript, TiledBubble, LongText, Morph, MarkdownDraw), which have no instance or view to take an injected palette from, off the main thread too; the per-view palette already goes through the @TaskLocal scope (PaletteScope.swift:29). An instance would need a new patch in every vendored helper (Patches/catalyst__*.patch), so the one process-wide value stays, now race-free. Follow-up: pass the PaletteBox down the render path when the vendor patches are next rebased.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 84bca8e324a (Lawrence Chen, #28036)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashWatcher.swift:174 `nonisolated(unsafe) private var watcherDescriptor: Int32`: CrashWatcher.arm() (:156) reads it from CrashReporter.fatalSignalBegan() (CrashReporter.swift:150), the first call of a fatal-signal handler, and from the uncaught-exception path. A sigaction handler is a C function pointer with no context argument, so it cannot reach an injected instance; the only async-signal-safe way to find the watcher's pipe is a global word. It is one aligned Int32 written once by install(sampleFile:) (:149-150, guarded by `< 0`) at launch and then only read; an Atomic would still be a counted global. Same reason as CrashDeadline's semaphore.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit b3ec6ee1e38 (lawrencecchen, #22844)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/KillSwitches.swift:15 `public static let shared = KillSwitches()`: it holds the one verified set of per-PR kill switches that the signed flags document turns off for this process, and the free function killSwitch(_:) (:39-41) reads it so that any risky change in any package can add `if killSwitch(\"pr-N\") { old } else { new }` as a one-line rollback seam with no new init parameter (threading an instance into each call site would make the rollback seam itself a wide, risky diff). This is the model of Chrome's process-wide base::FeatureList. The state is a Mutex<Set<String>>, written only by the updater's KillSwitchReader after signature verification; tests replace and reset it (KillSwitchesTests.swift:265). Only this site is covered; KillSwitchReader.swift:33 `static weak var app` is not (proposed FIX).",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 52c918f9e28 (Leo, #24212)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift:29 `static let shared = BlockingViolationTable()`: the main-thread blocking detector's table. A violation can happen in any module, inside any lock and before the composition root exists, and the check (and allowBlocking) runs on that thread with no context, so it cannot take its table through init (Chrome keeps ScopedBlockingCall state in globals for the same reason). Tests bind their own table through the @TaskLocal `scoped` (:32), and `active` (:35) prefers it. The whole file is `#if DEBUG || CMUX_BLOCKING_CHECKS` (:1), so Release has no such state.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit f668c89a38a (lawrencecchen, no PR; landed in 18c0b7af779)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:144: macOS's `com.apple.desktop` distributed notice, the only system signal that the desktop picture changed (the store-folder file source covers writes, not every change). The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:147: NSWorkspace.activeSpaceDidChangeNotification: a Space switch can show another picture with no desktop notice. The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:148: NSWorkspace.didWakeNotification: the picture can change while the Mac sleeps; no app-wide wake adapter exists to subscribe to (CloudService, SSHService, FeedService, StatusIndicatorAppearance and IPhoneHostService each observe wake themselves). The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:149: NSApplication.didChangeScreenParametersNotification: the main screen, and so its picture, can change. The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService.swift:164 `MainActorObservation(NSWorkspace.didWakeNotification)`: the app makes one IPhoneHostService (AppServices.swift:142), so it is one wake observation per app, released on stop or deinit; the handler returns at once unless the host is on, and then sends one networkChanged to the supervisor so hostd reconnects after sleep. Wake has no other signal, and no app-wide wake adapter exists in the tree (no SuspendWatch or AppEvents fan-out; five other services observe wake themselves), so there is nothing to subscribe to instead. If such an adapter lands, this site moves to it.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 8d40995d237 (Leo, #27297)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWindowRecord.swift:133 `addObserver(NSWindow.willCloseNotification, object: window, queue: .main)`: the file is `#if DEBUG || CMUX_BENCH_HOOKS` (:1-258), so Release has no such observer; it is scoped to the one recorded window (object: window), so only that window's close wakes it, and it ends a --record-launch recording at once instead of capturing a closed window until the 30 s cap. That is the row's per-window shape. The `queue: .main` plus assumeIsolated at :135 is a separate assume_isolated_outside_adapters FIX (use MainActorObservation); this entry covers only the observer count.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit fc532ccb574 (Leo, #23680)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift:126 `// blocking-allow:` for claim(at:): mkdir of the Application Support folder, open and flock(LOCK_EX | LOCK_NB). It runs once from CmuxNextApp.main (CmuxNextApp.swift:40) before NSApp exists, before LaunchWarmup and CEF start, so no frame exists that could wait. Whether this copy may launch at all decides everything after it (a second copy must not read sessions or reach CEF), so the main thread must wait for the answer whichever thread computes it; moving it off main only adds a hop. flock is non-blocking (LOCK_NB); mkdir and open of a local folder are the only waits.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 91476681618 (Leo, #25918)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/CaptureBackdropPattern.swift:86 `MainActorObservation(NSWindow.willCloseNotification, object: target)` in CaptureBackdropPanel.init: since 2391c5ec903 the panel, its view and NSWindow.setCaptureBackdrop/captureBackdrop are `#if DEBUG || CMUX_BENCH_HOOKS` (:59-118, :121-160, :177-216), the same condition as their only callers (DebugWindowSnapshot.swift:215-238, AppControl+Input.swift:30-59, the debug.capture_backdrop route), so Release has no such observer and keeps only constant read helpers (no backdrop). The observation is scoped to the one target window object (at most one backdrop per window), so only that window's close wakes it, and it removes and closes the screen-sized backdrop instead of leaving it on screen. It holds the panel weakly and ends in remove() (:106-109) or when the panel is released. That is the row's per-window shape; no shared window-close adapter exists in CmuxNextDesign.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 8fb4805d251 (Leo, #27514); gated in 2391c5ec903 (lawrencecchen, audit-rh)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 485,
+      "why": "cmux#28111 (cloud.startChat, Leo 2026-10-30: \"like the initial 0 to 1 chat auto it sends to cloud\"): Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift and CloudStartChat+Machine.swift, plus their strings. They drive CloudService, CloudMove, the machine store and the agent tabs, which all live in CmuxNextApp today, so no domain package can hold them without moving those first. Per the rulebook (new logic in Rust, Swift a thin shell) the machine pick, the per-send ledger and the account checks move to acpmux/cmux-tui in the cloud.startChat Rust move that is already under way, which removes these lines from the App. 485 includes the account scoping the reviews asked for (CloudService.listedMachineIDs and its uses).",
+      "author": "claude lane carry-26791-crash (cmux#28111)",
+      "owner": "the cloud.startChat Rust move (follow-up of cmux#28111)",
+      "receipt": "Review (codex gpt-6-astra, router-review): SHIP at d76a98d8f47f8b85a4c2f8d4e4b644d183978d17",
+      "expiry": "2026-11-21"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 21,
+      "why": "Composition-root wiring that makes the Automations page reachable (docs/automations-platonic-ideal.md section 8): InternalPageID.automations, the TopPageRoute and SidebarBridge mappings, and in TopPages.registerProviders the AutomationsPageHost made from ProcessRunner (bundled CLI) and CloudAutomationRelay (CloudAuth), a WebPageTab provider and the typed automations.show binding. The page, its model and view are in CmuxNextCloudUI; only the App can join ProcessRunner, CloudAuth and the page registry. Package.swift is frozen (WINDOW PKG) and new App files are refused, so the wiring is in existing App files.",
+      "author": "a908",
+      "owner": "a908 (move into a CmuxNextAutomations target once a PKG slot is granted)",
+      "receipt": "Review (independent review subagent, read-only): SHIP at 6b959f3e38f1ea616a24710d117f01bbf28785d7",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 232,
+      "why": "#28989 (carry of #28044, Leo's 'anything opened on the right goes to the lower pane'): the right-column wiring is App-side glue around the pure rule and turn queue, which live in CmuxNextAgentPane (RightColumnPlacement, RightColumnTurns). The App lines are LinkOpener's target/turn plumbing, its three geometry helpers over PaneController and WorkspaceContentController (App types), AgentTabStore.openOnRight, and the in-place/refusal completion paths the reviews asked for. LinkOpenPlacement moving to CmuxNextAgentPane is the payback.",
+      "author": "claude-sr2-coord helper (carry of #28044)",
+      "owner": "ux-tabs-panes area owner",
+      "receipt": "Review (codex gpt-6-astra high, independent): SHIP at e603a67ba94164c9366c706f153157fbc8a30230",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "#28609 bug fix in WindowManager window membership (CmuxNextApp/Windows/WindowManager.swift, +Creation, +Membership): a backgroundClaims set and its three uses so a no-focus create never opens an unopened Cloud machine. Membership has no domain package yet (the Windows folder's destination is unset), so the 9 lines go where the reconcile they change lives; moving WindowManager out of the App is its own refactor.",
+      "author": "cloud-sidebar-vms (claude)",
+      "owner": "cloud-sidebar-vms",
+      "receipt": "Review (codex gpt-6-astra): SHIP at 5f7db1579443b56e7f57e17ff14e9c82bba8578c",
+      "expiry": "2026-12-31"
+    }
+  ],
+  "escape_reviews": [
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift",
+      "text": "// blocking-allow: runs once in `main` before NSApp exists and before any other thread starts; whether this copy may start at all decides everything after it, so nothing can run first (one mkdir of an existing folder)",
+      "state": "reviewed",
+      "author": "the adding commit 91476681618 (Leo, #25918)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
+      "expiry": "2026-11-30",
+      "note": "claim(at:) (mkdir, open, flock LOCK_EX|LOCK_NB, which never waits for the lock) runs once from CmuxNextApp.main (CmuxNextApp.swift:40) before NSApp, LaunchWarmup and CEF, so no frame can wait, and every launch step after it depends on its answer, so moving it off main only adds a hop."
+    }
+  ],
+  "observer_wrappers": [
+    "AgentSubagentPanes",
+    "HomeProjection",
+    "HomeVideo",
+    "LowPowerMode",
+    "MainActorObservation",
+    "PageHostPool",
+    "VideoPlayback",
+    "start",
+    "toggle",
+    "toggleVideo",
+    "watchUser"
+  ]
+}

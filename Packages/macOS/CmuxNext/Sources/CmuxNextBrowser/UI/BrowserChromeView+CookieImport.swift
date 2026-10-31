@@ -48,7 +48,7 @@ extension BrowserChromeView {
         pageOverlays.add(card, lift: aboveToast ? Self.toastClearance : 0)
         card.alphaValue = 0
         syncPageOverlays()
-        Motion.animate(.fadeIn, in: card) { card.animator().alphaValue = 1 }
+        Motion.overlays.animate(.fadeIn, in: card) { card.animator().alphaValue = 1 }
         needsLayout = true
     }
 
@@ -71,7 +71,7 @@ extension BrowserChromeView {
         guard !card.isDismissing else { return }
         card.isDismissing = true
         pageOverlays.release(card)
-        Motion.animate(.fadeOut, in: card, { card.animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.overlays.animate(.fadeOut, in: card, { card.animator().alphaValue = 0 }, completion: { [weak self] in
             self?.pageOverlays.remove(card)
         })
     }

@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import type { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -19,6 +20,8 @@ import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
+import type { HandoffDO } from "./handoffs/handoff-do.ts"
+import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
 export interface Env {
   /** production | staging | development | preview | test */
@@ -42,6 +45,9 @@ export interface Env {
   readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
+  /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
+  readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
+  readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
@@ -120,6 +126,26 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /**
+   * `upstash` runs new Chief jobs (`chief-auto`) on Upstash Workflow (chief-brain-cc/jobs-upstash.ts): the
+   * records in each team's `<team>/chief-jobs` brain object, a QStash schedule per cron job, a workflow run
+   * per fire, and webhook and provider-event (CI failed) triggers. Anything else (the default) keeps them on
+   * the SchedulerDO. Needs all four settings below; with any missing, jobs stay on the SchedulerDO. Jobs made
+   * on the SchedulerDO keep running there either way.
+   */
+  readonly CHIEF_JOBS_ENGINE?: string
+  /** This Worker's public URL of POST /v1/hooks/upstash/chief-job (where QStash delivers each fire). */
+  readonly CHIEF_JOBS_WORKFLOW_URL?: string
+  /** Secret: the QStash token of the cmux Upstash account. */
+  readonly QSTASH_TOKEN?: string
+  /** Optional QStash API origin (a regional or local QStash). */
+  readonly QSTASH_URL?: string
+  /** Secrets: QStash's request signing keys; every workflow request is verified with them. */
+  readonly QSTASH_CURRENT_SIGNING_KEY?: string
+  readonly QSTASH_NEXT_SIGNING_KEY?: string
+  /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
+  readonly CREDITS_TOPUP_MIN_USD?: string
+  readonly CREDITS_TOPUP_MAX_USD?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
@@ -133,6 +159,16 @@ export interface Env {
   readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
+  readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
+  readonly PLATFORM_MACHINES?: string
+  /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
+  readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -165,6 +201,9 @@ export interface Env {
   readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
   /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
   readonly CHIEF_CREDITS_MARGIN?: string
+  /** Paid model calls one chief may start per minute / per hour (credits.ts chiefCallCap; defaults 120 / 2400; never off). */
+  readonly CHIEF_MODEL_CALLS_PER_MINUTE?: string
+  readonly CHIEF_MODEL_CALLS_PER_HOUR?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
   /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
@@ -199,6 +238,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
+  /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
+  readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
@@ -301,6 +342,10 @@ export interface Env {
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
   /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
+  /** One ChiefDurableDO per Chief conversation: Cloud Chief D (chief-durable/, pi-durable). Absent: D is off. */
+  readonly CHIEF_DURABLE_DO?: DurableObjectNamespace<ChiefDurableDO>
+  /** "1": a Chief may pick brain_impl "durable" and its wakes go to D (with CHIEF_DURABLE_DO bound). */
+  readonly CHIEF_DURABLE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
@@ -323,6 +368,20 @@ export interface Env {
   readonly CHIEF_CC_FREESTYLE_API_URL?: string
   /** Secret: {"client_id","client_secret"} of the Tailscale OAuth client that mints one-use tag:agent-cloud keys (scope auth_keys). */
   readonly CHIEF_CC_TS_OAUTH?: string
+  /** The tag of each turn machine's tailnet node (default tag:agent-cloud); the OAuth client above must own it. Production: tag:lawrence-chief. */
+  readonly CHIEF_CC_TS_TAG?: string
+  /** Secret: JSON {"path under /home/chief": "content"}, the Chief's tool files (Mac gate and hub tokens) written for the agent user each turn (mode 600). */
+  readonly CHIEF_CC_TURN_FILES?: string
+  /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
+  readonly CHIEF_CC_GITHUB_TOKEN?: string
+  /** The shortest `chief-wake` timer in seconds (chief-brain-cc/wake.ts; default 30, tests 0). */
+  readonly CHIEF_CC_WAKE_MIN_SECONDS?: string
+  /** The Freestyle plan of CHIEF_CC_FREESTYLE_API_KEY's account (free, hobby or pro; default pro): its per-VM maximums bound the Chief's sandbox sizes. */
+  readonly CHIEF_CC_FREESTYLE_PLAN?: string
+  /** How many live sandbox VMs each Chief may keep (default 2, at most 10). */
+  readonly CHIEF_CC_SANDBOX_CAP?: string
+  /** Per-Chief caps over CHIEF_CC_SANDBOX_CAP: "agent_id=N,agent_id=N". */
+  readonly CHIEF_CC_SANDBOX_CAPS?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
@@ -342,11 +401,13 @@ export interface Env {
   /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
   readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
   readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
-  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  /** Presigned PUTs for large files from clients that do not send parts: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = such clients stream through the Worker. */
   readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
   readonly HOME_ATTACHMENTS_S3_BUCKET?: string
   readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
   readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** The largest request body this Worker's zone accepts, in bytes (decimal digits): 100 MB on Free and Pro (the default), 200 MB on Business, 500 MB on Enterprise. */
+  readonly HOME_ATTACHMENT_WORKER_BODY_BYTES?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
@@ -421,6 +482,9 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_FIREWORKS?: string
   readonly INFERENCE_DAILY_CAP_USD_BASETEN?: string
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
+  readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
+  readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -434,6 +498,23 @@ export interface Env {
   readonly INFERENCE_FIREWORKS_KEY?: string
   readonly INFERENCE_BASETEN_KEY?: string
   readonly INFERENCE_DEEPINFRA_KEY?: string
+  /** Comma list of public model ids this deployment serves; unset = the whole catalog. */
+  readonly INFERENCE_MODEL_ALLOWLIST?: string
+  /** The provider tried first for every model it serves (staging and production: "vercel"; unset = cheapest first); the rest stay cheapest first. */
+  readonly INFERENCE_PRIMARY_PROVIDER?: string
+  /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
+  readonly INFERENCE_VERCEL_RELAY_URL?: string
+  readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
+  readonly INFERENCE_AZURE_ENDPOINT?: string
+  readonly INFERENCE_AZURE_KEY?: string
+  /** OpenAI's own API key (secret). */
+  readonly INFERENCE_OPENAI_KEY?: string
+  /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
+  readonly INFERENCE_CUSTOM_URL?: string
+  readonly INFERENCE_CUSTOM_KEY?: string
+  /** Cloudflare AI Gateway id Workers AI calls go through (for example "cmux-ai-proxy"); unset = direct. */
+  readonly INFERENCE_CF_GATEWAY_ID?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
@@ -457,6 +538,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }

@@ -121,4 +121,35 @@ struct TaskManagerSnapshotTests {
         model.kill(Self.shell)
         #expect(killed == [Self.shell])
     }
+
+    /// A source whose sample waits until the test releases it.
+    final class GatedSource: TaskManagerSampleSource {
+        var calls = 0
+        private var gate: CheckedContinuation<Void, Never>?
+        func sample() async -> TaskManagerSampleSet {
+            calls += 1
+            await withCheckedContinuation { gate = $0 }
+            return TaskManagerSnapshotTests.set(at: UInt64(calls), cpu: 1)
+        }
+        func release() {
+            gate?.resume()
+            gate = nil
+        }
+    }
+
+    /// Closing the page while a sample runs: that sample's result is dropped, not written after stop().
+    @Test func stopDuringASampleDropsItsResult() async throws {
+        let source = GatedSource()
+        let model = TaskManagerModel(source: source, kill: { _ in })
+        model.start()
+        var tries = 0
+        while source.calls < 1, tries < 500 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
+        #expect(source.calls == 1, "start() took a sample at once")
+        model.stop()
+        source.release()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(model.sampleCount == 0, "the sample in flight at stop() was applied")
+        #expect(model.snapshot.rows.isEmpty)
+        #expect(!model.isRunning)
+    }
 }

@@ -746,6 +746,33 @@ impl Memory {
         Ok(())
     }
 
+    /// A built node's stored text was replaced in place (the owner edited it
+    /// in the memory inspector, or it was built again after an edit below
+    /// it): its size goes from `old` to `new` bytes. Its place in the tree
+    /// and in the views does not change; the views' byte counts do. A node
+    /// that is not built is left alone (nothing counts its size yet).
+    pub fn resized(&mut self, id: NodeId, old: usize, new: usize) {
+        if !self.is_built(id) {
+            return;
+        }
+        if let Some(size) = self.frontier.get_mut(&id) {
+            *size = new;
+        }
+        if let Some(size) = self.sizes.get_mut(&id) {
+            *size = new;
+        }
+        let holds = |view: &[NodeId]| {
+            view.binary_search_by_key(&id.start(), |p| p.start())
+                .is_ok_and(|k| view[k] == id)
+        };
+        if holds(&self.view) {
+            self.view_size = self.view_size - old + new;
+        }
+        if holds(&self.compact_view) {
+            self.compact_size = self.compact_size - old + new;
+        }
+    }
+
     /// A model call for `node` failed: it can be started again (after the host's
     /// fixed retry wait).
     pub fn fail(&mut self, node: NodeId) {
@@ -817,6 +844,14 @@ impl Store for NoStore {
     fn node(&self, _: NodeId) -> Option<String> {
         None
     }
+}
+
+/// The text node `id` gets without a model call when its source already
+/// fits in `NODE` bytes (a short message verbatim, or its two children
+/// joined), read from `store`; None when it needs a model call. For a host
+/// that builds a node again after its source changed.
+pub fn free_node_text(id: NodeId, store: &dyn Store) -> Option<String> {
+    free_text(id, store, &HashMap::new())
 }
 
 /// The node's text when its source already fits in `NODE` bytes (section 3):

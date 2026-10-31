@@ -2,7 +2,7 @@ public import CmuxSentryReporting
 public import Darwin
 public import Foundation
 public import Sentry
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
@@ -31,9 +31,41 @@ public final class CrashReporter: Sendable {
 
     public let policy: CrashReportingPolicy
     private let sentryHandlers = Mutex<SignalActions?>(nil)
+    // Lock carve-out: Sentry's beforeSend reads it synchronously on its own
+    // thread; a sign-in writes it from the main thread.
+    private let identityState: Mutex<CrashReportIdentity>
 
-    public init(policy: CrashReportingPolicy) {
+    /// - Parameters:
+    ///   - policy: Whether this launch reports, and its labels.
+    ///   - identity: The install id and commit every event is tagged with.
+    public init(policy: CrashReportingPolicy, identity: CrashReportIdentity = CrashReportIdentity()) {
         self.policy = policy
+        self.identityState = Mutex(identity)
+    }
+
+    /// This launch's hourly counts of main-thread stalls and hangs
+    /// (``StallSummaryRecorder``): the watchdog's sinks record into it;
+    /// call ``StallSummaryRecorder/close()`` at quit.
+    public let stallSummary = StallSummaryRecorder.sentry()
+
+    /// The install, commit and team member tags every event carries now.
+    public var identity: CrashReportIdentity { identityState.withLock { $0 } }
+
+    /// Names (or stops naming) the signed-in cmux team member on every later
+    /// event. Call when the account or its teams change.
+    /// - Parameter member: The member, or nil for an anonymous report.
+    public func setTeamMember(_ member: CrashTeamMember?) {
+        identityState.withLock { $0.member = member }
+    }
+
+    /// Follows `members` (one value per sign-in, sign-out or team change) for
+    /// the app's lifetime: each value names, or stops naming, the member.
+    /// - Parameter members: The signed-in cmux team member over time.
+    public func followTeamMembers(_ members: ObservationStream<CrashTeamMember?>) {
+        // task-owner: lives for the app; ends when `members` ends.
+        Task { [self] in
+            for await member in members { setTeamMember(member) }
+        }
     }
 
     /// Whether Sentry runs in this process.
@@ -60,9 +92,9 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        options.beforeSend = { [self] event in
             let scrubbed = scrubber.scrub(event)
-            labels.apply(to: scrubbed)
+            labels.apply(to: scrubbed, identity: identity)
             return scrubbed
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
@@ -81,7 +113,9 @@ public final class CrashReporter: Sendable {
         _ = Locale.current
         _ = NSLocale.preferredLanguages
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
+        TaskExceptionPorts.captureBeforeSentry()
         SentrySDK.start(options: options())
+        TaskExceptionPorts.noteSentryStarted()
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }
@@ -94,6 +128,101 @@ public final class CrashReporter: Sendable {
     public func reassertSignalHandlers() {
         sentryHandlers.withLock { $0 }?.restore()
     }
+
+    /// Gives back the Mach exception ports Sentry took at start while its
+    /// port is still registered (``TaskExceptionPorts``): a fault that runs
+    /// again after a fatal-signal handler returns then reaches the system's
+    /// handler and ends the process, instead of waiting forever on a port
+    /// whose receiver thread Sentry ended. Async-signal-safe; for
+    /// fatal-signal handlers.
+    public static func releaseSentryExceptionPorts() {
+        TaskExceptionPorts.restoreIfSentryOwned()
+    }
+
+    /// Starts the crash deadline thread (``CrashDeadline``). Call once at
+    /// launch, before the handlers that call ``beginCrashDeadline()``.
+    public static func installCrashDeadline() {
+        CrashDeadline.install()
+    }
+
+    /// Starts the out-of-process crash watcher (``CrashWatcher``, #22844) off
+    /// the main thread. Call once at launch, after ``installCrashDeadline()``.
+    /// - Parameter sampleFile: Where the watcher writes its `sample` of an app
+    ///   it ends.
+    public static func installCrashWatcher(sampleFile: String) {
+        CrashWatcher.install(sampleFile: sampleFile)
+    }
+
+    /// A crash has begun: the process ends within ``CrashDeadline/seconds``
+    /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
+    /// even if every thread of the app is suspended. Async-signal-safe.
+    public static func beginCrashDeadline() {
+        CrashDeadline.arm()
+        CrashWatcher.arm()
+    }
+
+    /// A crash path that blocks while every thread is suspended, for the crash
+    /// gate's `debug.crash.app {"signal": "suspended"}` only (#22844): begins
+    /// the crash path, suspends the crash deadline's thread (as Sentry's report
+    /// writer does) and blocks the calling thread forever. Only
+    /// ``CrashWatcher`` can end the process.
+    public static func blockWithDeadlineSuspended() -> Never {
+        beginCrashDeadline()
+        CrashDeadline.suspendThread()
+        // A semaphore nothing signals: the blocked crash path the watcher must end.
+        var never = semaphore_t(0)
+        _ = semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
+        // concurrency-allow: crash-gate debug verb; blocking forever is the crash it simulates.
+        _ = semaphore_wait(never)
+        abort()
+    }
+
+    /// The first call of a fatal-signal handler: gives back Sentry's
+    /// exception ports, then starts the crash deadline. Async-signal-safe.
+    public static func fatalSignalBegan() {
+        releaseSentryExceptionPorts()
+        beginCrashDeadline()
+    }
+
+    /// `NSApplication.reportException(_:)`: with crashing on (`crashes`) the
+    /// crash has begun and the deadline starts. With it off (the user's own
+    /// setting) AppKit logs the exception and survives; Sentry's hook still
+    /// calls the uncaught-exception handler, which must then not start the
+    /// deadline (``uncaughtException(_:then:)``). `record` writes the app's
+    /// exception record, `report` is AppKit's reportException.
+    public static func reportException(_ exception: NSException, crashes: Bool,
+                                       record: (NSException) -> Void, report: () -> Void) {
+        if crashes { beginCrashDeadline() }
+        record(exception)
+        reportingSurvivableException.store(!crashes, ordering: .releasing)
+        defer { reportingSurvivableException.store(false, ordering: .releasing) }
+        report()
+    }
+
+    /// The uncaught-exception handler: the runtime aborts after it, so the
+    /// crash has begun, unless Sentry's reportException: hook calls it for
+    /// an exception AppKit survives. Then `record`.
+    public static func uncaughtException(_ exception: NSException, then record: (NSException) -> Void) {
+        if !(Thread.isMainThread && reportingSurvivableException.load(ordering: .acquiring)) { beginCrashDeadline() }
+        record(exception)
+    }
+
+    /// `debug.crash.app {"signal": "frozen"}`: starts the crash path, then
+    /// points the task's EXC_BREAKPOINT exception port at a new port that no
+    /// thread receives on, so the next trap waits for a reply forever (the
+    /// 2026-10-20 freezes); only the crash deadline ends it.
+    public func freezeNextTrap() {
+        Self.beginCrashDeadline()
+        let task = mach_task_self_
+        var port = mach_port_t(0)
+        guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
+              mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
+        _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
+                                     exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
+    }
+
+    /// The main thread is inside `reportException:` for an exception AppKit survives.
+    private static let reportingSurvivableException = Atomic<Bool>(false)
 
     /// Records a non-fatal product failure (a warning event tagged `failure`)
     /// so a user action that silently did nothing shows up in the crash

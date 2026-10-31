@@ -1,7 +1,7 @@
 // The agent pane's controls are small-radius rects, not capsule pills (POLISH.md: "No capsule
 // pills. Use small-radius rects. Circles must be truly round."). Reads the shipped page's one
 // <style> and fails on a rule whose corner radius reaches half its height on a box that is not
-// square, or that rounds with a 999px radius. Tracks and bars that are capsules by nature are
+// square, including a 999px radius on a box without explicit square dimensions. Tracks and bars that are capsules by nature are
 // listed below with why.
 //
 // The page is the built resource (CI builds the web bundles before this suite; locally run
@@ -20,12 +20,21 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
 
 /** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, drawn lines,
  * and the composer's model, effort and access chips, whose hover, focus and open background is the
- * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). */
+ * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). The
+ * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
+ * on purpose: its field and its selected Chats tab are round (newtab/screen.css). The other templates keep small-radius rects. */
 const SHAPES = new Set([
   ".acpmux-switch",
+  ".acpmux-quick-fast-toggle",
+  // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
+  ".acpmux-chat-inspector-switch__input",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
-  ".acpmux-context-bar",
+  ".acpmux-context-card-bar",
+  ".acpmux-chat-inspector-context__bar",
+  // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
+  ".acpmux-workflow-card__progress",
+  ".acpmux-workflow-card__phases > span",
   ".acpmux-pdf-sheet-lines i",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
@@ -33,6 +42,8 @@ const SHAPES = new Set([
   ".acpmux-model .acpmux-picker-button",
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
+  '.nt-screen[data-template="cards"][data-pill] .nt-box',
+  '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);
@@ -65,20 +76,50 @@ function boxes(css: string) {
   return found;
 }
 
+function capsules(css: string) {
+  return [...boxes(css)].flatMap(([selector, box]) => {
+    if (SHAPES.has(selector)) return [];
+    const radius = px(box.radius?.split(/\s+/)[0]);
+    const height = px(box.height);
+    const width = px(box.width);
+    if (radius === undefined) return [];
+    // Square when both sides are the same length, or the same token (`var(--ds-control-primary)`
+    // on both: the drop overlay's round mark, #24644).
+    const square =
+      (height !== undefined && width !== undefined && Math.abs(width - height) < 1) ||
+      (box.height !== undefined && box.height === box.width);
+    const capsule = !square && (radius >= 999 || (height !== undefined && radius >= height / 2 - 0.5));
+    return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
+  });
+}
+
+describe("capsule detection", () => {
+  test.each([
+    ["a circle", ".control { width: 32px; height: 32px; border-radius: 999px; }", false],
+    [
+      "a token-sized circle",
+      ".control { width: var(--ds-control-primary); height: var(--ds-control-primary); border-radius: 999px; }",
+      false,
+    ],
+    [
+      "a pill of two tokens",
+      ".control { width: var(--ds-control-wide); height: var(--ds-control-primary); border-radius: 999px; }",
+      true,
+    ],
+    ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
+    ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
+    ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],
+    ["an auto-height pill", ".control { border-radius: 999px; }", true],
+    ["a toggle track", ".acpmux-quick-fast-toggle { width: 30px; height: 20px; border-radius: 999px; }", false],
+  ])("classifies %s", (_name, css, expected) => {
+    expect(capsules(css).length > 0).toBe(expected);
+  });
+});
+
 describe.skipIf(!built)("agent pane page", () => {
   test("rounds its controls as small-radius rects, not capsules", () => {
     const html = fs.readFileSync(page, "utf8");
     const css = html.slice(html.indexOf("<style>") + "<style>".length, html.indexOf("</style>"));
-    const capsules = [...boxes(css)].flatMap(([selector, box]) => {
-      if (SHAPES.has(selector)) return [];
-      const radius = px(box.radius?.split(/\s+/)[0]);
-      const height = px(box.height);
-      const width = px(box.width);
-      if (radius === undefined) return [];
-      const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
-      const capsule = radius >= 999 || (height !== undefined && !square && radius >= height / 2 - 0.5);
-      return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
-    });
-    expect(capsules).toEqual([]);
+    expect(capsules(css)).toEqual([]);
   });
 });

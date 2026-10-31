@@ -3,7 +3,8 @@
 // pick) each have Match System Appearance for a light and dark pair, and the accent
 // (`appearance.accent`) is a swatch popup. Every theme choice is the same ThemePicker. The card also
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
-// (no space/workspace/terminal tabs). Overrides and the app theme are the host's theme levels. The
+// (no space/workspace/terminal tabs), and ends with the Highlight Color (`appearance.highlightColor`,
+// the app's one selected-text color). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -25,12 +26,20 @@ import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
 import { managedOf, valueOf } from "../store";
 import { t, text } from "../strings";
+import {
+  configThemeColors,
+  DEFAULT_DARK,
+  DEFAULT_LIGHT,
+  fallbackThemeName,
+  terminalThemeColors,
+} from "../themeDefaults";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { AccentPicker } from "./AccentPicker";
 import { ResetButton, ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
+import { ThemeOverrides } from "./ThemeOverrides";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
@@ -42,9 +51,10 @@ export const APP_THEME_KEY = "appearance.appTheme";
 export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn here as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
+/** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
+ * last key: without it the page drew a second "App Theme" card for this one row). */
+export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
 const FOLLOW_TERMINAL = "followTerminal";
-const DEFAULT_DARK = "Apple System Colors";
-const DEFAULT_LIGHT = "Apple System Colors Light";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const store = useStore();
@@ -62,6 +72,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     accent: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
+  const previewOwners = useRef(new Map<"terminal" | "app", object>());
   const load = useCallback((node: HTMLElement | null) => void (node && store.loadThemeColors()), [store]);
 
   const row = rowsByKey.get(THEME_KEY)!;
@@ -113,12 +124,10 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     const next = withEdit(theme, token, color);
     return Object.keys(next).length > 0 ? store.set(THEME_EDITS_KEY, next) : store.reset(THEME_EDITS_KEY);
   };
-  const fallbackName = scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT;
+  const fallbackName = fallbackThemeName(scheme);
   // The Ghostty config's own colors, from the host while appearance.theme is unset.
   const configLabel = t("settingsWindow.themeUseConfig");
-  const configColors: GhosttyTheme | undefined = state.host?.theme?.config
-    ? { ...state.host.theme.config, name: configLabel }
-    : colors?.get(fallbackName);
+  const configColors = configThemeColors(state.host?.theme?.config, colors, scheme, configLabel);
   // appearance.appTheme: followTerminal (the default) or a theme apart from the terminal's.
   const appRow = rowsByKey.get(APP_THEME_KEY);
   const appValue = valueOf(state, APP_THEME_KEY);
@@ -147,6 +156,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     />
   );
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -154,14 +164,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const revealed = useRef<string | null>(null);
   const focused = state.readable && focus !== revealed.current ? focus : null;
   const markRevealed = () => void (revealed.current = focus);
+  // A route without `?focus=` forgets the revealed row, so Back to the same `?focus=` reveals it again.
+  useEffect(() => {
+    if (focus === null) revealed.current = null;
+  }, [focus]);
 
   const lookup = (name: string | null): GhosttyTheme | undefined => (name ? colors?.get(name) : undefined);
   const terminal =
     previewing?.target === "terminal"
       ? lookup(previewing.name)
-      : spec
-        ? (lookup(themeFor(spec, scheme, fallbackName)) ?? configColors)
-        : configColors;
+      : terminalThemeColors(valueOf(state, THEME_KEY), colors, scheme, configColors);
   const appSource =
     (previewing?.target === "app"
       ? lookup(previewing.name)
@@ -178,10 +190,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
 
   const write = (next: ThemeSpec | null) =>
     next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
-  const previewTerminal = (name: string | null) => {
-    setPreviewing(name ? { name, target: "terminal" } : null);
-    if (name) store.preview(THEME_KEY, name);
-    else store.previewEnd(THEME_KEY);
+  const previewTerminal = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("terminal", owner ?? {});
+      setPreviewing({ name, target: "terminal" });
+      store.preview(THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("terminal") === owner) {
+      previewOwners.current.delete("terminal");
+      setPreviewing((current) => (current?.target === "terminal" ? null : current));
+      store.previewEnd(THEME_KEY, owner);
+    }
   };
   const writeApp = (next: ThemeSpec | null) =>
     next ? store.set(APP_THEME_KEY, formatThemeSpec(next)) : store.reset(APP_THEME_KEY);
@@ -205,10 +223,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       custom={custom}
     />
   );
-  const previewApp = (name: string | null) => {
-    setPreviewing(name ? { name, target: "app" } : null);
-    if (name) store.preview(APP_THEME_KEY, name);
-    else store.previewEnd(APP_THEME_KEY);
+  const previewApp = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("app", owner ?? {});
+      setPreviewing({ name, target: "app" });
+      store.preview(APP_THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("app") === owner) {
+      previewOwners.current.delete("app");
+      setPreviewing((current) => (current?.target === "app" ? null : current));
+      store.previewEnd(APP_THEME_KEY, owner);
+    }
   };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
@@ -272,6 +296,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
           />
         </figure>
       ) : null}
+      <ThemeOverrides disabled={!state.connected} />
       <section className="group" data-theme-rows="">
         <div className="rows">
           {names.length === 0 ? (
@@ -421,6 +446,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
         </div>
       </section>
     </div>

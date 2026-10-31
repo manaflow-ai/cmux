@@ -61,14 +61,10 @@ extension KeyRouter {
     /// dispatcher decided never runs a menu item (menus are display only
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
-    /// Runs `body` while `event` is dispatched outside
-    /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
-    /// is not that event.
+    /// Runs `body` while `event` is dispatched outside `NSApplication.sendEvent` (`debug.key`, a
+    /// replayed held key): the same dispatch context `sendEvent` uses (``InputDispatchContext``).
     func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
-        let previous = syntheticKeyEvent
-        syntheticKeyEvent = event
-        defer { syntheticKeyEvent = previous }
-        return body()
+        inputDispatch.dispatching(event, body)
     }
 
     /// Whether a terminal may offer `event` to the main menu before Ghostty
@@ -84,7 +80,7 @@ extension KeyRouter {
     }
 
     private func menuGate(_ id: ActionID) -> Bool {
-        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event),
+        if let event = inputDispatch.event, event.type == .keyDown, decided.contains(event),
            !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
@@ -112,7 +108,7 @@ extension KeyRouter {
         guard let services else { return (nil, .other) }
         // No key window (the app is inactive, or an automation launch):
         // menu actions target the active window, so its focus decides.
-        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        guard let key = services.keyWindowSource() else { return (services.windows.active, .content) }
         return focus(for: key)
     }
 
@@ -165,6 +161,13 @@ extension KeyRouter {
             && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
     }
 
+    /// Chromium's report that the page left a key-down unhandled: runs the cmux action the
+    /// dispatcher held for it (``runUnhandledPageKey(_:)``), such as Find after a page that has
+    /// no search of its own.
+    func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
+        runUnhandledPageKey(event, from: ObjectIdentifier(tab))
+    }
+
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
     }
@@ -193,6 +196,12 @@ extension KeyRouter {
     }
 
     private func window(showing tab: any BrowserTab) -> WindowController? {
+        browserPaneWindow(showing: tab)
+            // A cmux page in Chromium (ChromiumPageHost) is no pane's browser entry: its view's window.
+            ?? services?.windows.controllers.first { $0.window != nil && $0.window === tab.contentView.window }
+    }
+
+    private func browserPaneWindow(showing tab: any BrowserTab) -> WindowController? {
         services?.windows.controllers.first { controller in
             controller.content?.panes.values.contains { pane in
                 if case .browser(let entry)? = pane.currentContent { return entry.tab === tab }

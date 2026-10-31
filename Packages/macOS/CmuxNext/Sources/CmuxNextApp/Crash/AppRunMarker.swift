@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Darwin
 import Foundation
 import os
@@ -17,7 +18,12 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 /// On Darwin arm64 `si_code` cannot tell them apart (XNU never reports `SI_USER`, cx-sjv65), so a
 /// signal that arrives as a system call returns (raised, or sent to a waiting thread) is re-raised.
 /// One sent to a thread running user code still reads as a fault and is lost, as before.
+///
+/// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
+/// fault that runs again must reach the system's handler) and starts the
+/// crash deadline (2026-10-20 freezes).
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
+    CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -50,90 +56,14 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
     #endif
 }
 
-/// Gives the calling thread an alternate signal stack, so a fatal-signal
-/// handler installed with `SA_ONSTACK` still runs when that thread has
-/// overflowed its own stack (cx-30ko). Returns the mapping it made, or nil
-/// when it made none. A usable alternate stack that is already there
-/// (Sentry's) is kept.
-@discardableResult
-nonisolated private func installAlternateSignalStack() -> UnsafeMutableRawPointer? {
-    var current = stack_t()
-    guard sigaltstack(nil, &current) == 0 else { return nil }
-    if current.ss_flags & SS_DISABLE == 0, current.ss_size >= Int(MINSIGSTKSZ) { return nil }
-    let page = Int(getpagesize())
-    let size = alternateSignalStackSize()
-    // One guard page below the stack: a handler that overflows it faults
-    // instead of writing over other memory.
-    guard let base = mmap(nil, size + page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
-          base != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
-    _ = mprotect(base, page, PROT_NONE)
-    var stack = stack_t(ss_sp: base.advanced(by: page), ss_size: size, ss_flags: 0)
-    if sigaltstack(&stack, nil) != 0 {
-        _ = munmap(base, size + page)
-        return nil
-    }
-    return base
-}
-
-/// `SIGSTKSZ` (128 KiB) in whole pages; mapped lazily, so a thread whose
-/// handler never runs costs address space, not memory.
-nonisolated private func alternateSignalStackSize() -> Int {
-    let page = Int(getpagesize())
-    return (Int(SIGSTKSZ) + page - 1) / page * page
-}
-
-/// `pthread_introspection_hook_t`: event, thread, address, size.
-private typealias ThreadIntrospectionHook = @convention(c) (UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, Int) -> Void
-
-/// The hook that was installed before ours (Instruments, sanitizers).
-// crash-allow: written once on the main thread when the hook is installed, read by thread starts after.
-nonisolated(unsafe) private var previousThreadHook: ThreadIntrospectionHook?
-/// Holds each thread's alternate stack mapping, freed when the thread exits.
-// crash-allow: written once on the main thread before the hook is installed, read-only after.
-nonisolated(unsafe) private var alternateStackKey = pthread_key_t()
-
-/// Gives every thread that starts from now on (Chromium's, the system's
-/// workers, ours) its own alternate signal stack, so a stack overflow on
-/// any of them is recorded too (cx-feao0). `PTHREAD_INTROSPECTION_THREAD_START`
-/// (2) runs on the new thread before its start routine. Threads that were
-/// already running keep none until the system replaces them.
-private let threadStartHook: ThreadIntrospectionHook = { event, thread, address, size in
-    if event == 2, let base = installAlternateSignalStack() {
-        _ = pthread_setspecific(alternateStackKey, base)
-    }
-    previousThreadHook?(event, thread, address, size)
-}
-
-/// Runs on an exiting thread: turns its alternate stack off if it is still
-/// ours, then unmaps it. One the thread cannot turn off stays mapped.
-private let alternateStackDestructor: @convention(c) (UnsafeMutableRawPointer) -> Void = { base in
-    let page = Int(getpagesize())
-    var current = stack_t()
-    if sigaltstack(nil, &current) == 0, current.ss_flags & SS_DISABLE == 0, current.ss_sp == base.advanced(by: page) {
-        var off = stack_t(ss_sp: nil, ss_size: 0, ss_flags: SS_DISABLE)
-        guard sigaltstack(&off, nil) == 0 else { return }
-    }
-    _ = munmap(base, alternateSignalStackSize() + page)
-}
-
-/// Installs `threadStartHook` once. Looked up at run time: the hook is in
-/// libSystem's `pthread/introspection.h`, which Swift's Darwin module does
-/// not import.
-private func installAlternateSignalStackOnNewThreads() {
-    // RTLD_DEFAULT
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "pthread_introspection_hook_install"),
-          pthread_key_create(&alternateStackKey, alternateStackDestructor) == 0 else { return }
-    typealias Install = @convention(c) (ThreadIntrospectionHook?) -> ThreadIntrospectionHook?
-    previousThreadHook = unsafeBitCast(symbol, to: Install.self)(threadStartHook)
-}
-
 /// Marks this run as live, so the next launch can tell a crash from a
 /// normal quit (`LaunchRecovery`). Per bundle id, so tagged builds never
 /// read each other's marker.
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether
-///   it lived past the quick-crash window, and whether a requested quit had
-///   begun (`markQuitting`).
+///   it lived past the quick-crash window, whether a requested quit had
+///   begun (`markQuitting`), and the restored pages started within that
+///   window (`notePageStarted`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit
@@ -151,7 +81,6 @@ final class AppRunMarker {
     private var lastTicket: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
     private var survivalTask: Task<Void, Never>?
-    private static var threadHookInstalled = false
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
@@ -168,14 +97,16 @@ final class AppRunMarker {
 
     /// Reads the previous run's marker in `directory`, then marks this run
     /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// - Parameter build: This build's version and commit, kept so a crash report of this run
+    ///   names the build that crashed, not the one running when it is sent.
+    init(directory root: URL, now: Date = Date(), build: (version: String?, commit: String?) = (nil, nil)) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+                             survived: false, signal: nil, version: build.version, commit: build.commit)
         start()
     }
 
@@ -195,6 +126,8 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        CrashReporter.installCrashDeadline()
+        CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
@@ -211,11 +144,7 @@ final class AppRunMarker {
     /// started after the first call.
     func installHandlers() {
         guard fatalSignalDescriptor >= 0 else { return }
-        installAlternateSignalStack()
-        if !Self.threadHookInstalled {
-            Self.threadHookInstalled = true
-            installAlternateSignalStackOnNewThreads()
-        }
+        CrashReporter.installAlternateSignalStacks()
         // SIGTERM, SIGINT and SIGHUP are requested quits: `QuitSignal` turns
         // them into "Quit, keep sessions" once installed; until then this
         // handler records them.
@@ -231,8 +160,25 @@ final class AppRunMarker {
         QuitSignal.reclaim()
     }
 
+    /// Stores what the run is doing (`CrashContextRecorder`) for the next launch's crash report.
+    func record(context: CrashContext) {
+        guard marker.context != context else { return }
+        marker.context = context
+        writeMarker()
+    }
+
     private func markSurvived() {
         marker.survived = true
+        marker.startedPages = nil
+        writeMarker()
+    }
+
+    /// Restored browser tab `key` started its page. Recorded only within the quick-crash window: if
+    /// this run then ends early in a restart loop, the next launch holds that page
+    /// (`LaunchRecovery.crashedPages`).
+    func notePageStarted(_ key: String) {
+        guard !marker.survived, marker.startedPages?.contains(key) != true else { return }
+        marker.startedPages = (marker.startedPages ?? []) + [key]
         writeMarker()
     }
 
@@ -269,7 +215,7 @@ final class AppRunMarker {
         file.close()
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background
+    /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
         let encoder = JSONEncoder()

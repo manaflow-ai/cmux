@@ -20,6 +20,7 @@ Safari, on one Mac, the same way for every browser:
   memory-1/10/20       MB, physical footprint over every process of the instance
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
+  budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
@@ -42,10 +43,10 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
 Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py run --out DIR --app NAME=BUNDLE ... [--browsers a,b] [--rounds 3]
       [--launches 2] [--idle 60] [--active 30] [--settle 30] [--max-load 4]
-  xbench.py report --out DIR [--md BENCH.md] [--json results.json]
+  xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
-Browser names: cmux-chromium, cmux-webkit, cmux-terminal (all --app cmux=BUNDLE),
+Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
 """
 from __future__ import annotations
@@ -54,6 +55,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import platform
 import plistlib
 import random
@@ -65,11 +67,13 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
+import budget  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
 
@@ -98,6 +102,7 @@ ROWS = [
     ("idle-wakeups-home", "Wakeups, cmux idle on Home", "/s", False),
 ]
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
+ROW_INFO.update(budget.ROW_INFO)
 
 # Ardia's tweet (2026-10-19, Apple M5 Pro, macOS 27.2): Ardia 0.2.38-nightly.8, Helium 0.19.3.1, Dia 1.53.0.
 PUBLISHED = {
@@ -113,11 +118,11 @@ PUBLISHED = {
 }
 
 CHROMIUM = {"chrome", "helium", "dia", "ardia"}
-CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal"}
+CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal", budget.NAME}
 LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT (WebKit tab)",
-          "cmux-terminal": "cmux NEXT (terminals)", "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
+          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
           "ardia": "Ardia", "safari": "Safari"}
-DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 
 
 def log(message: str):
@@ -237,8 +242,9 @@ class Browser:
             time.sleep(0.02)  # bench: waiting for LaunchServices to start the app
         raise RuntimeError(f"{self.name}: no app process within {timeout} s")
 
-    def hide(self):
-        self.helper.run("hide", str(self.instance.pid))
+    def hide(self) -> bool:
+        """True once NSRunningApplication accepted the hide."""
+        return self.helper.run("hide", str(self.instance.pid)).returncode == 0
 
     def unhide(self):
         self.helper.run("unhide", str(self.instance.pid))
@@ -332,6 +338,23 @@ class ChromiumBrowser(Browser):
     def activate(self, handle: str):
         self.cdp(f"/json/activate/{handle}")
 
+    def probe_cdp(self):
+        """Turns off switching and closing when this browser's CDP lacks /json/activate or
+        /json/close, so the session goes on to its other rows instead of ending."""
+        if not self.tabs:
+            return
+        for path, attr in ((f"/json/activate/{self.tabs[-1]}", "can_switch"), ("/json/close/xbench-missing-target", "can_close")):
+            try:
+                self.cdp(path)
+            except urllib.error.HTTPError as error:
+                # Chrome answers a missing target with 404 "No such target id"; a 404 without
+                # that text means the endpoint itself does not exist.
+                if error.code == 404 and "no such target" not in error.read().decode(errors="replace").lower():
+                    setattr(self, attr, False)
+                    log(f"{self.name}: CDP {path.split('/')[2]} unsupported (404), its rows are skipped")
+            except OSError:
+                pass
+
     def close(self, handle: str):
         self.cdp(f"/json/close/{handle}")
         if handle in self.tabs:
@@ -372,17 +395,24 @@ class CmuxBrowser(Browser):
                 json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config}
+               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
+               # As the Chromium browsers' --use-mock-keychain: a locked login keychain on a bench
+               # host otherwise holds CEF at a keychain prompt and no Chromium tab loads.
+               "CMUX_MOCK_KEYCHAIN": "1"}
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")] + ["-a", self.bundle]
         subprocess.run(argv, check=True, timeout=60)
         self.instance = procs.Instance(self.bundle, self.wait_main())
         self._tmp = tmp
+        self._state = os.path.join(home, ".local/state/cmux")
 
     def ready(self, timeout: float = 90):
         import bench_memory as bm
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            path = bm.control_socket(self.bundle, self.instance.pid, ["/tmp", self._tmp])
+            # The app binds in its HOME's state folder; /tmp holds only a symlink, which a later
+            # instance may leave pointing at the previous session's socket.
+            dirs = [d for d in (self._state, self._tmp, "/tmp") if os.path.isdir(d)]
+            path = bm.control_socket(self.bundle, self.instance.pid, dirs)
             if path:
                 self.socket = path
                 self.app = bm.App(self.bundle, path)
@@ -391,14 +421,16 @@ class CmuxBrowser(Browser):
         raise RuntimeError("cmux: no control socket within 90 s")
 
     def act(self, action: str, **args) -> dict:
-        reply = self.app.action(action, **args)
+        # focus: a user's Cmd-T / Cmd-1..9 shows the tab (Chrome's /json/new opens a foreground tab);
+        # a background cmux tab does not load at all, so no paint or visibility row would exist.
+        reply = self.app.action(action, focus=True, **args)
         if reply.get("error"):
             raise RuntimeError(f"cmux {action}: {reply['error']}")
         return reply
 
     def start_workspace(self):
         self.act("workspace.newAtBottom")
-        self.app.action("workspace.selectLast")
+        self.app.action("workspace.selectLast", focus=True)
 
     def new_tab(self, url: str, tab_id: str) -> str:
         if self.engine == "terminal":
@@ -630,6 +662,8 @@ class Run:
             sleep(a.settle)
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
+            if isinstance(browser, ChromiumBrowser):
+                browser.probe_cdp()  # Ardia's CDP has no /json/activate or /json/close
             if browser.can_switch or browser.name == "cmux-terminal":
                 latencies = []
 
@@ -738,6 +772,9 @@ class Run:
             for round_no in range(1, a.rounds + 1):
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for browser in order:
+                    if browser.name == budget.NAME:
+                        budget.session(self, browser, round_no, log, a.budgets)
+                        continue
                     self.launches(browser, round_no)
                     self.session(browser, round_no)
         finally:
@@ -806,7 +843,10 @@ def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
         kind, count = scenario["kind"], scenario["count"]
         cells, late = [], []
         for input_kind in ("ctrl_tab", "cmd_shift_bracket", "click"):
-            line = ((scenario.get(input_kind) or {}).get("table") or {}).get(kind) or {}
+            table = (scenario.get(input_kind) or {}).get("table") or {}
+            # Keyed by the switched-to surface's kind: Markdown and chat tabs are both `page`.
+            line = table.get(kind) or table.get("page") or next(
+                (v for k, v in table.items() if k != "terminal"), {})
             e2e = line.get("e2e") or line.get("commit") or {}
             if e2e.get("p50") is None:
                 cells.append("–")
@@ -822,18 +862,59 @@ def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
-def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None):
+def palette_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from palette-open-stages.py's report (a182): key-down to the palette's
+    committed first frame, per focused surface, for Cmd-Shift-P (Command Palette) and Cmd-P."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Palette open (cmux NEXT, tagged Debug build)", "",
+              "**Debug only**, like the tab switch rows. palette-open-stages.py: key-down (`debug.key`, the key "
+              "router's real path) to the Core Animation commit of the palette's first frame, warm, p50 / p90 ms; "
+              "the budget is one 60 Hz frame (p90 <= 16 ms).", "",
+              "| Focused surface | Cmd-Shift-P | Cmd-P | missed |", "|---|---|---|---|"]
+    surfaces = {}
+    for name, entry in (data.get("surfaces") or {}).items():
+        label, _, key = name.rpartition(" ")
+        key_stage = (entry.get("table") or {}).get("key") or {}
+        surfaces.setdefault(label, {})[key] = (key_stage, entry.get("missed", 0), len(entry.get("samples") or []))
+        if key_stage.get("p50") is not None:
+            slug = re.sub(r"[^a-z0-9]+", "-", f"{label} {key}".lower()).strip("-")
+            rows.setdefault(f"palette-open-{slug}", {})[TAB_SWITCH_BROWSER] = {
+                "median": key_stage["p50"], "p90": key_stage["p90"], "n": len(entry.get("samples") or [])}
+    for label, keys in surfaces.items():
+        cells, missed = [], []
+        for key in ("Cmd-Shift-P", "Cmd-P"):
+            stage, miss, n = keys.get(key, ({}, 0, 0))
+            cells.append(f"{stage['p50']:.1f} / {stage['p90']:.1f}" if stage.get("p50") is not None else "–")
+            if miss + n:
+                missed.append(f"{miss}/{miss + n}")
+        lines.append(f"| {label} | " + " | ".join(cells) + f" | {', '.join(missed) or '–'} |")
+    lines.append("")
+    return rows, lines
+
+
+def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
+           palette: str | None = None, budgets: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
     rows = aggregate(samples)
     switch_rows, switch_lines = tab_switch_rows(tabswitch)
     rows.update(switch_rows)
+    palette_found, palette_lines = palette_rows(palette)
+    rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
+    budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
+    # The run's budgets file decides, so samples are judged against the scenario that collected them.
+    budgets = budgets or meta.get("args", {}).get("budgets") or budget.DEFAULT_BUDGETS
+    budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets,
+                                                  int(meta.get("args", {}).get("rounds") or 0), budget_errors)
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
               "errors": [{k: s.get(k) for k in ("browser", "round", "row", "note")} for s in errors],
-              "method": "scripts/perf-bench/README.md", "samples": samples}
+              "budgets": budget_result, "method": "scripts/perf-bench/README.md", "samples": samples}
     if json_path:
         with open(json_path, "w") as handle:
             json.dump(result, handle, indent=1)
@@ -845,26 +926,30 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
              f"{m['chip']} ({m['model']}), {m['cores']} cores, {m['ram_gb']} GB, macOS {m['macos']} ({m['build']}), "
              f"host {m['host']}, cmux ref `{(result['cmux_ref'] or '?')[:12]}`. Medians over runs (n per cell in "
              "results.json, min-max there too). Lower is better.", ""]
-    versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present)
+    versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present
+                         + ([budget.NAME] if budget_result["measured"] and budget.NAME in meta["browsers"] else []))
     lines += [f"Versions: {versions}.", ""]
-    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
-                                                   "Helium (published)"]
-    lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    for row, label, unit, main in ROWS:
-        per = rows.get(row, {})
-        if not per:
-            continue
-        cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
-        best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
-        cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
-        lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
-            f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
-            ratio(cmux_best, best[0] if best else None),
-            fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
-    lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
-              "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
-              "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    if present:  # a budget-only run has no comparison table
+        head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
+                                                       "Helium (published)"]
+        lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+        for row, label, unit, main in ROWS:
+            per = rows.get(row, {})
+            if not per:
+                continue
+            cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
+            best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
+            cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
+            lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
+                f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
+                ratio(cmux_best, best[0] if best else None),
+                fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
+        lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
+                  "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
+                  "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += budget_lines
     lines += switch_lines
+    lines += palette_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -888,26 +973,75 @@ FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0}
 
 
 def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
-    """Non-zero when a cmux row's median is worse than the baseline's by more
-    than `tolerance` (relative) and the unit's absolute floor."""
-    results = json.load(open(results_path))["rows"]
-    baseline = json.load(open(baseline_path))["rows"]
+    """Fail on regressions *or incomplete coverage*.
+
+    A missing current cell used to be skipped, which made a timed-out or
+    unsupported bench look like a clean pass. The baseline is the explicit
+    expected row/browser matrix; callers can put a ``row|browser`` key in an
+    ``unsupported`` list when a surface is intentionally unavailable.
+    """
+    with open(results_path) as handle:
+        result_doc = json.load(handle)
+    with open(baseline_path) as handle:
+        baseline_doc = json.load(handle)
+    results = result_doc.get("rows", {})
+    baseline = baseline_doc.get("rows", {})
+    def unsupported_entries(document):
+        entries = {}
+        for item in document.get("unsupported") or []:
+            if isinstance(item, str):
+                entries[item] = "explicitly allowlisted"
+            elif isinstance(item, dict) and item.get("key"):
+                entries[item["key"]] = item.get("reason") or "explicitly allowlisted"
+        return entries
+
+    allowlisted = unsupported_entries(baseline_doc)
+    allowlisted.update(unsupported_entries(result_doc))
     failed = 0
+    incomplete = []
+    expected = measured = unsupported = 0
+    if not baseline:
+        incomplete.append("baseline has no rows")
     for row, per in baseline.items():
-        if row not in ROW_INFO and not row.startswith("tab-switch-"):
+        if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
             continue
+        if row in budget.ROW_INFO:
+            continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
         unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
         for browser in (*CMUX, TAB_SWITCH_BROWSER):
+            # The checked-in baseline is the manifest for each row. Resource
+            # budget and Debug-only surfaces have separate reports and are not
+            # present in the cross-browser baseline.
+            if browser not in per:
+                continue
+            expected += 1
             base = per.get(browser, {}).get("median")
             now = results.get(row, {}).get(browser, {}).get("median")
-            if base is None or now is None:
+            key = f"{row}|{browser}"
+            if key in allowlisted:
+                unsupported += 1
+                print(f"PERF-BENCH-GATE UNSUPPORTED {key}: {allowlisted[key]}")
                 continue
+            if base is None:
+                incomplete.append(f"{key}: missing baseline median")
+                continue
+            if now is None:
+                incomplete.append(f"{key}: missing current median")
+                continue
+            measured += 1
             limit = base + max(base * tolerance, FLOORS[unit])
             verdict = "REGRESSED" if now > limit else "ok"
             failed += verdict != "ok"
             print(f"PERF-BENCH-GATE {verdict} {browser} {row} now={now} baseline={base} limit={round(limit, 3)} {unit}")
-    print(f"PERF-BENCH-GATE {'FAIL' if failed else 'PASS'} regressions={failed}")
-    return 1 if failed else 0
+    # Rows newly emitted by a bench are not expected until a baseline records
+    # them. This keeps an older sparse baseline usable while still failing
+    # closed when one of its recorded cells disappears from the current run.
+    for reason in incomplete:
+        print(f"PERF-BENCH-GATE INCOMPLETE {reason}")
+    verdict = "FAIL" if failed or incomplete else "PASS"
+    print(f"PERF-BENCH-GATE {verdict} regressions={failed} incomplete={len(incomplete)} "
+          f"expected={expected} measured={measured} unsupported={unsupported}")
+    return 1 if failed or incomplete else 0
 
 
 def main():
@@ -929,11 +1063,16 @@ def main():
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
+    run.add_argument("--budgets", default=budget.DEFAULT_BUDGETS, type=os.path.abspath,
+                     help="cmux-budget's scenario and budgets (kept in meta.json for report)")
     rep = sub.add_parser("report")
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
+    rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
+                     "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
@@ -944,7 +1083,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        report(args.out, args.md, args.json, args.tabswitch)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
+        sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
 

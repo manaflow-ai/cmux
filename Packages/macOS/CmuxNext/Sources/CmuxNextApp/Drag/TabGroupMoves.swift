@@ -22,8 +22,9 @@ enum TabGroupMoves {
     }
 
     /// `roomDecided`: see `TabMoves.toNewSplit`.
+    /// `emptying`: the pane the move closes (the group was all of it), left out of `layout.splitSizing`.
     static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices, roomDecided: Bool = false,
-                           transaction: ClientTransactionID, completion: @escaping Completion) {
+                           emptying: PaneModel? = nil, transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
@@ -38,8 +39,8 @@ enum TabGroupMoves {
             services.registry.refuse(reason)
             return completion(false)
         }
-        let target = pane.handle
-        run("move-tab-group-to-split", daemon: daemon, completion: completion) { connection in
+        let target = pane.handle, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptying)
+        run("move-tab-group-to-split", daemon: daemon, completion: { ok in if ok { sizing() }; completion(ok) }) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)
         }
     }
@@ -49,12 +50,8 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        let spawn = services.newColumnWidth(nextTo: pane)
-        let width = spawn.width
-        run("move-tab-group-to-column", daemon: daemon, completion: { ok in
-            if ok { spawn.commit() }
-            completion(ok)
-        }) { connection in
+        let width = services.newColumnWidth(nextTo: pane)
+        run("move-tab-group-to-column", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroupToColumn(group, target: .pane(target), afterColumn: afterColumn, width: width,
                                                           transaction: transaction)
         }

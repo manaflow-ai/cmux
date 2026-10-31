@@ -18,8 +18,14 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
 
     private let magnifier = NSImageView()
     private let chips = PaletteScopeChipsView()
+    private let tokens = PaletteTokenChipsView()
+    /// Takes out chosen value `index` (a click on its chip).
+    var onRemoveToken: ((Int) -> Void)? {
+        didSet { tokens.onRemove = onRemoveToken }
+    }
     private let breadcrumb = PaletteClickView()
-    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .tertiary)
+    // Secondary, not tertiary: the path is text you read (4.5:1), not a 3:1 mark.
+    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let keywordHint = PaletteKeywordHintView()
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
@@ -45,7 +51,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             guard let self, self.depth > 1 else { return }
             self.onPopTo?(self.depth - 2)
         }
-        [magnifier, chips, breadcrumb, field, keywordHint, spinner].forEach(addSubview)
+        tokens.isHidden = true
+        [magnifier, chips, breadcrumb, tokens, field, keywordHint, spinner].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -56,7 +63,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.
     func update(query: String, placeholder: String, chips scopeChips: [PaletteScopeChip], rootTitle: String,
-                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool) {
+                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool, tokens chosen: [PaletteToken] = []) {
+        tokens.update(tokens: chosen)
         if field.stringValue != query {
             field.stringValue = query
             // Keep a caret at the end instead of a selection.
@@ -127,6 +135,12 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             let width = min(chips.fittingWidth(height: bounds.height), bounds.width / 2)
             chips.frame = NSRect(x: x, y: 0, width: width, height: bounds.height)
             x = chips.frame.maxX + Metrics.space4
+        }
+        if !tokens.isHidden {
+            // At most 60% of the bar, so the query always has room to type the next name.
+            let width = min(tokens.fittingWidth, max(0, (bounds.width - x - padding) * 0.6))
+            tokens.frame = NSRect(x: x, y: 0, width: width, height: bounds.height)
+            x = tokens.frame.maxX + Metrics.space4
         }
         let spinnerSize = Metrics.iconSize + Metrics.space1 * 2
         spinner.frame = NSRect(x: bounds.maxX - padding - spinnerSize, y: (bounds.height - spinnerSize) / 2,

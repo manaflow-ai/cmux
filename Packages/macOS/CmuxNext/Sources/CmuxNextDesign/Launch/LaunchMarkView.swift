@@ -1,5 +1,6 @@
 public import AppKit
 import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The cmux chevron on the window glass while a launch has nothing to show
 /// yet. Drawn with layers from `CGPath.launchMark(in:)`, so it needs no asset,
@@ -48,7 +49,7 @@ public final class LaunchMarkView: NSView {
 
     public override func layout() {
         super.layout()
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             mark.frame = bounds
             body.frame = mark.bounds
             outline.frame = mark.bounds
@@ -61,7 +62,7 @@ public final class LaunchMarkView: NSView {
 
     public override func updateLayer() {
         performWithTheme {
-            Motion.transaction(nil) {
+            Motion.panes.transaction(nil) {
                 body.fillColor = Palette.textSecondary.cgColor
                 outline.strokeColor = Palette.textSecondary.cgColor
                 outline.lineWidth = Metrics.lineWidth(1.5)
@@ -79,13 +80,13 @@ public final class LaunchMarkView: NSView {
     public func reveal(_ style: LaunchMarkStyle = LaunchMarkStyle.tunable.value) {
         layoutSubtreeIfNeeded()
         revealedStyle = style
-        Motion.revealLaunchMark(style, mark: mark, outline: outline, body: body)
+        Motion.panes.revealLaunchMark(style, mark: mark, outline: outline, body: body)
     }
 
     /// Fades the mark out.
     public func conceal() {
         revealedStyle = nil
-        Motion.concealLaunchMark(mark)
+        Motion.panes.concealLaunchMark(mark)
     }
 
     /// Whether the mark shows (its model opacity).

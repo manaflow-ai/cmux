@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Update Ready card and its popup (Leo 2026-10-13, cx-5dvig). At the sidebar's default width
 /// the card's text is whole (it read "1.0.0 nightly 3845050 · Oct 13, 2..."), the card does not
@@ -111,7 +112,7 @@ import Testing
         let popup = try #require(h.window.childWindows?.first, "no popup beside the card")
         #expect(popup.isVisible, "the popup is not on screen")
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.minX >= card.maxX - 0.5, "the popup \(surface) covers the card \(card)")
         #expect(abs(surface.maxY - card.maxY) <= 1, "the popup's top \(surface.maxY) is not the card's \(card.maxY)")
         #expect(abs(surface.height - 120) <= 1, "the popup is not the page's height: \(surface.height)")
@@ -204,7 +205,7 @@ import Testing
         PointerHover.setDebugPointer(start.window, in: h.window)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         // Past the card's top or bottom edge on the way to the popup's far part (a diagonal): off
         // the card, short of the popup and of its margin. It used to close the popup at once.
@@ -250,7 +251,7 @@ import Testing
         PointerHover.setDebugPointer(start.window, in: h.window)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         // Off the card on the diagonal toward the popup, and parked there.
         let parked = CGPoint(x: card.maxX - 20, y: surface.maxY > card.maxY + 24 ? card.maxY + 16 : card.minY - 16)
@@ -310,7 +311,7 @@ import Testing
         h.card.highlights = page
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first, "no popup beside the card")
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.height <= ceil(h.window.frame.height * 0.6) + 1,
                 "the popup is \(surface.height) pt tall in a \(h.window.frame.height) pt window")
         #expect((320...360).contains(surface.width), "the popup is \(surface.width) pt wide")

@@ -568,6 +568,23 @@ impl OptChat {
         render_view(&st.memory, &st.store)
     }
 
+    /// The compaction view (spec 4) rendered as ``render_view`` renders the
+    /// view: the same summary tree merged coarser (an eighth to a quarter of
+    /// the budget, 16-32 KB at 128 KB), every line still zoomable. A
+    /// subagent reads it instead of the whole view (acp-chief-issues.md
+    /// #12: the view was ~40k of a subagent's ~108k first-turn tokens).
+    pub fn render_compact_view(&self) -> RenderedView {
+        let st = self.shared.lock();
+        let parts: Vec<NodeId> = st
+            .memory
+            .compact_view()
+            .iter()
+            .copied()
+            .filter(|p| st.memory.is_built(*p) || !st.memory.is_imported(p.end() - 1))
+            .collect();
+        optchat_core::render_parts(&parts, &st.store)
+    }
+
     /// A view recorded by its parts (a past turn's), rendered from the stored
     /// node texts: byte for byte what that turn read (nodes never change).
     pub fn render_parts(&self, parts: &[NodeId]) -> RenderedView {
@@ -651,6 +668,91 @@ impl OptChat {
         (id < st.store.len()).then(|| st.store.message(id))
     }
 
+    /// Replaces message `id`'s text in place (the owner's edit or delete in
+    /// the memory inspector); returns the old text, None when there is no
+    /// such message. The nodes above it keep their old text until the host
+    /// builds them again (`rebuild_node`).
+    pub fn rewrite_message(&self, id: u64, text: &str) -> Result<Option<String>, Error> {
+        let mut st = self.shared.lock();
+        let result = match (&st.fatal, st.closed) {
+            (_, true) => Err(Error::Closed),
+            (Some(e), _) => Err(Error::Fatal(e.clone())),
+            _ => st.store.rewrite_message(id, text).map_err(Error::Io),
+        };
+        self.shared.changed.notify_all();
+        self.shared.unlock(st);
+        result
+    }
+
+    /// Replaces built node `node`'s text in place; returns the old text,
+    /// None when it is not built. The core's view sizes follow.
+    pub fn rewrite_node(&self, node: NodeId, text: &str) -> Result<Option<String>, Error> {
+        let mut st = self.shared.lock();
+        let result = rewrite_node_locked(&mut st, node, text);
+        self.shared.changed.notify_all();
+        self.shared.unlock(st);
+        result
+    }
+
+    /// Builds node `node` again from its current source, as the compactor
+    /// would: free text when it fits (no model call), else one model call
+    /// (the same request and size loop; the fallback model on a refusal)
+    /// without the lock. Replaces the stored text when the node's text did
+    /// not change meanwhile. Returns (old, new); None when it is not built
+    /// or changed while the model ran.
+    pub fn rebuild_node(&self, node: NodeId) -> Result<Option<(String, String)>, Error> {
+        let st = self.shared.lock();
+        let before = if st.memory.is_built(node) {
+            st.store.node(node)
+        } else {
+            None
+        };
+        let Some(before) = before else {
+            self.shared.unlock(st);
+            return Ok(None);
+        };
+        let source = match optchat_core::free_node_text(node, &st.store) {
+            Some(text) => Ok(text),
+            None => Err(optchat_core::compact_request(
+                &st.memory,
+                &st.store,
+                node,
+                self.shared.system.clone(),
+            )),
+        };
+        self.shared.unlock(st);
+        let text = match source {
+            Ok(text) => text,
+            Err(Err(missing)) => return Err(Error::Fatal(missing.to_string())),
+            Err(Ok(request)) => {
+                let built = match crate::compactor::run_node(&*self.shared.model, &request) {
+                    Err(declined) if declined.refused => match &self.shared.fallback {
+                        Some(fallback) => crate::compactor::run_node(&**fallback, &request),
+                        None => Err(declined),
+                    },
+                    other => other,
+                };
+                built.map_err(|e| Error::Io(io::Error::other(e.message)))?
+            }
+        };
+        let mut st = self.shared.lock();
+        if st.store.node(node).as_deref() != Some(before.as_str()) {
+            // Changed while the model ran: whoever changed it rebuilds it.
+            self.shared.unlock(st);
+            return Ok(None);
+        }
+        let result = rewrite_node_locked(&mut st, node, &text);
+        self.shared.changed.notify_all();
+        self.shared.unlock(st);
+        Ok(result?.map(|old| (old, text)))
+    }
+
+    /// A consistent copy of the database at `to` (0600), read without
+    /// holding the writer: the backup before an owner's first change.
+    pub fn snapshot(&self, to: &Path) -> Result<(), Error> {
+        db::ReadOnly::snapshot(&self.db_path(), to).map_err(Error::Io)
+    }
+
     pub fn status(&self) -> Status {
         let st = self.shared.lock();
         let memory = &st.memory;
@@ -708,4 +810,22 @@ impl Drop for OptChat {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+/// `OptChat::rewrite_node` with the lock held.
+fn rewrite_node_locked(st: &mut State, node: NodeId, text: &str) -> Result<Option<String>, Error> {
+    if st.closed {
+        return Err(Error::Closed);
+    }
+    if let Some(e) = &st.fatal {
+        return Err(Error::Fatal(e.clone()));
+    }
+    if !st.memory.is_built(node) {
+        return Ok(None);
+    }
+    let old = st.store.rewrite_node(node, text).map_err(Error::Io)?;
+    if let Some(old) = &old {
+        st.memory.resized(node, old.len(), text.len());
+    }
+    Ok(old)
 }

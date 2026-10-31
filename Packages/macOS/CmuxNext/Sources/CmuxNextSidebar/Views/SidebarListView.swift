@@ -18,10 +18,16 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
+    var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
-    var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
+    /// after its parent, not inside it, so a parent's card reads its members through this.
+    var groupSubtrees: [GroupID: [GroupID]] = [:]
+    /// The rails before the nested-groups prototype (a capture's "before"); off draws the subtree rails.
+    var legacyNestedRails = false
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
@@ -36,6 +42,13 @@ final class SidebarListView: NSView {
             for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
         }
     }
+    /// The multi-selection, drawn on the blocks' pinned workspace tiles (`SidebarRegionView.selectedWorkspaces`).
+    var selectedWorkspaces: Set<WorkspaceID> = [] {
+        didSet {
+            guard oldValue != selectedWorkspaces else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.selectedWorkspaces = selectedWorkspaces }
+        }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
@@ -48,16 +61,22 @@ final class SidebarListView: NSView {
     /// under a held drag): rows spring from where they are on the drag's one additive spring, new rows
     /// appear in their slot with no opening, so frames the drag already shows move nothing.
     var springsRows = false
+    /// Counts the row moves `RowMotion` starts: a move's end lands the rows only when no newer move runs.
+    var rowMoves = 0
     /// Rows an adopting apply took out of `rowViews` that still fade on screen (sampled by the motion probe).
     var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
     var configureBlockRegion: ((SidebarRegionView) -> Void)?
+    /// The workspaces pinned above the list (the band), in drawn order: a Shift range starts there (`selectionOrder`).
+    var leadingSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Listed document items (link, tab, app rows) by item id.
     var listItems: [String: SidebarListItem] = [:]
     /// The drag gap CALayer, under the rows.
     let decorations = SidebarDecorationView()
     /// Open groups' members' lines, under the rows, moving with them.
     let groupLineViews = SidebarGroupLineViews()
+    /// The session tree's chat history (Pinned and Earlier), in the gaps the layout leaves for them.
+    let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
@@ -71,10 +90,15 @@ final class SidebarListView: NSView {
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
     let middleClick = SidebarMiddleClick()
+    /// A click on a group's name waits out the double-click interval before it folds.
+    let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    var openingRows: [SidebarRowKey: SidebarRowOpening] = [:] // Rows still opening their slot (`SidebarRowOpening`).
+    /// The model's sections at the last `apply`, so an apply can tell a workspace new to the model from one listed again
+    /// (`opensOnlyNewWorkspaces`).
+    var appliedSections: [SidebarSection] = []
     /// Whether the pointer is over the list's visible rows now (`showModelChange` holds a change then).
     /// Tests inject an answer; the default asks the window where its pointer is.
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
@@ -84,6 +108,10 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
+    var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
+    var openShowMore: Set<SidebarDoneFoldID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -111,7 +139,9 @@ final class SidebarListView: NSView {
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
-    let tabRowDrag = SidebarTabRowDrag()
+    /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
+    var removesOnDragOut: ((String) -> Bool)?
+    var onDragOutRemove: ((String) -> Void)?
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -145,8 +175,11 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A group's fold splices that group's rows (SidebarListView+Fold), never reloads the list.
+        model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
+        model.drawnSelectionOrder = { [weak self] in self?.selectionOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
@@ -166,7 +199,11 @@ final class SidebarListView: NSView {
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                for row in self.displayed.rows { if case .item = row.key, let view = self.rowViews[row.key] { self.configure(view, row: row, animated: false) } }
+                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+                for (key, view) in self.rowViews {
+                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
+                    self.configure(view, row: row, animated: false)
+                }
             }
         }
     }
@@ -180,7 +217,8 @@ final class SidebarListView: NSView {
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers { NotificationCenter.default.removeObserver(observer) }
+            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
+            if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
         }
     }
     // MARK: - Window occlusion
@@ -188,6 +226,11 @@ final class SidebarListView: NSView {
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
+    private var focusObservers: [any NSObjectProtocol] = []
+    /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
+    private var pointerMonitor: Any?
+    /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
+    var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -203,10 +246,25 @@ final class SidebarListView: NSView {
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
+        // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
+        // a drag ends in place (`abandonDrag`, its rows shown again).
+        for observer in focusObservers { center.removeObserver(observer) }
+        focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        // A press whose release never came here ends at the app's next press, or after a release that went to
+        // another window (`pointerEventSeen`).
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = window == nil ? nil : observePointerEnds()
+        if window == nil {
+            if let drag { abandonDrag(drag) }
+            press = nil
+        }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
         } }
+        // The rows read the window when they moved in; the list's own reading starts them all from
+        // the same state, not each from whatever its window said a moment earlier.
+        if window != nil { windowOcclusionChanged() }
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
@@ -261,7 +319,20 @@ final class SidebarListView: NSView {
         guard drag == nil, let window else { return setHovered(nil) }
         let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
-        setHovered(displayed.row(at: point.y)?.key)
+        setHovered(hoverHit(at: point)?.key)
+    }
+    /// The row the pointer at `point` hovers (`SidebarLayout.hoverRow`). The
+    /// hover pill sits inside the drawn fill: `Metrics.space1` in from its top
+    /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
+    func hoverHit(at point: CGPoint) -> SidebarRow? {
+        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+    }
+    /// The row a click at `point` acts on: the hovered row when the pointer
+    /// hovers one, so a click never lands on a row other than the lit one;
+    /// otherwise the row whose tile holds `point` (clicks split the gap).
+    func clickHit(at point: CGPoint) -> SidebarRow? {
+        hoverHit(at: point) ?? displayed.row(at: point.y)
     }
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }
@@ -275,4 +346,15 @@ final class SidebarListView: NSView {
         view.fadesNextFill = false
         view.fadesNextHover = false
     }
+}
+
+/// A row still opening its slot (`SidebarListView.openingRows`): until when, and how. A row an insert opened outside
+/// the realized rows opens the same way when a scroll brings it in before `until` (`RowMotion.place`).
+struct SidebarRowOpening {
+    /// The media time the open settles, on the spring it runs on.
+    var until: CFTimeInterval
+    /// The new row motion that opened it (`sidebar.insertMotion`); nil opens from zero height on `.move`.
+    var motion: SidebarInsertMotion?
+    /// How far its edges travel (`SidebarInsertMotion.travel`); nil is the whole distance.
+    var travel: CGFloat?
 }

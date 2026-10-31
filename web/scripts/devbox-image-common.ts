@@ -23,6 +23,7 @@ import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRu
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
+import { MACHINE_HEALTH_SCRIPT, MACHINE_HYGIENE_SOURCE } from "./cmux-vm-image/machine-health";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -42,6 +43,7 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "claude-onboarding.py",
   "agent-auth.sh",
   "cmux-claude",
   "cmux-codex",
@@ -49,6 +51,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-vm-kind-sync",
   "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
@@ -207,6 +210,8 @@ echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECON
 export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
+  "cmux-cloud-browser",
+  "cmux-cloud-browser.service",
   "cmux-desktop-boot",
   "cmux-desktop.service",
   "desktop-env.sh",
@@ -233,6 +238,8 @@ export type DevboxDesktopInstall = {
  * so a path can only change in one place.
  */
 export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
+  { source: "desktop/cmux-cloud-browser", target: "/usr/local/bin/cmux-cloud-browser", mode: 0o755 },
+  { source: "desktop/cmux-cloud-browser.service", target: "/etc/systemd/system/cmux-cloud-browser.service", mode: 0o644 },
   { source: "desktop/google-chrome-cmux.desktop", target: "/etc/cmux/apps/google-chrome-cmux.desktop", mode: 0o644 },
   { source: "desktop/thunar-cmux.desktop", target: "/etc/cmux/apps/thunar-cmux.desktop", mode: 0o644 },
   { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
@@ -290,6 +297,67 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
   return sha;
+}
+
+/** Muse needs a newer bubblewrap than Ubuntu 24.04's 0.9.0. */
+export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_BUBBLEWRAP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_BUBBLEWRAP_URL");
+  return url;
+}
+
+/** Verify the upstream archive before extracting or compiling its contents. */
+export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the tarball name: what `bwrap --version` must print. */
+export function devboxBubblewrapVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/bubblewrap-(\d+\.\d+\.\d+)\.tar\.xz$/.exec(devboxBubblewrapUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_BUBBLEWRAP_URL carries no bubblewrap-<x.y.z>.tar.xz");
+  return version;
+}
+
+/**
+ * The one bubblewrap install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values
+ * (a test keeps them identical). The tarball is verified before anything is
+ * built from it; the build tools are removed again. `/usr/bin/bwrap` is
+ * diverted first, so the distro package (already on a base, or pulled in
+ * later by apt) installs as `/usr/bin/bwrap.distrib` and never replaces the
+ * pinned binary. `/usr/bin` keeps Ubuntu's AppArmor `bwrap` userns profile,
+ * which is attached by that path, applying to it.
+ */
+export function devboxBubblewrapInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    "apt-get update",
+    "apt-get install -y --no-install-recommends meson ninja-build libcap-dev",
+    `curl -fsSL -o /tmp/bubblewrap.tar.xz ${url}`,
+    `echo "${sha256}  /tmp/bubblewrap.tar.xz" | sha256sum -c -`,
+    "rm -rf /tmp/bubblewrap",
+    "mkdir /tmp/bubblewrap",
+    "tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1",
+    "meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled",
+    "meson compile -C /tmp/bubblewrap/build",
+    "dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap",
+    "meson install -C /tmp/bubblewrap/build --no-rebuild",
+    "apt-get purge -y meson ninja-build libcap-dev",
+    "rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz",
+    `test "$(/usr/bin/bwrap --version)" = "bubblewrap ${version}"`,
+    `test "$(command -v bwrap)" = /usr/bin/bwrap`,
+  ].join(" && ");
+}
+
+/** Reject an old or shadowed binary and exercise the work user's sandbox. */
+export function devboxBubblewrapCheckCommand(dockerfile = readDevboxDockerfile()): string {
+  return [
+    'test "$(command -v bwrap)" = /usr/bin/bwrap',
+    `test "$(bwrap --version)" = "bubblewrap ${devboxBubblewrapVersion(dockerfile)}"`,
+    `sudo -n -u ${DEVBOX_WORK_USER} bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true`,
+    "echo bubblewrap-ok",
+  ].join(" && ");
 }
 
 export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
@@ -373,13 +441,33 @@ export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
  * adds the Dockerfile's instructions (comments dropped by the Dockerfile
  * grammar) and every non-blank line of the Freestyle bake script, so a step
  * change such as a new apt package can no longer leave the digest unchanged.
+ * Schema 3 adds the files the bake installs from outside the devbox template
+ * (DEVBOX_BAKED_PAYLOADS: cmux-machine-health, its hygiene command and their
+ * installer module), so a change to one of them alone also asks for a rebake.
  * Entries keep the schema they were recorded with and are checked with that
  * formula, so a formula change never forces a rebake of an already promoted
  * ladder; new bakes record the current schema, and
  * `upgradeDevboxSourceRecords` moves an entry up only when its provenance is
  * proven from what it already recorded.
  */
-export const DEVBOX_SOURCE_SCHEMA = 2;
+export const DEVBOX_SOURCE_SCHEMA = 3;
+/**
+ * The highest formula `upgradeDevboxSourceRecords` can prove from git for an
+ * older record (the Dockerfile at its repoCommit); schema 3's payloads are
+ * proven only by a bake.
+ */
+export const DEVBOX_SOURCE_PROVABLE_SCHEMA = 2;
+
+/** Schema 3: what the bake installs from outside the devbox template, by name. */
+export const DEVBOX_BAKED_PAYLOADS: Record<string, string> = {
+  "cmux-machine-health": MACHINE_HEALTH_SCRIPT,
+  "cmux-machine-hygiene": MACHINE_HYGIENE_SOURCE,
+  "cmux-vm-image/machine-health.ts": path.join(__dirname, "cmux-vm-image/machine-health.ts"),
+};
+
+export function devboxBakedPayloads(): Record<string, string> {
+  return Object.fromEntries(Object.entries(DEVBOX_BAKED_PAYLOADS).map(([name, file]) => [name, readFileSync(file, "utf8")]));
+}
 export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
 
 /**
@@ -434,7 +522,8 @@ export function normalizedBakeScript(source: string): string {
  * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
  * (agents, cua-driver, the Ghostty .deb, the desktop apt list), the epoch
  * and, from schema 2, the Dockerfile's instructions and the bake script's
- * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript).
+ * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript),
+ * and from schema 3 the sha256 of each DEVBOX_BAKED_PAYLOADS file.
  * Dockerfile prose is deliberately not part of it: a comment cannot change a
  * machine; bake-script prose is, for want of a lexer that could tell it from
  * code.
@@ -447,8 +536,9 @@ export function devboxSourceManifest(
   dockerfile = readDevboxDockerfile(),
   schema: number = DEVBOX_SOURCE_SCHEMA,
   bakeScript = () => readFileSync(bakeScriptPath, "utf8"),
+  payloads = devboxBakedPayloads,
 ): Record<string, unknown> {
-  if (schema !== 1 && schema !== 2) throw new Error(`unknown devbox source schema ${schema}`);
+  if (schema !== 1 && schema !== 2 && schema !== 3) throw new Error(`unknown devbox source schema ${schema}`);
   const files = Object.fromEntries(
     DEVBOX_TEMPLATE_FILES.filter((name) => name !== "Dockerfile").map((name) => [name, sha256File(path.join(devboxDir, name))]),
   );
@@ -464,6 +554,9 @@ export function devboxSourceManifest(
   if (schema >= 2) {
     shell.dockerfileInstructions = createHash("sha256").update(normalizedDockerfileInstructions(dockerfile)).digest("hex");
     shell.bakeScript = createHash("sha256").update(normalizedBakeScript(bakeScript())).digest("hex");
+  }
+  if (schema >= 3) {
+    shell.payloads = Object.fromEntries(Object.entries(payloads()).map(([name, text]) => [name, createHash("sha256").update(text).digest("hex")]));
   }
   if (layers === "base") return shell;
   return {
@@ -481,8 +574,9 @@ export function devboxSourceDigest(
   dockerfile = readDevboxDockerfile(),
   schema: number = DEVBOX_SOURCE_SCHEMA,
   bakeScript?: () => string,
+  payloads?: () => Record<string, string>,
 ): string {
-  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript))).digest("hex");
+  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript, payloads))).digest("hex");
 }
 
 /** Which layers an image carries, the digest of the sources they were baked from, and the formula it was computed with (absent: schema 1). */
@@ -494,6 +588,17 @@ export type DevboxSourceRecord = {
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
+}
+
+/** Reset the bake's temporary owner record and prove team shells drop caller credentials. */
+export function devboxTeamKindDefaultCommand(
+  kindFile = "/etc/cmux/vm-kind",
+  checkHome = "/tmp/team-kind-check",
+  agentConfig = "/etc/cmux/agent-config.sh",
+): string {
+  const kind = shellQuote(kindFile);
+  const home = shellQuote(checkHome);
+  return `echo team > ${kind} && chmod 0644 ${kind} && rm -rf ${home} && env HOME=${home} OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c ${shellQuote(`. ${shellQuote(agentConfig)}`)} && ! grep -rqs -e cmux-team-kind-check -e example.invalid ${home} && rm -rf ${home} && echo team-kind-keeps-no-caller-env`;
 }
 
 export function devboxDesktopFile(name: string): string {
@@ -871,6 +976,25 @@ export function devboxWipeDaemonStateKeepingTemplateCommand(stateRoot: string): 
 }
 
 /**
+ * Stop cmux-machine-health's work on a machine about to be snapshotted, then
+ * prove none is left: the housekeeping re-arm first (it would start the timer
+ * again), then the timer, then a running pass and the disk hygiene units it
+ * started (`cmux-machine-health-hygiene-N`, transient). Stopping a timer stops
+ * no unit it already started, and a hygiene unit can outlive the settle. A
+ * pass or hygiene run that does not stop in 30 s is killed: a pass writes its
+ * files atomically and hygiene renames before it deletes, so neither leaves a
+ * half-written result. Units that do not exist (the bake, before the install)
+ * are no error. Run as root, before the health files are deleted.
+ */
+const MACHINE_HEALTH_WORK_UNITS = "cmux-machine-health.service 'cmux-machine-health-hygiene-*'";
+const MACHINE_HEALTH_ACTIVE_UNITS = `systemctl list-units --all --plain --no-legend --state=active,activating,deactivating,reloading cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service cmux-machine-health.timer ${MACHINE_HEALTH_WORK_UNITS}`;
+export const DEVBOX_MACHINE_HEALTH_STOP_COMMAND = [
+  `{ timeout 30 systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service cmux-machine-health.timer ${MACHINE_HEALTH_WORK_UNITS} >/dev/null 2>&1; systemctl kill --signal=SIGKILL ${MACHINE_HEALTH_WORK_UNITS} >/dev/null 2>&1; true; }`,
+  `for i in $(seq 1 10); do [ -z "$(${MACHINE_HEALTH_ACTIVE_UNITS})" ] && break; sleep 1; done`,
+  `[ -z "$(${MACHINE_HEALTH_ACTIVE_UNITS})" ]`,
+].join(" && ");
+
+/**
  * Park the cmux-tui daemon on a machine about to be snapshotted: record this
  * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
  * stopped while the ids match), wait for the supervisor to stop it, and wipe
@@ -892,7 +1016,10 @@ export function devboxParkDaemonCommand(): string {
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
-    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    // cmux-machine-health's work and files are per machine too: a derive clone's
+    // re-arm may have started its timer, a pass and disk hygiene units.
+    DEVBOX_MACHINE_HEALTH_STOP_COMMAND,
+    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named ${TEMPLATE_RUN_DIR}/machine-health.json ${TEMPLATE_RUN_DIR}/machine-health-state.json`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
     "! grep -qi ':0539 ' /proc/net/tcp6",
@@ -966,6 +1093,8 @@ export type DevboxManifestEntry = {
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into the image's cmux remote listener. */
+  cmuxRemoteAuth?: "trusted-carrier" | "client-grant";
   /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
@@ -1000,6 +1129,9 @@ export function manifestEntrySkeleton(
     // The session daemon is cmux-tui, installed at create time from the pinned
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
+    // This legacy image pipeline's frozen boot script starts the compatibility
+    // listener. A future grant image must override this in its bake result.
+    cmuxRemoteAuth: "trusted-carrier",
     repoCommit: metadata.repoCommit,
     epoch: metadata.epoch,
     devboxSource: metadata.devboxSource,
@@ -1469,7 +1601,7 @@ export function upgradeDevboxSourceRecords(
     const source = entry.devboxSource;
     if (entry.provider !== provider || !entry.defaultForKind || !source) return entry;
     const schema = source.schema ?? 1;
-    if (schema >= DEVBOX_SOURCE_SCHEMA) return entry;
+    if (schema >= DEVBOX_SOURCE_PROVABLE_SCHEMA) return entry;
     if (source.layers !== "desktop" && source.layers !== "base") {
       skipped.push({ version: entry.version, reason: `devboxSource.layers ${String(source.layers)} is not desktop|base` });
       return entry;
@@ -1494,7 +1626,7 @@ export function upgradeDevboxSourceRecords(
     upgraded.push(entry.version);
     return {
       ...entry,
-      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_SOURCE_SCHEMA, bakeScript), schema: DEVBOX_SOURCE_SCHEMA },
+      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_SOURCE_PROVABLE_SCHEMA, bakeScript), schema: DEVBOX_SOURCE_PROVABLE_SCHEMA },
     };
   });
   return { manifest: { schemaVersion: manifest.schemaVersion, images }, upgraded, skipped };
@@ -1516,18 +1648,42 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * metadata service). They are feat-cmux-next's own, so the ladders main
  * promotes (now freestyle-cmux-devbox-agents-1014b, #20524) are baked without
  * them: delete the entry with the promotion that bakes them, and move
- * `baked` and `current` when a main sync brings a new ladder.
+ * `baked` and `current` when a main sync brings a new ladder. The desktop
+ * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
+ * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
+ * wait), again with the cmux-machine-health install (the bake steps and
+ * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * `current` is their digest. The entries live in
+ * services/vms/images/awaiting-rebake.json.
  */
-export const DEVBOX_AWAITING_REBAKE = [
-  {
-    layers: "desktop",
-    schema: 2,
-    baked: "28fce1e49495",
-    current: "d77b614be8fb911bb4bb46e8c7801a1a72454b7738f83a5f0dfa947d6eb7514a",
-  },
-] as const;
+export type DevboxAwaitingRebake = {
+  readonly layers: DevboxImageKind;
+  readonly schema: number;
+  /** First 12 hex of the digest the current defaults recorded. */
+  readonly baked: string;
+  /** This checkout's digest of those layers at `schema`. */
+  readonly current: string;
+};
 
-export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+/**
+ * Data, not code, so the rebake workflow (cloud-devbox-image-rebake.yml,
+ * `devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
+ */
+export const devboxAwaitingRebakePath = path.join(webRoot, "services/vms/images/awaiting-rebake.json");
+
+export function readDevboxAwaitingRebake(file = devboxAwaitingRebakePath): DevboxAwaitingRebake[] {
+  const rows = JSON.parse(readFileSync(file, "utf8")) as DevboxAwaitingRebake[];
+  if (!Array.isArray(rows)) throw new Error(`${file}: expected a JSON array`);
+  for (const row of rows) {
+    if ((row.layers !== "desktop" && row.layers !== "base") || typeof row.schema !== "number" || !/^[0-9a-f]{12}$/.test(row.baked) || !/^[0-9a-f]{64}$/.test(row.current)) {
+      throw new Error(`${file}: malformed entry ${JSON.stringify(row)}`);
+    }
+  }
+  return rows;
+}
+
+export const DEVBOX_AWAITING_REBAKE: readonly DevboxAwaitingRebake[] = readDevboxAwaitingRebake();
 
 /** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
 export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {
@@ -1573,8 +1729,8 @@ export function devboxSourceDriftProblems(
       continue;
     }
     const schema = source.schema ?? 1;
-    if (schema !== 1 && schema !== 2) {
-      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1 or 2)`);
+    if (schema !== 1 && schema !== 2 && schema !== 3) {
+      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1, 2 or 3)`);
       continue;
     }
     const key = `${source.layers}/${schema}`;
@@ -1602,6 +1758,86 @@ export function devboxSettleBeforeSnapshotCommand(): string {
 }
 
 /**
+ * cmux-machine-health on the devbox (images/cmux-vm/machine-health, installed
+ * with cmux-vm-image/machine-health.ts). A clone resumes with its monotonic
+ * clock jumped by the snapshot's age, so a timer running at the snapshot fires
+ * in the clone's first second, beside the daemon start. Its timer is one of
+ * cmux-devbox-boot's HOUSEKEEPING_TIMERS instead: enabled, so it starts at a
+ * cold boot; stopped while parked; started HOUSEKEEPING_DELAY after a clone
+ * binds. The bake's last step before the settle removes the bake pass's files
+ * (a clone has no health file until its own first pass) and proves all of it.
+ */
+export const DEVBOX_MACHINE_HEALTH_PARKED_COMMAND = [
+  "rm -f /run/cmux/machine-health.json /run/cmux/machine-health-state.json",
+  'test "$(systemctl is-enabled cmux-machine-health.timer)" = enabled',
+  "! systemctl is-active --quiet cmux-machine-health.timer",
+  "grep -q '^HOUSEKEEPING_TIMERS=.* cmux-machine-health\\.timer' /usr/local/bin/cmux-devbox-boot",
+  "echo machine-health-parked",
+].join(" && ");
+
+/** cmux-devbox-boot's HOUSEKEEPING_DELAY (`10min`): how long after it binds a clone starts its housekeeping timers. */
+export function devboxHousekeepingDelay(boot = devboxTemplateFile("cmux-devbox-boot")): string {
+  const delay = /^HOUSEKEEPING_DELAY=(\S+)$/m.exec(boot)?.[1];
+  if (!delay) throw new Error("cmux-devbox-boot is missing HOUSEKEEPING_DELAY");
+  return delay;
+}
+
+const kvLines = (stdout: string) => new Map(stdout.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()] as const));
+
+/**
+ * On a clone right after resume: no pass ran yet (`timer=inactive health=absent`)
+ * and the re-arm is pending as cmux-devbox-boot schedules it: its timer
+ * active, firing once HOUSEKEEPING_DELAY after the bind, into its service,
+ * whose command starts cmux-machine-health.timer.
+ */
+export const DEVBOX_MACHINE_HEALTH_RESUME_COMMAND = [
+  "echo timer=$(systemctl is-active cmux-machine-health.timer)",
+  "echo health=$(test -e /run/cmux/machine-health.json && echo present || echo absent)",
+  "echo rearm=$(systemctl is-active cmux-housekeeping-rearm.timer)",
+  "echo rearmdelay=$(systemctl show -p TimersMonotonic --value cmux-housekeeping-rearm.timer)",
+  "echo rearmunit=$(systemctl show -p Unit --value cmux-housekeeping-rearm.timer)",
+  "echo rearmexec=$(systemctl show -p ExecStart --value cmux-housekeeping-rearm.service)",
+].join("; ");
+
+/** Problems in DEVBOX_MACHINE_HEALTH_RESUME_COMMAND's output; none on a clone that resumed parked. */
+export function devboxMachineHealthResumeProblems(stdout: string, delay = devboxHousekeepingDelay()): string[] {
+  const kv = kvLines(stdout);
+  const problems: string[] = [];
+  if (kv.get("timer") !== "inactive") problems.push(`machine-health timer at resume: ${kv.get("timer") || "no answer"} (want inactive until the re-arm)`);
+  if (kv.get("health") !== "absent") problems.push(`machine-health file at resume: ${kv.get("health") || "no answer"} (want absent: the bake's pass rode into the snapshot)`);
+  if (kv.get("rearm") !== "active") problems.push(`housekeeping re-arm at resume: ${kv.get("rearm") || "no answer"} (want active)`);
+  if (!(kv.get("rearmdelay") ?? "").includes(`OnActiveUSec=${delay} `)) problems.push(`housekeeping re-arm delay: ${kv.get("rearmdelay") || "no answer"} (want OnActiveUSec=${delay})`);
+  if (kv.get("rearmunit") !== "cmux-housekeeping-rearm.service") problems.push(`housekeeping re-arm target: ${kv.get("rearmunit") || "no answer"} (want cmux-housekeeping-rearm.service)`);
+  if (!/\bsystemctl start [^;]*\bcmux-machine-health\.timer\b/.test(kv.get("rearmexec") ?? "")) problems.push(`housekeeping re-arm command does not start cmux-machine-health.timer: ${(kv.get("rearmexec") || "no answer").slice(0, 300)}`);
+  return problems;
+}
+
+/**
+ * Before the smoke on a clone: the health timer comes up through the re-arm
+ * itself, its service started by hand instead of waiting out
+ * HOUSEKEEPING_DELAY (`rearmpath=started`), or already by its timer when the
+ * verification ran that long (`rearmpath=fired`, with the watchdogs the same
+ * command turns back on). Nothing else starts the timer on a clone.
+ */
+export const DEVBOX_MACHINE_HEALTH_REARM_COMMAND = [
+  "if systemctl is-active --quiet cmux-machine-health.timer; then echo rearmpath=fired; elif systemctl start cmux-housekeeping-rearm.service; then echo rearmpath=started; else echo rearmpath=start-failed; fi",
+  "for i in $(seq 1 30); do systemctl is-active --quiet cmux-machine-health.timer && break; sleep 1; done",
+  "echo rearmed=$(systemctl is-active cmux-machine-health.timer)",
+  "echo watchdogs=$(systemctl show -p ServiceWatchdogs --value)",
+].join("; ");
+
+/** Problems in DEVBOX_MACHINE_HEALTH_REARM_COMMAND's output; none when the re-arm started the timer. */
+export function devboxMachineHealthRearmProblems(stdout: string): string[] {
+  const kv = kvLines(stdout);
+  const route = kv.get("rearmpath");
+  const problems: string[] = [];
+  if (route !== "started" && route !== "fired") problems.push(`housekeeping re-arm: ${route || "no answer"} (want its service to start)`);
+  if (kv.get("rearmed") !== "active") problems.push(`machine-health timer after the re-arm: ${kv.get("rearmed") || "no answer"} (want active)`);
+  if (kv.get("watchdogs") !== "yes") problems.push(`service watchdogs after the re-arm: ${kv.get("watchdogs") || "no answer"} (want yes)`);
+  return problems;
+}
+
+/**
  * The devbox daemon unit: cmux-devbox-boot supervises the cmux-tui daemon
  * (build-devbox-freestyle.ts header). Its argv and environment are a contract
  * with running machines (docs/cloud-guest-upgrades.md): add, never rename.
@@ -1611,6 +1847,9 @@ export function devboxDaemonUnit(): string {
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
     "After=network.target",
+    // Never give up (as acpmux.service): no start limit, 3 s backing off to 60 s
+    // (RestartSteps/RestartMaxDelaySec: systemd 254+; older ones restart every 3 s).
+    "StartLimitIntervalSec=0",
     "",
     "[Service]",
     "Type=simple",
@@ -1632,7 +1871,9 @@ export function devboxDaemonUnit(): string {
     "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "ExecStart=/usr/local/bin/cmux-devbox-boot",
     "Restart=always",
-    "RestartSec=2",
+    "RestartSec=3",
+    "RestartSteps=5",
+    "RestartMaxDelaySec=60",
     "",
     "[Install]",
     "WantedBy=multi-user.target",

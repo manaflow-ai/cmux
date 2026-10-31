@@ -36,7 +36,13 @@ function isReady(line: string, expected: ReadyEvent): boolean {
   try {
     const event = JSON.parse(line) as Record<string, unknown>;
     const key = expected.event === "hub-ready" ? "socket" : "local_socket";
-    return event?.event === expected.event && event[key] === expected.socket;
+    if (event?.event !== expected.event || event[key] !== expected.socket) return false;
+    if (expected.event === "connection-snapshot") {
+      const connection = event.connection;
+      return typeof connection === "object" && connection !== null &&
+        (connection as Record<string, unknown>).state === "connected";
+    }
+    return true;
   } catch {
     return false;
   }

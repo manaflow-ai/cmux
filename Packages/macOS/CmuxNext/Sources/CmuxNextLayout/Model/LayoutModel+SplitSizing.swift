@@ -14,14 +14,28 @@ extension LayoutModel {
 
     /// The ratio changes splitting `pane` along `axis` needs (empty for
     /// `halve`, or when the pane is not shown here). Compute before the
-    /// split: they name existing splits only.
-    public func splitSizingChanges(splitting pane: PaneID, axis: SplitAxis) -> [SplitRatioChange] {
+    /// split: they name existing splits only. `removing` is a pane the same
+    /// move closes (a dragged tab's emptied pane): the changes are computed
+    /// without it, as the drop preview shows (`DropPreviewLayout`, #22287).
+    public func splitSizingChanges(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> [SplitRatioChange] {
         guard splitSizing == .even, let layout = screen(containing: pane)?.layout else { return [] }
         let tree: SplitNode? = switch layout {
         case let .splits(root): root
         case .columns: layout.column(containing: pane)?.tree(containing: pane)
         }
-        return tree.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
+        let pruned = removing.flatMap { $0 == pane ? nil : tree?.removing($0) } ?? tree
+        return pruned.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
+    }
+
+    /// The ratio intents a tab drop that splits `pane` at `zone` sends once its move landed: the
+    /// ones its drop target previews (`DropPreviewLayout.ratioChanges`), so the panes land where the
+    /// target drew them. Compute before the move. A drop the preview cannot predict (a column with
+    /// rows) sends the split's own sizing.
+    public func dropSizingChanges(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> [SplitRatioChange] {
+        guard let screen = screen(containing: pane), let axis = zone.splitAxis else { return [] }
+        let preview = DropPreviewLayout(splitting: pane, zone: zone, in: screen.layout, removing: removing,
+                                        evenSizing: splitSizing == .even, equalizesClose: !screen.zoomed)
+        return preview?.ratioChanges ?? splitSizingChanges(splitting: pane, axis: axis, removing: removing)
     }
 
     /// Sends `changes` as ended divider intents (after the split succeeded).

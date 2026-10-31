@@ -28,6 +28,32 @@ fn default_open(tr: &Transcript, t: Toggle, show_thoughts: bool) -> bool {
 }
 
 impl App {
+    /// Moves session `id`'s flipped folds with their rows after the transcript removed
+    /// rows (a promoted queued prompt, a steer replaced by its re-run): a fold on a
+    /// removed row goes, and one below it moves up.
+    pub(super) fn follow_removed_rows(&mut self, id: &str) {
+        let Some(tr) = self.transcripts.get_mut(id) else { return };
+        let removed = std::mem::take(&mut tr.removed_items);
+        let Some(set) = self.toggled.get_mut(id) else { return };
+        for pos in removed {
+            *set = set
+                .drain()
+                .filter_map(|t| {
+                    let (i, make): (usize, fn(usize) -> Toggle) = match t {
+                        Toggle::Turn(i) => (i, Toggle::Turn),
+                        Toggle::Group(i) => (i, Toggle::Group),
+                        Toggle::Item(i) => (i, Toggle::Item),
+                    };
+                    match i.cmp(&pos) {
+                        std::cmp::Ordering::Less => Some(t),
+                        std::cmp::Ordering::Equal => None,
+                        std::cmp::Ordering::Greater => Some(make(i - 1)),
+                    }
+                })
+                .collect();
+        }
+    }
+
     fn toggled_set(&self) -> Option<&std::collections::HashSet<Toggle>> {
         self.selected_id().and_then(|id| self.toggled.get(&id))
     }

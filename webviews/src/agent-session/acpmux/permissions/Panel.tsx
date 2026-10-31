@@ -1,14 +1,15 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { pathName } from "../chips/paths";
-import { EditDiff } from "../conversation/EditDiff";
 import { ChevronRight } from "../conversation/icons";
+import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
-import { toolFiles } from "../diff";
-import { toolDiffs } from "../direct";
+import { permissionDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
+import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { ProposedEdits } from "./ProposedEdits";
 
 /// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
@@ -52,9 +53,14 @@ const text = (value: unknown) => (typeof value === "string" && value.trim() ? va
 /// What one request asks, as its row names it: a verb and the command, path, address or pattern
 /// the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
-  const tool = record(item.request.toolCall);
-  const input = record(tool?.rawInput);
-  const kind = text(tool?.kind);
+  const request = record(item.request);
+  const subject = record(request?.subject);
+  const subjectTool = subject?.type === "tool_call" ? record(subject.toolCall) : undefined;
+  const subjectCommand = subject?.type === "command" ? subject : undefined;
+  const requestTitle = text(request?.title) ?? text(request?.description);
+  const tool = record(request?.toolCall) ?? subjectTool;
+  const input = record(tool?.rawInput) ?? subjectCommand;
+  const kind = text(tool?.kind) ?? (subjectCommand ? "execute" : undefined);
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
@@ -75,10 +81,25 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
     verb: named !== undefined ? verbs[kind ?? ""] : undefined,
-    subject: named ?? text(tool?.title) ?? fallback,
+    subject:
+      named ??
+      (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
+      text(subjectCommand?.title) ??
+      requestTitle ??
+      text(tool?.title) ??
+      fallback,
     code: named !== undefined,
     command,
     cwd: text(input?.cwd),
+    scope:
+      text(input?.app) ??
+      text(input?.application) ??
+      text(input?.appName) ??
+      paths[0] ??
+      text(input?.file_path) ??
+      text(input?.path) ??
+      text(input?.url) ??
+      text(input?.cwd),
     paths,
     input: tool?.rawInput,
   };
@@ -103,8 +124,7 @@ function AskRow({
   }, [expandSignal]);
   const detailsId = useId();
   const ask = askOf(item, t("permission.toolRequest"));
-  const diffs = toolDiffs(ask.tool?.content, ask.tool?.locations);
-  const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
+  const diffs = permissionDiffs(ask.tool);
   return (
     <>
       <div className="acpmux-ask-row">
@@ -129,10 +149,12 @@ function AskRow({
         </button>
         {actions}
       </div>
+      {ask.scope && <p className="acpmux-ask-scope">{t("permission.cwd", { path: ask.scope })}</p>}
       {open && (
         <div id={detailsId} className="acpmux-ask-details">
           {ask.command ? (
-            <ShellBlock command={ask.command} />
+            // A command waiting to run shows whole: what is approved is never under a fade.
+            <ShellBlock command={ask.command} whole />
           ) : ask.input !== undefined ? (
             <pre className="acpmux-ask-input">
               {typeof ask.input === "string" ? ask.input : JSON.stringify(ask.input, null, 2)}
@@ -151,9 +173,7 @@ function AskRow({
           <p>{t("permission.reach")}</p>
         </div>
       )}
-      {files.map((file) => (
-        <EditDiff key={file.path} file={file} />
-      ))}
+      <ProposedEdits permissionId={item.permissionId} diffs={diffs} />
     </>
   );
 }
@@ -187,6 +207,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     function respondToPending(decision: PermissionDecision) {
       const current = stateRef.current;
       if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
+      if (decision !== "deny" && current.allowRefused) return;
       const group = pendingRef.current.find(
         (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
       );
@@ -230,6 +251,11 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
   if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
+  // acpmux refuses this reader's group allows (a chat on another machine, whose daemon allows only
+  // from its own app): no Allow or Always that cannot count, and the reason in plain words.
+  const allowRefused = state.allowRefused
+    ? errorMessage({ reason: state.allowRefused }) || t("transport.personRequired")
+    : undefined;
   return (
     <section
       className="acpmux-permission acpmux-permission-panel"
@@ -241,7 +267,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
               {answers
-                .filter(([decision]) => group.decisions.includes(decision))
+                .filter(([decision]) => group.decisions.includes(decision) && (!allowRefused || decision === "deny"))
                 .map(([decision, label]) => (
                   <button
                     key={decision}
@@ -273,10 +299,11 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
             {group.state === "collecting" && <output className="acpmux-ask-note">{t("permission.collecting")}</output>}
             {/* What Always grants, in view while it can be chosen: hidden behind the row, the
                 bigger grant read as the same as Allow (cg-design-judge, 0-16 blind bouts). */}
-            {group.state === "pending" && group.decisions.includes("allow_chat") && (
+            {group.state === "pending" && allowRefused && <output className="acpmux-ask-note">{allowRefused}</output>}
+            {group.state === "pending" && !allowRefused && group.decisions.includes("allow_chat") && (
               <output className="acpmux-ask-note">{t("permission.alwaysScope")}</output>
             )}
-            {group.state === "pending" && !group.decisions.includes("allow_once") && (
+            {group.state === "pending" && !allowRefused && !group.decisions.includes("allow_once") && (
               <output className="acpmux-ask-note">{t("permission.denyOnly")}</output>
             )}
           </fieldset>

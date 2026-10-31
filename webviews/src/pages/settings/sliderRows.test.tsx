@@ -22,6 +22,21 @@ describe("slider rows", () => {
     rowElement(page!.container, key).querySelector<HTMLInputElement>('input[type="range"]')!;
   const field = (key: string) => rowElement(page!.container, key).querySelector<HTMLInputElement>("input.number")!;
 
+  test("Interface Size always offers Reset, and a changed size resets through the owner", async () => {
+    const key = "appearance.metrics.chromeFontSize";
+    page = await renderPage({ path: "/settings/appearance" });
+    const reset = () => rowElement(page!.container, key).querySelector<HTMLButtonElement>(".reset-button")!;
+    expect(reset().getAttribute("aria-hidden")).toBeNull();
+    expect(reset().disabled).toBe(true);
+    await changeValue(slider(key), "16");
+    await fire(slider(key), "change");
+    expect(reset().disabled).toBe(false);
+    await fire(reset(), "click");
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
+    expect(page.store.getSnapshot().rows.get(key)?.customized).toBe(false);
+    expect(reset().disabled).toBe(true);
+  });
+
   test("an unset surface opacity rests on the window's opacity, dimmed, with a badge", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { [OPACITY]: 0.8 } }));
@@ -79,22 +94,43 @@ describe("slider rows", () => {
   test("an opacity write changes neither the theme nor the background", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn", "appearance.theme": "Dracula" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight", "appearance.theme": "Dracula" } },
     });
     await changeValue(slider(OPACITY), "0.55");
     await fire(slider(OPACITY), "pointerup");
     const rows = page.store.getSnapshot().rows;
     expect(rows.get(OPACITY)?.value).toBe(0.55);
-    expect(rows.get("appearance.background")?.value).toBe("goya-saturn");
+    expect(rows.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
     expect(rows.get("appearance.theme")?.value).toBe("Dracula");
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: OPACITY, value: 0.55 }]);
   });
 
-  test("over a background picture the window opacity slider stops at 95%", async () => {
+  test("over a background picture the window opacity slider reaches 100%", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
     });
-    expect(slider(OPACITY).max).toBe("0.95");
+    expect(slider(OPACITY).max).toBe("1");
+  });
+
+  // Leo, 10-20: readability over a picture comes from opacity, blur and glass, never from the
+  // picture, so there is no legibility floor: the slider's whole travel changes the window.
+  test("over a background picture the slider keeps its whole travel", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
+    });
+    // A host that still sends a floor (an older app) does not narrow the slider.
+    const olderHost = { ...page!.provider.host, derived_min: { [OPACITY]: 0.62 } };
+    await run(() => page!.provider.setHost(olderHost));
+    expect(slider(OPACITY).min).toBe("0");
+    expect(slider(OPACITY).max).toBe("1");
+    expect(slider(OPACITY).disabled).toBe(false);
+  });
+
+  test("without a picture the window opacity slider keeps its whole range", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
+    expect(slider(OPACITY).min).toBe("0");
+    expect(slider(OPACITY).max).toBe("1");
   });
 });

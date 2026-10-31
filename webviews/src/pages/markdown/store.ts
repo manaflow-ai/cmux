@@ -15,6 +15,7 @@ import {
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
   MARKDOWN_EDITED_OP,
+  MARKDOWN_HISTORY_OP,
   MARKDOWN_LOAD_REMOTE_IMAGES_OP,
   MARKDOWN_SAVE_OP,
   MARKDOWN_SET_PREFERENCE_OP,
@@ -124,6 +125,8 @@ export class MarkdownStore {
     navigationFailed: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
+  /** The history state the host last heard (`cmux.markdown.history`), as `canBack:canForward`. */
+  private toldHost: string | null = null;
   private readonly listeners = new Set<() => void>();
   private editor: DocumentEditor | null = null;
   /** The text on disk as of the last load or save, and its hash. */
@@ -249,7 +252,7 @@ export class MarkdownStore {
       mode,
     });
     this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
-    this.set({ canBack: false, canForward: false });
+    this.historyMoved();
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(text);
     if (this.recovered !== null) this.edited();
@@ -452,12 +455,38 @@ export class MarkdownStore {
   async navigate(path: string, anchor: string, scroll: number): Promise<HistoryEntry | null> {
     if (!(await this.show(path))) return null;
     const { entries, index } = this.history;
-    if (entries[index]) entries[index].scroll = scroll;
+    const current = entries[index];
     const entry = { path: this.state.config!.path, anchor, scroll: 0 };
+    // The place the page already is (the same anchor again) adds no entry.
+    if (current && current.path === entry.path && current.anchor === anchor) return current;
+    if (current) current.scroll = scroll;
     entries.splice(index + 1, entries.length, entry);
     this.history.index = entries.length - 1;
-    this.set({ canBack: this.history.index > 0, canForward: false });
+    this.historyMoved();
     return entry;
+  }
+
+  /**
+   * Reload (Cmd-R, the omnibar's Reload): pending edits are saved, then the file is read from
+   * disk again and shown in place; the history stays. False when the page cannot (no file, a
+   * conflict, edits that would not save, a read failure).
+   */
+  async reload(): Promise<boolean> {
+    const path = this.state.config?.path;
+    if (this.state.phase !== "ready" || !path) return false;
+    return this.show(path, true);
+  }
+
+  /** The history index moved: `canBack` and `canForward` follow, and the host hears of a change. */
+  private historyMoved(): void {
+    const { entries, index } = this.history;
+    const canBack = index > 0;
+    const canForward = index < entries.length - 1;
+    this.set({ canBack, canForward });
+    const told = `${canBack}:${canForward}`;
+    if (told === this.toldHost || !this.client) return;
+    this.toldHost = told;
+    void this.client.call(MARKDOWN_HISTORY_OP, { canBack, canForward }).catch(() => undefined);
   }
 
   /** A link to another markdown file was followed: name it now, before anything loads. */
@@ -486,15 +515,18 @@ export class MarkdownStore {
     }
     if (entries[index]) entries[index].scroll = scroll;
     this.history.index = index + delta;
-    this.set({ canBack: this.history.index > 0, canForward: this.history.index < entries.length - 1 });
+    this.historyMoved();
     return target;
   }
 
-  /** Shows `path` in the page; true when it is shown (already, or loaded now). */
-  private async show(path: string): Promise<boolean> {
+  /**
+   * Shows `path` in the page; true when it is shown (already, or loaded now). `reread` reads the
+   * file shown now from disk again (Reload).
+   */
+  private async show(path: string, reread = false): Promise<boolean> {
     const config = this.state.config;
     if (!config || !this.client) return false;
-    if (path === config.path) {
+    if (path === config.path && !reread) {
       if (this.state.navigating !== null) this.set({ navigating: null });
       return true;
     }
@@ -526,6 +558,11 @@ export class MarkdownStore {
         readOnly,
         readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
+        // What belongs to this file alone: the previous file's comments, table widths and
+        // remote-image grant must not carry over to the one now shown.
+        remoteImageBase: file.remoteImageBase,
+        tableWidths: file.tableWidths,
+        comments: file.comments,
       },
       readOnly,
       readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,

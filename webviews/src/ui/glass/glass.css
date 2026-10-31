@@ -1,0 +1,235 @@
+/* LIQUID GLASS (plans/cmux-next/glass-lens-DESIGN.md, src/ui/README.md "Liquid glass"). The one glass
+   surface of every first-party page and the agent pane: a surface adds `.ui-glass` and may override
+   any token below on itself. desktop.ts loads this sheet and starts the lens (lens.ts) everywhere.
+
+   - Lens (data-glass="lens", opt-in: the Debug choice glass.lens, or Toggle Liquid Glass Lens in
+     the palette or the Debug menu): the tint, a light frost and a thin top-lit specular rim. While the lens draws the host's wallpaper still behind
+     the glass (data-glass-lens on the root), the frost and the edge bend come from the lens, so the
+     surface drops its own backdrop blur; with no still (no art, a moving wallpaper) it keeps it.
+   - Spectrum: the lens plus a faint red and cyan fringe at the rim.
+   - Plain (data-glass="plain", the default, and what a page draws before the host says anything):
+     the blur glass from before the lens: tint, the shared blur and the thin rim, no specular.
+   - Reduce Transparency (the system's, or data-reduce-transparency from the host): the opaque
+     surface, no blur, the rim only.
+   The tint is a translucent mix of the theme's surface: never opaque, never the accent.
+   appearance.borders none clears every line of the rim. */
+:root {
+  /* The theme surface the tint mixes from (WebTheme.swift: the page color made opaque). */
+  /* glass-opaque-allow: the color --glass-tint mixes from at 40-60%; never painted as a fill itself */
+  --glass-surface: var(--cmux-surface-solid, Canvas);
+  /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
+     clearer (below): the bend, not the frost, says it is glass. */
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  /* The frost inside the glass, a length (the lens blurs by it; the CSS fallback too). */
+  --glass-blur: 2px;
+  /* The light blur the surface itself keeps while the lens draws, so page text under a menu, a
+     hover card or the composer frosts instead of reading crisp through the tint. Small enough that
+     the lens's bend still shows through it. */
+  --glass-frost: 6px;
+  /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
+  --glass-refraction: 22px;
+  /* The specular rim's strength, 0 to 1. */
+  --glass-rim: 1;
+  /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */
+  --glass-dispersion: 0;
+  /* The lines of the rim. --cmux-card-rim is the host's card rim (transparent with borders off). */
+  --glass-edge: var(--cmux-card-rim, color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent));
+  --glass-fringe-red: transparent;
+  --glass-fringe-cyan: transparent;
+  /* A surface's own drop shadow goes here (the shared elevation scale), never a heavy dark one. */
+  --glass-elevation: 0 0 transparent;
+  /* With no still (no art, a moving wallpaper, no host yet) the glass frosts like plain glass. */
+  --glass-backdrop: var(--surface-blur);
+  /* The surface's opaque fill under Reduce Transparency (below): the theme surface unless the
+     surface names its own (a user bubble's grey, the popup surface). */
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--glass-surface);
+  /* Which edges continue into a neighbouring glass (top, bottom, both or none): the lens bends no
+     rim there, so a stack of glass (queued prompts on the composer) reads as one surface. */
+  --glass-join: none;
+}
+
+/* The rim, declared again on each glass: a custom property's var() resolves where it is declared,
+   so a surface's own --glass-rim or --glass-edge reaches its rim only through these. */
+:root,
+.ui-glass {
+  --glass-specular: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(90% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(62% * var(--glass-rim)), transparent)
+  );
+  --glass-shade: light-dark(
+    color-mix(in srgb, black calc(6% * var(--glass-rim)), transparent),
+    color-mix(in srgb, black calc(22% * var(--glass-rim)), transparent)
+  );
+  /* A one-device-pixel top highlight that thins away round the corners, the faint edge all round,
+     a faint lower inner shade, and (Spectrum) a red and a cyan fringe on the sides. */
+  --glass-rim-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
+    inset var(--cmux-hairline, 0.5px) 0 0 0 var(--glass-fringe-red),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 0 var(--glass-fringe-cyan),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+}
+
+:root[data-glass="spectrum"] {
+  --glass-dispersion: 0.35;
+}
+:root[data-glass="spectrum"],
+:root[data-glass="spectrum"] .ui-glass {
+  --glass-fringe-red: light-dark(
+    color-mix(in srgb, rgb(255 70 90) calc(30% * var(--glass-rim)), transparent),
+    color-mix(in srgb, rgb(255 90 110) calc(34% * var(--glass-rim)), transparent)
+  ); /* theme-fixed: the split's warm side, not a theme color */
+  --glass-fringe-cyan: light-dark(
+    color-mix(in srgb, rgb(0 220 255) calc(30% * var(--glass-rim)), transparent),
+    color-mix(in srgb, rgb(0 220 255) calc(34% * var(--glass-rim)), transparent)
+  ); /* theme-fixed: red's complement, the other side of the split; never the accent */
+}
+
+/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
+:root:not([data-glass="lens"], [data-glass="spectrum"]) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]),
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .ui-glass {
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+}
+
+/* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
+   for the page content between the canvas and the glass. */
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
+}
+
+/* A popup is glass of its own: it never inherits the tint of the surface it opens from (the
+   composer's solid card on an opaque window would make a slash or mention menu opaque). */
+.ui-popup.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
+}
+
+:root[data-borders="none"] {
+  --glass-edge: transparent;
+  --glass-rim: 0;
+}
+
+.ui-glass {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+}
+/* A popup's own sheet often paints the solid popup surface on its class (`background:
+   var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
+.ui-popup.ui-glass {
+  background: var(--glass-tint);
+}
+
+/* CHROMIUM OVER THE WINDOW GLASS (Leo 2026-10-22: "we can't be having unstyled main chat panes").
+   Chromium draws a backdrop-filter's blurred copy over the page's own pixels, not in their place.
+   The window glass is not in a see-through page, so that copy is mostly clear and the text under a
+   menu, a hover card, the composer or the Inspector reads crisp through its tint. WebKit's backdrop
+   takes in the window glass, which is opaque, and frosts it. Until the CEF fork's compositor
+   replaces the backdrop, a glass there lays its tint over the theme surface at --glass-underlay, so
+   the text under it fades. Only glass that floats over the page does: a popup, a tooltip, a hover
+   card, or a surface that says so with .ui-glass-floats (the composer, the Inspector). Glass in the
+   page's flow (a user's bubble, a settings card) has nothing under it and keeps its tint, as in
+   WebKit. WebKit (which keeps -webkit-backdrop-filter), an opaque window and the lens (whose canvas
+   is under the glass) keep the tint alone. The strength is the experiment chromium-glass-underlay
+   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). */
+:root {
+  --glass-underlay: 70%;
+}
+:root[data-glass-underlay="none"] {
+  --glass-underlay: 0%;
+}
+:root[data-glass-underlay="light"] {
+  --glass-underlay: 50%;
+}
+:root[data-glass-underlay="heavy"] {
+  --glass-underlay: 85%;
+}
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency])
+      :is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card, .ui-glass-floats).ui-glass {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
+
+/* TOOLTIPS AND HOVER CARDS (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips
+   and hover previews"). Every tooltip (ui/Tooltip.tsx, the title tooltip of ui/titleTooltips.ts, a
+   toolbar hint) and every hover card (ui/Tooltip.tsx AnchoredCard, a chart's tooltip) is this glass:
+   never the solid popup surface or a card fill a page's own class paints (desktop.css .ui-card, a
+   page's link bubble), so the glass wins over one class here. The glass rim is the one edge: the
+   border keeps its width, clear. A tooltip keeps its frost and small tight shadow (below); a hover
+   card keeps elevation 2 (desktop.css .ui-card.ui-glass). Reduce Transparency: the opaque popup surface, as
+   before. webviews/scripts/check-glass-never-opaque.ts fails a tooltip that is solid. */
+.ui-tooltip.ui-glass,
+.ui-title-tooltip.ui-glass {
+  /* glass-opaque-allow: Reduce Transparency's fill only (the rules below apply it under that setting) */
+  --glass-opaque: var(--surface-popup);
+  border-color: transparent;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+}
+/* A hover card's own class may set its border's width (a session card's hairline ring); its colour
+   stays clear over one class more. */
+.ui-tooltip.ui-card.ui-glass {
+  border-color: transparent;
+}
+/* A tooltip carries text over whatever is under it, so its glass is the tooltip frost
+   (desktop.css --tooltip-*: the host's --cmux-tooltip-tint, the least alpha of the popup surface at
+   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) and its stronger
+   blur, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
+   it. Reduce Transparency's !important rules below still make it opaque. A chart's tooltip
+   (pages/chief-usage .cu-tooltip) is a tooltip too. */
+.ui-tooltip.ui-glass:not(.ui-card),
+.ui-hint.ui-card.ui-glass,
+.ui-title-tooltip.ui-glass,
+.cu-tooltip.ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: var(--tooltip-blur);
+  --glass-elevation: var(--tooltip-shadow);
+}
+
+/* Reduce Transparency: the opaque surface, no blur, the rim only (desktop.css's pattern). The
+   surface itself is held too, with !important, so a token a surface sets on itself (a tint, a
+   plain look) can never leave it translucent: its opaque fill is --glass-opaque. */
+@media (prefers-reduced-transparency: reduce) {
+  /* [data-glass] so the mode's own tokens above never outrank it. */
+  :root,
+  :root[data-glass] {
+    --glass-tint: var(--glass-surface);
+    --glass-backdrop: none;
+    --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+    --glass-dispersion: 0;
+  }
+  .ui-glass {
+    --glass-tint: var(--glass-opaque) !important;
+    --glass-backdrop: none !important;
+    --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
+  }
+}
+:root[data-reduce-transparency] {
+  --glass-tint: var(--glass-surface);
+  --glass-backdrop: none;
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  --glass-dispersion: 0;
+}
+:root[data-reduce-transparency] .ui-glass {
+  --glass-tint: var(--glass-opaque) !important;
+  --glass-backdrop: none !important;
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
+}

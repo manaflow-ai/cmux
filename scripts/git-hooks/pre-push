@@ -1,6 +1,7 @@
 #!/bin/bash
 # cmux pre-push hook, installed by scripts/install-git-hooks.sh as a clone-local
 # copy outside the checkout.
+# 0. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
 #    CMUX_WEB_LINT_SKIP_REASON="<the failing check and the base SHA where it also fails>".
@@ -8,7 +9,9 @@
 #    checks of the "cmux-next checks" CI job, ast-grep, SwiftFormat and SwiftLint
 #    on what the push changes and refuses a push that adds a violation. Skip once with
 #    CMUX_NEXT_CHECKS_SKIP_REASON="<check> fails in files this push does not touch".
-# 3. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# 3. Base-merge warning (always, never refuses): scripts/ci/base_merge_warning.py says when the push
+#    merges the base into a branch whose old head still has CI running, which the push cancels.
+# 4. Namespace autofix (opt-in): only when installed with --namespace-fix.
 set -euo pipefail
 
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
@@ -22,12 +25,29 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-# Both checks read git's pushed-refs lines; read them once.
+# Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
+# push to a URL): the checks bound the push's own commits by its refs (cmux-next-checks/push_range.py).
 PUSHED_REFS="$(cat)"
+# Each check reads the refs from a file, never `printf | python`: on a Mac short of pipe memory a write into a
+# pipe blocks for good (git_batch.py), and pushes hung in this hook for up to an hour on 2026-10-28.
+REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cmux-pre-push-refs.XXXXXX")"
+trap 'rm -f "$REFS_FILE"' EXIT
+printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
+PUSHED_REMOTE="${1:-origin}"
+CHECKS="$HOOK_DIR/cmux-next-checks"
+
+# The checks copy is refreshed from the fetched feat-cmux-next before a push to it (refresh_checks.py says why);
+# it never refuses a push.
+REFRESH="$HOOK_DIR/refresh_checks.py"
+if [[ -f "$REFRESH" ]]; then
+    "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
+        --remote-url "${2:-}" < "$REFS_FILE" || true
+fi
 
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 if [[ -f "$WEB_LINT" ]]; then
-    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT"
+    "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
+        --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
 else
     echo "pre-push: web lint helper is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
@@ -35,11 +55,18 @@ fi
 
 GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
 if [[ -f "$GATE" ]]; then
-    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$GATE" --pre-push --repo "$REPO_ROOT" \
-        --trusted-scripts-dir "$HOOK_DIR/cmux-next-checks"
+    # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
+    CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
+        --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
 else
     echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
+fi
+
+# A base merge pushed while the old head's CI runs cancels it: warn, never refuse.
+BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"
+if [[ -f "$BASE_MERGE_WARNING" ]]; then
+    "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" < "$REFS_FILE" || true
 fi
 
 SCANNER="$HOOK_DIR/lint_swift_namespaces.py"

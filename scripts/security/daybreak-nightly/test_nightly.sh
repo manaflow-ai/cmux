@@ -49,4 +49,21 @@ grep -q 'cmux notification create --level error' "$FAKE_LOG" || fail "no notific
 : > "$FAKE_LOG"
 bash "$HERE/nightly.sh" 2>/dev/null || fail "second run failed"
 ! grep -q 'demo' "$FAKE_LOG" || fail "second run audited an empty range"
+# A hung worker is stopped at the lane timeout, the run fails, and the state stays put.
+echo 3 > "$T/work/a/x"; git -C "$T/work" -c user.email=t@t -c user.name=t commit -qam "touch a again"; git -C "$T/work" push -q origin main
+cat > "$T/bin/sr" <<'SR'
+#!/bin/bash
+# Like the real sr: a child process does the work.
+sleep 600 &
+echo $! > "$FAKE_CHILD"
+wait
+SR
+export FAKE_CHILD="$T/child.pid"
+before="$(cat "$T/state/last-demo.sha")"
+start=$(date +%s)
+if CMUX_DAYBREAK_LANE_TIMEOUT=2 bash "$HERE/nightly.sh" 2>/dev/null; then fail "hung worker run reported success"; fi
+[[ $(( $(date +%s) - start )) -lt 60 ]] || fail "lane timeout did not stop the hung worker"
+[[ "$(cat "$T/state/last-demo.sha")" == "$before" ]] || fail "state advanced past an unaudited range"
+sleep 1
+! kill -0 "$(cat "$FAKE_CHILD")" 2>/dev/null || { kill "$(cat "$FAKE_CHILD")"; fail "the hung worker's child process was left running"; }
 echo "PASS"

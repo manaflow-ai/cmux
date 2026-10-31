@@ -1,15 +1,20 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextHistory
 import CmuxNextHome
+import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextOnboarding
 import CmuxNextPages
@@ -27,10 +32,15 @@ import Foundation
 /// store's validation and the exports agree.
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
-        DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + [AgentPaneTunables.sessionRail.descriptor]
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all
+        // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
+        ChiefViewsPage.tunables +
+        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+            + [AgentPaneTunables.inspector.descriptor]
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + CloudTunables.all
+            + HangFileTunables.all + HostPressureTunables.all
+            + BrowserHostTunables.all
     }
 }
 
@@ -46,6 +56,12 @@ final class DebugSettingsService: InternalPageProvider {
     unowned let services: AppServices
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
+    /// The React page of the window and of each tab (by key), closed (``PageWebView/close()``)
+    /// with its window or tab. Only that close ends the page's subscriptions: the router's event
+    /// handler holds the ``DebugSettingsPageProvider``, so a page left open keeps following the
+    /// hang files and rebuilding its state for a page nobody shows.
+    private var windowPage: PageWebView?
+    private var tabPages: [String: PageWebView] = [:]
     /// Where overrides persist (nil before launch or without dev tools).
     private(set) var fileURL: URL?
 
@@ -67,11 +83,23 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
+        BrowserResizeTunables.registerRenames(store)
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
+        services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
+        // The store loads the file off the main actor, after the first icons draw: the family is read here.
+        IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).
+    nonisolated static func launchIconFamily(_ url: URL?) -> IconFamily {
+        // concurrency-allow: one small Debug Settings file, read once at launch before the first icon draws
+        guard let url, let data = try? Data(contentsOf: url) else { return .pack }
+        return (TunableFile.decode(data)[IconFamily.tunable.key] as? String).flatMap(IconFamily.init(rawValue:)) ?? .pack
     }
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
@@ -108,11 +136,16 @@ final class DebugSettingsService: InternalPageProvider {
         }
         if controller == nil {
             let page = webPage(model: model)
+            windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
-                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
+                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } },
+                                                           activeLook: services.activeLook)
             controller.onClose = { [weak self] in
-                self?.controller = nil
-                self?.dropModelWhenUnused()
+                guard let self else { return }
+                windowPage?.close()
+                windowPage = nil
+                self.controller = nil
+                dropModelWhenUnused()
             }
             self.controller = controller
         }
@@ -144,6 +177,7 @@ final class DebugSettingsService: InternalPageProvider {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if let page = webPage(model: model) {
+            tabPages.updateValue(page, forKey: key)?.close() // called once per tab; a replaced page is no tab's view
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
@@ -155,7 +189,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
-        let provider = DebugSettingsPageProvider(model: model)
+        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .debugSettings, routes: routes) else { return nil }
@@ -164,6 +198,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        tabPages.removeValue(forKey: key)?.close()
         dropModelWhenUnused()
     }
 }

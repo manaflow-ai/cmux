@@ -3,6 +3,7 @@ import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -19,11 +20,28 @@ enum SidebarDocWiring {
                                     unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
-    static func start(_ services: AppServices, layout: SidebarLayoutService) {
+    /// The document has applied a change `shown` does not show yet (rebuilt a hop later), and `shown` does not place
+    /// `workspace` (of `session`): `sections` would list it after every placed row for that hop. Only while `shown`
+    /// lags: a workspace a current projection does not place (its adopt still on the way, or refused) lists its own
+    /// row, so a pending row never stands in for it for long.
+    static func awaitsPlacement(_ workspace: WorkspaceModel, session: String?) -> Bool {
+        guard let store = SidebarDocStore.current, let shown = store.shown, store.version != store.shownVersion,
+              let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
+        return shown.items[ref] == nil
+    }
+
+    /// `wrapping`: a test seam over the home daemon's document remote (a live-daemon test holds a reply).
+    static func start(_ services: AppServices, layout: SidebarLayoutService,
+                      wrapping: @MainActor (any SidebarDocRemote) -> any SidebarDocRemote = { $0 }) {
         let local = services.machines.local, machines = services.machines
-        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
-        let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
+        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
+        let store = SidebarDocStore(remote: wrapping(DaemonSidebarDocRemote(connection: { local.connection }, serves: serves)))
         SidebarDocStore.current = store
+        // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
+        // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.
+        docSections.placesNewRowsFirst = { [weak services] in
+            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
+        }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
@@ -34,6 +52,10 @@ enum SidebarDocWiring {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        if let data = local.launchSnapshotSidebarDoc {
+            local.launchSnapshotSidebarDoc = nil // read once: the daemon owns the document from here on
+            docMachines(machines).showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout.docLayout = $0 }
+        }
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
@@ -82,7 +104,13 @@ enum SidebarDocWiring {
 
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
-    static func handle(_ intent: SidebarIntent, bridge: SidebarBridge) -> Bool {
-        docMachines(bridge.services.machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace)
+    static func handle(_ intent: SidebarIntent, bridge: SidebarBridge, undoable: Bool = true) -> Bool {
+        let machines = bridge.services.machines
+        guard docMachines(machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace,
+                                           undoable: undoable)
+        else { return false }
+        // A pin is the home daemon's document; the workspace's own daemon (any session) gets the flag too.
+        if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(machines).mirror(ids.map(\.rawValue), pinned: pinned) }
+        return true
     }
 }

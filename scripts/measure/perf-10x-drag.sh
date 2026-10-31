@@ -5,17 +5,22 @@
 # (perf-10x-drag-daemon.py against the published cmux-tui of this ref).
 # Run alone on a worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-drag.sh --ref SHA
-#     [--arg=rounds=N] [--arg=config=release] [--arg=daemon=0] [--arg=swift=0]
+#     [--arg=rounds=N] [--arg=config=release] [--arg=daemon=0] [--arg=swift=0] [--arg=panes=1]
+# panes=1 also runs PaneMotionBench (split, Cmd-Shift-D, close, New Column, zoom at 2, 8 and 30 panes,
+# stub content; PANE-BENCH lines); panes=only runs it alone.
 set -euo pipefail
 rounds=3
 daemon=1
 swift=1
+panes=0
 for arg in "$@"; do
   case "$arg" in
     rounds=*) rounds="${arg#rounds=}" ;;
     config=debug|config=release) export CMUX_SWIFT_SUITE_CONFIGURATION="${arg#config=}" ;;
     daemon=0|daemon=1) daemon="${arg#daemon=}" ;;
     swift=0|swift=1) swift="${arg#swift=}" ;;
+    panes=0|panes=1) panes="${arg#panes=}" ;;
+    panes=only) panes=1; daemon=0; swift=0 ;;
     *) echo "perf-10x-drag.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -48,5 +53,8 @@ if [ "$swift" = 1 ]; then
   CMUX_DRAG_BENCH=1 CMUX_DRAG_BENCH_ROUNDS="$rounds" \
     ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext LayoutDragBench || status=$?
   echo "DRAG-LOAD swift-after $(uptime | sed 's/.*load averages*: //')"
+fi
+if [ "$panes" = 1 ]; then
+  CMUX_PANE_BENCH=1 ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext PaneMotionBench || status=$?
 fi
 exit "$status"

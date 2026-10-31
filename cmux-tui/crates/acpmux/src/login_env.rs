@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -89,6 +90,8 @@ struct State {
     /// Names of secret variables the login shell sets (values not cached).
     secret_names: Vec<String>,
     last_check: Option<Instant>,
+    /// Machine-env metadata from the last successful shell import.
+    applied_machine_stamp: Option<String>,
 }
 
 static STATE: RwLock<State> = RwLock::new(State {
@@ -97,9 +100,18 @@ static STATE: RwLock<State> = RwLock::new(State {
     fingerprint: None,
     secret_names: Vec::new(),
     last_check: None,
+    applied_machine_stamp: None,
 });
+
+/// Names delivered in `~/.config/cmux/machine-secrets.env` at the last shell
+/// import (`cmux cloud deliver-secrets`): the person sent them to this
+/// machine for its shells and agents, so they pass the allow-list. Its own
+/// lock, never `STATE`'s: the allow-list runs while `STATE` is held.
+static DELIVERED: RwLock<Vec<String>> = RwLock::new(Vec::new());
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static REFRESHING: AtomicBool = AtomicBool::new(false);
+/// Coalesce concurrent agent starts awaiting a changed machine secret file.
+static MACHINE_REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Whether this daemon reads the login environment: always, unless
 /// `ACPMUX_LOGIN_ENV=0`.
@@ -227,6 +239,11 @@ async fn import_once(read: &str) -> bool {
     let started = Instant::now();
     let before = pairs();
     let marker = run_marker();
+    // Capture before reading the shell. import() retries when files change mid-read.
+    let machine_stamp = machine_files_stamp();
+    // Names only, read with the stamp: the values still come from the shell.
+    let delivered = delivered_names();
+    *DELIVERED.write().unwrap_or_else(|e| e.into_inner()) = delivered;
     let output = run_shell(&shell, &marker).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
@@ -251,10 +268,34 @@ async fn import_once(read: &str) -> bool {
     let added = imported.vars.len();
     let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
     st.imported = Some(imported);
+    st.applied_machine_stamp = machine_stamp;
     st.outcome = Outcome::Shell;
     drop(st);
     tracing::info!(shell = %shell, added, ms = elapsed.as_millis() as u64, "imported login shell environment");
     pairs() != before
+}
+
+/// A delivered cloud secret file may have changed after acpmux cached the
+/// shell environment. A new harness must use the new values, or refuse to
+/// start rather than inheriting a stale, possibly revoked secret.
+/// This reads only file metadata; secret values remain shell-owned.
+pub async fn machine_env_fresh_before_spawn() -> bool {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return true;
+    }
+    let applied = || STATE.read().unwrap_or_else(|e| e.into_inner()).applied_machine_stamp.clone();
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    let _one = MACHINE_REFRESH.lock().await;
+    // The watcher or an earlier spawn may already have completed this import.
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    import().await;
+    let current = machine_files_stamp();
+    let st = STATE.read().unwrap_or_else(|e| e.into_inner());
+    st.outcome == Outcome::Shell && st.applied_machine_stamp == current
 }
 
 /// Called before each agent spawn: when the startup files changed since the
@@ -429,6 +470,31 @@ pub fn agent_path() -> Option<OsString> {
     joined.or(path)
 }
 
+/// A profile's, preset's or session's own PATH `own`, then every
+/// [`agent_path`] directory it does not list, each directory once. A PATH a
+/// preset saved (the Chief's built-in subagent preset takes the daemon's PATH
+/// when it is installed, which can be before the login import, or a launchd
+/// start's bare `/usr/bin:/bin:/usr/sbin:/sbin`) must not hide the login
+/// PATH's tools: the harness is looked up on this PATH (`claude`), and so is
+/// every tool it runs.
+pub fn with_agent_path(own: &str) -> String {
+    let login = agent_path();
+    let login =
+        login.iter().flat_map(std::env::split_paths).map(|p| p.to_string_lossy().into_owned());
+    merge_paths(own.split(':').map(str::to_owned).chain(login))
+}
+
+/// The non-empty entries of `dirs`, first occurrence kept, joined with `:`.
+fn merge_paths(dirs: impl Iterator<Item = String>) -> String {
+    let mut merged: Vec<String> = Vec::new();
+    for dir in dirs {
+        if !dir.is_empty() && !merged.contains(&dir) {
+            merged.push(dir);
+        }
+    }
+    merged.join(":")
+}
+
 /// The app's bundled `cmux` (BundledCLIEnvironment.swift).
 pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
 
@@ -538,6 +604,10 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 ///   VERTEX_REGION_* (not secret); with only a profile's switch, the
 ///   non-secret ones of those.
 /// - Codex: OPENAI_*, CODEX_*.
+/// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
+///   passes only on the local spawn paths (`pairs_for`), never through this
+///   rule, so nested-session restoration (`nested_overrides`), `${env:VAR}`
+///   references and remote-origin launches never gain it.
 ///
 /// Known limit: the family comes from the profile (`config::derive_family`),
 /// and any local client can add a profile (an agent through ACPMUX_SOCKET).
@@ -597,6 +667,11 @@ pub fn allowed_with(
     }
 }
 
+/// A name delivered to this machine's secrets file (`DELIVERED`).
+fn delivered(key: &str) -> bool {
+    DELIVERED.read().unwrap_or_else(|e| e.into_inner()).iter().any(|n| n == key)
+}
+
 fn extra_exact(key: &str) -> bool {
     EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).iter().any(|n| n == key)
 }
@@ -607,14 +682,21 @@ fn extra_prefix(key: &str) -> bool {
     })
 }
 
-/// Login keys the daemon itself reads (routing), passed to a child only
+/// Login keys the daemon itself reads (routing and installation discovery), passed to a child only
 /// when the allow-list passes them.
-const INTERNAL: [&str; 2] = ["SUBROUTER_URL", "ACPMUX_CODEROUTER_CLAUDE_ROUTE"];
+const INTERNAL: [&str; 5] = [
+    "SUBROUTER_URL",
+    "ACPMUX_CODEROUTER_CLAUDE_ROUTE",
+    "BUN_INSTALL_GLOBAL_DIR",
+    "BUN_INSTALL_BIN",
+    "XDG_CONFIG_HOME",
+];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
 /// some family (its Bedrock or Vertex condition aside), or read by the daemon.
 fn storable(key: &str, value: &str) -> bool {
     INTERNAL.contains(&key)
+        || delivered(key)
         || allowed(key, value, None)
         || allowed(key, value, Some("codex"))
         || ["ANTHROPIC_", "CLAUDE_", "DISABLE_", "AWS_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_"]
@@ -637,7 +719,13 @@ fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
-    pairs().into_iter().filter(|(k, v)| allowed_with(k, v, family, profile)).collect()
+    // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
+    // every local child: the person sent it for this machine's shells and
+    // agents. Remote-origin launches never call this (`apply_remote_tokio`).
+    pairs()
+        .into_iter()
+        .filter(|(k, v)| allowed_with(k, v, family, profile) || delivered(k))
+        .collect()
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
@@ -653,6 +741,45 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
         i.vars.iter().filter(|(k, _)| crate::config::is_nested_claude_key(k)).cloned().collect();
     drop(st);
     nested.into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
+}
+
+/// The environment a harness of `family` with the profile env `profile`
+/// starts with, as `harness_health::probe::run_for` prepares it: the
+/// daemon's own (less a nested Claude Code session's keys), the
+/// allow-listed login values over it, then `profile`. For sign-in checks
+/// that read the environment instead of spawning; the values stay in this
+/// process's memory.
+pub fn effective_for(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let nested = std::env::var_os("CLAUDECODE").is_some();
+    layered(
+        std::env::vars(),
+        nested,
+        pairs_for(family, Some(profile)),
+        nested_overrides(family),
+        profile,
+    )
+}
+
+/// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
+/// dropped when `nested`), then `login`, then `restored`, then `profile`.
+pub(crate) fn layered(
+    daemon: impl IntoIterator<Item = (String, String)>,
+    nested: bool,
+    login: Vec<(String, String)>,
+    restored: Vec<(String, String)>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut env: BTreeMap<String, String> = daemon.into_iter().collect();
+    env.extend(login);
+    if nested {
+        env.retain(|k, _| !crate::config::is_nested_claude_key(k));
+    }
+    env.extend(restored);
+    env.extend(profile.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env
 }
 
 /// Apply the allow-listed login environment every child gets (PATH,
@@ -685,6 +812,22 @@ pub fn apply_tokio_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
+}
+
+/// The fixed login-derived subset a remote-origin harness may receive.
+///
+/// Only the resolved executable search path crosses this boundary. The
+/// person's `loginEnvAllow`, provider variables, proxy variables and shell
+/// startup layer are local authority and are never inherited by a remote
+/// process. A remote profile may still name an explicit `${env:...}` value;
+/// resolving that reference is the profile owner's authorization.
+pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
 }
 
 /// Same, for std's process builder.
@@ -704,6 +847,43 @@ pub fn apply_std_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
+}
+
+/// The app's URL opener next to its bundled CLI (`<Resources>/bin/cmux-open-url`,
+/// scripts/cmux-next/url-open), by the bare name an agent finds first on [`agent_path`].
+const URL_OPENER: &str = "cmux-open-url";
+
+/// The `BROWSER` an agent gets: the app's URL opener, as the app's terminals get
+/// (BundledCLIEnvironment.swift), so a sign-in or device-code page a tool opens
+/// (`gh auth login`, `aws sso login`, Python's webbrowser, `open <url>`) lands in a
+/// cmux browser tab and not in the default browser. Set before the agent's shells
+/// run the user's files, so a `.zprofile` that sets `BROWSER=open` only when it is
+/// unset (prezto's stock one) keeps it. `None` when this daemon already has a
+/// `BROWSER` or the person added `BROWSER` to `loginEnvAllow` (theirs wins), or
+/// without a bundled CLI whose bin dir holds an executable opener (an older app).
+pub fn agent_browser_env() -> Option<&'static str> {
+    if std::env::var_os("BROWSER").is_some_and(|v| !v.is_empty()) || extra_exact("BROWSER") {
+        return None;
+    }
+    let bin = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(PathBuf::from)
+        .filter(|cli| cli.is_absolute())
+        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))?;
+    is_executable(&bin.join(URL_OPENER)).then_some(URL_OPENER)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// The app's agent zsh layer, `<Resources>/cmux-cli-path/zsh-agent`, next to
@@ -862,7 +1042,9 @@ fn cache_path() -> PathBuf {
 }
 
 fn load_cache() -> Option<Cache> {
-    let bytes = std::fs::read(cache_path()).ok()?;
+    let mut file = crate::config::private_state_file(&cache_path()).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
     (cache.version == CACHE_VERSION).then_some(cache)
 }
@@ -872,7 +1054,8 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     let mut vars = BTreeMap::new();
     let mut secret_names = Vec::new();
     for (k, v) in login {
-        if is_secret(k, v) {
+        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`).
+        if is_secret(k, v) || delivered(k) {
             secret_names.push(k.clone());
         } else {
             vars.insert(k.clone(), v.clone());
@@ -891,6 +1074,120 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
         tracing::warn!("login env cache: {e:#}");
     }
+}
+
+/// Files created by cloud apply-machine-config and deliver-secrets. Their
+/// metadata is enough to detect delivery, rotation and deletion; never read
+/// or hash a credential value on the spawn decision path.
+fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
+    let mut any = false;
+    let mut stamp = String::new();
+    for name in ["machine.env", "machine-secrets.env"] {
+        let path = home.join(".config/cmux").join(name);
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) => {
+                any = true;
+                let kind = if meta.is_file() {
+                    'f'
+                } else if meta.file_type().is_symlink() {
+                    'l'
+                } else {
+                    'o'
+                };
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                // A delivery uses atomic replacement: preserve the identity change
+                // even for a same-length secret written within one mtime tick.
+                #[cfg(unix)]
+                let identity = {
+                    use std::os::unix::fs::MetadataExt as _;
+                    format!("{}:{}:{}:{}", meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec())
+                };
+                #[cfg(not(unix))]
+                let identity = String::new();
+                stamp.push_str(&format!("{name}:{kind}:{}:{modified}:{identity};", meta.len()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                stamp.push_str(&format!("{name}:absent;"));
+            }
+            Err(e) => {
+                any = true;
+                stamp.push_str(&format!("{name}:error:{:?};", e.kind()));
+            }
+        }
+    }
+    any.then_some(stamp)
+}
+
+/// The largest secrets file read for its names, the applier's limit too.
+const MAX_SECRETS_FILE: u64 = 4 << 20;
+
+/// The names `export NAME=` in `<home>/.config/cmux/machine-secrets.env`,
+/// the receiver's format. Only a regular file of this user, opened without
+/// following a link or blocking on a FIFO, as the applier reads it. The
+/// buffer holding the values is zeroed when dropped; no value is kept.
+fn delivered_names_in(home: &std::path::Path) -> Vec<String> {
+    use std::io::Read as _;
+    let path = home.join(".config/cmux/machine-secrets.env");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let Ok(file) = options.open(&path) else { return Vec::new() };
+    let Ok(meta) = file.metadata() else { return Vec::new() };
+    if !meta.is_file() || meta.len() > MAX_SECRETS_FILE {
+        return Vec::new();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if meta.uid() != unsafe { libc::getuid() } {
+            return Vec::new();
+        }
+    }
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    if file.take(MAX_SECRETS_FILE).read_to_end(&mut bytes).is_err() {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = bytes
+        .split(|b| *b == b'\n')
+        .filter_map(|line| line.strip_prefix(b"export "))
+        .filter_map(|rest| {
+            let end = rest.iter().position(|b| *b == b'=')?;
+            let name = &rest[..end];
+            let valid = name.first().is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+                && name.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_');
+            valid.then(|| String::from_utf8_lossy(name).into_owned())
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn delivered_names() -> Vec<String> {
+    let home =
+        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    delivered_names_in(&home)
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's).
+pub fn machine_stamp() -> Option<String> {
+    machine_files_stamp()
+}
+
+fn machine_files_stamp() -> Option<String> {
+    let home =
+        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    machine_files_stamp_in(&home)
 }
 
 /// The startup files and tool-manager configs a login shell reads: path,
@@ -950,6 +1247,9 @@ fn startup_files() -> Vec<PathBuf> {
         ".config/direnv/direnvrc",
         ".nvmrc",
         ".config/claude/env",
+        // Both machine configuration and delivered secrets can change after daemon startup.
+        ".config/cmux/machine.env",
+        ".config/cmux/machine-secrets.env",
     ] {
         files.push(home.join(f));
     }
@@ -960,4 +1260,137 @@ fn startup_files() -> Vec<PathBuf> {
     }
     files.push(PathBuf::from(&shell));
     files
+}
+
+#[cfg(test)]
+mod machine_file_tests {
+    use super::{DELIVERED, allowed, delivered_names_in, machine_files_stamp_in, startup_files};
+
+    /// A delivered name is not on the allow-list itself: only the local
+    /// spawn paths (`pairs_for`) add it, so nested-session restoration and
+    /// remote-origin launches, which go through `allowed`, never get it.
+    #[test]
+    fn delivered_names_stay_off_the_allow_list() {
+        let before = std::mem::replace(
+            &mut *DELIVERED.write().unwrap(),
+            vec!["CLAUDE_CODE_OAUTH_TOKEN".into(), "DEMO_KEY".into()],
+        );
+        assert!(!allowed("DEMO_KEY", "dummy", None));
+        assert!(!allowed("DEMO_KEY", "dummy", Some("codex")));
+        assert!(!allowed("CLAUDE_CODE_OAUTH_TOKEN", "dummy", None));
+        *DELIVERED.write().unwrap() = before;
+    }
+
+    /// Only the names of a delivered file, in the receiver's format; a link
+    /// or a missing file names nothing.
+    #[test]
+    fn delivered_names_reads_only_export_names() {
+        let dir = tempfile::tempdir().expect("temp home");
+        let conf = dir.path().join(".config/cmux");
+        std::fs::create_dir_all(&conf).expect("config dir");
+        assert!(delivered_names_in(dir.path()).is_empty());
+        let secrets = conf.join("machine-secrets.env");
+        std::fs::write(
+            &secrets,
+            b"export DEMO_KEY='dummy-1'\nexport _OTHER2='a=b'\nexport 9BAD='x'\n# export NOTE='x'\nexport DEMO_KEY='dummy-2'\n",
+        )
+        .expect("deliver");
+        assert_eq!(delivered_names_in(dir.path()), vec!["DEMO_KEY", "_OTHER2"]);
+        #[cfg(unix)]
+        {
+            let real = dir.path().join("elsewhere.env");
+            std::fs::rename(&secrets, &real).expect("move");
+            std::os::unix::fs::symlink(&real, &secrets).expect("link");
+            assert!(delivered_names_in(dir.path()).is_empty());
+        }
+    }
+
+    #[test]
+    fn login_watch_includes_delivered_machine_files() {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(dirs::home_dir)
+            .unwrap_or_default();
+        let watched = startup_files();
+        for name in ["machine.env", "machine-secrets.env"] {
+            assert!(watched.contains(&home.join(".config/cmux").join(name)));
+        }
+    }
+
+    #[test]
+    fn stamp_changes_for_delivery_rotation_and_revocation() {
+        let dir = tempfile::tempdir().expect("temp home");
+        let conf = dir.path().join(".config/cmux");
+        std::fs::create_dir_all(&conf).expect("config dir");
+        let env = conf.join("machine.env");
+        let secrets = conf.join("machine-secrets.env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+        std::fs::write(&env, b"export RUN_MODE='dev'\n").expect("write machine env");
+        let applied = machine_files_stamp_in(dir.path());
+        assert!(applied.is_some());
+        std::fs::write(&secrets, b"export SESSION_KEY='dummy-secret-1'\n").expect("deliver");
+        let delivered = machine_files_stamp_in(dir.path());
+        assert_ne!(delivered, applied);
+        std::fs::write(&secrets, b"export SESSION_KEY='different-dummy-secret'\n").expect("rotate");
+        let rotated = machine_files_stamp_in(dir.path());
+        assert_ne!(rotated, delivered);
+        #[cfg(unix)]
+        {
+            // Atomic replace with the same size changes the file identity.
+            let next = conf.join("replacement");
+            std::fs::write(&next, b"export SESSION_KEY='same-length-secret-001'\n")
+                .expect("prepare replacement");
+            let before = machine_files_stamp_in(dir.path());
+            assert_eq!(
+                std::fs::metadata(&next).expect("replacement").len(),
+                std::fs::metadata(&secrets).expect("old value").len(),
+            );
+            std::fs::rename(&next, &secrets).expect("atomic replace");
+            assert_ne!(machine_files_stamp_in(dir.path()), before);
+        }
+        std::fs::remove_file(&secrets).expect("revoke");
+        assert_eq!(machine_files_stamp_in(dir.path()), applied);
+        std::fs::remove_file(&env).expect("remove machine env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+    }
+}
+
+#[cfg(test)]
+mod effective_tests {
+    use super::layered;
+    use std::collections::BTreeMap;
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// A sign-in check reads what the agent would get (hq#2569 #2): a token or
+    /// a `CODEX_HOME` exported only in the login shell counts, the profile's
+    /// env wins, and a nested Claude Code session's keys do not leak in.
+    #[test]
+    fn layers_daemon_login_and_profile_like_a_spawn() {
+        let profile = BTreeMap::from([("CODEX_HOME".to_owned(), "/profile/codex".to_owned())]);
+        let env = layered(
+            pairs(&[("HOME", "/u"), ("CODEX_HOME", "/daemon/codex"), ("OPENAI_BASE_URL", "d")]),
+            false,
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login"), ("OPENAI_BASE_URL", "login")]),
+            Vec::new(),
+            &profile,
+        );
+        assert_eq!(env["HOME"], "/u");
+        assert_eq!(env["CODEX_HOME"], "/profile/codex");
+        assert_eq!(env["OPENAI_BASE_URL"], "login");
+        assert_eq!(env["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+
+        let nested = layered(
+            pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_API_KEY", "session"), ("HOME", "/u")]),
+            true,
+            Vec::new(),
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login")]),
+            &BTreeMap::new(),
+        );
+        assert!(!nested.contains_key("ANTHROPIC_API_KEY"));
+        assert_eq!(nested["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+        assert_eq!(nested["HOME"], "/u");
+    }
 }

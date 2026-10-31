@@ -12,7 +12,9 @@ steps' screenshots inline and the rest folded. With no tour output, `--note`
 says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
 is deleted on the first write.
 
-Uploads go through scripts/pr-media.py's contents-API writer. Nothing is
+Uploads go through scripts/pr-media.py's git writer, after its
+privacy check (scripts/ci/pr_media_privacy.py) has passed every file of the
+tour: one refused file uploads none of that tour's media. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run
 posts its own.
 """
@@ -42,8 +44,14 @@ VIDEO_SIZE = (1280, 800)
 MAX_FRAMES = 600
 GIF_WIDTHS = (720, 560, 440)
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?\.png")
+# A step's main-window shot, or one of its other windows (tour.py: <shot>--w<window number>).
+SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1,9})?\.png")
+# Other-window shots one tour uploads at most (each is a commit on pr-media).
+MAX_WINDOW_SHOTS = 20
+WINDOW_KIND = re.compile(r"[A-Za-z0-9._-]{1,40}")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
+# An ok step whose shot no `expect` checked (tour.py's `checked`): it ran, but nothing read the screen.
+UNCHECKED_TEXT = "ok, unchecked (no expect)"
 
 
 def load_pr_media() -> Any:
@@ -100,6 +108,14 @@ def clean_step(step: dict[str, Any]) -> dict[str, Any]:
         "detail": str(step.get("detail") or "")[:500],
         "command": str(step.get("command") or "")[:500],
         "shot": step["shot"] if isinstance(step.get("shot"), str) else "",
+        # False when no `expect` checked the step; absent in manifests from before tour.py wrote it.
+        **({"checked": step["checked"]} if isinstance(step.get("checked"), bool) else {}),
+        # The step's other windows (floating panels, popovers, sheets), each a shot tour.py wrote.
+        "windows": [
+            {"shot": window["shot"], "kind": window["kind"] if WINDOW_KIND.fullmatch(str(window.get("kind"))) else "window"}
+            for window in (step.get("windows") if isinstance(step.get("windows"), list) else [])[:8]
+            if isinstance(window, dict) and isinstance(window.get("shot"), str) and SHOT_PATH.fullmatch(window["shot"])
+        ],
     }
 
 
@@ -120,6 +136,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     if len(manifest.get("frames") or []) < 2 or not shutil.which("ffmpeg"):
         return None, None
     mp4 = into / "tour.mp4"
+    env = pr_media.tool_env()
     done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
                 "-i", str(directory / "frames/frame-%05d.jpg"),
                 "-frames:v", str(MAX_FRAMES),
@@ -127,20 +144,25 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
-               capture_output=True, text=True)
+               capture_output=True, text=True, env=env)
     if done.returncode != 0 or not mp4.is_file():
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
         return None, None
     gif = into / "tour.gif"
     for width in GIF_WIDTHS:
-        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True)
+        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True, env=env)
         if done.returncode == 0 and gif.is_file() and gif.stat().st_size <= pr_media.INLINE_MAX_BYTES - 512 * 1024:
             return mp4, gif
     return mp4, None
 
 
+def unchecked(step: dict[str, Any]) -> bool:
+    """An ok step with a shot that no `expect` checked."""
+    return step.get("status") == "ok" and bool(step.get("shot")) and step.get("checked") is False
+
+
 def step_row(step: dict[str, Any]) -> str:
-    status = STATUS_TEXT.get(step.get("status", ""), "")
+    status = UNCHECKED_TEXT if unchecked(step) else STATUS_TEXT.get(step.get("status", ""), "")
     detail = f": {cell(step['detail'])}" if step.get("detail") else ""
     # A code span cannot hold its own backticks, and inside one nothing else is Markdown.
     one_line = re.sub(r"[\r\n]+", " ", str(step.get("command") or "")).replace("`", "'")
@@ -163,10 +185,19 @@ def image(url: str, title: str, width: int) -> str:
     return f'<img src="{html.escape(url, quote=True)}" alt="{html.escape(title, quote=True)}" width="{width}">'
 
 
+def step_images(step: dict[str, Any], urls: dict[str, str]) -> str:
+    """The step's main-window shot, then each other window it shot."""
+    parts = [image(urls[step["shot"]], step["title"], 480)]
+    parts += [image(urls[window["shot"]], f"{step['title']} ({window['kind']})", 360)
+              for window in step.get("windows") or [] if urls.get(window["shot"])]
+    return " ".join(parts)
+
+
 def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     steps = manifest.get("steps") or []
-    counts = {status: sum(1 for step in steps if step.get("status") == status)
+    counts = {status: sum(1 for step in steps if step.get("status") == status and not unchecked(step))
               for status in ("ok", "failed", "unavailable")}
+    counts["unchecked"] = sum(1 for step in steps if unchecked(step))
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
     verdict = manifest.get("result")
     verdict_label = {
@@ -189,12 +220,12 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     failed = [step for step in steps if step.get("status") == "failed" and urls.get(str(step.get("shot", "")))]
     if failed:
         lines += ["", "Failed steps:", ""]
-        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{step_images(step, urls)}<br>"
                   for step in failed]
     rest = [step for step in steps if step not in failed and urls.get(str(step.get("shot", "")))]
     if rest:
         lines += ["", f"<details><summary>Screenshots ({len(rest)})</summary>", ""]
-        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{step_images(step, urls)}<br>"
                   for step in rest]
         lines += ["", "</details>"]
     return "\n".join(lines)
@@ -213,7 +244,10 @@ def scope_table(media: Path) -> str:
     if not isinstance(matches, dict):
         return ""
     rows = []
-    for tour in ("new-tab", "agent-pane", "glass", "core"):
+    order = data.get("tours") if isinstance(data.get("tours"), list) else []
+    for tour in order:
+        if not isinstance(tour, str) or not TOUR_NAME.fullmatch(tour):
+            continue
         paths = matches.get(tour)
         if not isinstance(paths, list) or not paths:
             continue
@@ -304,25 +338,44 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     name = directory.name
     folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
     files: dict[str, Path] = {}
+    window_files: dict[str, Path] = {}
     for step in manifest["steps"]:
-        shot = shot_file(directory, step.get("shot"))
-        if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
-                and pr_media.family_of_content(shot) == "png":
-            files[step["shot"]] = shot
+        for key in [step.get("shot")] + [window["shot"] for window in step.get("windows") or []]:
+            shot = shot_file(directory, key)
+            if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
+                    and pr_media.family_of_content(shot) == "png":
+                (files if key == step.get("shot") else window_files)[key] = shot
     into = scratch / name
     into.mkdir()
     mp4, gif = make_video(directory, manifest, into, pr_media)
     for local in (mp4, gif):
         if local:
             files[local.name] = local
+    windows = list(window_files.items())[:MAX_WINDOW_SHOTS]
+    if not args.dry_run:
+        # The whole tour before its first upload; a refusal (PrivacyError) ends the tour.
+        pr_media.check_privacy([(f"{folder}/{key}", local) for key, local in [*files.items(), *windows]],
+                               args.repo)
     urls = {}
+    # The main shots and the video first; a window shot that fails to upload is
+    # dropped on its own, so it never costs the tour its other media.
     for key, local in files.items():
         remote = f"{folder}/{key}"
         if not args.dry_run:
             # No #N in the message: GitHub lists every commit that names the pull request in its
             # timeline, one entry per uploaded file (scripts/pr-media.py writes PR N the same way).
             pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
+                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}", checked=True)
+        urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
+    for key, local in windows:
+        remote = f"{folder}/{key}"
+        try:
+            if not args.dry_run:
+                pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
+                                  f"PR {args.pr} cmux-next tour media at {args.sha[:8]}", checked=True)
+        except Exception as error:  # noqa: BLE001 - one window's upload must not end the tour
+            print(f"warning: {key}: {error}", file=sys.stderr)
+            continue
         urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
     return tour_section(manifest, urls)
 

@@ -12,18 +12,29 @@ import CmuxNextWakeups
 /// for its surfaces. A second close while it fades closes it at once. A window the registry closes
 /// (its workspace moved or ended, `WindowManager.closeProgrammatically`) never fades, and Reduce
 /// Motion or the animation speed "off" closes at once.
+///
+/// The fade covers the window's child windows too. AppKit does not apply a parent's `alphaValue`
+/// to its children, and a Chromium page, a remote browser popup and the overlay and mouse-catcher
+/// panels above them are child windows: faded on the parent alone, the pages stayed opaque on an
+/// empty frame for the whole fade and went only at its end.
 @MainActor final class WindowCloseMotion {
     let window: NSWindow
     private var alpha = SpringValue(1)
     private let parameters: SpringParameters
     private let close: () -> Void
     private var finished = false
+    /// Each child window the fade has dimmed, with the alpha it had and the last alpha the fade
+    /// set: it fades from the first and gets it back when the fade ends. A child added during the
+    /// fade (the fork re-adds a page window that becomes visible) joins in the next frame.
+    private var children: [ObjectIdentifier: (window: NSWindow, alpha: CGFloat, set: CGFloat)] = [:]
+    /// Children whose owner set their alpha during the fade: the fade leaves them alone after.
+    private var released: Set<ObjectIdentifier> = []
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
         self?.step(tick.elapsed) ?? false
     }
 
     /// Whether a close of `window` fades: it shows on screen and motion is on.
-    static func fades(_ window: NSWindow, animates: Bool = Motion.animatesMovement) -> Bool {
+    static func fades(_ window: NSWindow, animates: Bool = Motion.panes.animatesMovement) -> Bool {
         animates && window.isVisible && !window.isMiniaturized && !window.styleMask.contains(.fullScreen)
     }
 
@@ -31,7 +42,7 @@ import CmuxNextWakeups
     ///   - window: The window that closes.
     ///   - parameters: The fade's spring (`exit` at the animation speed).
     ///   - close: Closes the window for real, once, when the fade ends.
-    init(window: NSWindow, parameters: SpringParameters = Motion.spring(.exit), close: @escaping () -> Void) {
+    init(window: NSWindow, parameters: SpringParameters = Motion.panes.spring(.exit), close: @escaping () -> Void) {
         self.window = window
         self.parameters = parameters
         self.close = close
@@ -54,7 +65,7 @@ import CmuxNextWakeups
     func step(_ dt: Double) -> Bool {
         guard !finished else { return false }
         let moving = alpha.advance(dt, parameters: parameters, epsilon: 0.01)
-        window.alphaValue = max(0, alpha.value)
+        apply(max(0, alpha.value))
         if !moving { finish() }
         return moving
     }
@@ -68,5 +79,48 @@ import CmuxNextWakeups
         // A closed window may show again (reopen): it shows whole.
         window.alphaValue = 1
         window.ignoresMouseEvents = false
+        // A child gets its alpha back unless its owner set another during the fade, or it left
+        // the window and still shows (a page its host let go of on close): that one stays faded.
+        for child in children.values where child.window.alphaValue == child.set
+            && (child.window.parent === window || !child.window.isVisible) {
+            child.window.alphaValue = child.alpha
+        }
+        children = [:]
+        released = []
+    }
+
+    /// Sets the fade's alpha on the window and on every window below it in the child tree.
+    private func apply(_ value: CGFloat) {
+        window.alphaValue = value
+        for (id, child) in children {
+            if child.window.alphaValue != child.set {
+                // Its owner set another alpha (a panel's own fade): that one is the owner's now.
+                children[id] = nil
+                released.insert(id)
+            } else if let parent = child.window.parent, !contains(parent) {
+                // It moved under another window (a palette follows the key window): whole again.
+                child.window.alphaValue = child.alpha
+                children[id] = nil
+            }
+        }
+        var pending = window.childWindows ?? []
+        while let child = pending.popLast() {
+            pending += child.childWindows ?? []
+            let id = ObjectIdentifier(child)
+            guard !released.contains(id) else { continue }
+            let base = children[id]?.alpha ?? child.alphaValue
+            child.alphaValue = base * value
+            children[id] = (child, base, child.alphaValue)
+        }
+    }
+
+    /// Whether `other` is the window or below it in its child tree.
+    private func contains(_ other: NSWindow) -> Bool {
+        var next: NSWindow? = other
+        while let candidate = next {
+            if candidate === window { return true }
+            next = candidate.parent
+        }
+        return false
     }
 }

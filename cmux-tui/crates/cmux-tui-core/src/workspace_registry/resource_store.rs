@@ -227,6 +227,11 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
            ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
@@ -502,7 +507,12 @@ pub(crate) fn migrate_resource_mutations_to_session_scope(
          FROM resource_mutations_by_origin;
          DROP TABLE resource_mutations_by_origin;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);",
+           ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);",
     )?;
     Ok(())
 }
@@ -1592,8 +1602,8 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let fingerprint = canonical_json(fingerprint)?;
         let projection_json = canonical_json(projection)?;
-        if projection_json.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+        if projection_json.len() > MAX_RESOURCE_API_PROJECTION_BYTES {
+            anyhow::bail!("frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
         let db = self.connection.get();
@@ -2659,7 +2669,10 @@ pub(crate) fn prune_unchanged_resource_changes(
             }
             ResourceChange::UpsertTab(tab) => {
                 tab_parents.insert(tab.pane_id.to_string());
-                tab_parents.extend(resource_field_any(
+                // The pane a live tab moves out of; a retired tab that
+                // Reopen Closed makes again under its id left its old pane
+                // when it closed (the validator reads the live row too).
+                tab_parents.extend(live_resource_field(
                     transaction,
                     "resource_tabs",
                     "pane_id",
@@ -3439,6 +3452,15 @@ fn upsert_resource_tab(
     tab: &RegistryTab,
     revision: i64,
 ) -> anyhow::Result<()> {
+    // A retired tab made again (Reopen Closed of that same tab, see below)
+    // takes its identity back before the identity check refuses a tombstone.
+    if tab_is_retired(transaction, tab.public_id.as_str())? {
+        transaction.execute(
+            "UPDATE resource_identities SET deleted_revision = NULL, updated_revision = ?2
+             WHERE public_id = ?1 AND kind = 'tab'",
+            params![tab.public_id.as_str(), revision],
+        )?;
+    }
     upsert_resource_identity(transaction, tab.public_id.as_str(), "tab", revision)?;
     let (content_kind, content_id) = match &tab.content_id {
         ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
@@ -3475,16 +3497,42 @@ fn upsert_resource_tab(
             );
         }
     }
-    if let Some((stored_kind, stored_id)) = transaction
+    let stored = transaction
         .query_row(
-            "SELECT content_kind, content_id FROM resource_tabs WHERE public_id = ?1",
+            "SELECT content_kind, content_id, deleted_revision IS NOT NULL FROM resource_tabs
+             WHERE public_id = ?1",
             [tab.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
         )
-        .optional()?
-        && (stored_kind != content_kind || stored_id != content_id)
-    {
-        anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        .optional()?;
+    match stored {
+        // A retired tab made again: only Reopen Closed of that same tab gets
+        // here (`requested_reopen_tab_id` admits a retired tab id, client ids
+        // must be unknown, random ids never collide), so its link keeps
+        // working (plans/cmux-next/durable-links-DESIGN.md). It takes its new
+        // content (a reopened terminal starts a new one) and lives again.
+        Some((_, _, true)) => {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET deleted_revision = NULL, position = ?2, pane_id = ?3, content_kind = ?4,
+                     content_id = ?5, updated_revision = ?6
+                 WHERE public_id = ?1",
+                params![
+                    tab.public_id.as_str(),
+                    i64::try_from(tab.position).context("tab position exceeds SQLite range")?,
+                    tab.pane_id.as_str(),
+                    content_kind,
+                    content_id,
+                    revision,
+                ],
+            )?;
+        }
+        Some((stored_kind, stored_id, false))
+            if stored_kind != content_kind || stored_id != content_id =>
+        {
+            anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        }
+        _ => {}
     }
     transaction.execute(
         "INSERT INTO resource_tabs(
@@ -3513,6 +3561,18 @@ fn upsert_resource_tab(
     Ok(())
 }
 
+/// Whether `tab_id` names a retired (closed) tab row.
+fn tab_is_retired(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<bool> {
+    Ok(transaction
+        .query_row(
+            "SELECT deleted_revision IS NOT NULL FROM resource_tabs WHERE public_id = ?1",
+            [tab_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
 fn upsert_resource_terminal(
     transaction: &Transaction<'_>,
     public_id: &TerminalPublicId,
@@ -3526,7 +3586,7 @@ fn upsert_resource_terminal(
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
-    let launch_spec = canonical_json(&terminal.launch_spec)?;
+    let launch_spec = canonical_json(&durable_launch_spec(terminal))?;
     if launch_spec.len() > MAX_LAUNCH_SPEC_BYTES {
         anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
     }
@@ -3580,7 +3640,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
-            terminal.on_exit.as_str(),
+            terminal.on_exit.column(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],
@@ -3803,6 +3863,9 @@ fn tombstone_resource_tab_row(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
+    // tab-attention-v1: a closed tab no longer needs the person; a reopen
+    // keeps the tab id, so the mark must not come back with it.
+    crate::state::tab_state_store::clear_closed_tab_attention(transaction, tab_id)?;
     tombstone_resource_identity(transaction, tab_id, revision)
 }
 
@@ -4688,15 +4751,21 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
+               AND w.workspace_key NOT IN (
+                 -- One list, read once: a correlated NOT EXISTS reread every
+                 -- receipt per live workspace (876 x 3,723: 2 s at each open
+                 -- of a nightly registry, Lawrence 2026-10-29).
+                 SELECT json_extract(
+                          creation.intent_json,
+                          '$.workspace_reservation.workspace_key'
+                        )
                  FROM resource_creation_receipts creation
                  WHERE creation.execution_kind = 'effect'
                    AND creation.state = 'executing'
                    AND json_extract(
                          creation.intent_json,
                          '$.workspace_reservation.workspace_key'
-                       ) = w.workspace_key
+                       ) IS NOT NULL
                )
              LIMIT 1",
             [],
@@ -5056,16 +5125,9 @@ fn upsert_resource_identity(
 }
 
 fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let violation = transaction
-        .query_row("PRAGMA foreign_key_check", [], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })
-        .optional()?;
+    // The registry state tables only: the receipt ledgers and journal history
+    // are validated when read, and walking them made a large registry's open slow.
+    let violation = first_state_foreign_key_violation(transaction)?;
     if let Some((table, rowid, parent, index)) = violation {
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"

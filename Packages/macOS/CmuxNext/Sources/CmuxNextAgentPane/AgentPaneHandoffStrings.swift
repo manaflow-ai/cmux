@@ -9,7 +9,7 @@ public struct AgentPaneHandoffStrings: Sendable {
 
     public nonisolated init() {
         values = [
-            "continueIn": String(localized: "agentPane.handoff.continueIn", defaultValue: "Continue in…", bundle: .module),
+            "continueIn": String(localized: "agentPane.handoff.continueIn", defaultValue: "Continue In…", bundle: .module),
             "review": String(localized: "agentPane.handoff.review", defaultValue: "Review continuation", bundle: .module),
             "fromTo": String(localized: "agentPane.handoff.fromTo", defaultValue: "Continue from %@ in %@", bundle: .module),
             "context": String(localized: "agentPane.handoff.context", defaultValue: "Context to carry forward", bundle: .module),
@@ -28,7 +28,6 @@ public struct AgentPaneHandoffStrings: Sendable {
             "source": String(localized: "agentPane.handoff.source", defaultValue: "Source chat", bundle: .module),
             "target": String(localized: "agentPane.handoff.target", defaultValue: "Target chat", bundle: .module),
             "nativePolicy": String(localized: "agentPane.handoff.nativePolicy", defaultValue: "Native policy · isolation unverified", bundle: .module),
-            "unverified": String(localized: "agentPane.handoff.unverified", defaultValue: "Coverage unverified", bundle: .module),
             "unverifiedDetail": String(localized: "agentPane.handoff.unverifiedDetail", defaultValue: "Filesystem and network isolation have not been verified for this session.", bundle: .module),
             "reviewContext": String(localized: "agentPane.handoff.reviewContext", defaultValue: "Review the context before continuing.", bundle: .module),
             "tooLarge": String(localized: "agentPane.handoff.tooLarge", defaultValue: "Keep the context below %@ bytes.", bundle: .module),

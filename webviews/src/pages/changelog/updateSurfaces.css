@@ -1,19 +1,34 @@
 /* The Updated card and the update-ready highlights (cx-urd.61): the changelog page's tokens and
    type steps, nested radii, a hairline instead of a shadow. The host draws the surface's material
    (glass or opaque) around them; these paint only the content and the elevated fill. */
-/* The composer's surface (--acpmux-composer-bg/-edge, agent-session/acpmux/styles.css), as every
-   sidebar card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper
-   (this page is transparent), a one-device-pixel edge (--cmux-hairline) at 18%, no shadow. Opaque
-   under Reduce Transparency. */
+/* The liquid glass (.ui-glass, ui/glass/glass.css; plans/cmux-next/glass-lens-DESIGN.md): its tint,
+   frost and specular rim, the wallpaper bent at the rounded rim, no shadow. Opaque under Reduce
+   Transparency. Glass on purpose, never an opaque fill (Leo 2026-10-20: "we want a lot of glass...
+   I hate opaque"): the card reads because the sidebar gives it its own room
+   (SidebarCardSlotMotion), so no list row sits behind it. In the sidebar the host draws the glass
+   natively (CardSurfaceView under the page, surface.css) and this paints nothing; the glass here is
+   the gallery's and any page that shows the card itself. */
 .wn-card {
   position: relative;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--page-text) 13%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--page-text) 18%, transparent);
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+/* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
+   card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper (this page
+   is transparent) and no blur, under the plain rim. Reduce Transparency still makes it opaque
+   (glass.css's surface): the same selector again, later, so it outranks the plain fill. */
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+  --glass-tint: color-mix(in srgb, var(--page-text) 13%, transparent);
+  --glass-backdrop: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+    --glass-tint: var(--glass-surface);
+  }
 }
 /* The words are text a person reads and quotes (u4466: "i cant select text in what's new"): a
    drag selects, a double-click takes a word, Copy copies. pageBase.css makes the body desktop
@@ -32,12 +47,28 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart. */
+}
+/* The eyebrow and the build line wrap between their parts ("Nightly ·" | "Oct 26, 7:38 PM"), and
+   inside a part only when it is wider than the card (a long translation at the sidebar's minimum
+   width), so nothing is ever cut off (Leo 2026-10-26). */
+.wn-card-part {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+/* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart, under
+   the build line when there is one (Leo 2026-10-26). */
+.wn-card-eyebrow:not(:has(+ .wn-card-build)),
+.wn-card-build {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--page-separator);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.wn-card-build {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-variant-numeric: tabular-nums;
 }
 .wn-card-close {
   position: absolute;
@@ -72,30 +103,20 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-/* The top changes with a quiet hanging dot (gallery #01), each wrapping onto a second line instead
-   of being cut with an ellipsis, so it reads and selects whole (design #2 "Readable", u4466); a
-   longer one stops at two lines, its full title in the tooltip. */
-.wn-card-changes { list-style: none; margin: 6px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
-.wn-card-changes li {
-  position: relative;
-  padding: 1px 0 1px 12px;
+/* What changed, one line per area (updateSummary.ts): the area in the text color and semibold, its
+   changes after it in the secondary color, each line wrapping onto a second instead of being cut
+   with an ellipsis, so it reads and selects whole (design #2 "Readable", u4466); a longer one
+   stops at two lines. */
+.wn-card-areas { list-style: none; margin: 5px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); color: var(--page-text-2); letter-spacing: var(--text-detail--letter-spacing); }
+.wn-card-areas li {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.wn-card-changes li + li { margin-top: 2px; }
-.wn-card-changes li::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: calc(var(--text-detail--line-height) / 2 + 1px - 2px);
-  width: 4px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--page-text-3);
-}
-.wn-card-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.wn-card-areas li + li { margin-top: 3px; }
+.wn-card-area { font-weight: 600; color: var(--page-text); }
+.wn-card-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 /* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
    sidebar, cx-7rone). */
 .wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
@@ -115,6 +136,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .wn-card-primary:hover { background: var(--page-selection); }
 
@@ -127,6 +149,7 @@
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .wn-pop-title {
   color: var(--page-text-2);
@@ -136,8 +159,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
-.wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; }
+.wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
 .wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
 /* Each change gets a little air (design #2 "Readable"). */
 .wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 4px 0; }
@@ -147,9 +171,10 @@
   line-height: var(--text-body--line-height);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .wn-pop-item { display: block; font-weight: var(--weight-regular); }
-.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 /* A change's picture: the popover's width, inline with the text, scrolling with it; a click opens
    the change's notes, where it shows at the page's width. */
 .wn-pop-media {
@@ -179,11 +204,12 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
 .wn-pop-rest-group li { padding: 3px 0; color: var(--page-text-2); }
 .wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
-.wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .wn-pop-all {
   margin-left: auto;
   white-space: nowrap;
@@ -194,6 +220,7 @@
   font-size: var(--text-detail);
   font-weight: 500;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }

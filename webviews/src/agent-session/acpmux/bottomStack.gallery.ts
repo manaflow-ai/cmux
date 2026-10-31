@@ -29,6 +29,8 @@ const rows = [
   row("permission", 0, { permission }),
 ];
 const individual = chat(rows, { isWorking: true, permission, queue });
+// Two more asks wait behind the shown one (a question, a second subagent's command).
+const individualWaiting = chat(rows, { isWorking: true, permission, permissionsWaiting: 2, queue });
 const prQueue = chat(
   [
     user("Open the pull request", 1),
@@ -117,17 +119,19 @@ const checkPrQueue: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
+  // Expanding a wrapped prompt animates the queue's height. Inspect the staged end state,
+  // after its ResizeObserver has reserved that height above the floating stack.
+  await ctx.waitFor(() =>
+    ctx
+      .find({ selector: ".acpmux-composer-queue" })
+      .getAnimations()
+      .every((animation) => animation.playState !== "running"),
+  );
   geometry(ctx);
-  const scope = ctx.find({ selector: ".acpmux-composer-context" });
-  const composer = ctx.find({ selector: ".acpmux-composer-box" });
-  const style = ctx.document.defaultView!.getComputedStyle(scope);
-  const composerStyle = ctx.document.defaultView!.getComputedStyle(composer);
-  if (
-    style.backgroundColor !== composerStyle.backgroundColor ||
-    style.boxShadow !== "none" ||
-    parseFloat(style.borderTopWidth) !== 0
-  )
-    throw new Error("The folder/host strip paints a separate surface");
+  // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
+  // top strip, and no hidden slot for the strip may hold space above it.
+  if (ctx.document.querySelector(".acpmux-composer-context, .acpmux-composer-strip-placeholder"))
+    throw new Error("A started chat with a queue still draws the folder/host strip");
 };
 async function samplePinned(ctx: PlayContext, frames = 8) {
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
@@ -142,7 +146,7 @@ async function samplePinned(ctx: PlayContext, frames = 8) {
 }
 const trustThenPermission: Play = async (ctx) => {
   await checkTrust(ctx);
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await samplePinned(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
@@ -154,8 +158,8 @@ const trustThenPermission: Play = async (ctx) => {
   )
     throw new Error("Permission card is missing its unified request surface");
   const individual = Boolean(ctx.document.querySelector(".acpmux-permission-ask"));
-  const allowOnce = individual ? "Yes" : "Allow once";
-  const allowAlways = individual ? "Yes, and don't ask again this session" : "Allow for this chat";
+  const allowOnce = "Allow once";
+  const allowAlways = individual ? "Always allow" : "Allow for this chat";
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
@@ -165,19 +169,54 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-access-grant-remove" });
   await checkTrust(ctx);
 };
+const waitingInLine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask"));
+  const note = ctx.document.querySelector(".acpmux-permission-ask .acpmux-permission-waiting")?.textContent;
+  if (note !== "2 more waiting") throw new Error(`Expected "2 more waiting" on the card, got ${note}`);
+  geometry(ctx);
+};
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
-    name: ctx.document.querySelector(".acpmux-permission-ask")
-      ? "Yes, and don't ask again this session"
-      : "Allow for this chat",
+    name: ctx.document.querySelector(".acpmux-permission-ask") ? "Always allow" : "Allow for this chat",
   });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
 };
+// The chat's folder is a repository: the pane offers Trust repo first (one answer for every
+// worktree of it), and the answer clears the question for the permission card.
+const repoNative = {
+  "acp.trust.get": { cwd: CWD, level: "unknown", repo: { root: CWD, worktree: false } },
+  "acp.trust.set": { cwd: CWD, level: "trusted" },
+};
+const trustedRepo: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
+  await ctx.click({ role: "button", name: "Trust repo" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
+  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
+};
+// A short pane (Leo 2026-10-22: "the access to the composer got fucked"): the question, the
+// queue and a long draft over the composer still leave the card and the quiet row under it whole,
+// inside the pane, and clickable (test/agent-pane-bottom-stack.test.ts).
+const shortPane =
+  (lines: number): Play =>
+  async (ctx) => {
+    await checkTrust(ctx);
+    const field = ".acpmux-composer-box .ProseMirror";
+    // Keep the draft as one trusted input action: each extra play step waits for a settled frame,
+    // which made this fixture spend ~3.7 s typing twelve lines on every health retry. The newline
+    // characters preserve the same multiline ProseMirror draft without weakening any geometry check.
+    await ctx.type(Array.from({ length: lines }, (_, line) => "draft line " + (line + 1)).join("\n"), {
+      selector: field,
+    });
+    const main = ctx.document.querySelector(".acpmux-main")!.getBoundingClientRect();
+    const foot = ctx.document.querySelector(".acpmux-composer-foot")?.getBoundingClientRect();
+    if (foot && foot.bottom > main.bottom + 0.5)
+      throw new Error(`The quiet row ends ${foot.bottom - main.bottom}px under the pane's bottom edge`);
+  };
 export default agentPaneEntry({
   id: "agent-pane.bottom-stack",
   title: "Trust, permissions and queued prompts",
@@ -187,13 +226,27 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer-bar" }],
   covers: ["agent-session/acpmux/PermissionCard.tsx", "agent-session/acpmux/TrustAsk.tsx"],
   variants: {
-    "pr-queue": { snapshot: prQueue, native: { "acp.trust.get": { cwd: CWD, level: "trusted" } }, play: checkPrQueue },
+    "pr-queue": {
+      snapshot: prQueue,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: checkPrQueue,
+    },
     "trust-permission-queue": { snapshot: grouped, native, play: checkTrust },
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },
     "trust-then-individual": { snapshot: individual, native, play: trustThenPermission },
     "trusted-permission-queue": { snapshot: grouped, native, play: trusted },
     "trusted-individual-queue": { snapshot: individual, native, play: trusted },
+    "trusted-individual-waiting": {
+      snapshot: individualWaiting,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: waitingInLine,
+    },
     "compact-trust-queue": { snapshot: grouped, native, height: 420, play: checkTrust },
+    "trust-repo-permission-queue": { snapshot: grouped, native: repoNative, play: trustedRepo },
+    "short-320": { snapshot: individual, native, height: 320, play: shortPane(0) },
+    "short-320-long-draft": { snapshot: individual, native, height: 320, play: shortPane(12) },
+    "short-400-long-draft": { snapshot: individual, native, height: 400, play: shortPane(12) },
+    "short-520-long-draft": { snapshot: individual, native, height: 520, play: shortPane(12) },
   },
 });

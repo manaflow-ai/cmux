@@ -10,10 +10,14 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     public let duration: Duration
     /// Return addresses, innermost first (the watchdog's sample).
     public let addresses: [UInt]
+    /// Every other thread's stack at the report (name, return addresses innermost first):
+    /// for a main thread waiting on a lock or a reply, the thread it waits for.
+    public let otherThreads: [(name: String, addresses: [UInt])]
 
-    public init(duration: Duration, addresses: [UInt]) {
+    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = []) {
         self.duration = duration
         self.addresses = addresses
+        self.otherThreads = otherThreads
     }
 
     public func event() -> Event {
@@ -24,19 +28,36 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         let mechanism = Mechanism(type: "main_thread_watchdog")
         mechanism.handled = true
         hang.mechanism = mechanism
-        let images = Self.images(for: addresses)
-        // Sentry frames run outermost first; the sample lists innermost first.
-        let frames: [Frame] = addresses.reversed().map { address in
-            let frame = Frame()
-            frame.instructionAddress = Self.hex(UInt64(address))
-            if let image = images.first(where: { $0.contains(address) }) {
-                frame.imageAddress = Self.hex(image.base)
-                frame.package = image.path
-            }
-            return frame
-        }
-        hang.stacktrace = SentryStacktrace(frames: frames, registers: [:])
+        let images = Self.images(for: addresses + otherThreads.flatMap(\.addresses))
+        hang.stacktrace = Self.stacktrace(addresses, images: images, packages: true)
         event.exceptions = [hang]
+        if !otherThreads.isEmpty {
+            let main = SentryThread(threadId: NSNumber(value: 0))
+            main.name = "main"
+            main.isMain = NSNumber(value: true)
+            main.current = NSNumber(value: true)
+            main.crashed = NSNumber(value: true)
+            main.stacktrace = hang.stacktrace
+            hang.threadId = NSNumber(value: 0)
+            // Other threads' frames carry no package path (debug_meta maps every image) and stop
+            // at `otherFrameLimit` in all: Sentry refuses an event over 1 MiB, and that would
+            // lose the main stack too.
+            var budget = Self.otherFrameLimit
+            let kept = otherThreads.prefix { sample in
+                guard budget > 0 else { return false }
+                budget -= sample.addresses.count
+                return true
+            }
+            event.threads = [main] + kept.enumerated().map { index, sample in
+                let thread = SentryThread(threadId: NSNumber(value: index + 1))
+                thread.name = sample.name.isEmpty ? nil : sample.name
+                thread.isMain = NSNumber(value: false)
+                thread.current = NSNumber(value: false)
+                thread.crashed = NSNumber(value: false)
+                thread.stacktrace = Self.stacktrace(sample.addresses, images: images, packages: false)
+                return thread
+            }
+        }
         event.debugMeta = images.map { image in
             let meta = DebugMeta()
             meta.type = "macho"
@@ -49,6 +70,23 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         event.tags = ["hang_source": "main_thread_watchdog"]
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
         return event
+    }
+
+    /// The most frames the other threads add to one event (about 100 bytes each without a package).
+    static let otherFrameLimit = 2_000
+
+    /// Sentry frames run outermost first; a sample lists innermost first.
+    private static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
+        let frames: [Frame] = addresses.reversed().map { address in
+            let frame = Frame()
+            frame.instructionAddress = hex(UInt64(address))
+            if let image = images.first(where: { $0.contains(address) }) {
+                frame.imageAddress = hex(image.base)
+                if packages { frame.package = image.path }
+            }
+            return frame
+        }
+        return SentryStacktrace(frames: frames, registers: [:])
     }
 
     nonisolated struct Image {
@@ -105,8 +143,15 @@ extension CrashReporter {
     /// Sends a main-thread hang that is still running (the watchdog calls
     /// this on its own thread, at most once per stall and per interval).
     /// Does nothing when crash reporting is off.
-    public nonisolated func reportHang(duration: Duration, addresses: [UInt]) {
+    public nonisolated func reportHang(duration: Duration, addresses: [UInt],
+                                       otherThreads: [(name: String, addresses: [UInt])] = []) {
+        reportHang(MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads))
+    }
+
+    /// Sends one hang event (``MainThreadHangReporter`` calls this for each
+    /// hang its budget admits). Does nothing when crash reporting is off.
+    public nonisolated func reportHang(_ hang: MainThreadHangEvent) {
         guard isStarted else { return }
-        SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses).event())
+        SentrySDK.capture(event: hang.event())
     }
 }

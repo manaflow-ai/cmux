@@ -23,10 +23,25 @@ public struct RegistryKeyBindings {
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
     /// Tab), and catalog order breaks a tie (the first catalog action wins).
     public var table: KeyBindingTable {
-        if let table = registry.currentShortcutIndex().bindingTable { return table }
+        let workspaceTabKeys = registry.includesWorkspaceTabKeys()
+        let index = registry.currentShortcutIndex()
+        if let table = index.bindingTable, index.bindingTableHasWorkspaceTabKeys == workspaceTabKeys { return table }
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
+        registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
+        registry.shortcutIndex?.subtables = [:]
         return table
+    }
+
+    /// The entries of ``table`` that `keep` keeps, as a table, built once per binding change and
+    /// cached under `name` (the palette resolves every key-down against its own entries).
+    /// `keep` must give the same answer for a name every time.
+    public func subtable(_ name: String, keeping keep: (KeyBinding) -> Bool) -> KeyBindingTable {
+        let full = table
+        if let cached = registry.shortcutIndex?.subtables[name] { return cached }
+        let sub = KeyBindingTable(full.entries.filter(keep))
+        registry.shortcutIndex?.subtables[name] = sub
+        return sub
     }
 
     /// Bound, available in `context` (the key window's facts), and enabled.
@@ -49,6 +64,45 @@ public struct RegistryKeyBindings {
         return registry.perform(binding.command, invocation: invocation)
     }
 
+    /// The `when` a shipped default entry of `id` on `keys` carries (the action's context and the
+    /// keys it yields: the code editor's, a terminal program's, a web page's, a text field's), as
+    /// the table builds it. A cmux.json override equal to the default is that entry again.
+    public func shippedWhen(for id: ActionID, keys: [Shortcut]) -> WhenClause? {
+        let requires = registry.descriptor(for: id)?.requires ?? []
+        return Self.keyWhen(scopes(id).defaultWhen, keys: keys, yieldsToTextInput: requires.isEmpty)
+    }
+
+    /// `when`: the context of every entry of `id` (its `requires`, Home's chat scope);
+    /// `defaultWhen`: a shipped default's, with the keys it yields to others.
+    private func scopes(_ id: ActionID) -> (when: WhenClause?, defaultWhen: WhenClause?) {
+        var when = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
+        if KeyBindingDefaults.homeChatScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+        } else if KeyBindingDefaults.homeScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHome].compactMap { $0 })
+        }
+        // The code editor's editing chords win over these defaults (R127).
+        var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
+            ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
+        // A terminal program's own keys win over these defaults (amendment 3).
+        if KeyBindingDefaults.yieldsToTerminal.contains(id) {
+            defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
+        }
+        // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+        if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+            defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
+        }
+        return (when, defaultWhen)
+    }
+
+    /// A focused text field's own keys win over these defaults (Cmd-Return steers the chat); an
+    /// action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.
+    private static func keyWhen(_ defaultWhen: WhenClause?, keys: [Shortcut], yieldsToTextInput: Bool) -> WhenClause? {
+        guard yieldsToTextInput, keys.count == 1, KeyBindingDefaults.textInputKeys.contains(keys[0]) else { return defaultWhen }
+        return WhenClause.and([defaultWhen, KeyBindingDefaults.notTextInput].compactMap { $0 })
+    }
+
     private func makeTable() -> KeyBindingTable {
         typealias Ranked = (binding: KeyBinding, specificity: Int, order: Int)
         var layers: [KeyBinding.Source: [Ranked]] = [:]
@@ -56,18 +110,18 @@ public struct RegistryKeyBindings {
         ids += registry.actions.map(\.id).filter { registry.descriptorIndexByID[$0] == nil }
         for (order, id) in ids.enumerated() where registry.disabledFeature(for: id) == nil {
             let requires = registry.descriptor(for: id)?.requires ?? []
-            let when = WhenClause.requiring(requires)
-            // The code editor's editing chords win over these defaults (R127).
-            var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
-                ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
-            // A terminal program's own keys win over these defaults (amendment 3).
-            if KeyBindingDefaults.yieldsToTerminal.contains(id) {
-                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
-            }
+            let (when, defaultWhen) = scopes(id)
             let specificity = requires.rawValue.nonzeroBitCount
+            let yieldsToTextInput = requires.isEmpty
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
-                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)
+                let keyWhen = Self.keyWhen(defaultWhen, keys: keys, yieldsToTextInput: yieldsToTextInput)
+                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
+            }
+            // `{"any": [...]}`: the keys after the override are cmux.json entries too.
+            for keys in registry.alternateShortcuts[id] ?? [] {
+                guard let last = keys.last else { continue }
+                for (key, argument) in expandFamily(id, last) { add(Array(keys.dropLast()) + [key], argument: argument, source: .user) }
             }
             let userChord = registry.chordOverrides[id] != nil
             if let chord = registry.effectiveChord(for: id) {
@@ -103,7 +157,13 @@ public struct RegistryKeyBindings {
             entries += ranked.map(\.binding)
             switch source {
             case .ghosttyFallback: break
-            case .default: entries += KeyBindingDefaults.scopedEntries(registry: registry)
+            case .default:
+                entries += KeyBindingDefaults.scopedEntries(registry: registry)
+                // After the catalog defaults and the tab-cycle aliases, so they win where they hold;
+                // still cmux defaults: the user's Ghostty config and cmux.json win over them.
+                entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
+                // On Home the tab keys move through the chat list.
+                entries += KeyBindingDefaults.homeChatSwitching(registry: registry)
             case .app: entries += extra.app.filter(enabled)
             case .ghostty:
                 claimed = entries.filter(isClaimed)
@@ -117,7 +177,10 @@ public struct RegistryKeyBindings {
 
     /// A user override equal to the catalog default stays a default entry,
     /// so writing the default key into cmux.json changes nothing.
+    /// An action with alternates (`{"any": [...]}`) has all its keys as
+    /// cmux.json entries, so one of them never yields where another runs.
     private func source(_ id: ActionID, _ shortcut: Shortcut) -> KeyBinding.Source {
+        if registry.alternateShortcuts[id] != nil { return .user }
         guard let override = registry.shortcutOverrides[id], override != nil else { return .default }
         return override == registry.descriptor(for: id)?.defaultShortcut ? .default : .user
     }

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTabs
@@ -16,8 +17,13 @@ struct TabTitleResolver {
     var showsNewTabPage: @MainActor (TabModel) -> Bool
     /// A New Tab page tab's own title (`AgentHistoryPage.title`), if it has one.
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
+    /// A subagent pane's own name (``SubagentTabTitles``), nil for any other tab.
+    var subagentTitle: @MainActor (TabModel) -> String? = { SubagentTabTitles.shared.title(ofTab: $0.id) }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
+    /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
+    /// with no title yet reads as it (`AgentChatTabTitle`).
+    var workspaceName: String?
     /// A Home conversation tab's title (`HomeService.tabTitle(for:)`).
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
@@ -65,7 +71,13 @@ struct TabTitleResolver {
     /// for a terminal).
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
-            return isNewTabPage(tab) ? newTabPageTitle(tab) ?? Strings.untitledBrowser : chatTitle(tab)
+            if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
+            // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
+            if let subagent = subagentTitle(tab) { return subagent }
+            let title = chatTitle(tab)
+            if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
+            return title
         }
         switch tab.kind {
         case .conversation: return conversationTitle(tab)

@@ -49,8 +49,9 @@ public struct EndSessionsFailure: Sendable, Equatable {
 /// stays, so the next owner starts with Home only. With `keepingLayout` (End
 /// Sessions, Keep Layout) on a daemon that serves
 /// `end-terminals-keep-layout-v1` and `tab-restart-kept-layout-v1`, placed
-/// terminals keep their tabs, dead, so the next launch restarts a shell in
-/// each in place (`relaunchKeptTabs`); other daemons remove the tabs. Both run on their own
+/// terminals keep their tabs, dead, so a shell starts in each in place: on
+/// its workspace's first show, or at the next launch for a terminal that ran
+/// an agent (`relaunchKeptTabs`); other daemons remove the tabs. Both run on their own
 /// socket.
 ///
 /// No step stops the others: a workspace that does not close is recorded
@@ -63,8 +64,8 @@ enum SessionEnding {
         // Kept tabs restart only in place (`restart-tab` of a kept tab), so a
         // daemon that cannot do that removes the tabs instead of keeping them.
         let keepsLayout = keepingLayout && !deletingWorkspaces
-            && identity?.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) == true
-            && identity?.supports(DaemonCapabilities.shared.tabRestartKeptLayout) == true
+            && identity?.supports(DaemonCapability.endTerminalsKeepLayout.rawValue) == true
+            && identity?.supports(DaemonCapability.tabRestartKeptLayout.rawValue) == true
         await connection.close()
         var failures: [EndSessionsFailure] = []
         if deletingWorkspaces { failures = await closeEveryWorkspace(endpoint: await connection.endpoint) }

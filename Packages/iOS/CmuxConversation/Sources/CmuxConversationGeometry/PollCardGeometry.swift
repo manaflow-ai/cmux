@@ -8,6 +8,7 @@ import CoreGraphics
 /// `pollsPluginMaxWidth` 368.4 (350 / 0.95), `pollsWinnerWidthPercentage`
 /// 0.95, and the bar colors (see `PollCardColors`). The other metrics are
 /// estimates (the bundle's StyleConstants values live in code, not data).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum PollCardGeometry {
     public struct Metrics: Sendable, Equatable {
         public var maxWidth: CGFloat
@@ -126,6 +127,7 @@ public enum PollCardGeometry {
 }
 
 /// Poll colors from MessagesPolls.bundle Assets.car (sRGB, light / dark).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum PollCardColors {
     public typealias RGBA = (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat)
     /// Bar for a choice I voted for (SelectedBarBackgroundColor).

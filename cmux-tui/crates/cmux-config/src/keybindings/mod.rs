@@ -5,8 +5,10 @@
 //! diagnostics (a bad entry is left out, the others load, the file never
 //! fails as a whole unless it is not JSONC) and edits it in place
 //! ([`edit`]). The app validates commands, `when` and `args` against its
-//! action catalog.
+//! action catalog. A first stroke needs cmd or ctrl, or is bare under a
+//! `when` that requires a page owning bare keys ([`bare`], K1).
 
+pub mod bare;
 pub mod edit;
 pub mod owner;
 pub mod stroke;
@@ -45,7 +47,8 @@ pub enum Problem {
     MissingKey,
     InvalidKey,
     TooManyKeys,
-    /// The first stroke has neither cmd nor ctrl.
+    /// The first stroke has neither cmd nor ctrl, and is not a bare stroke
+    /// under a `when` that requires a bare-key page ([`bare::may_bind`]).
     FirstKeyNeedsCommandOrControl,
     InvalidWhen,
     InvalidArgs,
@@ -113,10 +116,17 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
         Some(rest) => (true, rest.to_string()),
         None => (false, raw.to_string()),
     };
+    let when = match object.get("when") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(_) => return Err((Problem::InvalidWhen, "\"when\" must be a string".into())),
+    };
+    let first =
+        if removal { FirstStroke::Any } else { FirstStroke::Binds { when: when.as_deref() } };
     let keys = match object.get("key") {
         None | Some(Value::Null) if removal => vec![],
         // A removal names a default as it is, palette keys (escape, return) too.
-        Some(Value::String(text)) => keys(text, !removal)?,
+        Some(Value::String(text)) => keys(text, first)?,
         _ => {
             return Err((
                 Problem::MissingKey,
@@ -127,11 +137,6 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
     if !removal && keys.is_empty() {
         return Err((Problem::MissingKey, "\"key\" must name at least one stroke".into()));
     }
-    let when = match object.get("when") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(text)) => Some(text.clone()),
-        Some(_) => return Err((Problem::InvalidWhen, "\"when\" must be a string".into())),
-    };
     let args = match object.get("args") {
         None | Some(Value::Null) => None,
         Some(value @ Value::Object(_)) => Some(value.clone()),
@@ -140,10 +145,19 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
     Ok(Entry { index, keys, command, when, args, removal })
 }
 
-/// `"ctrl+k s"` -> normalized strokes, checked. `binds`: the strokes bind
-/// a new entry, whose first stroke needs cmd or ctrl (only those reach the
-/// key dispatcher); a removal or an edit's target names any existing key.
-pub(super) fn keys(text: &str, binds: bool) -> Result<Vec<String>, (Problem, String)> {
+/// How [`keys`] checks the first stroke.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum FirstStroke<'a> {
+    /// A removal or an edit's target names any existing key.
+    Any,
+    /// The strokes bind a new entry under `when`: the first needs cmd or
+    /// ctrl (only those reach the key dispatcher), or is bare under a `when`
+    /// that requires a bare-key page ([`bare::may_bind`]).
+    Binds { when: Option<&'a str> },
+}
+
+/// `"ctrl+k s"` -> normalized strokes, checked as `first` says.
+pub(super) fn keys(text: &str, first: FirstStroke<'_>) -> Result<Vec<String>, (Problem, String)> {
     let strokes = text
         .split_whitespace()
         .map(|part| {
@@ -154,13 +168,18 @@ pub(super) fn keys(text: &str, binds: bool) -> Result<Vec<String>, (Problem, Str
     if strokes.len() > MAX_STROKES {
         return Err((Problem::TooManyKeys, format!("at most {MAX_STROKES} strokes")));
     }
-    if binds
-        && let Some(first) = strokes.first()
-        && !stroke::has_command_or_control(first)
+    if let FirstStroke::Binds { when } = first
+        && let Some(stroke) = strokes.first()
+        && !stroke::has_command_or_control(stroke)
+        && !(bare::is_bare(stroke) && bare::may_bind(when))
     {
         return Err((
             Problem::FirstKeyNeedsCommandOrControl,
-            "the first stroke needs cmd or ctrl".into(),
+            format!(
+                "the first stroke needs cmd or ctrl; a bare first stroke (no cmd, ctrl or opt) binds only under a \"when\" that requires a bare-key page ({}) as an && term and no text-field context ({})",
+                bare::OWNER_KEYS.join(", "),
+                bare::TEXT_KEYS.join(", ")
+            ),
         ));
     }
     Ok(strokes)

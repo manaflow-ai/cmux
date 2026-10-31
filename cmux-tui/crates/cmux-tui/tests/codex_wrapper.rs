@@ -123,8 +123,12 @@ impl Launch {
     /// other request.
     fn drain_message_lookups(&self) {
         while let Ok((stream, _)) = self.listener.accept() {
-            stream.set_nonblocking(false).unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            // A lookup whose hook already gave up (its bounded wait) has
+            // closed its end, and macOS refuses SO_RCVTIMEO on such a socket
+            // with EINVAL. Its request is still buffered and the read below
+            // cannot block on a closed peer, so read and check it anyway.
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
             let mut line = String::new();
             if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
                 continue;

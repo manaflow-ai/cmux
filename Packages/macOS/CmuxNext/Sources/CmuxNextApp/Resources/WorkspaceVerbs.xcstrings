@@ -132,6 +132,268 @@
         }
       }
     },
+    "workspaceVerbs.refusal.subgroupNeedsDocument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this sidebar cannot nest groups yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الشريط الجانبي تداخل المجموعات بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova bočna traka još ne može ugnijezditi grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne sidebjælke kan endnu ikke indlejre grupper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diese Seitenleiste kann Gruppen noch nicht verschachteln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta barra lateral aún no puede anidar grupos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette barre latérale ne peut pas encore imbriquer de groupes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa barra laterale non può ancora annidare gruppi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイドバーではまだグループを入れ子にできません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀងនេះមិនទាន់អាចដាក់ក្រុមក្នុងគ្នាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사이드바는 아직 그룹을 중첩할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dette sidepanelet kan ikke neste grupper ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ten pasek boczny nie może jeszcze zagnieżdżać grup"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta barra lateral ainda não pode aninhar grupos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "эта боковая панель пока не умеет вкладывать группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้างนี้ยังซ้อนกลุ่มไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu kenar çubuğu henüz grupları iç içe koyamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ця бічна панель поки не вміє вкладати групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "thanh bên này chưa thể lồng nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此侧边栏暂不支持嵌套分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此側邊欄尚無法巢狀群組"
+          }
+        }
+      }
+    },
+    "workspaceVerbs.refusal.subgroupTooDeep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "groups nest at most 16 levels deep"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن تداخل المجموعات لأكثر من 16 مستوى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "grupe se mogu ugnijezditi najviše 16 nivoa duboko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "grupper kan højst indlejres 16 niveauer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppen lassen sich höchstens 16 Ebenen tief verschachteln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "los grupos se anidan como máximo 16 niveles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les groupes s’imbriquent sur 16 niveaux au plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i gruppi si annidano al massimo su 16 livelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループは最大16階層までしか入れ子にできません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមអាចដាក់ក្នុងគ្នាបានច្រើនបំផុត 16 កម្រិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹은 최대 16단계까지 중첩할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "grupper kan nestes høyst 16 nivåer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "grupy można zagnieżdżać najwyżej na 16 poziomach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "os grupos se aninham no máximo 16 níveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "группы вкладываются не более чем на 16 уровней"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ้อนกลุ่มได้ไม่เกิน 16 ระดับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gruplar en fazla 16 düzey iç içe olabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "групи вкладаються щонайбільше на 16 рівнів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nhóm chỉ lồng tối đa 16 cấp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组最多嵌套 16 层"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群組最多巢狀 16 層"
+          }
+        }
+      }
+    },
     "workspaceVerbs.refusal.machineNotConnected": {
       "extractionState": "manual",
       "localizations": {

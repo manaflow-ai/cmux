@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.cmux.r13.afprobe</string>
+<key>CFBundleExecutable</key><string>AFProbe</string>
+<key>CFBundleName</key><string>AFProbe</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>MinimumOSVersion</key><string>26.0</string>
+<key>UILaunchScreen</key><dict/>
+<key>UIDeviceFamily</key><array><integer>1</integer></array>
+</dict></plist>

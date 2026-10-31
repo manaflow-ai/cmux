@@ -50,7 +50,17 @@ impl Brain {
     /// A turn reply's outbox entry (`answer_entry`): its text, held while the
     /// preview thread works when it has URL lines and the owner takes cards.
     /// Every other reply is returned unchanged and not held.
-    pub(super) fn reply_with_previews(&mut self, mut entry: OutboxEntry) -> OutboxEntry {
+    pub(super) fn reply_with_previews(&mut self, entry: OutboxEntry) -> OutboxEntry {
+        self.reply_with_media(entry, Vec::new())
+    }
+
+    /// `reply_with_previews`, plus `extra` files to upload (send.rs's
+    /// attachments) after the ones the text names.
+    pub(super) fn reply_with_media(
+        &mut self,
+        mut entry: OutboxEntry,
+        extra: Vec<super::media::MediaRef>,
+    ) -> OutboxEntry {
         let conversation = entry.conversation.clone();
         let Some(daemon) = self.daemon.as_ref() else {
             return entry;
@@ -64,7 +74,12 @@ impl Brain {
         };
         // Pictures and videos the reply names (media.rs) go whether or not the owner takes cards.
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        let media = super::media::media_refs(&reply, home.as_deref());
+        let mut media = super::media::media_refs(&reply, home.as_deref());
+        for file in extra {
+            if !media.iter().any(|m| m.path == file.path) {
+                media.push(file);
+            }
+        }
         let fetcher = self.previewer.clone().filter(|_| {
             daemon.supports(LINK_PREVIEW_CAPABILITY)
                 && link_preview::split::text_parts(&reply)
@@ -143,14 +158,22 @@ fn filled(
 ) -> Option<Vec<Part>> {
     let files = super::media::upload(&mut *port, conversation, media, log);
     let refs: Vec<&super::media::MediaRef> = files.iter().map(|(media, _)| media).collect();
-    let text = if files.is_empty() {
-        reply.to_owned()
-    } else {
-        super::media::without_images(reply, &refs)
-    };
+    let failed: Vec<&super::media::MediaRef> = media
+        .iter()
+        .filter(|m| m.image_syntax.is_some() && !refs.iter().any(|r| r.path == m.path))
+        .collect();
+    let text = super::media::settled(reply, &refs, &failed);
     let cards = fetcher.and_then(|fetcher| previews(&mut *port, fetcher, conversation, &text, log));
     if files.is_empty() {
-        return cards;
+        // A failed upload still changes the text: its image syntax is a link now.
+        return cards.or_else(|| {
+            (text != reply).then(|| {
+                vec![Part::Text {
+                    text: text.clone(),
+                    runs: None,
+                }]
+            })
+        });
     }
     let mut parts = cards.unwrap_or_else(|| {
         vec![Part::Text {

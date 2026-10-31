@@ -11,6 +11,7 @@ use super::conversation_tabs_wire;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
+use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use serde::Serialize;
@@ -58,7 +59,7 @@ impl OutboundStream {
     }
 
     pub(super) fn update_overflow(&self, text: Arc<BudgetedText>) {
-        *self.overflow_text.lock().unwrap() = text;
+        *self.overflow_text.lock().recover_poison() = text;
     }
 }
 
@@ -341,7 +342,7 @@ impl MessageWriter {
     }
 
     pub(super) fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
-        let mut wakeups = self.wait_wakeups.lock().unwrap();
+        let mut wakeups = self.wait_wakeups.lock().recover_poison();
         wakeups.retain(|registered| registered.strong_count() > 0);
         if self.is_open() {
             wakeups.push(Arc::downgrade(wake));
@@ -353,7 +354,7 @@ impl MessageWriter {
 
     pub(super) fn close_with(&self, preserve_control: bool) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().recover_poison());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
@@ -368,7 +369,7 @@ impl MessageWriter {
 
     pub(super) fn abort(&self) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().recover_poison());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }

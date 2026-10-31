@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { backfillHexclaveMirror } from "../services/auth/hexclave/backfill";
-import { syncHexclaveUser } from "../services/auth/hexclave/sync";
+import { readHexclaveUserState, syncHexclaveUser } from "../services/auth/hexclave/sync";
 import { OTHER_TEAM_ID, OTHER_USER_ID, projectPermission, serverTeam, serverUser, TEAM_ID, teamPermission, USER_ID } from "./helpers/hexclave-fixtures";
 import { FakeHexclave, MemoryMirror } from "./helpers/hexclave-memory";
 
@@ -16,6 +16,8 @@ function world() {
   hexclave.projectPermissions.push(projectPermission());
   return hexclave;
 }
+
+const readUser = (source: FakeHexclave, userId: string) => readHexclaveUserState(source, userId);
 
 describe("Hexclave mirror backfill", () => {
   test("dry run reads and counts everything and writes nothing", async () => {
@@ -46,7 +48,7 @@ describe("Hexclave mirror backfill", () => {
       // After the page was read, the user is renamed and leaves the team; the webhook reconciles it.
       hexclave.users.set(USER_ID, serverUser({ display_name: "fresh" }));
       hexclave.removeMember(TEAM_ID, USER_ID);
-      await syncHexclaveUser(USER_ID, [], { source: hexclave, store: mirror, revokeTeamMemberAccess: async () => {}, revokeTeamAccess: async () => {}, invalidateUser: async () => {} });
+      await syncHexclaveUser(USER_ID, [], { source: hexclave, store: mirror, revokeTeamMemberAccess: async () => {}, revokeTeamAccess: async () => {}, invalidateUser: async () => {}, markTeamSeatsDirty: async () => {} });
       return stale;
     };
     const summary = await backfillHexclaveMirror({ source: hexclave, store: mirror, concurrency: 1, pageSize: 50 });
@@ -54,6 +56,46 @@ describe("Hexclave mirror backfill", () => {
     expect(mirror.users.get(USER_ID)?.display_name).toBe("fresh");
     expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
     expect(mirror.users.get(OTHER_USER_ID)?.id).toBe(OTHER_USER_ID);
+  });
+
+  test("a snapshot backfill cannot re-add membership while its revocation is pending", async () => {
+    const hexclave = world();
+    const mirror = new MemoryMirror();
+    await mirror.reconcileUser(USER_ID, () => readUser(hexclave, USER_ID));
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    await mirror.reconcileUser(USER_ID, () => readUser(hexclave, USER_ID));
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
+
+    hexclave.addMember(TEAM_ID, USER_ID);
+    const state = await readUser(hexclave, USER_ID);
+    if (state.kind !== "present") throw new Error("expected present user");
+    expect(await mirror.applySnapshotUser(state, new Date(Date.now() + 60_000))).toBe(false);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
+  });
+
+  test("the prune point-read cannot re-add membership while its revocation is pending", async () => {
+    const mirror = new MemoryMirror();
+    mirror.clock = () => Date.now() - 60_000;
+    const initial = world();
+    await mirror.reconcileUser(USER_ID, () => readUser(initial, USER_ID));
+    initial.removeMember(TEAM_ID, USER_ID);
+    await mirror.reconcileUser(USER_ID, () => readUser(initial, USER_ID));
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
+
+    const bulk = world();
+    bulk.users.delete(USER_ID);
+    const pointRead = world();
+    const summary = await backfillHexclaveMirror({
+      source: bulk,
+      reconcileSource: pointRead,
+      store: mirror,
+      concurrency: 1,
+      pageSize: 50,
+    });
+    expect(summary.skippedFresher).toBe(1);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
   });
 
   test("pages everything into the mirror and a rerun changes nothing", async () => {

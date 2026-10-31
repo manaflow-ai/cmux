@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-13: sidebar workspace rows had a ~1 mm gap between them, and
@@ -8,7 +9,10 @@ import Testing
 /// gap, so it flickered row to row. The rows' hit areas tile: the spacing
 /// between two rows belongs to them, so the hover moves from one row to the
 /// next in the same pointer step: the new fill shows at once as the old one clears.
-@MainActor @Suite(.serialized) struct SidebarRowHoverGapTests {
+/// Since Leo 2026-10-19 the row hovered keeps the gap and the next row takes
+/// the hover at its hover pill (`SidebarLayout.hoverRow`); a click acts on the
+/// hovered row, or splits the gap when no row is hovered.
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowHoverGapTests {
     /// Leo's list: four loose workspaces, in a window. None is active, so
     /// every row's fill is its hover fill.
     private static func list() -> (SidebarListView, NSWindow, [SidebarRow]) {
@@ -20,6 +24,7 @@ import Testing
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = list
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         list.reload(animated: false)
@@ -34,7 +39,7 @@ import Testing
 
     @Test func consecutiveRowHitAreasAreContiguous() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let step: CGFloat = 0.25
         for (above, below) in zip(rows, rows.dropFirst()) {
@@ -60,14 +65,15 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let views = try rows.map { try #require(list.rowViews[$0.key]) }
         views.forEach { $0.updateLayer() }
         var previous: SidebarRowKey?
         var switches = 0
-        var y = try #require(rows.first).y
-        let end = try #require(rows.last).maxY
+        // From the first row's middle to the last's: a row's hover pill (a hit shape, not drawn) starts inside its frame (SidebarRowHoverInsetTests).
+        var y = try #require(rows.first).y + rows[0].height / 2
+        let end = try #require(rows.last).maxY - rows[0].height / 2
         while y < end {
             list.updateHover(Self.windowPoint(list, y: y))
             views.forEach { $0.updateLayer() }
@@ -80,7 +86,7 @@ import Testing
                 // the row under the pointer); the old one clears with the hoverOut token, instant by default.
                 let old = try #require(list.rowViews[previous]), new = try #require(list.rowViews[key])
                 #expect(new.layer?.animation(forKey: "backgroundColor") == nil, "y=\(y): \(key)'s fill faded in late")
-                #expect((old.layer?.animation(forKey: "backgroundColor") != nil) == (Motion.duration(.hoverOut) > 0),
+                #expect((old.layer?.animation(forKey: "backgroundColor") != nil) == (Motion.feedback.duration(.hoverOut) > 0),
                         "y=\(y): \(previous)'s fill did not clear with the hoverOut token")
             }
             previous = list.hoveredKey ?? previous

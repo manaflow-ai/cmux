@@ -54,7 +54,7 @@ import {
 } from "../../../../services/analytics/checkoutAttribution";
 import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 import { vaultSignInHref } from "../../../lib/vault-auth";
 import { captureServerEvent } from "../../../../services/analytics/serverEvents";
 import { checkoutAttributionProperties } from "../../../../services/analytics/checkoutAttribution";
@@ -527,15 +527,19 @@ async function stripeTeamCheckout(
 
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
+    const memberCount = await checkoutTeamSeatCount(team);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
           price: await resolveTeamPrice(interval),
-          quantity: await checkoutTeamSeatCount(team),
+          quantity: memberCount,
           adjustable_quantity: {
             enabled: true,
-            minimum: 1,
+            minimum: memberCount,
+            // Stripe otherwise defaults this to 99, below a legitimate large
+            // Team's initial quantity. It accepts values through 999,999.
+            maximum: Math.max(99, memberCount),
           },
         },
       ],

@@ -17,6 +17,7 @@ use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::WorkspaceId;
 use crate::mux::clamp_terminal_size;
+use crate::mux::host_policy::HostSizeMode;
 use crate::sizing_policy::TerminalSizingPolicy;
 use serde_json::Value;
 use serde_json::json;
@@ -169,6 +170,39 @@ pub(super) fn get_size_state(
     }))
 }
 
+/// `get-host-size-policy {surface?}`.
+pub(super) fn get_host_size_policy(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+) -> anyhow::Result<Value> {
+    let mac_participants = match surface {
+        Some(surface) => {
+            get_surface(mux, surface)?;
+            mux.host_mac_participants(surface)
+        }
+        None => Vec::new(),
+    };
+    Ok(json!({"policy": mux.host_size_policy(), "mac_participants": mac_participants}))
+}
+
+/// `set-host-size-policy {policy: {mode, order?}}`.
+pub(super) fn set_host_size_policy(
+    mux: &Arc<Mux>,
+    client: u64,
+    mode: String,
+    order: Option<Vec<String>>,
+) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        mux.may_set_host_size_policy(client),
+        "forbidden: only the cmux app or a phone's lane may change this Mac's terminal sizing policy"
+    );
+    let Some(mode) = HostSizeMode::parse(&mode) else {
+        anyhow::bail!("bad request: unknown mode {mode:?}; use smallest, mac, latest or priority");
+    };
+    let policy = mux.set_host_size_policy(mode, order)?;
+    Ok(json!({"policy": policy}))
+}
+
 pub(super) fn get_cell_pixels(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     let (width_px, height_px) = mux.cell_pixel_creation_size();
     let surfaces = mux.with_state(|state| {
@@ -242,6 +276,9 @@ pub(super) fn resize_surface(
             "outcome": "superseded",
         }));
     }
+    // A size report renews its lease first: an expiry that runs before
+    // this resize applies then releases only the old size (size_lease.rs).
+    super::size_lease::renew_size_lease(mux, client, surface);
     // Every live control connection participates through the same
     // client-size reducer. An unattached one-shot resize is removed
     // when its connection closes, so it cannot bypass visible viewers.
@@ -293,6 +330,14 @@ pub(super) fn resize_attached_view(
         (Some(lease), None) => lease,
         (None, Some(view)) => {
             validate_relay_view(&view)?;
+            // A phone's lane is never a relay of other people's devices: its
+            // sub-views name no user and no device, so none can take another
+            // device's place in a priority order (host-size-policy-v1).
+            let identity = if mux.is_phone_lane(client) {
+                identity.map(ClientIdentityWire::anonymous)
+            } else {
+                identity
+            };
             let (participant, accepted) = mux.report_terminal_sub_view(
                 surface,
                 client,
@@ -382,6 +427,18 @@ pub(super) fn release_surface_size(
     surface: SurfaceId,
 ) -> anyhow::Result<Value> {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
+    // Released on purpose: no lease is left to end it again.
+    mux.control_clients.size_leases.end(client, surface);
+    release_surface_size_locked(mux, client, surface)
+}
+
+/// `release-surface-size` with the sizing lifecycle lock already held (the
+/// size lease's expiry takes it to expire and release in one step).
+pub(super) fn release_surface_size_locked(
+    mux: &Arc<Mux>,
+    client: u64,
+    surface: SurfaceId,
+) -> anyhow::Result<Value> {
     if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
         || (!accepts_view_sizing(mux, surface)
             && mux.control_clients.surface_attachment_is_current_or_retired(client, surface))
@@ -470,5 +527,44 @@ pub(super) fn paired_surface_size(
         (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
         (None, None) => Ok(None),
         _ => anyhow::bail!("{command} cols and rows must be supplied together"),
+    }
+}
+
+impl Mux {
+    /// Whether `client`'s views are this Mac's own for the host sizing
+    /// policy (`mac` token, Prefer This Mac), decided only from what the
+    /// daemon verified about the connection (fail closed): the in-process
+    /// frontend, or a local Unix connection with no link peer record that is
+    /// neither a phone's lane spliced by cmux-mobile-host (its peer at
+    /// accept) nor marked `remote` in its client info. A WebSocket, a remote
+    /// entry stream, a link peer or an unregistered id is never this Mac.
+    /// Whether `client` is a phone's lane: spliced by this build's
+    /// cmux-mobile-host, or marked `remote` by a phone splice.
+    pub(crate) fn is_phone_lane(&self, client: u64) -> bool {
+        client != 0
+            && (super::origin_gate::is_mobile_host_lane(self, client)
+                || self.client_sizing_identity(client).remote)
+    }
+
+    pub(crate) fn is_this_mac_connection(&self, client: u64) -> bool {
+        if client == 0 {
+            return true;
+        }
+        if !self.control_clients.is_unix(client) || self.is_remote_client(client) {
+            return false;
+        }
+        !super::origin_gate::is_mobile_host_lane(self, client)
+            && !self.client_sizing_identity(client).remote
+    }
+
+    /// Whether `client` may write the Mac's host sizing policy: the
+    /// verified cmux app (origin `user`) or a phone's lane spliced by this
+    /// build's cmux-mobile-host. Any other connection (an agent or a script
+    /// on this Mac, another machine) may read it but not change it.
+    pub(crate) fn may_set_host_size_policy(&self, client: u64) -> bool {
+        super::origin_gate::is_user(self, client)
+            || (self.control_clients.is_unix(client)
+                && !self.is_remote_client(client)
+                && super::origin_gate::is_mobile_host_lane(self, client))
     }
 }

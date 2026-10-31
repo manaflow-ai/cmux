@@ -297,6 +297,14 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.environment.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.environment.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.file.pull": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -713,6 +721,30 @@
       "scope": "github:external",
       "class": "mutation"
     },
+    "group.add_workspace": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.archive": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.create": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.get": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.rename": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
     "home.search": {
       "scope": "home:read",
       "class": "read"
@@ -867,6 +899,10 @@
     },
     "memory_app.reload": {
       "scope": "memory_app:read",
+      "class": "read"
+    },
+    "memory.search": {
+      "scope": "memory:read",
       "class": "read"
     },
     "message.edit": {
@@ -1276,6 +1312,10 @@
     "search_app.search": {
       "scope": "search_app:read",
       "class": "read"
+    },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
     },
     "session.get": {
       "scope": "session:read",
@@ -1908,6 +1948,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.archive",
+    "chief.delete",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -1916,6 +1957,9 @@
     "client.sizing.release",
     "client.sizing.set",
     "cloud.billing.checkout",
+    "cloud.environment.boot",
+    "cloud.environment.build",
+    "cloud.environment.delete",
     "cloud.fs.remove",
     "cloud.machine.create",
     "cloud.machine.delete",
@@ -1955,6 +1999,7 @@
     "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
     "host.replica.purge",
     "install.list",

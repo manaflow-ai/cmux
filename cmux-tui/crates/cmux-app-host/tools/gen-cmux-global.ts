@@ -151,7 +151,9 @@ export function generate(): Record<string, string> {
     "agent_cli.list": { scope: "agent_cli:read", class: "read" },
     "coderouter.detect": { scope: "coderouter:read", class: "read" },
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
-    "coderouter.usage.get": { scope: "coderouter:read", class: "read" }
+    "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
+    // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
+    "memory.search": { scope: "memory:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 

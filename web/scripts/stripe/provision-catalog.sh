@@ -25,12 +25,19 @@ WEBHOOK_DESCRIPTION="cmux billing (webhook-driven entitlements)"
 EVENTS=(
   "checkout.session.completed"
   "checkout.session.async_payment_succeeded"
+  "checkout.session.async_payment_failed"
   "checkout.session.expired"
   "customer.subscription.created"
   "customer.subscription.updated"
   "customer.subscription.deleted"
+  "customer.subscription.paused"
+  "customer.subscription.resumed"
+  "customer.subscription.pending_update_applied"
+  "customer.subscription.pending_update_expired"
   "invoice.paid"
   "invoice.payment_failed"
+  "invoice.payment_action_required"
+  "invoice.marked_uncollectible"
   "charge.refunded"
 )
 
@@ -172,6 +179,9 @@ canonical_product() {
   local monthly_lookup_key="$1"
   local name="$2"
   local plan="$3"
+  # A product renamed in the catalog keeps its Stripe object: the previous
+  # name still proves identity, and the run renames it in place.
+  local previous_name="${4:-}"
   local response product_json product_id
 
   response="$(
@@ -188,7 +198,12 @@ canonical_product() {
   fi
 
   product_json="$(jq -c '.data[0].product' <<<"$response")"
-  if ! product_matches_catalog_identity "$product_json" "$name" "$plan"; then
+  if [[ -n "$previous_name" ]] &&
+    product_matches_catalog_identity "$product_json" "$previous_name" "$plan"; then
+    stripe_post "/products/${product_id}" \
+      --data-urlencode "name=${name}" >/dev/null
+    echo "Renamed product ${previous_name} to ${name}: ${product_id}" >&2
+  elif ! product_matches_catalog_identity "$product_json" "$name" "$plan"; then
     echo "Price ${monthly_lookup_key} belongs to an unexpected product: ${product_id}" >&2
     exit 1
   fi
@@ -374,11 +389,87 @@ ensure_personal_plan_switch_portal() {
   echo "Created personal plan switch portal configuration: ${configuration_id}"
 }
 
+# Team quantity is the live member count and is reconciled by cmux. This
+# dedicated portal preserves ordinary billing self-service without allowing a
+# customer to lower the subscription below the members who retain access.
+ensure_team_portal() {
+  local response starting_after page_ids configuration_id default_profile
+  local -a matching_ids=()
+  local -a page_args=()
+
+  starting_after=""
+  while :; do
+    page_args=(--data-urlencode "active=true" --data-urlencode "limit=100")
+    if [[ -n "$starting_after" ]]; then
+      page_args+=(--data-urlencode "starting_after=${starting_after}")
+    fi
+    response="$(stripe_get "/billing_portal/configurations" "${page_args[@]}")"
+    page_ids="$(
+      jq -r '
+        .data[]
+        | select(.metadata.app == "cmux" and .metadata.purpose == "team_billing")
+        | .id
+      ' <<<"$response"
+    )"
+    while IFS= read -r configuration_id; do
+      [[ -n "$configuration_id" ]] && matching_ids+=("$configuration_id")
+    done <<<"$page_ids"
+    if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
+      break
+    fi
+    starting_after="$(jq -er '.data[-1].id | select(type == "string" and length > 0)' <<<"$response")"
+  done
+  if (( ${#matching_ids[@]} > 1 )); then
+    echo "Multiple Team billing portal configurations found" >&2
+    exit 1
+  fi
+  configuration_id="${matching_ids[0]:-}"
+
+  local -a feature_args=(
+    -d "features[subscription_update][enabled]=false"
+    -d "features[subscription_cancel][enabled]=true"
+    -d "features[subscription_cancel][mode]=at_period_end"
+    -d "features[invoice_history][enabled]=true"
+    -d "features[payment_method_update][enabled]=true"
+  )
+
+  if [[ -n "$configuration_id" ]]; then
+    stripe_post "/billing_portal/configurations/${configuration_id}" "${feature_args[@]}" >/dev/null
+    echo "Updated Team billing portal configuration: ${configuration_id}"
+    return 0
+  fi
+
+  response="$(stripe_get "/billing_portal/configurations" --data-urlencode "is_default=true" --data-urlencode "limit=1")"
+  default_profile="$(jq -c '.data[0].business_profile // {}' <<<"$response")"
+  local -a profile_args=()
+  local headline privacy terms
+  headline="$(jq -r '.headline // empty' <<<"$default_profile")"
+  privacy="$(jq -r '.privacy_policy_url // empty' <<<"$default_profile")"
+  terms="$(jq -r '.terms_of_service_url // empty' <<<"$default_profile")"
+  [[ -n "$headline" ]] && profile_args+=(--data-urlencode "business_profile[headline]=${headline}")
+  [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
+  [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
+  if (( ${#profile_args[@]} > 0 )); then
+    feature_args=("${profile_args[@]}" "${feature_args[@]}")
+  fi
+  response="$(
+    stripe_post "/billing_portal/configurations" \
+      -d "metadata[app]=cmux" \
+      -d "metadata[purpose]=team_billing" \
+      "${feature_args[@]}"
+  )"
+  configuration_id="$(jq -er '.id' <<<"$response")"
+  echo "Created Team billing portal configuration: ${configuration_id}"
+}
+
 echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
 go_product_id="$(canonical_product "cmux-go-monthly-10" "cmux Go" "go")"
-echo "Resolved Go product." >&2
+echo "Resolved legacy Go product." >&2
+# cmux Plus was first provisioned as cmux Starter; its lookup key keeps that name.
+plus_product_id="$(canonical_product "cmux-starter-monthly-15" "cmux Plus" "go" "cmux Starter")"
+echo "Resolved Plus product." >&2
 max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
@@ -396,6 +487,7 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
+ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
 ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
 ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
@@ -403,7 +495,8 @@ ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
-# Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
+# Plus is monthly only; the original Go price stays active for subscribers.
+ensure_price "$plus_product_id" "cmux-starter-monthly-15" "1500" "month" "cmux Plus Monthly"
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
 # Max is sold monthly or yearly at the same 20% annual discount as Pro.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
@@ -425,6 +518,7 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
+ensure_team_portal
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

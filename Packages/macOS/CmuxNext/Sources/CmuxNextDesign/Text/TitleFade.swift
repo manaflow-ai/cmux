@@ -1,4 +1,6 @@
 public import QuartzCore
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// Fades a clipped single-line title and runs its hover marquee.
 ///
@@ -17,14 +19,21 @@ public final class TitleFade {
     /// A marquee started and the pointer has not left since. Stays true
     /// after its single pass ends, until `stopMarquee()`.
     public private(set) var isMarqueeActive = false
+    /// The motion gate of the title's owner (tabs or sidebar): its marquee
+    /// and mask fades obey that category's switch.
+    public let gate: MotionGate
     /// The motion policy (speed and Reduce Motion); tests pin it.
-    public var policy: () -> MotionPolicy = { Motion.policy }
+    public lazy var policy: () -> MotionPolicy = { [gate] in gate.policy }
 
     static let keyPath = "transform.translation.x"
     static let key = "marquee"
 
-    public init(textLayer: CALayer) {
+    /// - Parameters:
+    ///   - textLayer: The title's text layer.
+    ///   - gate: The owner's motion category (`Motion.tabs`, `Motion.sidebar`).
+    public init(textLayer: CALayer, gate: MotionGate) {
         self.textLayer = textLayer
+        self.gate = gate
         mask.startPoint = CGPoint(x: 0, y: 0.5)
         mask.endPoint = CGPoint(x: 1, y: 0.5)
         let clear = CGColor(gray: 0, alpha: 0)
@@ -56,8 +65,8 @@ public final class TitleFade {
             mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
             let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
             CATransaction.begin()
-            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.dropOpenMask() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-            Motion.set(mask, "locations", to: open, fade: .hover)
+            CATransaction.setMainCompletion { [weak self] in self?.dropOpenMask() }
+            gate.set(mask, "locations", to: open, fade: .hover)
             CATransaction.commit()
             return
         }
@@ -69,7 +78,7 @@ public final class TitleFade {
         if animated, (mask.locations ?? []) != locations {
             // A title that was not clipped starts fully visible.
             let from: [NSNumber]? = wasMasked ? nil : [0, locations[1], 1, 1, 1]
-            Motion.set(mask, "locations", to: locations, fade: .hover, from: from)
+            gate.set(mask, "locations", to: locations, fade: .hover, from: from)
         } else {
             mask.removeAnimation(forKey: "locations")
             mask.locations = locations
@@ -155,9 +164,9 @@ public final class TitleFade {
         let travel = geometry.marqueeTravel
         let now = CACurrentMediaTime()
         let policy = policy()
-        guard let text = Motion.marqueeAnimation(keyPath: Self.keyPath, travel: travel, sign: -1,
+        guard let text = gate.marqueeAnimation(keyPath: Self.keyPath, travel: travel, sign: -1,
                                                  now: textLayer.convertTime(now, from: nil), policy: policy),
-              let counter = Motion.marqueeAnimation(keyPath: Self.keyPath, travel: travel, sign: 1,
+              let counter = gate.marqueeAnimation(keyPath: Self.keyPath, travel: travel, sign: 1,
                                                     now: mask.convertTime(now, from: nil), policy: policy)
         else { return false }
         isMarqueeActive = true
@@ -184,9 +193,9 @@ public final class TitleFade {
         CATransaction.begin()
         // The title keeps its full width until it is back at rest, so its
         // end is never cut while it slides back.
-        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        Motion.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
-        Motion.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
+        CATransaction.setMainCompletion { [weak self] in self?.restoreWidth() }
+        gate.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
+        gate.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()
     }
 

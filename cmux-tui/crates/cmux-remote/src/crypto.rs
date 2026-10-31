@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
-use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, SessionId};
+use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snow::params::NoiseParams;
@@ -199,10 +199,51 @@ pub struct AuthRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceAuthority {
+    services: Box<[Service]>,
+}
+
+impl ServiceAuthority {
+    /// Refuse every service. Callers add authority deliberately rather than
+    /// inheriting access when the protocol gains a new service.
+    pub fn none() -> Self {
+        Self { services: Box::new([]) }
+    }
+
+    /// Preserve the service access held by devices before service-scoped
+    /// authorization existed. This list is intentionally explicit: a future
+    /// service is denied until an authority constructor includes it.
+    pub fn legacy_full() -> Self {
+        Self {
+            services: Box::new([
+                Service::MuxControl,
+                Service::WorkspaceRpc,
+                Service::ProcessStream,
+                Service::TerminalBytes,
+                Service::TcpTunnel,
+                Service::ComputerUse,
+            ]),
+        }
+    }
+
+    /// Whether this grant may open the service.
+    pub fn allows(&self, service: Service) -> bool {
+        self.services.contains(&service)
+    }
+}
+
+impl Default for ServiceAuthority {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthGrant {
     pub device_id: String,
     pub daemon_name: String,
     pub revocation_generation: u64,
+    pub authority: ServiceAuthority,
 }
 
 pub struct AcceptedSecureLink {

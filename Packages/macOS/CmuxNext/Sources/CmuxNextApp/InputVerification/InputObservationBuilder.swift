@@ -14,7 +14,7 @@ enum InputObservationBuilder {
         let context = services.registry.context
         return InputObservation(
             windows: controllers.map { window(of: $0, ghostty: ghostty) },
-            keyWindow: keyWindow(controllers),
+            keyWindow: keyWindow(services.keyWindowSource(), controllers),
             paletteOpen: context.contains(.paletteOpen),
             activeWindow: services.windows.active?.state.id,
             context: FocusState.Context(terminal: context.contains(.terminalFocused), browser: context.contains(.browserFocused),
@@ -26,10 +26,12 @@ enum InputObservationBuilder {
         let window = controller.window
         var presented: [String: String] = [:]
         var childWindowTabs: [String] = []
+        // A cmux page's Chromium tab has its own id; the model knows the page by its tab key.
+        var pageTabKeys: [String: String] = [:]
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard let key = pane.currentTabKey else { continue }
             presented[pane.paneKey] = key
-            if case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow { childWindowTabs.append(key) }
+            if let tab = pane.currentContent?.childWindowTab { childWindowTabs.append(key); pageTabKeys[tab.id.rawValue] = key }
         }
         return InputObservation.Window(
             id: controller.state.id,
@@ -39,15 +41,15 @@ enum InputObservationBuilder {
             isKey: window?.isKeyWindow ?? false,
             layoutFocus: controller.content?.layoutModel.focusedPane?.rawValue,
             ghosttyFocused: presented.values.filter(ghostty.contains).sorted(),
-            childPage: controller.focusApplier.focusedChildWindowPageID,
+            childPage: controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 },
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
-            hasSheet: window?.attachedSheet != nil
+            hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil
         )
     }
 
-    static func keyWindow(_ controllers: [WindowController]) -> InputObservation.KeyWindow {
-        guard let key = NSApp.keyWindow else { return .none }
+    static func keyWindow(_ key: NSWindow?, _ controllers: [WindowController]) -> InputObservation.KeyWindow {
+        guard let key else { return .none }
         if let controller = controllers.first(where: { $0.window === key }) { return .window(controller.state.id) }
         let kind = String(describing: type(of: key))
         if let parent = key.sheetParent, let controller = controllers.first(where: { $0.window === parent }) {

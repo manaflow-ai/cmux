@@ -241,7 +241,7 @@ An experiment is a named set of alternative implementations ("arms") of one beha
 Lawrence can see them side by side and pick one. Three pieces, all next to the component:
 
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
-defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
+   defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
    `description`. `defaultArm` is the arm that ships. Add the definition to
    `src/experiments/registry.ts` (one import, one list item).
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
@@ -250,7 +250,7 @@ defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and 
    else `defaultArm`. Keep each arm's code path separate, so a losing arm is one deletion.
 3. The gallery entry gets `experiment: { definition, setup?, script, measurements? }`. `script` is
    a list of named steps (`{ name, run: (ctx) => ... }`, the play context of play.ts; `{ deep:
-selector }` targets elements inside open shadow roots). `setup` brings the stage to the start
+   selector }` targets elements inside open shadow roots). `setup` brings the stage to the start
    state with every animation finished at once.
 
 The entry then has a **Compare arms** view. Each cell is the same variant at the same size, scale,

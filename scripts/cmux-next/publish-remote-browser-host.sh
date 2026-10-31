@@ -15,8 +15,10 @@
 # remote-browser-host/<sha256>/cmux-remote-browser-host-macos-arm64, is read
 # back and checked, and one line is appended to
 # $CMUX_RB_HOST_PUBLISH_LOG (default <hq>/artifacts/rb-host-r2-publish.log
-# when this checkout sits in a cmuxterm-hq tree). --dry-run writes the pin
-# and uploads nothing.
+# when this checkout sits in a cmuxterm-hq tree). It then pushes the permanent
+# tag cmux-rbh-src-<SHA, 11 characters> at SHA: the third-party notices name
+# that source (generate-third-party-notices.sh fails without it). --dry-run
+# writes the pin and uploads and pushes nothing.
 #
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
 # ~/.secrets/cmux-cef.env; read here only, values never printed):
@@ -110,6 +112,11 @@ if (( ! dry )); then
     printf '%s %s bucket=%s key=%s sha256=%s readback=ok commit=%s step=%s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$result" "$bucket" "$key" "$sha" "$commit" "$step" >> "$log"
   fi
+  tag="cmux-rbh-src-${commit:0:11}"
+  if ! git -C "$repo_root" ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+    git -C "$repo_root" push origin "$commit:refs/tags/$tag" >&2
+  fi
+  echo "==> source tag $tag" >&2
 fi
 
 /usr/bin/python3 - "$pin" "$manifest" "$asset" "$sha" "$bucket" "$key" "$commit" "$crate_tree" "$step" <<'PY'

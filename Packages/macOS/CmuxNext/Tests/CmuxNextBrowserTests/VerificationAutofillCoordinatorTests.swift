@@ -171,4 +171,67 @@ import Testing
         coordinator.settingChanged()
         #expect(tab.pendingPrompts.isEmpty)
     }
+
+    /// A source whose first read waits until the test releases it: a slow Mail script.
+    actor GatedSource: VerificationEmailSource {
+        private(set) var reads = 0
+        private(set) var inFlight = 0
+        private(set) var mostInFlight = 0
+        private var gate: CheckedContinuation<Void, Never>?
+        func emails(receivedSince since: Date) async throws -> [VerificationEmail] {
+            reads += 1
+            inFlight += 1
+            mostInFlight = max(mostInFlight, inFlight)
+            if reads == 1 { await withCheckedContinuation { gate = $0 } }
+            inFlight -= 1
+            return []
+        }
+        func release() {
+            gate?.resume()
+            gate = nil
+        }
+    }
+
+    /// Another page starting to wait during a slow read arms no second read (one osascript at a
+    /// time, as the loop before DemandTimer did): an older read finishing last would replace a
+    /// newer offer with an older code.
+    @Test func aSlowReadIsNeverOverlappedByAnotherRead() async throws {
+        let source = GatedSource()
+        let enabled = Switch()
+        let list = PublicSuffixList.bundled() ?? PublicSuffixList(listText: "")
+        let coordinator = VerificationAutofillCoordinator(
+            inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)), source: source,
+            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, clock: ImmediateClock(),
+            pollInterval: .seconds(3)
+        )
+        let first = Self.tab(), second = Self.tab("https://github.com/login/device")
+        coordinator.pageWaiting(first)
+        var tries = 0
+        while await source.reads < 1, tries < 500 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
+        #expect(await source.reads == 1, "the first deadline started a read")
+        coordinator.pageWaiting(second)
+        tries = 0
+        while await source.reads < 2, tries < 100 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
+        let overlapping = await source.mostInFlight
+        enabled.on = false
+        await source.release()
+        #expect(overlapping == 1, "a second read started while the first still ran")
+        _ = (first, second)
+    }
+}
+
+/// A clock whose sleeps end at once, so each poll deadline fires on the next task turn.
+nonisolated private struct ImmediateClock: Clock {
+    nonisolated struct Instant: InstantProtocol {
+        var offset: Duration = .zero
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now: Instant { Instant() }
+    var minimumResolution: Duration { .nanoseconds(1) }
+
+    func sleep(until _: Instant, tolerance _: Duration?) async throws {}
 }

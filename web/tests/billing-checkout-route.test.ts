@@ -1017,7 +1017,7 @@ describe("billing checkout route", () => {
         {
           price: "price_team_month",
           quantity: 2,
-          adjustable_quantity: { enabled: true, minimum: 1 },
+          adjustable_quantity: { enabled: true, minimum: 2, maximum: 99 },
         },
       ],
       customer: "cus_team",

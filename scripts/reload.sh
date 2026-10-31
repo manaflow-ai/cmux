@@ -11,12 +11,16 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/dev-sign-identity.sh
+source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
 # The configuration xcodebuild builds and the app it produces (Release: cmux.app).
 BUILD_CONFIGURATION="Debug"
+# --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
+BENCH_HOOKS=0
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -731,6 +735,14 @@ Options:
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
                          debug.* socket commands are compiled out.
+  --config <debug|release|bench>
+                         debug (default) and release as above. bench: the Release
+                         configuration (-O, whole module, the shipped flags) plus
+                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
+                         the benches and the STRESS builder drive exist in an
+                         optimized app. Never for a shipped product:
+                         scripts/cmux-next/check-no-bench-hooks.sh refuses such an
+                         app in the release and nightly pipelines.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -944,6 +956,15 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
     "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
   fi
+  # A bench build must carry the bench marker (the flags reached the app's modules); any other build
+  # must not (scripts/cmux-next/check-no-bench-hooks.sh, also run by the release and nightly pipelines).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ]]; then
+    if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" --expect "$app_path" || return 1
+    else
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" "$app_path" || return 1
+    fi
+  fi
   # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
   # build warns only: a branch may bundle its base tree's cmux-tui (tree
   # fallback) until its own tree publishes. nightly.yml fails on it.
@@ -1122,6 +1143,15 @@ while [[ $# -gt 0 ]]; do
       BUILD_CONFIGURATION="Release"
       shift
       ;;
+    --config|--config=*)
+      if [[ "$1" == --config=* ]]; then config_name="${1#--config=}"; shift; else config_name="${2:-}"; shift 2 || true; fi
+      case "$config_name" in
+        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 ;;
+        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 ;;
+        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
+        *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
+      esac
+      ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
       if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1212,7 +1242,8 @@ done
 
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
-# entitlements need a signing team, and the tagged app is signed ad hoc.
+# entitlements need a signing team, and the tagged app is signed ad hoc (or with
+# CMUX_DEV_SIGN_IDENTITY, still without entitlements).
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   PRODUCT_APP_NAME="cmux"
   export CMUX_NEXT_TUI_MODE=tree
@@ -1313,9 +1344,19 @@ fi
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
-# own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
-# lift the guard's floor only for this build.
-cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+# own floor, CMUX_NEXT_MIN_FREE_GIB, and lift the guard's floor only for this
+# build. Its default (40 GiB, about 4x that peak) is the one number in
+# cmux-next/tour-requirements.json, so the runners that take tours read the
+# same floor instead of copying it.
+cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
+cmux_next_default_min_free_gib="$(python3 -c '
+import json, sys
+value = json.load(open(sys.argv[1]))["min_free_gib"]
+if type(value) is not int or value <= 0:
+    raise SystemExit(1)
+print(value)' "$cmux_next_requirements" 2>/dev/null)" \
+  || { echo "error: $cmux_next_requirements must hold a positive whole number of GiB as min_free_gib" >&2; exit 1; }
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
 cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
@@ -1389,24 +1430,24 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
-# The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which Settings >
+# The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which Settings >
 # Mobile runs. Same rule as optchat-chief: fleet and CI builds
 # compile it on a miss and require it; a local reload bundles a cached build
 # when one exists and otherwise builds an app whose iPhone section says it is
 # unavailable (never Cargo on the developer Mac).
 if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
-  export CMUX_NEXT_CNX_HOSTD_ARCHS="${CMUX_NEXT_CNX_HOSTD_ARCHS:-arm64 x86_64}"
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
 fi
-if [[ -z "${CMUX_NEXT_CNX_HOSTD_BIN:-}" && -x "$PWD/scripts/cmux-next/build-cnx-hostd.sh" ]]; then
-  if cnx_hostd_cached="$("$PWD/scripts/cmux-next/build-cnx-hostd.sh" --cached-only --print-path 2>/dev/null)"; then
-    export CMUX_NEXT_CNX_HOSTD_BIN="$cnx_hostd_cached"
-  elif "$PWD/scripts/cmux-next/build-cnx-hostd.sh" --check-build-allowed; then
-    "$PWD/scripts/cmux-next/build-cnx-hostd.sh" || exit 1
-    export CMUX_NEXT_CNX_HOSTD_BIN="$("$PWD/scripts/cmux-next/build-cnx-hostd.sh" --cached-only --print-path)"
-    export CMUX_NEXT_REQUIRE_CNX_HOSTD=1
+if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
+  if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_MOBILE_HOST_BIN="$cmux_mobile_host_cached"
+  elif "$PWD/scripts/cmux-next/build-mobile-host.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-mobile-host.sh" || exit 1
+    export CMUX_NEXT_MOBILE_HOST_BIN="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_MOBILE_HOST=1
   fi
 fi
-[[ -n "${CMUX_NEXT_CNX_HOSTD_BIN:-}" ]] && echo "==> cmux-next: bundling cnx-hostd from $CMUX_NEXT_CNX_HOSTD_BIN"
+[[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output, not committed: they are built from the sources before
@@ -1623,6 +1664,11 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# A dev bundle id never claims http/https at Default rank, Release mode included
+# (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+web_url_handler_rank=Default
+case "$BUNDLE_ID" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK="$web_url_handler_rank")
 # The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
 # CFBundleShortVersionString too, so the About window, crash reports and the
 # bundled `cmux --version` agree (check-version-surfaces.sh below). The
@@ -1653,6 +1699,18 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
+if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+  # Optimized as shipped, without DEBUG. CMUX_BENCH_HOOKS compiles in only the debug.* control surface
+  # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
+  # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
+  # (check-no-bench-hooks.sh).
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
+  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -2070,11 +2128,15 @@ esac
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
-  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+# Ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity (scripts/lib/dev-sign-identity.sh).
+# A set identity this host lacks, or one codesign fails with, fails here; it never falls
+# back to ad hoc or unsigned. No --deep: nested helpers keep their own signatures.
+cmux_dev_sign_identity_ready || exit 1
+if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" && "${CMUX_DEV_SIGN_IDENTITY:--}" == "-" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else
-    echo "error: codesign failed for $APP_PATH" >&2
+    echo "error: codesign failed for $APP_PATH${CMUX_DEV_SIGN_IDENTITY:+ with CMUX_DEV_SIGN_IDENTITY '$CMUX_DEV_SIGN_IDENTITY'}" >&2
     exit 1
   fi
 fi
@@ -2096,8 +2158,10 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   # A startup process may not service its quit request yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; the helper forces only
-  # this tag's executables after a bounded graceful window.
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal

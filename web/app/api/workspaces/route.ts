@@ -8,6 +8,7 @@ import {
 } from "../../../services/vms/persistentWorkspace";
 import { persistentWorkspaceServiceForRequest } from "../../../services/vms/freestyleWorkspaceComposition";
 import type { PersistentWorkspaceProviderInput } from "../../../services/vms/persistentWorkspace";
+import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 function errorResponse(error: unknown): Response {
   if (error instanceof PersistentWorkspaceError) {
@@ -59,6 +60,12 @@ export async function POST(request: Request): Promise<Response> {
       if (!body) return jsonResponse({ error: "workspace_invalid_request", message: "Workspace body must be a JSON object." }, 400);
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "workspace.create",
+        billingTeamId: scope.entitlements.billingTeamId,
+      });
+      if (limited) return limited;
       const service = await persistentWorkspaceServiceForRequest({ user, entitlements: scope.entitlements });
       try {
         const workspace = await service.create({

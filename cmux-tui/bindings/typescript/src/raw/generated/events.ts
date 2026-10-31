@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
+/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
 
 
 import type * as T from "./types.js";
@@ -13,6 +13,8 @@ export type ActivityChangedEvent = { event: "activity-changed" } & {
 export type AgentChangedEvent = { event: "agent-changed" } & {
   /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
   "agent"?: (string) | null;
+  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+  "agent_session_id"?: (string) | null;
   /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
   "last_prompt"?: (string) | null;
   "session": (string) | null;
@@ -127,6 +129,13 @@ export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & 
   "account"?: string;
   "conversation": string;
   "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationPresenceEvent = { event: "cloud-conversation-presence" } & {
+  "account"?: string;
+  "conversation": string;
+  "participants": Array<T.CloudConversationPresenceParticipant>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -729,6 +738,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent
@@ -818,6 +828,7 @@ export type KnownSubscribeEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent

@@ -33,12 +33,14 @@ impl Mux {
             mutation,
             true,
             crate::state::home_store::EmptyWorkspaceMark::None,
+            true,
         )
     }
 
     /// Stage an empty workspace for a resource effect. `mark` (ephemeral,
     /// or the kind row of an app workspace) is written in the same
-    /// transaction, so no reader sees the workspace without it.
+    /// transaction, so no reader sees the workspace without it. The new
+    /// workspace becomes the focused one.
     pub(super) fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
@@ -46,6 +48,29 @@ impl Mux {
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
         mark: crate::state::home_store::EmptyWorkspaceMark,
+    ) -> anyhow::Result<WorkspacePlacement> {
+        self.create_empty_workspace_for_resource_effect_focus(
+            name,
+            requested_key,
+            public_id,
+            mutation,
+            mark,
+            true,
+        )
+    }
+
+    /// [`Self::create_empty_workspace_for_resource_effect`]; with `focus`
+    /// false the focused workspace stays the one it was (a programmatic
+    /// `workspace.create` without `focus: true`). The first workspace of a
+    /// session is focused either way.
+    pub(super) fn create_empty_workspace_for_resource_effect_focus(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        public_id: WorkspacePublicId,
+        mutation: &WorkspaceMutation,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
+        focus: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -56,6 +81,7 @@ impl Mux {
             mutation,
             false,
             mark,
+            focus,
         )
     }
 
@@ -70,6 +96,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         project_resource: bool,
         mark: crate::state::home_store::EmptyWorkspaceMark,
+        focus: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -129,10 +156,20 @@ impl Mux {
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
-            let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+            let name_source =
+                crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
             let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
+            // Without focus, the workspace that was focused stays focused.
+            let kept_focus = (!focus)
+                .then(|| state.workspaces.get(state.active_workspace))
+                .flatten()
+                .map(|workspace| (state.active_workspace, workspace.public_id.clone()));
+            let active_public_id = kept_focus
+                .as_ref()
+                .map_or(&workspace_public_id, |(_, public_id)| public_id)
+                .clone();
             let mut desired = self.registry_projection(&state);
             desired.push(RegistryWorkspace {
                 id: ws_id,
@@ -158,7 +195,7 @@ impl Mux {
                     "workspace-added",
                     &key,
                     &desired,
-                    Some(&workspace_public_id),
+                    Some(&active_public_id),
                     &result,
                 )?
             } else {
@@ -175,7 +212,7 @@ impl Mux {
                     "workspace-added",
                     &key,
                     &desired,
-                    Some(&workspace_public_id),
+                    Some(&active_public_id),
                     &result,
                     writes.then_some(
                         &write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
@@ -220,7 +257,10 @@ impl Mux {
                 screens: Vec::new(),
                 active_screen: 0,
             });
-            state.active_workspace = state.workspaces.len() - 1;
+            state.active_workspace = match kept_focus {
+                Some((active, _)) => active,
+                None => state.workspaces.len() - 1,
+            };
             state.workspace_revision = commit.revision;
             if let Some(resource_revision) = resource_revision {
                 state.resource_revision = resource_revision;

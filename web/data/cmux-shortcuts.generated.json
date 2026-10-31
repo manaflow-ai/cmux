@@ -37,7 +37,7 @@
             "da": "Indstillinger…",
             "de": "Einstellungen …",
             "es": "Ajustes…",
-            "fr": "Réglages...",
+            "fr": "Réglages…",
             "it": "Impostazioni…",
             "ja": "設定…",
             "km": "ការកំណត់…",
@@ -45,13 +45,13 @@
             "no": "Innstillinger …",
             "pl": "Ustawienia…",
             "pt-BR": "Ajustes…",
-            "ru": "Настройки...",
-            "th": "การตั้งค่า...",
+            "ru": "Настройки…",
+            "th": "การตั้งค่า…",
             "tr": "Ayarlar…",
             "uk": "Налаштування…",
             "vi": "Cài đặt…",
-            "zh-CN": "设置...",
-            "zh-TW": "設定..."
+            "zh-CN": "设置…",
+            "zh-TW": "設定…"
           },
           "shortcut": {
             "key": ",",
@@ -317,7 +317,7 @@
             "da": "Kommandopalette…",
             "de": "Befehlspalette …",
             "es": "Paleta de comandos…",
-            "fr": "Palette de commandes...",
+            "fr": "Palette de commandes…",
             "it": "Tavolozza comandi…",
             "ja": "コマンドパレット…",
             "km": "បន្ទះពាក្យបញ្ជា…",
@@ -325,13 +325,13 @@
             "no": "Kommandopalett …",
             "pl": "Paleta poleceń…",
             "pt-BR": "Paleta de Comandos…",
-            "ru": "Палитра команд...",
-            "th": "แถบคำสั่ง...",
+            "ru": "Палитра команд…",
+            "th": "แถบคำสั่ง…",
             "tr": "Komut Paleti…",
             "uk": "Палітра команд…",
             "vi": "Bảng lệnh…",
-            "zh-CN": "命令面板...",
-            "zh-TW": "指令面板..."
+            "zh-CN": "命令面板…",
+            "zh-TW": "指令面板…"
           },
           "shortcut": {
             "key": "p",
@@ -440,7 +440,7 @@
             "da": "Gå til arbejdsområde…",
             "de": "Zum Arbeitsbereich wechseln …",
             "es": "Ir al espacio de trabajo…",
-            "fr": "Aller à l'espace de travail...",
+            "fr": "Aller à l'espace de travail…",
             "it": "Vai all'area di lavoro…",
             "ja": "ワークスペースへ移動…",
             "km": "ទៅកន្លែងធ្វើការ…",
@@ -448,17 +448,52 @@
             "no": "Gå til arbeidsområde …",
             "pl": "Przejdź do przestrzeni roboczej…",
             "pt-BR": "Ir para Área de Trabalho…",
-            "ru": "Перейти к рабочему пространству...",
-            "th": "ไปที่เวิร์กสเปซ...",
+            "ru": "Перейти к рабочему пространству…",
+            "th": "ไปที่เวิร์กสเปซ…",
             "tr": "Çalışma Alanına Git…",
             "uk": "Перейти до робочої області…",
             "vi": "Đi tới không gian làm việc…",
-            "zh-CN": "前往工作区...",
-            "zh-TW": "前往工作區..."
+            "zh-CN": "前往工作区…",
+            "zh-TW": "前往工作區…"
           },
           "shortcut": {
             "key": "p",
             "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "search.chats",
+          "title": {
+            "en": "Search Everything…",
+            "ar": "البحث في كل شيء…",
+            "bs": "Pretraži sve…",
+            "da": "Søg overalt…",
+            "de": "Alles durchsuchen…",
+            "es": "Buscar en todo…",
+            "fr": "Tout rechercher…",
+            "it": "Cerca ovunque…",
+            "ja": "すべてを検索…",
+            "km": "ស្វែងរកគ្រប់យ៉ាង…",
+            "ko": "모두 검색…",
+            "no": "Søk overalt…",
+            "pl": "Szukaj wszędzie…",
+            "pt-BR": "Pesquisar tudo…",
+            "ru": "Искать везде…",
+            "th": "ค้นหาทุกอย่าง…",
+            "tr": "Her şeyde ara…",
+            "uk": "Шукати всюди…",
+            "vi": "Tìm kiếm mọi thứ…",
+            "zh-CN": "搜索全部…",
+            "zh-TW": "搜尋全部…"
+          },
+          "shortcut": {
+            "key": "a",
+            "modifiers": [
+              "shift",
               "cmd"
             ]
           },
@@ -504,6 +539,472 @@
             }
           ],
           "aliases": []
+        },
+        {
+          "id": "home.messageChiefFromAnyApp",
+          "title": {
+            "en": "Message the Chief from Any App",
+            "ar": "مراسلة Chief من أي تطبيق",
+            "bs": "Pošalji poruku Chiefu iz bilo koje aplikacije",
+            "da": "Skriv til Chief fra enhver app",
+            "de": "Chief aus jeder App eine Nachricht senden",
+            "es": "Enviar mensaje a Chief desde cualquier app",
+            "fr": "Écrire à Chief depuis n’importe quelle app",
+            "it": "Scrivi a Chief da qualsiasi app",
+            "ja": "どのアプリからでも Chief にメッセージ",
+            "km": "ផ្ញើសារទៅ Chief ពីកម្មវិធីណាមួយ",
+            "ko": "모든 앱에서 Chief에게 메시지 보내기",
+            "no": "Skriv til Chief fra hvilken som helst app",
+            "pl": "Napisz do Chiefa z dowolnej aplikacji",
+            "pt-BR": "Enviar mensagem ao Chief de qualquer app",
+            "ru": "Написать Chief из любого приложения",
+            "th": "ส่งข้อความถึง Chief จากแอปใดก็ได้",
+            "tr": "Herhangi bir uygulamadan Chief'e mesaj gönder",
+            "uk": "Написати Chief з будь-якої програми",
+            "vi": "Nhắn cho Chief từ mọi ứng dụng",
+            "zh-CN": "从任意应用给 Chief 发消息",
+            "zh-TW": "從任何 App 傳訊息給 Chief"
+          },
+          "shortcut": {
+            "key": "c",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "home.replyToSelection",
+          "title": {
+            "en": "Reply to Selection",
+            "ar": "الرد على التحديد",
+            "bs": "Odgovori na odabir",
+            "da": "Svar på markering",
+            "de": "Auf Auswahl antworten",
+            "es": "Responder a la selección",
+            "fr": "Répondre à la sélection",
+            "it": "Rispondi alla selezione",
+            "ja": "選択部分に返信",
+            "km": "ឆ្លើយតបទៅការជ្រើសរើស",
+            "ko": "선택 항목에 답장",
+            "no": "Svar på markering",
+            "pl": "Odpowiedz na zaznaczenie",
+            "pt-BR": "Responder à seleção",
+            "ru": "Ответить на выделенное",
+            "th": "ตอบกลับส่วนที่เลือก",
+            "tr": "Seçime Yanıt Ver",
+            "uk": "Відповісти на виділене",
+            "vi": "Trả lời phần đã chọn",
+            "zh-CN": "回复所选内容",
+            "zh-TW": "回覆所選內容"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "r",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.zoomIn",
+          "title": {
+            "en": "Chief: Zoom In",
+            "ar": "Chief: تكبير",
+            "bs": "Chief: uvećaj",
+            "da": "Chief: Zoom ind",
+            "de": "Chief: Vergrößern",
+            "es": "Chief: acercar",
+            "fr": "Chief : zoom avant",
+            "it": "Chief: ingrandisci",
+            "ja": "Chief: 拡大",
+            "km": "Chief៖ ពង្រីក",
+            "ko": "Chief: 확대",
+            "no": "Chief: Zoom inn",
+            "pl": "Chief: Powiększ",
+            "pt-BR": "Chief: Ampliar",
+            "ru": "Chief: увеличить",
+            "th": "Chief: ซูมเข้า",
+            "tr": "Chief: Yakınlaştır",
+            "uk": "Chief: збільшити",
+            "vi": "Chief: Phóng to",
+            "zh-CN": "Chief：放大",
+            "zh-TW": "Chief：放大"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.zoomOut",
+          "title": {
+            "en": "Chief: Zoom Out",
+            "ar": "Chief: تصغير",
+            "bs": "Chief: umanji",
+            "da": "Chief: Zoom ud",
+            "de": "Chief: Verkleinern",
+            "es": "Chief: alejar",
+            "fr": "Chief : zoom arrière",
+            "it": "Chief: riduci",
+            "ja": "Chief: 縮小",
+            "km": "Chief៖ បង្រួម",
+            "ko": "Chief: 축소",
+            "no": "Chief: Zoom ut",
+            "pl": "Chief: Pomniejsz",
+            "pt-BR": "Chief: Reduzir",
+            "ru": "Chief: уменьшить",
+            "th": "Chief: ซูมออก",
+            "tr": "Chief: Uzaklaştır",
+            "uk": "Chief: зменшити",
+            "vi": "Chief: Thu nhỏ",
+            "zh-CN": "Chief：缩小",
+            "zh-TW": "Chief：縮小"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.zoomReset",
+          "title": {
+            "en": "Chief: Actual Size",
+            "ar": "Chief: الحجم الفعلي",
+            "bs": "Chief: stvarna veličina",
+            "da": "Chief: Faktisk størrelse",
+            "de": "Chief: Originalgröße",
+            "es": "Chief: tamaño real",
+            "fr": "Chief : taille réelle",
+            "it": "Chief: dimensioni reali",
+            "ja": "Chief: 実寸表示",
+            "km": "Chief៖ ទំហំពិត",
+            "ko": "Chief: 실제 크기",
+            "no": "Chief: Faktisk størrelse",
+            "pl": "Chief: Rzeczywisty rozmiar",
+            "pt-BR": "Chief: Tamanho Real",
+            "ru": "Chief: фактический размер",
+            "th": "Chief: ขนาดจริง",
+            "tr": "Chief: Gerçek Boyut",
+            "uk": "Chief: реальний розмір",
+            "vi": "Chief: Kích thước thực",
+            "zh-CN": "Chief：实际大小",
+            "zh-TW": "Chief：實際大小"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "0",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.previousConversation",
+          "title": {
+            "en": "Previous Conversation",
+            "ar": "المحادثة السابقة",
+            "bs": "Prethodni razgovor",
+            "da": "Forrige samtale",
+            "de": "Vorherige Unterhaltung",
+            "es": "Conversación anterior",
+            "fr": "Conversation précédente",
+            "it": "Conversazione precedente",
+            "ja": "前の会話",
+            "km": "ការសន្ទនាមុន",
+            "ko": "이전 대화",
+            "no": "Forrige samtale",
+            "pl": "Poprzednia rozmowa",
+            "pt-BR": "Conversa anterior",
+            "ru": "Предыдущий разговор",
+            "th": "การสนทนาก่อนหน้า",
+            "tr": "Önceki Sohbet",
+            "uk": "Попередня розмова",
+            "vi": "Cuộc trò chuyện trước",
+            "zh-CN": "上一个对话",
+            "zh-TW": "上一個對話"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl",
+              "shift"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.nextConversation",
+          "title": {
+            "en": "Next Conversation",
+            "ar": "المحادثة التالية",
+            "bs": "Sljedeći razgovor",
+            "da": "Næste samtale",
+            "de": "Nächste Unterhaltung",
+            "es": "Conversación siguiente",
+            "fr": "Conversation suivante",
+            "it": "Conversazione successiva",
+            "ja": "次の会話",
+            "km": "ការសន្ទនាបន្ទាប់",
+            "ko": "다음 대화",
+            "no": "Neste samtale",
+            "pl": "Następna rozmowa",
+            "pt-BR": "Próxima conversa",
+            "ru": "Следующий разговор",
+            "th": "การสนทนาถัดไป",
+            "tr": "Sonraki Sohbet",
+            "uk": "Наступна розмова",
+            "vi": "Cuộc trò chuyện tiếp theo",
+            "zh-CN": "下一个对话",
+            "zh-TW": "下一個對話"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.selectConversationByNumber",
+          "title": {
+            "en": "Select Conversation 1…9",
+            "ar": "اختيار المحادثة 1…9",
+            "bs": "Odaberi razgovor 1…9",
+            "da": "Vælg samtale 1…9",
+            "de": "Unterhaltung 1…9 auswählen",
+            "es": "Seleccionar conversación 1…9",
+            "fr": "Sélectionner la conversation 1…9",
+            "it": "Seleziona conversazione 1…9",
+            "ja": "会話 1…9 を選択",
+            "km": "ជ្រើសរើសការសន្ទនា 1…9",
+            "ko": "대화 1…9 선택",
+            "no": "Velg samtale 1…9",
+            "pl": "Wybierz rozmowę 1…9",
+            "pt-BR": "Selecionar conversa 1…9",
+            "ru": "Выбрать разговор 1…9",
+            "th": "เลือกการสนทนา 1…9",
+            "tr": "Sohbet 1…9'u Seç",
+            "uk": "Вибрати розмову 1…9",
+            "vi": "Chọn cuộc trò chuyện 1…9",
+            "zh-CN": "选择对话 1…9",
+            "zh-TW": "選擇對話 1…9"
+          },
+          "shortcut": {
+            "family": "digits",
+            "key": "1",
+            "modifiers": [
+              "ctrl"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
         },
         {
           "id": "focusHistoryBack",
@@ -1086,27 +1587,27 @@
         {
           "id": "paletteKey.toggleActions",
           "title": {
-            "en": "Palette: Show or Hide Actions",
-            "ar": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها",
-            "bs": "Paleta: prikaži ili sakrij radnje",
-            "da": "Palet: Vis eller skjul handlinger",
-            "de": "Palette: Aktionen ein- oder ausblenden",
-            "es": "Paleta: mostrar u ocultar acciones",
-            "fr": "Palette : afficher ou masquer les actions",
-            "it": "Tavolozza: mostra o nascondi azioni",
+            "en": "Palette: Show/Hide Actions",
+            "ar": "لوحة الأوامر: إظهار/إخفاء الإجراءات",
+            "bs": "Paleta: prikaži/sakrij radnje",
+            "da": "Palet: Vis/skjul handlinger",
+            "de": "Palette: Aktionen ein-/ausblenden",
+            "es": "Paleta: mostrar/ocultar acciones",
+            "fr": "Palette : afficher/masquer les actions",
+            "it": "Tavolozza: mostra/nascondi azioni",
             "ja": "パレット: アクションの表示を切り替え",
-            "km": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព",
-            "ko": "팔레트: 작업 표시 또는 숨기기",
-            "no": "Palett: Vis eller skjul handlinger",
-            "pl": "Paleta: Pokaż lub ukryj akcje",
-            "pt-BR": "Paleta: Mostrar ou Ocultar Ações",
-            "ru": "Палитра: показать или скрыть действия",
-            "th": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน",
-            "tr": "Palet: Eylemleri Göster veya Gizle",
-            "uk": "Палітра: показати або сховати дії",
-            "vi": "Bảng lệnh: Hiện hoặc ẩn thao tác",
-            "zh-CN": "面板：显示或隐藏操作",
-            "zh-TW": "命令面板：顯示或隱藏動作"
+            "km": "បន្ទះ៖ បង្ហាញ/លាក់សកម្មភាព",
+            "ko": "팔레트: 작업 표시/숨기기",
+            "no": "Palett: Vis/skjul handlinger",
+            "pl": "Paleta: Pokaż/ukryj akcje",
+            "pt-BR": "Paleta: Mostrar/Ocultar Ações",
+            "ru": "Палитра: показать/скрыть действия",
+            "th": "แผงคำสั่ง: แสดง/ซ่อนการทำงาน",
+            "tr": "Palet: Eylemleri Göster/Gizle",
+            "uk": "Палітра: показати/сховати дії",
+            "vi": "Bảng lệnh: Hiện/ẩn thao tác",
+            "zh-CN": "面板：显示/隐藏操作",
+            "zh-TW": "命令面板：顯示/隱藏動作"
           },
           "shortcut": null,
           "chord": null,
@@ -1478,7 +1979,7 @@
             "da": "Åbn mappe…",
             "de": "Ordner öffnen …",
             "es": "Abrir carpeta…",
-            "fr": "Ouvrir un dossier...",
+            "fr": "Ouvrir un dossier…",
             "it": "Apri cartella…",
             "ja": "フォルダを開く…",
             "km": "បើកថត…",
@@ -1486,13 +1987,13 @@
             "no": "Åpne mappe …",
             "pl": "Otwórz folder…",
             "pt-BR": "Abrir Pasta…",
-            "ru": "Открыть папку...",
-            "th": "เปิดโฟลเดอร์...",
+            "ru": "Открыть папку…",
+            "th": "เปิดโฟลเดอร์…",
             "tr": "Klasör Aç…",
             "uk": "Відкрити теку…",
             "vi": "Mở thư mục…",
-            "zh-CN": "打开文件夹...",
-            "zh-TW": "開啟資料夾..."
+            "zh-CN": "打开文件夹…",
+            "zh-TW": "開啟資料夾…"
           },
           "shortcut": {
             "key": "o",
@@ -1571,7 +2072,31 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "prevSidebarTab",
@@ -1606,7 +2131,31 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "moveWorkspaceUp",
@@ -1713,7 +2262,107 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "renameWorkspace",
@@ -1724,7 +2373,7 @@
             "da": "Omdøb arbejdsområde…",
             "de": "Arbeitsbereich umbenennen …",
             "es": "Renombrar espacio de trabajo…",
-            "fr": "Renommer l'espace de travail...",
+            "fr": "Renommer l'espace de travail…",
             "it": "Rinomina area di lavoro…",
             "ja": "ワークスペース名を変更…",
             "km": "ប្ដូរឈ្មោះកន្លែងធ្វើការ…",
@@ -1732,13 +2381,13 @@
             "no": "Gi arbeidsområdet nytt navn …",
             "pl": "Zmień nazwę przestrzeni roboczej…",
             "pt-BR": "Renomear Área de Trabalho…",
-            "ru": "Переименовать рабочее пространство...",
-            "th": "เปลี่ยนชื่อเวิร์กสเปซ...",
+            "ru": "Переименовать рабочее пространство…",
+            "th": "เปลี่ยนชื่อเวิร์กสเปซ…",
             "tr": "Çalışma Alanını Yeniden Adlandır…",
             "uk": "Перейменувати робочу область…",
             "vi": "Đổi tên không gian làm việc…",
-            "zh-CN": "重命名工作区...",
-            "zh-TW": "重新命名工作區..."
+            "zh-CN": "重命名工作区…",
+            "zh-TW": "重新命名工作區…"
           },
           "shortcut": {
             "key": "r",
@@ -1921,7 +2570,19 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "w",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "sidebar.multiSelection"
+            }
+          ]
         },
         {
           "id": "saveLayoutTemplate",
@@ -2066,7 +2727,7 @@
         {
           "id": "toggleFocusedWorkspaceGroupCollapsed",
           "title": {
-            "en": "Toggle Group Collapse",
+            "en": "Collapse/Expand Workspace Group",
             "ar": "تبديل طي المجموعة",
             "bs": "Prebaci sažimanje grupe",
             "da": "Skjul/udvid gruppe",
@@ -2198,14 +2859,28 @@
             "zh-TW": "下一個空間"
           },
           "shortcut": {
-            "key": "]",
+            "key": "",
             "modifiers": [
+              "ctrl",
               "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            }
+          ]
         },
         {
           "id": "space.previous",
@@ -2233,14 +2908,28 @@
             "zh-TW": "上一個空間"
           },
           "shortcut": {
-            "key": "[",
+            "key": "",
             "modifiers": [
+              "ctrl",
               "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            }
+          ]
         },
         {
           "id": "space.selectByNumber",
@@ -2276,7 +2965,125 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         }
       ]
     },
@@ -2344,27 +3151,27 @@
         {
           "id": "newColumn",
           "title": {
-            "en": "New Column",
-            "ar": "عمود جديد",
-            "bs": "Nova kolona",
-            "da": "Ny kolonne",
-            "de": "Neue Spalte",
-            "es": "Nueva columna",
-            "fr": "Nouvelle colonne",
-            "it": "Nuova colonna",
-            "ja": "新しい列",
-            "km": "ជួរឈរថ្មី",
-            "ko": "새 열",
-            "no": "Ny kolonne",
-            "pl": "Nowa kolumna",
-            "pt-BR": "Nova Coluna",
-            "ru": "Новый столбец",
-            "th": "คอลัมน์ใหม่",
-            "tr": "Yeni Sütun",
-            "uk": "Новий стовпець",
-            "vi": "Cột mới",
-            "zh-CN": "新建列",
-            "zh-TW": "新增欄"
+            "en": "New Column Right",
+            "ar": "عمود جديد على اليمين",
+            "bs": "Nova kolona desno",
+            "da": "Ny kolonne til højre",
+            "de": "Neue Spalte rechts",
+            "es": "Nueva columna a la derecha",
+            "fr": "Nouvelle colonne à droite",
+            "it": "Nuova colonna a destra",
+            "ja": "右に新しい列",
+            "km": "ជួរឈរថ្មីខាងស្ដាំ",
+            "ko": "오른쪽에 새 열",
+            "no": "Ny kolonne til høyre",
+            "pl": "Nowa kolumna po prawej",
+            "pt-BR": "Nova Coluna à Direita",
+            "ru": "Новый столбец справа",
+            "th": "คอลัมน์ใหม่ทางขวา",
+            "tr": "Sağa Yeni Sütun",
+            "uk": "Новий стовпець праворуч",
+            "vi": "Cột mới bên phải",
+            "zh-CN": "在右侧新建列",
+            "zh-TW": "在右側新增欄"
           },
           "shortcut": {
             "key": "d",
@@ -3805,7 +4612,7 @@
             "da": "Omdøb fane…",
             "de": "Tab umbenennen …",
             "es": "Renombrar pestaña…",
-            "fr": "Renommer l'onglet...",
+            "fr": "Renommer l'onglet…",
             "it": "Rinomina scheda…",
             "ja": "タブ名を変更…",
             "km": "ប្ដូរឈ្មោះថេប…",
@@ -3813,13 +4620,13 @@
             "no": "Gi fanen nytt navn …",
             "pl": "Zmień nazwę karty…",
             "pt-BR": "Renomear Aba…",
-            "ru": "Переименовать вкладку...",
-            "th": "เปลี่ยนชื่อแท็บ...",
+            "ru": "Переименовать вкладку…",
+            "th": "เปลี่ยนชื่อแท็บ…",
             "tr": "Sekmeyi Yeniden Adlandır…",
             "uk": "Перейменувати вкладку…",
             "vi": "Đổi tên tab…",
-            "zh-CN": "重命名标签页...",
-            "zh-TW": "重新命名標籤頁..."
+            "zh-CN": "重命名标签页…",
+            "zh-TW": "重新命名標籤頁…"
           },
           "shortcut": {
             "key": "r",
@@ -3863,6 +4670,17 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
             {
               "keys": [
                 {
@@ -3911,6 +4729,18 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": null
+            },
             {
               "keys": [
                 {
@@ -4249,41 +5079,6 @@
           "aliases": []
         },
         {
-          "id": "tab.search",
-          "title": {
-            "en": "Search Tabs…",
-            "ar": "البحث في علامات التبويب…",
-            "bs": "Pretraži tabove…",
-            "da": "Søg i faner…",
-            "de": "Tabs durchsuchen…",
-            "es": "Buscar pestañas…",
-            "fr": "Rechercher dans les onglets…",
-            "it": "Cerca nelle schede…",
-            "ja": "タブを検索…",
-            "km": "ស្វែងរកផ្ទាំង…",
-            "ko": "탭 검색…",
-            "no": "Søk i faner…",
-            "pl": "Szukaj kart…",
-            "pt-BR": "Buscar abas…",
-            "ru": "Поиск вкладок…",
-            "th": "ค้นหาแท็บ…",
-            "tr": "Sekmelerde Ara…",
-            "uk": "Пошук вкладок…",
-            "vi": "Tìm kiếm thẻ…",
-            "zh-CN": "搜索标签页…",
-            "zh-TW": "搜尋分頁…"
-          },
-          "shortcut": {
-            "key": "a",
-            "modifiers": [
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "palette.toggleTabPin",
           "title": {
             "en": "Pin/Unpin Tab",
@@ -4566,7 +5361,7 @@
             "da": "Søg…",
             "de": "Suchen …",
             "es": "Buscar…",
-            "fr": "Rechercher...",
+            "fr": "Rechercher…",
             "it": "Trova…",
             "ja": "検索…",
             "km": "ស្វែងរក…",
@@ -4574,13 +5369,13 @@
             "no": "Finn …",
             "pl": "Znajdź…",
             "pt-BR": "Buscar…",
-            "ru": "Найти...",
-            "th": "ค้นหา...",
+            "ru": "Найти…",
+            "th": "ค้นหา…",
             "tr": "Bul…",
             "uk": "Знайти…",
             "vi": "Tìm…",
-            "zh-CN": "查找...",
-            "zh-TW": "尋找..."
+            "zh-CN": "查找…",
+            "zh-TW": "尋找…"
           },
           "shortcut": {
             "key": "f",
@@ -6422,7 +7217,27 @@
         {
           "id": "browserShowHistory",
           "title": {
-            "en": "Show History"
+            "en": "Show Browser History",
+            "ar": "إظهار سجل المتصفح",
+            "bs": "Prikaži historiju preglednika",
+            "da": "Vis browserhistorik",
+            "de": "Browserverlauf anzeigen",
+            "es": "Mostrar historial del navegador",
+            "fr": "Afficher l’historique du navigateur",
+            "it": "Mostra cronologia del browser",
+            "ja": "ブラウザの履歴を表示",
+            "km": "បង្ហាញប្រវត្តិកម្មវិធីរុករក",
+            "ko": "브라우저 기록 보기",
+            "no": "Vis nettleserhistorikk",
+            "pl": "Pokaż historię przeglądarki",
+            "pt-BR": "Mostrar histórico do navegador",
+            "ru": "Показать историю браузера",
+            "th": "แสดงประวัติเบราว์เซอร์",
+            "tr": "Tarayıcı geçmişini göster",
+            "uk": "Показати історію браузера",
+            "vi": "Hiện lịch sử trình duyệt",
+            "zh-CN": "显示浏览器历史记录",
+            "zh-TW": "顯示瀏覽器記錄"
           },
           "shortcut": {
             "key": "y",
@@ -6598,6 +7413,40 @@
           },
           "shortcut": {
             "key": "]",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "markdownReload",
+          "title": {
+            "en": "Markdown: Reload",
+            "ar": "Markdown: إعادة التحميل",
+            "bs": "Markdown: Ponovo učitaj",
+            "da": "Markdown: Genindlæs",
+            "de": "Markdown: Neu laden",
+            "es": "Markdown: Recargar",
+            "fr": "Markdown : Recharger",
+            "it": "Markdown: Ricarica",
+            "ja": "Markdown: 再読み込み",
+            "km": "Markdown: ផ្ទុកឡើងវិញ",
+            "ko": "Markdown: 새로고침",
+            "no": "Markdown: Last inn på nytt",
+            "pl": "Markdown: Odśwież",
+            "pt-BR": "Markdown: Recarregar",
+            "ru": "Markdown: Перезагрузить",
+            "th": "Markdown: โหลดใหม่",
+            "tr": "Markdown: Yeniden Yükle",
+            "uk": "Markdown: Перезавантажити",
+            "vi": "Markdown: Tải lại",
+            "zh-CN": "Markdown：重新加载",
+            "zh-TW": "Markdown：重新載入"
+          },
+          "shortcut": {
+            "key": "r",
             "modifiers": [
               "cmd"
             ]
@@ -6838,6 +7687,41 @@
           },
           "chord": null,
           "aliases": []
+        },
+        {
+          "id": "sidebar.priorityView.toggle",
+          "title": {
+            "en": "Toggle Priority View",
+            "ar": "تبديل عرض الأولوية",
+            "bs": "Uključi/isključi prikaz prioriteta",
+            "da": "Slå prioritetsvisning til/fra",
+            "de": "Prioritätsansicht ein-/ausblenden",
+            "es": "Alternar vista de prioridad",
+            "fr": "Afficher/masquer la vue Priorité",
+            "it": "Attiva/disattiva vista Priorità",
+            "ja": "優先ビューの切り替え",
+            "km": "បិទ/បើកទិដ្ឋភាពអាទិភាព",
+            "ko": "우선순위 보기 전환",
+            "no": "Slå prioritetsvisning av/på",
+            "pl": "Przełącz widok priorytetów",
+            "pt-BR": "Alternar visualização de prioridade",
+            "ru": "Показать/скрыть вид «Приоритет»",
+            "th": "สลับมุมมองลำดับความสำคัญ",
+            "tr": "Öncelik görünümünü aç/kapat",
+            "uk": "Перемкнути вигляд «Пріоритет»",
+            "vi": "Bật/tắt chế độ xem ưu tiên",
+            "zh-CN": "切换优先视图",
+            "zh-TW": "切換優先檢視"
+          },
+          "shortcut": {
+            "key": "k",
+            "modifiers": [
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -6976,7 +7860,7 @@
         {
           "id": "toggleUnread",
           "title": {
-            "en": "Toggle Tab Unread",
+            "en": "Mark Tab Read/Unread",
             "ar": "تبديل غير المقروء",
             "bs": "Prebaci nepročitano",
             "da": "Skift ulæst",
@@ -7612,6 +8496,41 @@
           "aliases": []
         },
         {
+          "id": "palette.forkAgentConversation",
+          "title": {
+            "en": "Fork Conversation",
+            "ar": "إنشاء فرع للمحادثة",
+            "bs": "Račvaj razgovor",
+            "da": "Fork samtale",
+            "de": "Unterhaltung verzweigen",
+            "es": "Crear rama de la conversación",
+            "fr": "Créer une branche de la conversation",
+            "it": "Duplica conversazione",
+            "ja": "会話を分岐",
+            "km": "Fork ការសន្ទនា",
+            "ko": "대화 분기",
+            "no": "Forgren samtale",
+            "pl": "Rozwidl rozmowę",
+            "pt-BR": "Bifurcar Conversa",
+            "ru": "Форк беседы",
+            "th": "Fork บทสนทนา",
+            "tr": "Konuşmayı Çatalla",
+            "uk": "Відгалузити розмову",
+            "vi": "Fork cuộc hội thoại",
+            "zh-CN": "创建对话分支",
+            "zh-TW": "建立對話分支"
+          },
+          "shortcut": {
+            "key": "y",
+            "modifiers": [
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "agentPane.previousTurn",
           "title": {
             "en": "Previous Turn",
@@ -7748,27 +8667,27 @@
         {
           "id": "openTeamPicker",
           "title": {
-            "en": "Team Picker",
-            "ar": "منتقي الفريق",
-            "bs": "Odabir tima",
-            "da": "Teamvælger",
-            "de": "Team auswählen",
-            "es": "Selector de equipo",
-            "fr": "Sélecteur d’équipe",
-            "it": "Selettore team",
-            "ja": "チームを選択",
-            "km": "ជ្រើសក្រុម",
-            "ko": "팀 선택",
-            "no": "Teamvelger",
-            "pl": "Wybór zespołu",
-            "pt-BR": "Seletor de Equipe",
-            "ru": "Выбор команды",
-            "th": "ตัวเลือกทีม",
-            "tr": "Ekip Seçici",
-            "uk": "Вибір команди",
-            "vi": "Chọn nhóm",
-            "zh-CN": "团队选择器",
-            "zh-TW": "選擇團隊"
+            "en": "Switch Active Team…",
+            "ar": "تبديل الفريق النشط…",
+            "bs": "Promijeni aktivni tim…",
+            "da": "Skift aktivt team…",
+            "de": "Aktives Team wechseln…",
+            "es": "Cambiar equipo activo…",
+            "fr": "Changer d’équipe active…",
+            "it": "Cambia team attivo…",
+            "ja": "アクティブなチームを切り替え…",
+            "km": "ប្ដូរក្រុមសកម្ម…",
+            "ko": "활성 팀 전환…",
+            "no": "Bytt aktivt team…",
+            "pl": "Zmień aktywny zespół…",
+            "pt-BR": "Trocar equipe ativa…",
+            "ru": "Сменить активную команду…",
+            "th": "สลับทีมที่ใช้งานอยู่…",
+            "tr": "Etkin ekibi değiştir…",
+            "uk": "Змінити активну команду…",
+            "vi": "Chuyển nhóm đang dùng…",
+            "zh-CN": "切换当前团队…",
+            "zh-TW": "切換目前團隊…"
           },
           "shortcut": {
             "key": "t",

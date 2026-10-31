@@ -15,6 +15,7 @@ import UIKit
 /// flies outward, decelerating and tumbling, to the clip edge by the end.
 /// This reproduces that with Core Animation: a swelling snapshot, then
 /// cropped pieces of it.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationPopEffect {
     /// `PopRendererView.duration`.
     public static let duration: CFTimeInterval = 0.8

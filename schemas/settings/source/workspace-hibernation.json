@@ -1,0 +1,71 @@
+{
+  "$comment": "HAND-EDITED source of the workspace hibernation settings (plans/cmux-next/workspace-hibernation-DESIGN.md): idle workspaces leave memory. gen-settings-sources.py writes the Swift descriptors and parser constants (WorkspaceHibernationSettings parses them). Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "hibernation",
+      "section": "general",
+      "group": {
+        "key": "settings.group.workspaceHibernation",
+        "text": "Hibernation"
+      },
+      "note": "Settings > General > Hibernation. WorkspaceHibernation (CmuxNextApp) reads both rows; a workspace's Keep Awake (its row's Options menu) wins.",
+      "rows": [
+        {
+          "key": "workspaces.hibernation.enabled",
+          "name": "enabled",
+          "note": "On by default (Lawrence 14151: pause idle workspaces and free their memory). Off: nothing hibernates on its own; Hibernate Workspace still works.",
+          "title": {
+            "key": "settings.workspaceHibernation.enabled",
+            "text": "Hibernate Idle Workspaces"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.enabled.help",
+            "text": "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hibernate",
+            "hibernation",
+            "sleep",
+            "pause",
+            "memory",
+            "ram",
+            "idle",
+            "evict",
+            "workspaces",
+            "saver"
+          ]
+        },
+        {
+          "key": "workspaces.hibernation.idleMinutes",
+          "name": "idleMinutes",
+          "note": "Minutes since the workspace was last shown, printed output, or its agent spoke. 60: an hour away. Memory pressure shortens it (warning 10 minutes, critical 1).",
+          "title": {
+            "key": "settings.workspaceHibernation.idleMinutes",
+            "text": "Hibernate After"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.idleMinutes.help",
+            "text": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+          },
+          "kind": "number",
+          "range": {
+            "min": 5,
+            "max": 10080,
+            "step": 5,
+            "unit": "minutes"
+          },
+          "default": 60,
+          "keywords": [
+            "hibernate",
+            "idle",
+            "minutes",
+            "timeout",
+            "memory"
+          ]
+        }
+      ]
+    }
+  ]
+}

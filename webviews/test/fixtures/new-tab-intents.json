@@ -1,5 +1,5 @@
 {
-  "comment": "The new tab field's typed intent (plans/cmux-next/new-tab.md section 3.1; one input, no Search/Ask mode, R86). Read by webviews newTabIntent.test.ts and by the Swift NewTabIntentTests; both classifiers must agree on every row. home is the user's home folder for ~ rows.",
+  "comment": "The new tab field's typed intent (plans/cmux-next/new-tab.md section 3.1; one input, no Search/Ask mode, R86). Read by webviews new-tab-intent-table.test.ts and by the Swift NewTabIntentTableTests; both classifiers must agree on every row. home is the user's home folder for ~ rows.",
   "home": "/Users/me",
   "rows": [
     {
@@ -158,21 +158,63 @@
       "input": "192.168.1.10",
       "intent": {
         "kind": "url",
-        "url": "https://192.168.1.10"
+        "url": "http://192.168.1.10"
       }
     },
     {
       "input": "foo.local:3000",
       "intent": {
         "kind": "url",
-        "url": "https://foo.local:3000"
+        "url": "http://foo.local:3000"
       }
     },
     {
       "input": "devbox:8080",
       "intent": {
         "kind": "url",
-        "url": "https://devbox:8080"
+        "url": "http://devbox:8080"
+      }
+    },
+    {
+      "input": "go/gday",
+      "intent": {
+        "kind": "url",
+        "url": "http://go/gday"
+      }
+    },
+    {
+      "input": "go/",
+      "intent": {
+        "kind": "url",
+        "url": "http://go/"
+      }
+    },
+    {
+      "input": "Go/Team-Page?q=1",
+      "intent": {
+        "kind": "url",
+        "url": "http://Go/Team-Page?q=1"
+      }
+    },
+    {
+      "input": "wiki/Onboarding",
+      "intent": {
+        "kind": "url",
+        "url": "http://wiki/Onboarding"
+      }
+    },
+    {
+      "input": "nas.lan/share",
+      "intent": {
+        "kind": "url",
+        "url": "http://nas.lan/share"
+      }
+    },
+    {
+      "input": "10.0.0.5/admin",
+      "intent": {
+        "kind": "url",
+        "url": "http://10.0.0.5/admin"
       }
     },
     {
@@ -330,6 +372,27 @@
       }
     },
     {
+      "input": "go",
+      "intent": {
+        "kind": "prompt",
+        "text": "go"
+      }
+    },
+    {
+      "input": "go to gday",
+      "intent": {
+        "kind": "prompt",
+        "text": "go to gday"
+      }
+    },
+    {
+      "input": "1234/5678",
+      "intent": {
+        "kind": "prompt",
+        "text": "1234/5678"
+      }
+    },
+    {
       "input": "a.b",
       "intent": {
         "kind": "prompt",
@@ -467,6 +530,41 @@
       "intent": {
         "kind": "prompt",
         "text": "このビルドを直して"
+      }
+    },
+    {
+      "input": "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "  CMUX-VNC://pair?room=r&secret=s  ",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "cmux-vnc:pair?room=r&secret=s",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "connect to cmux-vnc://pair?room=r&secret=s please",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "!cmux-vnc://pair?room=r&secret=s",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
       }
     }
   ]

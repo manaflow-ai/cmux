@@ -1,4 +1,3 @@
-/// <reference types="bun-types" />
 // New Tab list motion should measure on list changes, not on every unrelated render. Layout-only
 // changes still arrive through ResizeObserver; this keeps the render path cheap without leaving a
 // stale place when the cards grid changes columns.
@@ -28,6 +27,7 @@ let measureReads: WeakMap<Element, number>;
 let animationCalls: number;
 let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
 let originalAnimate: typeof HTMLElement.prototype.animate;
+let resizeCallbacks: (() => void)[] = [];
 
 function Probe({ keys, tick }: { keys: readonly string[]; tick: number }) {
   const list = useRef<HTMLDivElement>(null);
@@ -42,6 +42,9 @@ function Probe({ keys, tick }: { keys: readonly string[]; tick: number }) {
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   class TestResizeObserver {
+    constructor(callback: () => void) {
+      resizeCallbacks.push(callback);
+    }
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -52,7 +55,9 @@ beforeAll(async () => {
   originalAnimate = dom.window.HTMLElement.prototype.animate;
   dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
     measureReads.set(this, (measureReads.get(this) ?? 0) + 1);
-    return new dom.window.DOMRect(0, 0, 100, 20);
+    // A row sits one row height under the one before it, so a row arriving above it moves it.
+    const index = this.classList.contains("row") ? [...this.parentElement!.children].indexOf(this) : 0;
+    return new dom.window.DOMRect(0, index * 20, 100, 20);
   };
   dom.window.HTMLElement.prototype.animate = function () {
     animationCalls += 1;
@@ -86,6 +91,7 @@ afterEach(() => {
   dom.window.document.documentElement.dataset.agentMotion = "";
   measureReads = new WeakMap();
   animationCalls = 0;
+  resizeCallbacks = [];
 });
 
 afterAll(() => {
@@ -121,4 +127,44 @@ test("explicit animation-off policy blocks Web Animations API rows", async () =>
 
   await act(async () => root.render(createElement(Probe, { keys: ["two"], tick: 1 })));
   expect(animationCalls).toBe(0);
+});
+
+// A live window resize calls the list's ResizeObserver on every frame. Reading every row's place
+// there forced a layout per frame (Leo 2026-10-20: the New Tab page's resize was "slow and wack");
+// the places are read once, after the size holds still.
+test("a live resize reads no row on its frames, then once when the size settles", async () => {
+  await act(async () => root.render(createElement(Probe, { keys: ["one", "two"], tick: 0 })));
+  const list = host.firstElementChild!;
+  const rows = [...list.children];
+  const reads = () => [measureReads.get(list) ?? 0, ...rows.map((row) => measureReads.get(row) ?? 0)];
+  const before = reads();
+  expect(resizeCallbacks.length).toBe(1);
+  const tick = resizeCallbacks[0]!;
+  tick(); // the observer's first call: the size the list mounted at
+  for (let frame = 0; frame < 30; frame++) tick();
+  expect(reads()).toEqual(before);
+
+  // fixed-wait: waits out listMotion's 120 ms resize settle, the behavior under test.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(reads()).toEqual(before.map((count) => count + 1));
+});
+
+// A row arriving resizes the list itself, and the observer reports that size after the effect read
+// it. That is no resize: the next row arriving right after (two tabs closed in a row) still slides
+// the rows under it. (The arriving row itself appears at once: no entry animations on the New Tab.)
+test("the list's own size change from a row arriving leaves the next change animated", async () => {
+  await act(async () => root.render(createElement(Probe, { keys: ["one"], tick: 0 })));
+  const list = host.firstElementChild as HTMLElement;
+  list.style.setProperty("--agent-motion-in", "10ms");
+  list.style.setProperty("--agent-motion-move", "10ms");
+  const tick = resizeCallbacks[0] as unknown as (entries: unknown[]) => void;
+  const measured = [{ borderBoxSize: [{ inlineSize: 100, blockSize: 20 }] }];
+  tick(measured); // the observer's first call: the size the list mounted at
+
+  await act(async () => root.render(createElement(Probe, { keys: ["two", "one"], tick: 1 })));
+  const first = animationCalls;
+  expect(first).toBeGreaterThan(0);
+  tick(measured); // the list's new height, as the effect just read it
+  await act(async () => root.render(createElement(Probe, { keys: ["three", "two", "one"], tick: 2 })));
+  expect(animationCalls).toBeGreaterThan(first);
 });

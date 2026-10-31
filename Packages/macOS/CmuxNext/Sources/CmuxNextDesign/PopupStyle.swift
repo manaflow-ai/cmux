@@ -1,17 +1,20 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// One look for every native popover and menu (hover cards, group editors,
 /// the icon picker, page info, the palette's actions menu): the web's popup
 /// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Small-radius
 /// rects, compact rows and one subtle shadow (`elevation`); each surface keeps its own
-/// material and theme colors. `PopupStyleTests` holds the two in step.
+/// material and theme colors. `PopupStyleTests` holds the two in step. Hover cards
+/// keep the shadow and rows but take the floating glass panels' larger radius
+/// (`HoverCardPanel.cornerRadius`).
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()
 
-    public let cornerRadius: CGFloat = 8
-    public let padding: CGFloat = 4
-    public let rowHeight: CGFloat = 28
+    public let cornerRadius: CGFloat = DesignTokens.radiusPopup
+    public let padding: CGFloat = DesignTokens.space1
+    public let rowHeight: CGFloat = DesignTokens.controlRow
     public let rowCornerRadius: CGFloat = 5
     public let openDuration: TimeInterval = 0.12
 

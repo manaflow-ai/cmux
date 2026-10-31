@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
+/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913" as const;
+export const SDK_IR_SHA256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -340,7 +340,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -570,6 +570,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-conversation-presence": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversation-presence-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "While some client of the daemon subscribes the conversation (not_subscribed). The person views while any client of the daemon views; a change of that goes out as the owner's ephemeral presence.set {conversation, viewing} frame on the shared socket once it is live, again on a new socket while viewing, and off when the last viewing client closes or unsubscribes; nothing is stored. Answers the subscription's state. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-run": {
     "authority": "local-admin",
     "since": 12,
@@ -677,7 +687,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-op": {
@@ -760,6 +770,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
     ]
   },
+  "cloud-selfhost-info": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-selfhost-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+    ]
+  },
   "cloud-session-clear": {
     "authority": "local-admin",
     "since": 12,
@@ -777,7 +797,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
     ]
   },
   "cloud-session-status": {
@@ -964,10 +984,15 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "conversation-runs-v1",
-    "fields": {},
+    "fields": {
+      "answers": {
+        "since": null,
+        "capability": "conversation-run-answers-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; else the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
+      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; answers (at most 200 message keys), when conversation-run-answers-v1 is advertised, selects runs answering those messages; otherwise the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
     ]
   },
   "conversation-search": {
@@ -1400,6 +1425,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Each identifier is nonempty, contains no control character, and is at most 128 bytes."
+    ]
+  },
+  "get-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The host policy applies to every terminal without a terminal override or workspace default."
     ]
   },
   "get-size-state": {
@@ -2025,6 +2060,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-shell-args-v1"
       },
+      "side": {
+        "since": 12,
+        "capability": "column-left-v1"
+      },
       "tab_id": {
         "since": 12,
         "capability": "split-client-keys-v1"
@@ -2059,7 +2098,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "rows-v1",
-    "fields": {},
+    "fields": {
+      "pane_id": {
+        "since": null,
+        "capability": "row-client-keys-v1"
+      },
+      "tab_id": {
+        "since": null,
+        "capability": "row-client-keys-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
@@ -2178,6 +2226,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "park-tabs": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-park-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "paste-image": {
     "authority": "control",
@@ -2598,6 +2656,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "expect_agent": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
+      },
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
@@ -2605,6 +2667,10 @@ export const COMMAND_METADATA = {
       "paste": {
         "since": 7,
         "capability": null
+      },
+      "submit": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
       },
       "terminal_id": {
         "since": null,
@@ -2634,7 +2700,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -2675,6 +2741,10 @@ export const COMMAND_METADATA = {
       "install": {
         "since": 12,
         "capability": null
+      },
+      "remote": {
+        "since": 12,
+        "capability": "host-size-policy-v1"
       },
       "user_id": {
         "since": 12,
@@ -2766,6 +2836,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "set-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
     ]
   },
   "set-personal-terminal": {
@@ -3236,6 +3316,17 @@ export const COMMAND_METADATA = {
       "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
     ]
   },
+  "terminal-ports": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-ports-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "PTY surfaces only.",
+      "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
+    ]
+  },
   "terminal-read-range": {
     "authority": "control",
     "since": 12,
@@ -3258,6 +3349,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Omitted or null surfaces means every PTY surface.",
       "Read on request; the daemon keeps no sampler, cache, or timer."
+    ]
+  },
+  "terminal-resume-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "resume-command",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The resume command is stored durably with the terminal and survives owner restarts.",
+      "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
     ]
   },
   "undo-layout": {
@@ -3637,6 +3739,14 @@ export const EVENT_METADATA = {
   "cloud-conversation-live": {
     "since": 12,
     "capability": "cloud-chief-live-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-conversation-presence": {
+    "since": 12,
+    "capability": "cloud-conversation-presence-v1",
     "streams": [
       "subscribe"
     ],
@@ -4313,6 +4423,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "agent": {
         "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "agent_session_id": {
+        "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.",
         "nullable": true,
         "presence": "optional",
         "since": 12,
@@ -5250,6 +5370,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "CloudConversationPresenceParticipant": {
+    "additional_properties": false,
+    "fields": {
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "viewing": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ColorHex": {
     "kind": "alias",
     "target": {
@@ -5296,6 +5438,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "ColumnSide": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ConversationChange": {
     "additional_properties": true,
@@ -6812,6 +6961,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "GetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "mac_participants": {
+        "constraints": [
+          "Size-state participant ids of the surface's terminal that are this host's own views; empty without surface."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "GetSizeStateResult": {
     "additional_properties": false,
     "fields": {
@@ -7120,6 +7297,72 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "HostSizeMode": {
+    "kind": "enum",
+    "values": [
+      "smallest",
+      "mac",
+      "latest",
+      "priority"
+    ]
+  },
+  "HostSizePolicy": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac (this host's own views) or device:<id>; at most 32."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostSizePolicyRequest": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac or device:<id> (1 to 128 of [A-Za-z0-9_.:-]); at most 32. Omitted keeps the stored order."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "Id": {
     "kind": "alias",
     "target": {
@@ -7205,6 +7448,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "build_time": {
+        "constraints": [
+          "Unix seconds of the source commit this daemon was built from; null when unknown. A client that updates the machine compares it with its own to never move the machine back to an older build. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "capabilities": {
@@ -8224,12 +8478,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "pane_id": {
+        "capability": "row-client-keys-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "capability": "row-client-keys-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -9794,6 +10066,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SendExpectAgent": {
+    "additional_properties": false,
+    "fields": {
+      "session": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsConnections": {
     "additional_properties": false,
     "constraints": [
@@ -9891,6 +10178,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsHookQueue": {
+    "additional_properties": false,
+    "constraints": [
+      "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+      "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+      "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
+    ],
+    "fields": {
+      "queued_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reset_dropped_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "undeliverable_events": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10015,6 +10337,95 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+      "sites counts the distinct acquiring source locations since daemon start.",
+      "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
+    ],
+    "fields": {
+      "by_hold_p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "by_hold_total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "contended_acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "holder": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockHolder"
+        }
+      },
+      "last_stall": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockStall"
+        }
+      },
+      "sites": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "stalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
@@ -10079,6 +10490,79 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockSiteDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "hold_p99_us and wait_p99_us are power-of-two bucket bounds: at most twice the true value and never above the matching maximum."
+    ],
+    "fields": {
+      "acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "wait_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockStall": {
     "additional_properties": false,
     "constraints": [
@@ -10107,6 +10591,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLocks": {
+    "additional_properties": false,
+    "constraints": [
+      "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
+    ],
+    "fields": {
+      "registry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
         }
       }
     },
@@ -10336,7 +10845,9 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "journal_writer is null for ephemeral sessions without a durable journal.",
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
-      "write_path is present only when the request names it in include."
+      "write_path is present only when the request names it in include.",
+      "locks is present only when the request names it in include.",
+      "hook_queue is present only when the request names it in include and the session serves a socket."
     ],
     "fields": {
       "connections": {
@@ -10347,12 +10858,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ServerStatsConnections"
         }
       },
+      "hook_queue": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHookQueue"
+        }
+      },
       "journal_writer": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "ServerStatsJournalWriter"
+        }
+      },
+      "locks": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLocks"
         }
       },
       "registry_lock": {
@@ -10479,6 +11006,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
         }
       }
     },
@@ -12653,6 +13194,88 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalPortsListener": {
+    "additional_properties": false,
+    "fields": {
+      "bound": {
+        "description": "The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "host": {
+        "description": "The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "url": {
+        "description": "The printed URL, or http://HOST:PORT/ when the text had no scheme.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalPortsResult": {
+    "additional_properties": false,
+    "constraints": [
+      "Ports come from the terminal's text (the active screen with scrollback, the last 1 MiB) on loopback or wildcard hosts, newest mention first, at most 32.",
+      "A port is listed only when a TCP connect to 127.0.0.1 or ::1 succeeds within 150 ms."
+    ],
+    "fields": {
+      "closed": {
+        "description": "Ports the text names that refused the connect.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
+        }
+      },
+      "listeners": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalPortsListener"
+          },
+          "kind": "array"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalReadRangeResult": {
     "additional_properties": false,
     "fields": {
@@ -12982,6 +13605,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "TerminalResources"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResumeCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -15491,6 +16136,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-conversation-presence": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "viewing": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-conversation-run": {
     "request": {
       "additional_properties": false,
@@ -15807,6 +16480,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "cursor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "include_archived": {
           "default": false,
           "nullable": false,
@@ -15980,6 +16661,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-selfhost-info": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-session-clear": {
     "request": {
       "additional_properties": false,
@@ -15997,7 +16689,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "fields": {
         "access_token": {
           "nullable": false,
-          "presence": "required",
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -16006,6 +16698,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "api_base_url": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "auth": {
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -16021,7 +16721,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "expires_at": {
           "nullable": false,
-          "presence": "required",
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "uint64"
@@ -17334,6 +18034,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "answers": {
+          "capability": "conversation-run-answers-v1",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "before_started_at": {
           "nullable": true,
           "presence": "optional",
@@ -19262,6 +19974,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "FrontendProjection"
+    }
+  },
+  "get-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GetHostSizePolicyResult"
     }
   },
   "get-size-state": {
@@ -21687,6 +22420,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "array"
           }
         },
+        "side": {
+          "capability": "column-left-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnSide"
+          }
+        },
         "tab_id": {
           "capability": "split-client-keys-v1",
           "constraints": [
@@ -21892,6 +22636,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "row-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public pane id",
+              "pattern": "^pane_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -21911,6 +22671,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "tab_id": {
+          "capability": "row-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public tab id",
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "terminal_id": {
@@ -22421,6 +23197,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "PaneNeighborResult"
+    }
+  },
+  "park-tabs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "paste-image": {
@@ -24046,7 +24848,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
       ],
       "fields": {
         "bytes": {
@@ -24063,6 +24866,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Base64"
           }
         },
+        "expect_agent": {
+          "capability": "send-expect-agent-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "SendExpectAgent"
+          }
+        },
         "expect_foreground": {
           "capability": "send-expect-foreground-v1",
           "default": null,
@@ -24073,11 +24886,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "flow": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "paste": {
           "default": false,
           "nullable": false,
           "presence": "optional",
           "since": 7,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "submit": {
+          "capability": "send-expect-agent-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "boolean"
@@ -24353,6 +25185,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "remote": {
+          "capability": "host-size-policy-v1",
+          "constraints": [
+            "A remote device's spliced lane (cmux-mobile-host sets it); never one of this host's own views. Sticky: false never clears it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "user_id": {
@@ -24662,6 +25508,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "set-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "policy": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "HostSizePolicyRequest"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetHostSizePolicyResult"
     }
   },
   "set-personal-terminal": {
@@ -26044,6 +26910,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalHistoryPagesResult"
     }
   },
+  "terminal-ports": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalPortsResult"
+    }
+  },
   "terminal-read-range": {
     "request": {
       "additional_properties": false,
@@ -26128,6 +27014,59 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalResourcesResult"
+    }
+  },
+  "terminal-resume-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "command": {
+          "constraints": [
+            {
+              "format": "one line of 1-4096 bytes without control characters, trimmed; absent reads, null clears"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalResumeCommandResult"
     }
   },
   "undo-layout": {
@@ -26452,6 +27391,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "proxy": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },
@@ -27151,6 +28099,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "agent_session_id": {
+        "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -27784,6 +28742,47 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-presence": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-presence"
+        }
+      },
+      "participants": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "CloudConversationPresenceParticipant"
+          },
+          "kind": "array"
         }
       }
     },

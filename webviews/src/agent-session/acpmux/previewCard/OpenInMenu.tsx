@@ -1,7 +1,9 @@
 // The preview card's "Open in ▾" menu (decision D6): cmux's own browser pane first, then the
 // installed browsers the host lists (`browser.list`: opaque ids, names and icons; never a path),
 // then Copy link. A pick sends only `{url, browserId}` (`browser.openIn`); the host checks the id
-// against its own list, the URL (http or https, no user info), and a user gesture.
+// against its own list, the URL (http or https, no user info), and a user gesture. It wears the
+// composer menus' look (modelPicker.css .acpmux-quick-menu): the pane does not load ui.css, so a
+// menu without the pane's classes draws bare.
 import { useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useT } from "../i18n";
@@ -11,11 +13,21 @@ import { callChipHost } from "../chips/host";
 
 export type Browser = { id: string; name: string; icon?: string };
 
-/// `onOpenInPane` opens the URL in cmux's browser pane (the card's existing path).
-export function OpenInMenu({ url, onOpenInPane }: { url: string; onOpenInPane: (url: string) => void }) {
+/// `onOpenInPane` opens the URL in cmux's browser pane (the card's existing path). `onOpenChange`
+/// hears the menu open and close (a link's hover card stays up while its menu is open).
+export function OpenInMenu({
+  url,
+  onOpenInPane,
+  onOpenChange: heard,
+}: {
+  url: string;
+  onOpenInPane: (url: string) => void;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const t = useT();
   const [browsers, setBrowsers] = useState<Browser[] | undefined>();
   const onOpenChange = (open: boolean) => {
+    heard?.(open);
     // The list is asked for on every open: the host's ids from an older list stop working.
     if (open)
       void callChipHost("browser.list", {}).then((reply) => {
@@ -29,14 +41,15 @@ export function OpenInMenu({ url, onOpenInPane }: { url: string; onOpenInPane: (
         {t("preview.openIn")}
         <ChevronDown size={12} />
       </MenuButton>
-      <MenuPopup align="end">
-        <MenuItem onSelect={() => onOpenInPane(url)}>
+      <MenuPopup align="end" className="acpmux-quick-menu">
+        <MenuItem className="acpmux-quick-item" onSelect={() => onOpenInPane(url)}>
           <Globe size={16} className="acpmux-open-in__icon" />
           {t("preview.cmuxBrowser")}
         </MenuItem>
         {browsers?.map((browser) => (
           <MenuItem
             key={browser.id}
+            className="acpmux-quick-item"
             onSelect={() => void callChipHost("browser.openIn", { url, browserId: browser.id })}
           >
             {browser.icon?.startsWith("data:image/") ? (
@@ -48,7 +61,7 @@ export function OpenInMenu({ url, onOpenInPane }: { url: string; onOpenInPane: (
           </MenuItem>
         ))}
         <MenuSeparator />
-        <MenuItem onSelect={() => void copyText(url)}>
+        <MenuItem className="acpmux-quick-item" onSelect={() => void copyText(url)}>
           <Copy size={16} className="acpmux-open-in__icon" />
           {t("preview.copyLink")}
         </MenuItem>

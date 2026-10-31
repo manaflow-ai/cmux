@@ -18,7 +18,7 @@ extension BrowserChromeView {
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
         accessoryBar.isHidden = hidden
         applyAccessoryHeight()
-        Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
+        Motion.overlays.animateTimed(hidden ? .disappear : .appear, in: self, {
             // Outside a window no display runs the animation, so set the constant directly.
             (self.window == nil ? self.toolbarHeight : Motion.animator(self.toolbarHeight, in: self)).constant = height
             self.layoutSubtreeIfNeeded()

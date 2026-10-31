@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// An overlay surface drawn in an `OverlayMaterial`, with one shape (a
 /// continuous rounded rect of `cornerRadius`) whatever the material, so the
@@ -10,8 +11,12 @@ public import AppKit
 /// (palette, dialogs, hover cards, find and prompt bars, page info,
 /// popovers) is one of these, made with `Glass.makeOverlayPanel`, and
 /// follows this Mac's material like the overlays without text (the drop
-/// overlay, dock backdrop): themed Liquid Glass, whose tint
-/// (`glassOverlayTintStrength`) keeps its text over busy content.
+/// overlay, dock backdrop). A card (`isCard`: only `makeOverlayPanel(cardFill:
+/// true)`, which no overlay uses since Leo 2026-10-21: glass, never solid)
+/// also lays the ``CardMaterial`` on its glass or blur: the popup surface,
+/// mostly opaque, with a visible rim, so its text keeps 4.5:1 over any
+/// wallpaper or page (Lawrence 2026-10-20: hover cards were "too liquid
+/// glassy"). Overlays without text keep the bare themed glass.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
@@ -19,6 +24,10 @@ public final class OverlaySurfaceView: NSView {
     /// Panels take clicks and hovers; a pure overlay (the drop target, a
     /// HUD) lets them through to the views beneath.
     public let isInteractive: Bool
+    /// A floating card that carries text: it draws the ``CardMaterial``
+    /// fill and rim over its glass or blur. Overlays without text (the drop
+    /// target, dock backdrop) are not cards and stay see-through.
+    public let isCard: Bool
     private var materialView: NSView?
     private var tintView: NSView?
     /// How the glass is tinted: the theme's tint, or the shared neutral glass
@@ -27,6 +36,11 @@ public final class OverlaySurfaceView: NSView {
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
     private let reduceTransparency: ReduceTransparency
+    /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
+    /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
+    /// inactive grey frost lit the card up for the whole fade (the close flashed).
+    /// The window's ``ActiveLookScope``; nil follows the key state.
+    private let activeLook: ActiveLookScope?
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -36,15 +50,29 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
+    /// The vibrancy fallback blurs what is behind the window instead of the window's own
+    /// content: set it for a surface that is the whole content of a clear window of its own
+    /// (a hover card), where a blur within the window has nothing under it. Liquid Glass and
+    /// the solid surface ignore it.
+    public var samplesBehindWindow = false {
+        didSet { if samplesBehindWindow != oldValue { (materialView as? NSVisualEffectView)?.blendingMode = blending } }
+    }
+
+    private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
-                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
+                card: Bool = false,
+                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
+                activeLook: ActiveLookScope? = nil) {
         self.tone = tone
+        self.activeLook = activeLook
         materialOverride = material
         isInteractive = interactive
+        isCard = card
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
         self.material = material ?? Self.systemMaterial(reduceTransparency)
@@ -97,13 +125,30 @@ public final class OverlaySurfaceView: NSView {
         let view: NSView
         switch material {
         case .liquidGlass:
-            let glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+            // A card's fill sits on the glass, under the content; the glass shows at its rim.
+            let glass: GlassPanelView
+            if isCard {
+                let fill = NSView()
+                fill.wantsLayer = true
+                contentView.translatesAutoresizingMaskIntoConstraints = false
+                fill.addSubview(contentView)
+                NSLayoutConstraint.activate([
+                    contentView.leadingAnchor.constraint(equalTo: fill.leadingAnchor),
+                    contentView.trailingAnchor.constraint(equalTo: fill.trailingAnchor),
+                    contentView.topAnchor.constraint(equalTo: fill.topAnchor),
+                    contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
+                ])
+                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
+                tintView = fill
+            } else {
+                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
+            }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass
         case .vibrancy:
             let effect = NSVisualEffectView()
             effect.material = .popover
-            effect.blendingMode = .withinWindow
+            effect.blendingMode = blending
             effect.state = .active
             effect.wantsLayer = true
             // The Ghostty-derived tint sits on the blur, under the content.
@@ -160,15 +205,34 @@ public final class OverlaySurfaceView: NSView {
 
     private func applyShape() {
         rimView?.cornerRadius = cornerRadius
+        // The content takes the surface's shape on every material. The blur and the solid
+        // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
+        // clips its content view: a content background (`OverlayBackingView`'s veil) painted
+        // square corners past the rounded glass (Lawrence 2026-10-27, the save-password bar).
+        contentView.wantsLayer = true
+        if let layer = contentView.layer {
+            layer.cornerRadius = cornerRadius
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+        }
+        if isCard, material == .liquidGlass, let layer = tintView?.layer {
+            layer.cornerRadius = cornerRadius
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+            layer.borderWidth = Metrics.lineWidth(Self.cardRimWidth)
+        }
         if let glass = materialView as? GlassPanelView {
             glass.cornerRadius = cornerRadius
         } else if let layer = materialView?.layer {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
+            layer.borderWidth = Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
+
+    /// A card's rim: one point, a clear line on every display.
+    private static let cardRimWidth: CGFloat = 1
 
     /// Theme colors: the glass tint, or the fallback's Ghostty-derived fill
     /// and hairline. Never an accent color.
@@ -176,19 +240,31 @@ public final class OverlaySurfaceView: NSView {
         let look = tone.style?.look(isDark: themeTokens.isDark)
         rimView?.look = look ?? rimView?.look ?? FloatingGlassStyle.dialog.look(isDark: true)
         performWithTheme {
+            let card = isCard ? cardMaterial : nil
             switch material {
             case .liquidGlass:
                 (materialView as? GlassPanelView)?.tintColor = look?.veil.nsColor ?? overlayTint
+                if let card {
+                    tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
+                    tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
+                }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
-                materialView?.layer?.borderColor = look == nil ? Palette.separator.cgColor : NSColor.clear.cgColor
+                materialView?.layer?.borderColor = look == nil
+                    ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
             case .opaque:
                 materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
-                materialView?.layer?.borderColor = Borders.color(Palette.separator).cgColor
+                materialView?.layer?.borderColor = Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor
             }
         }
         applyShape()
+    }
+
+    /// The card material of the theme in effect (call inside `performWithTheme`).
+    private var cardMaterial: CardMaterial {
+        CardMaterial(ThemeContext.active ?? ThemeScope.app.tokens, lift: ChromeTunables.opaqueOverlayLift.value,
+                     minimumOpacity: ChromeTunables.cardOpacity.value)
     }
 
     /// The theme's glass tint, its alpha scaled by the overlay tint

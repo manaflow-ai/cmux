@@ -25,7 +25,8 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
 
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
                 changelog: UpdateChangelog? = nil) {
-        title = UpdaterStrings.readyToInstall
+        // While the click installs, the card says so in its title too, not only on its disabled button.
+        title = isInstalling ? UpdaterStrings.installingUpdate : UpdaterStrings.readyToInstall
         detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
         seeAllTitle = UpdaterStrings.seeAllChanges
         buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate

@@ -361,6 +361,7 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
             inspector: None,
             chief: Some(Arc::new(tools)),
             turn: None,
+            peers: None,
         },
     )
     .unwrap();
@@ -368,9 +369,19 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
     assert_eq!(
         mcp.names(),
         [
-            "zoom", "date", "tell", "profile", "version", "react", "reply"
+            "zoom",
+            "date",
+            "tell",
+            "profile",
+            "version",
+            "react",
+            "reply",
+            "send",
+            "transcript",
+            "stop",
+            "sleep"
         ],
-        "only the granted tools, and profile; react and reply always"
+        "only the granted tools, and profile; react, reply, send, stop and sleep always"
     );
     let (refused, why) = mcp.call("spawn", json!({"tasks": ["build it"]}));
     assert!(
@@ -519,7 +530,17 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     let mut mcp = Mcp::start(&mcp_args);
     assert_eq!(
         mcp.names(),
-        ["zoom", "date", "version", "react", "reply"],
+        [
+            "zoom",
+            "date",
+            "version",
+            "react",
+            "reply",
+            "send",
+            "transcript",
+            "stop",
+            "sleep"
+        ],
         "the daemon is away: the default Chief's grant is not known, so it gets zoom and date only (and its own react and reply)"
     );
     let (refused, why) = mcp.call("tell", json!({"id": "a1", "message": "x"}));
@@ -551,7 +572,15 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     {
         expected.push("profile");
     }
-    expected.extend(["version", "react", "reply"]);
+    expected.extend([
+        "version",
+        "react",
+        "reply",
+        "send",
+        "transcript",
+        "stop",
+        "sleep",
+    ]);
     let minted = me.token_file(dir.path(), "agent_mux");
     std::fs::rename(&minted, &token).unwrap();
     wait_until(

@@ -1,6 +1,7 @@
 //! A user-admitted native update job on this owner. App execution scopes
 //! remain unsupported: an actor JSON field is never execution authority.
 
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +18,9 @@ use crate::mux::Mux;
 use crate::resource::{MachinePublicId, ResourceError, SessionPublicId};
 
 pub(super) const CAPABILITY: &str = "agent-cli-update-job-v1";
+pub(super) const RESOLVE_CAPABILITY: &str = "agent-cli-update-job-resolve-v1";
 const COMMAND: &str = "agent-cli-update-job";
+const RESOLVE_COMMAND: &str = "agent-cli-update-job-resolve";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Deserialize)]
@@ -77,9 +80,11 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some(COMMAND) {
-        return None;
-    }
+    let resolve = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
+        Some(COMMAND) => false,
+        Some(RESOLVE_COMMAND) => true,
+        _ => return None,
+    };
     let id = fields.remove("id");
     // Same-uid Unix alone is insufficient. Require the proved main app and
     // no terminal/agent binding, before parsing owner/CLI/key or any work.
@@ -119,6 +124,9 @@ pub(super) fn try_handle(
         Ok(mutation) => mutation,
         Err(_) => return Some(reply(writer, id, Err(Failure::BadRequest.into()))),
     };
+    if resolve {
+        return Some(reply(writer, id, mux.resolve_agent_cli_update_job(&params.cli, &mutation)));
+    }
     let slot = match agent_inventory::reserve(mux) {
         Ok(slot) => slot,
         Err(_) => return Some(reply(writer, id, Err(Failure::Busy.into()))),
@@ -158,18 +166,19 @@ fn prepare(socket: &Path, cli: &str) -> anyhow::Result<Vec<String>> {
         .call("_acpmux/harness/update/prepare", json!({"cli":cli}), TIMEOUT)
         .map_err(|_| Failure::Refused)?;
     let fields = plan.as_object().ok_or(Failure::InvalidResponse)?;
-    if fields.len() != 2 || plan["cli"] != cli {
+    if fields.len() != 2 || plan.field("cli") != cli {
         return Err(Failure::InvalidResponse.into());
     }
-    let argv = plan["argv"]
+    let argv = plan
+        .field("argv")
         .as_array()
         .ok_or(Failure::InvalidResponse)?
         .iter()
         .map(|v| v.as_str().map(str::to_owned))
         .collect::<Option<Vec<_>>>()
         .ok_or(Failure::InvalidResponse)?;
-    if !(2..=6).contains(&argv.len())
-        || !Path::new(&argv[0]).is_absolute()
+    if !(2..=9).contains(&argv.len())
+        || !argv.first().is_some_and(|program| Path::new(program).is_absolute())
         || argv.iter().any(|v| v.contains('\0'))
         || argv.iter().map(String::len).sum::<usize>() > 16 * 1024
     {

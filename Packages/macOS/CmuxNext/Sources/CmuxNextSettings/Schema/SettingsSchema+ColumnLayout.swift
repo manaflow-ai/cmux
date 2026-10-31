@@ -15,7 +15,8 @@ nonisolated enum ColumnLayoutSettingsSchema {
                     SettingChoice(SplitSizing.even.rawValue, SettingsText.keyed("settings.choice.splitEven", "Even")),
                     SettingChoice(SplitSizing.halve.rawValue, SettingsText.keyed("settings.choice.splitHalve", "Halve the Pane")),
                 ]),
-                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue), keywords: ["split", "equal", "size"]
+                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue),
+                keywords: ["split", "equal", "size", "autobalance", "balance", "equalize"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.newColumnWidthPath, section: .general, group: columns,
@@ -66,13 +67,44 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 kind: .toggle, default: .bool(ColumnLayoutSettings.rowsFallback), keywords: ["row", "column", "scroll", "vertical"]
             ),
             SettingDescriptor(
-                ColumnLayoutSettings.focusPaneOnScrollPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.focusPaneOnScroll", "Focus Pane on Scroll"),
-                help: SettingsText.keyed("settings.layout.focusPaneOnScroll.help",
-                                        "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."),
-                summary: SettingsText.keyed("settings.layout.focusPaneOnScroll.summary", "Scrolling a pane focuses it"),
-                kind: .toggle, default: .bool(ColumnLayoutSettings.focusPaneOnScrollFallback),
-                keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse"]
+                ColumnLayoutSettings.focusFollowsMousePath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.focusFollowsMouse", "Focus Follows Mouse"),
+                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help",
+                                        "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."),
+                summary: SettingsText.keyed("settings.layout.focusFollowsMouse.summary", "Hovering or scrolling a pane focuses it"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.focusFollowsMouseFallback),
+                keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse", "hover", "pointer"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.scrollAreasPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
+                help: SettingsText.keyed("settings.layout.scrollAreas.help",
+                                        "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
+                summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.scrollAreasFallback),
+                keywords: ["scroll", "area", "split", "squash", "dock", "horizontal", "overflow"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.scrollModifierPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.scrollModifier", "Scroll Columns and Rows With"),
+                help: SettingsText.keyed("settings.layout.scrollModifier.help",
+                                        "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."),
+                summary: SettingsText.keyed("settings.layout.scrollModifier.summary", "Command + Scroll moves columns and rows"),
+                kind: .choice([
+                    SettingChoice(LayoutScrollModifier.command.rawValue, SettingsText.keyed("settings.choice.scrollModifierCommand", "Command + Scroll")),
+                    SettingChoice(LayoutScrollModifier.noModifier.rawValue, SettingsText.keyed("settings.choice.scrollModifierNone", "Scroll Without a Modifier")),
+                ]),
+                default: .string(ColumnLayoutSettings.scrollModifierFallback.rawValue),
+                keywords: ["scroll", "command", "modifier", "wheel", "trackpad", "columns", "rows", "strip", "pan", "horizontal"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.pagesHandleCommandScrollPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.pagesHandleCommandScroll", "Web Pages Get Command + Scroll First"),
+                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help",
+                                        "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."),
+                summary: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.summary", "Figma and Excalidraw keep Command + Scroll zoom"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.pagesHandleCommandScrollFallback),
+                keywords: ["scroll", "command", "zoom", "figma", "excalidraw", "browser", "web", "page", "columns", "pan"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,

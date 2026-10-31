@@ -684,3 +684,79 @@ fn swapping_within_a_stack_keeps_the_same_pane_expanded() {
     assert_eq!(exported["panes"], json!([1, 3, 2]));
     assert_eq!(exported["expanded"], 2);
 }
+
+/// `terminal.attach read_only` watches without sizing: its `cols`/`rows` and a
+/// later `terminal.viewer.resize` with its lease never move the terminal.
+#[test]
+fn read_only_terminal_attach_never_drives_terminal_size() {
+    let mux = test_mux();
+    let created = crate::resource_router::handle_resource_message(
+        &mux,
+        &resource_request(
+            "read-only-create",
+            "workspace.create",
+            json!({"machine":"current","session":"current","name":"ro","initial_content":"terminal"}),
+            Some("read-only-attach-create"),
+        ),
+    )
+    .unwrap();
+    assert_eq!(created["ok"], true);
+    let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+    let terminal_id = snapshot["terminals"][0]["id"].as_str().expect("terminal id").to_string();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let attach = |name: &str, stream: &str, extra: Value| {
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let mut params = json!({
+            "machine":"current","session":"current","terminal":terminal_id,"stream_id":stream,
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            params[key] = value.clone();
+        }
+        let request = resource_request(name, "terminal.attach", params, None);
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        let lease = response["result"]["attachment_lease"].as_str().unwrap().to_string();
+        let item = pop_json(&outbound);
+        assert_eq!(item["item"]["kind"], "snapshot");
+        (client, writer, outbound, lease, item["item"]["render"]["size"].clone())
+    };
+
+    let (owner, _, _, _, owner_size) =
+        attach("owner", "stream_00000000000000000000000000000031", json!({"cols":100,"rows":30}));
+    assert_eq!(owner_size["cols"], 100);
+    assert_eq!(owner_size["rows"], 30);
+
+    let (watcher, watcher_writer, watcher_outbound, watcher_lease, watcher_size) = attach(
+        "watcher",
+        "stream_00000000000000000000000000000032",
+        json!({"cols":40,"rows":10,"read_only":true}),
+    );
+    assert_eq!(watcher_size["cols"], 100, "a read-only attach must not resize the terminal");
+    assert_eq!(watcher_size["rows"], 30, "a read-only attach must not resize the terminal");
+
+    let resize = resource_request(
+        "watcher-resize",
+        "terminal.viewer.resize",
+        json!({
+            "machine":"current","session":"current","terminal":terminal_id,
+            "attachment_lease":watcher_lease,"cols":50,"rows":12,
+        }),
+        None,
+    );
+    assert!(handle_connection_message(&mux, watcher, &resize, &watcher_writer, &scheduler));
+    let resized = pop_json(&watcher_outbound);
+    assert_eq!(resized["ok"], true, "{resized}");
+    assert_eq!(resized["result"]["accepted"], false);
+    assert_eq!(resized["result"]["outcome"], "passive");
+
+    let (probe, _, _, _, probe_size) =
+        attach("probe", "stream_00000000000000000000000000000033", json!({}));
+    assert_eq!(probe_size["cols"], 100);
+    assert_eq!(probe_size["rows"], 30);
+    for client in [probe, watcher, owner] {
+        disconnect_client(&mux, client, false);
+    }
+}

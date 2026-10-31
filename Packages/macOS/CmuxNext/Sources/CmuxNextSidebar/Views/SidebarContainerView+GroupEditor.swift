@@ -23,7 +23,7 @@ extension SidebarContainerView {
     /// Sent before the editor closes for a picker that still edits the group: keep a new empty group.
     public static var keepGroupItem: String { SidebarGroupEditing.keepGroupItem }
 
-    /// The editor's standard rows: New Workspace in Group, Move to New Window, Close Group;
+    /// The editor's standard rows: New Workspace in Group, Move to New Window, Close All in Group;
     /// Pin or Unpin Group (as `pinned` says), Move to Top; Ungroup, Delete Group.
     public static func standardGroupEditorItems(pinned: Bool = false) -> [[SidebarGroupEditorItem]] {
         SidebarGroupEditing.standardItems(pinned: pinned)

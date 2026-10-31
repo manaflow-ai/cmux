@@ -1,8 +1,13 @@
 //! `acpmux cli-agent`: a plain CLI as an ACP agent, end to end over stdio.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 struct Agent {
@@ -12,7 +17,9 @@ struct Agent {
 
 impl Agent {
     fn start(args: &[&str]) -> Agent {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let scratch = std::env::temp_dir().join(format!("acpmux-cli-agent-{}", std::process::id()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let mut child = daemon_env::acpmux(&scratch)
             .arg("cli-agent")
             .args(args)
             .stdin(Stdio::piped())

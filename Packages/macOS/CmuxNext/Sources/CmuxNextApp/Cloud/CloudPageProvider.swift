@@ -14,7 +14,8 @@ import Foundation
 /// - `cmux.cloud.machine.watch` is the page's change stream. The host gets no server event lines
 ///   yet, so the provider answers the stream from the ops it runs: a machine mutation's answer
 ///   (`{machine, revision}`) is an `upsert`, a delete is a `removed` at the revision the server
-///   names after it. No timer, no polling.
+///   names after it. A `feed` (the classic link's ``CloudClassicPageOps``) adds the changes no op
+///   answer carries, from the first watcher to the last. No timer, no polling.
 /// - Sign-in and sign-out (confirmed ops) run the app's own account flow (`signIn`, `signOut`).
 @MainActor
 final class CloudPageProvider: PageProvider {
@@ -26,17 +27,29 @@ final class CloudPageProvider: PageProvider {
     private let signIn: @MainActor () async -> Bool
     private let signOut: @MainActor () async -> Void
     private var watchers: [UUID: @MainActor (CmuxNextSettings.JSONValue) -> Void] = [:]
+    /// Starts a source of watch events; its answer stops it.
+    typealias Feed = @MainActor (_ emit: @escaping @MainActor (CmuxNextDaemon.JSONValue) -> Void) -> () -> Void
+    private let feed: Feed?
+    private var stopFeed: (() -> Void)?
 
     /// - Parameters:
     ///   - op: Runs one Cloud app server op (the app passes ``CloudAppLinks/ops(local:)``; tests a fake).
     ///   - signIn: The app's Cloud sign-in; true when the person signed in.
     ///   - signOut: The app's Cloud sign-out.
-    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = { false },
-         signOut: @escaping @MainActor () async -> Void = {}) {
+    ///   Both default to named functions, not async closure literals (cx-bsue).
+    ///   - feed: Watch events beyond the op answers (``CloudAppLinks/feed(classic:)``); nil: none.
+    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
+         signOut: @escaping @MainActor () async -> Void = CloudPageProvider.noSignOut, feed: Feed? = nil) {
         self.op = op
         self.signIn = signIn
         self.signOut = signOut
+        self.feed = feed
     }
+
+    /// The default sign-in: nobody signs in.
+    static func noSignIn() async -> Bool { false }
+    /// The default sign-out: nothing to end.
+    static func noSignOut() async {}
 
     /// Live watch streams (one per Cloud page that loaded its list).
     var watcherCount: Int { watchers.count }
@@ -58,7 +71,9 @@ final class CloudPageProvider: PageProvider {
         var members = params.objectValue ?? [:]
         let key = members.removeValue(forKey: "idempotency_key")?.stringValue
         let answer = try await run(server, args: .object(members), key: key, context: context)
-        await announce(server, args: members, answer: answer, context: context)
+        // A feed already sends each change it makes (the classic ops): announcing it again would
+        // send every mutation twice.
+        if feed == nil { await announce(server, args: members, answer: answer, context: context) }
         return answer
     }
 
@@ -69,7 +84,15 @@ final class CloudPageProvider: PageProvider {
         _ = try await run("cloud.machine.watch", args: .object([:]), key: nil, context: context)
         let id = UUID()
         watchers[id] = onEvent
-        return PageSubscription { [weak self] in self?.watchers[id] = nil }
+        if stopFeed == nil, let feed { stopFeed = feed { [weak self] event in self?.emit(pageJSON(event)) } }
+        return PageSubscription { [weak self] in self?.unwatch(id) }
+    }
+
+    private func unwatch(_ id: UUID) {
+        watchers[id] = nil
+        guard watchers.isEmpty else { return }
+        stopFeed?()
+        stopFeed = nil
     }
 
     private func run(_ server: String, args: CmuxNextSettings.JSONValue, key: String?,
@@ -108,8 +131,9 @@ final class CloudPageProvider: PageProvider {
     }
 }
 
-/// The daemon's JSON as the page's (the two modules each define the same shape).
-private func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
+/// The daemon's JSON as the page's (the two modules each define the same shape); also
+/// `cmux cloud open-browser`'s route for ``BrowserTabOpen``.
+func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
     switch value {
     case .null: .null
     case .bool(let flag): .bool(flag)

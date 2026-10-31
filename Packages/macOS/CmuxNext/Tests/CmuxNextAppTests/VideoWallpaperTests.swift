@@ -4,6 +4,7 @@ import AVFoundation
 @testable import CmuxNextHome
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A video as the wallpaper (cx-14vdf): the person's own movie, Apple's moving wallpaper or a
 /// downloaded aerial loops muted behind the window, plays only while someone can see it and the
@@ -123,7 +124,9 @@ import Testing
         defer { h.close() }
         let url = try #require(h.video.url)
         let player = try #require(h.video.playerLayer.player as? AVQueuePlayer)
-        #expect(!player.items().isEmpty && h.video.isPlaying)
+        // AVPlayerLooper queues its items once the asset has loaded, on AVFoundation's schedule.
+        #expect(try await eventually { !player.items().isEmpty }, "the looper never queued the video")
+        #expect(h.video.isPlaying)
         h.video.lowPowerOverride = true
         #expect(!h.video.isPlaying && h.video.canBeSeen)
         players.releaseIfUnseen(url)
@@ -141,7 +144,8 @@ import Testing
         // mark: the same player, new items, back at the second it held.
         h.video.lowPowerOverride = true
         h.video.visibleOverride = true
-        #expect(!players.isReleased(url) && !player.items().isEmpty, "the video does not come back when seen again")
+        #expect(!players.isReleased(url), "the video does not come back when seen again")
+        #expect(try await eventually { !player.items().isEmpty }, "the video came back without its items")
         #expect(h.video.playerLayer.player === player, "the window's layer lost its player")
         #expect(try await eventually { !players.isRestoring(url) }, "the restored item never became ready")
         #expect(try await eventually { player.currentTime().seconds > 0.95 }, "the restored video never sought back")

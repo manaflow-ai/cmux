@@ -1139,6 +1139,7 @@ impl AuthDatabase {
             device_id: record.id.clone(),
             daemon_name: self.daemon_name.clone(),
             revocation_generation: generation,
+            authority: crate::crypto::ServiceAuthority::legacy_full(),
         };
         match persistence.wait_result().await {
             Ok(()) => {
@@ -1351,6 +1352,7 @@ impl ServerAuthenticator for AuthDatabase {
                     device_id: fingerprint,
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: generation,
+                    authority: crate::crypto::ServiceAuthority::legacy_full(),
                 })
             }
             // A trusted-network listener vouches for every peer that can reach it;
@@ -1368,6 +1370,7 @@ impl ServerAuthenticator for AuthDatabase {
                     ),
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: *self.revocation_tx.borrow(),
+                    authority: crate::crypto::ServiceAuthority::legacy_full(),
                 })
             }
             AuthKind::Carrier
@@ -1384,6 +1387,7 @@ impl ServerAuthenticator for AuthDatabase {
                     ),
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: *self.revocation_tx.borrow(),
+                    authority: crate::crypto::ServiceAuthority::legacy_full(),
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
@@ -1424,6 +1428,7 @@ impl ServerAuthenticator for AuthDatabase {
                             device_id: fingerprint,
                             daemon_name: self.daemon_name.clone(),
                             revocation_generation: generation,
+                            authority: crate::crypto::ServiceAuthority::legacy_full(),
                         });
                     }
                     if state.pending.contains_key(&invitation_id) {

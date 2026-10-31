@@ -240,6 +240,386 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// The replayed history of an adopted chat: its records from the first `turn_started` on.
+fn replayed(hub: &Hub, id: &str) -> Vec<acpmux::store::EventRecord> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    let start = events.iter().position(|e| e.kind == "turn_started").expect("a replayed turn");
+    events[start..].to_vec()
+}
+
+/// The session update of an `in` record.
+fn update_of(e: &acpmux::store::EventRecord) -> &Value {
+    e.msg.pointer("/params/update").unwrap_or(&Value::Null)
+}
+
+/// `value` without the canonical paths the hub records beside a tool call's
+/// (`_meta.acpmux.canonicalPath`, hub/tool_paths.rs), and without a `_meta`
+/// that held only that: the paths as the agent wrote them.
+fn as_written(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(as_written).collect()),
+        Value::Object(fields) => {
+            let mut out = serde_json::Map::new();
+            for (key, field) in fields {
+                let field = as_written(field);
+                if key == "_meta" {
+                    let mut meta = field.clone();
+                    if let Some(acpmux) = meta.get_mut("acpmux").and_then(Value::as_object_mut) {
+                        acpmux.remove("canonicalPath");
+                        if acpmux.is_empty() {
+                            meta.as_object_mut().unwrap().remove("acpmux");
+                        }
+                    }
+                    if meta.as_object().is_some_and(|m| m.is_empty()) {
+                        continue;
+                    }
+                    out.insert(key.clone(), meta);
+                } else {
+                    out.insert(key.clone(), field);
+                }
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+/// The canonical form of `path` the hub records for a file in a folder that
+/// exists: the folder's real path (/tmp is /private/tmp on macOS).
+fn canonical_in(path: &str) -> String {
+    let path = std::path::Path::new(path);
+    let folder = std::fs::canonicalize(path.parent().unwrap()).unwrap();
+    folder.join(path.file_name().unwrap()).to_string_lossy().into_owned()
+}
+
+/// An adopted Codex chat shows each turn's tool calls, not only its final message
+/// (hq#2569 item 3): a reopened turn that ran three commands and edited two files replays
+/// them as `tool_call` records, each settled by a `tool_call_update` with its output, before
+/// the answer, so the pane's "Worked for" opens to "Ran 3 commands" and "Edited 2 files".
+/// The edit carries each file's before and after text and +/- counts (the edited-files card).
+///
+/// The replayed records are also the pane's fixture
+/// (`webviews/test/fixtures/adopted-codex-turn.events.json`, read by
+/// `agent-pane-adopted-tool-calls.test.ts`): `ACPMUX_UPDATE_FIXTURES=1` rewrites it.
+#[tokio::test]
+async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
+    let (hub, mut c, root, project, chat) = adopt_setup().await;
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{chat}.jsonl"));
+    let fixture = include_str!("../fixtures/codex-rollout-tool-calls.jsonl")
+        .replace("{ID}", &chat)
+        .replace("{CWD}", &project.to_string_lossy());
+    std::fs::write(&rollout, fixture).unwrap();
+
+    let s = c.request(method::SESSION_NEW, adopt("fakecodex", &chat)).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let events = replayed(&hub, &id);
+    write_pane_fixture(&events, &chat, &root);
+    let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "turn_started",
+            "user_message",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "agent_message_chunk",
+            "turn_end",
+            "turn_result"
+        ],
+        "{events:#?}"
+    );
+    assert_eq!(events[1].msg["text"], "Bump the version to 1.3.0 and note it in the changelog");
+    let calls: Vec<&Value> =
+        events.iter().filter(|e| e.kind == "tool_call").map(update_of).collect();
+    let commands: Vec<&str> = calls
+        .iter()
+        .filter_map(|u| u.pointer("/rawInput/command").and_then(Value::as_str))
+        .collect();
+    assert_eq!(
+        commands,
+        ["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]
+    );
+    assert!(calls[..3].iter().all(|u| u["kind"] == "execute" && u["status"] == "in_progress"));
+    assert_eq!(calls[0]["rawInput"]["cwd"], json!(project));
+    // Each command settles with its output and exit code, at the time it ended.
+    let done: Vec<&acpmux::store::EventRecord> =
+        events.iter().filter(|e| e.kind == "tool_call_update").collect();
+    let grep = update_of(done[1]);
+    assert_eq!(grep["toolCallId"], "exec-2");
+    assert_eq!(grep["status"], "completed");
+    assert_eq!(grep["rawOutput"]["exit_code"], 0);
+    assert_eq!(grep.pointer("/content/0/content/text"), Some(&json!("3:version = \"1.2.0\"\n")));
+    let started =
+        events.iter().find(|e| e.kind == "tool_call" && update_of(e)["toolCallId"] == "exec-2");
+    assert_eq!(done[1].at - started.unwrap().at, 50, "the call ran 50ms");
+
+    // The edit: one call over two files (in path order: Codex records them as a map), each a
+    // diff with its before and after text.
+    let edit = calls[3];
+    assert_eq!(edit["kind"], "edit");
+    let cargo = project.join("Cargo.toml").to_string_lossy().into_owned();
+    let changelog = project.join("CHANGELOG.md").to_string_lossy().into_owned();
+    assert_eq!(
+        as_written(&edit["locations"]),
+        json!([{"path": changelog, "line": 1}, {"path": cargo, "line": 1}])
+    );
+    // Beside each, its canonical path (hub/tool_paths.rs).
+    assert_eq!(edit["locations"][1]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
+    let edit_done = update_of(done[3]);
+    assert_eq!(edit_done["status"], "completed");
+    let diffs = edit_done["content"].as_array().unwrap();
+    assert_eq!(diffs.len(), 2, "{edit_done}");
+    assert_eq!(diffs[0]["type"], "diff");
+    assert_eq!(diffs[0]["path"], changelog.as_str());
+    assert!(
+        diffs[0]["newText"].as_str().unwrap().contains("## 1.3.0\n- Bump the version to 1.3.0")
+    );
+    assert_eq!(diffs[1]["path"], cargo.as_str());
+    assert!(diffs[1]["oldText"].as_str().unwrap().contains("version = \"1.2.0\""));
+    assert!(diffs[1]["newText"].as_str().unwrap().contains("version = \"1.3.0\""));
+    assert_eq!(
+        edit["rawInput"]["changes"],
+        json!([
+            {"path": changelog, "type": "update", "additions": 3, "deletions": 0},
+            {"path": cargo, "type": "update", "additions": 1, "deletions": 1}
+        ])
+    );
+
+    // The final answer only (commentary is progress narration), after the work.
+    let answer = &events[10];
+    assert_eq!(
+        update_of(answer).pointer("/content/text"),
+        Some(&json!("Bumped demo to 1.3.0 and added a 1.3.0 entry to CHANGELOG.md."))
+    );
+    // Worked for 1m 32s: the prompt at 09:00:00, the answer at 09:01:32.
+    assert_eq!(answer.at - events[1].at, 92_000);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A reopened Codex turn whose patch failed shows the failed edit and its error, but none of
+/// the edits it proposed: they never applied, so the pane draws no diff and counts no lines.
+/// A hunk that did apply is marked as part of its file (`_meta.acpmux.fragment`), so the
+/// edited-files card never offers a whole-file Undo it cannot do.
+#[tokio::test]
+async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
+    let (hub, mut c, root, project, chat) = adopt_setup().await;
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{chat}.jsonl"));
+    let cwd = project.to_string_lossy().into_owned();
+    let change = |id: &str, status: &str, stderr: &str| {
+        json!({"timestamp": "2026-10-02T10:00:10.000Z", "type": "event_msg", "payload": {
+            "type": "item_completed", "thread_id": chat, "turn_id": "turn-1",
+            "item": {"type": "FileChange", "id": id, "status": status,
+                "changes": {format!("{cwd}/Cargo.toml"): {"type": "update", "move_path": null,
+                    "unified_diff": "@@ -3,1 +3,1 @@\n-version = \"1.2.0\"\n+version = \"1.3.0\"\n"}},
+                "stdout": "", "stderr": stderr}}})
+    };
+    let lines = [
+        json!({"timestamp": "2026-10-02T09:59:59.900Z", "type": "session_meta", "payload": {"id": chat, "cwd": cwd, "originator": "Codex Desktop", "cli_version": "0.163.0"}}),
+        json!({"timestamp": "2026-10-02T09:59:59.950Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-1"}}),
+        json!({"timestamp": "2026-10-02T10:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Bump the version"}], "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}}),
+        change("patch-1", "failed", "patch rejected: Cargo.toml changed on disk"),
+        change("patch-2", "completed", ""),
+        json!({"timestamp": "2026-10-02T10:00:20.000Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": "Bumped it on the second try."}]}}),
+        json!({"timestamp": "2026-10-02T10:00:20.100Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-1"}}),
+    ];
+    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(&rollout, text).unwrap();
+
+    let s = c.request(method::SESSION_NEW, adopt("fakecodex", &chat)).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let events = replayed(&hub, &id);
+    let call = |id: &str, kind: &str| {
+        events
+            .iter()
+            .filter(|e| e.kind == kind)
+            .map(update_of)
+            .find(|u| u["toolCallId"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {kind} for {id}: {events:#?}"))
+    };
+    let cargo = project.join("Cargo.toml").to_string_lossy().into_owned();
+
+    let failed = call("patch-1", "tool_call_update");
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(
+        failed["content"],
+        json!([{"type": "content", "content": {"type": "text", "text": "patch rejected: Cargo.toml changed on disk"}}])
+    );
+    assert_eq!(
+        call("patch-1", "tool_call")["rawInput"]["changes"],
+        json!([{"path": cargo, "type": "update"}])
+    );
+
+    let applied = call("patch-2", "tool_call_update");
+    assert_eq!(applied["status"], "completed");
+    assert_eq!(
+        as_written(&applied["content"]),
+        json!([{"type": "diff", "path": cargo, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
+    );
+    assert_eq!(applied["content"][0]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
+    assert_eq!(
+        call("patch-2", "tool_call")["rawInput"]["changes"],
+        json!([{"path": cargo, "type": "update", "additions": 1, "deletions": 1}])
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Checks (or with `ACPMUX_UPDATE_FIXTURES=1` rewrites) the pane's adopted-turn fixture: the
+/// replayed records with the machine-specific folder and ids made stable, and numbered from 1
+/// (`seq`, and the `turnSeq` that names the turn's start).
+fn write_pane_fixture(events: &[acpmux::store::EventRecord], chat: &str, root: &std::path::Path) {
+    let base = events[0].seq - 1;
+    let records: Vec<Value> = events
+        .iter()
+        .map(|e| {
+            let mut msg = e.msg.clone();
+            if let Some(turn) = msg.get("turnSeq").and_then(Value::as_u64) {
+                msg["turnSeq"] = json!(turn - base);
+            }
+            json!({"seq": e.seq - base, "at": e.at, "dir": e.dir, "kind": e.kind, "msg": msg})
+        })
+        .collect();
+    // The canonical paths name the project by its real path (/private/tmp on macOS).
+    let real = std::fs::canonicalize(root.join("project")).unwrap();
+    let text = serde_json::to_string_pretty(&records)
+        .unwrap()
+        .replace(&real.to_string_lossy().into_owned(), "/home/dev/demo")
+        .replace(&root.join("project").to_string_lossy().into_owned(), "/home/dev/demo")
+        .replace(chat, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60")
+        + "\n";
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../webviews/test/fixtures/adopted-codex-turn.events.json"
+    );
+    if std::env::var("ACPMUX_UPDATE_FIXTURES").as_deref() == Ok("1") {
+        std::fs::write(path, &text).unwrap();
+    } else if let Ok(stored) = std::fs::read_to_string(path) {
+        // A checkout without the webviews (a crate-only build) has nothing to check.
+        assert_eq!(
+            stored, text,
+            "the pane's fixture is stale: rerun with ACPMUX_UPDATE_FIXTURES=1"
+        );
+    }
+}
+
+/// An adopted Claude Code chat shows its tool calls too: a `tool_use` replays as a
+/// `tool_call` and its `tool_result` settles it (an error result fails it), before the answer.
+#[tokio::test]
+async fn adopt_replays_a_claude_turns_tool_calls() {
+    let root = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-adopt-claude-tools-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let chat = session_id();
+    let file = project.join("src/lib.rs").to_string_lossy().into_owned();
+    let line = |kind: &str, content: Value, at: &str| {
+        json!({"type": kind, "isSidechain": false, "cwd": project, "sessionId": chat,
+               "timestamp": at, "message": {"role": kind, "content": content}})
+    };
+    let lines = [
+        line("user", json!("Rename old_helper and run the tests"), "2026-10-02T10:00:00.000Z"),
+        line(
+            "assistant",
+            json!([{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "rg -n old_helper", "description": "Find uses"}}]),
+            "2026-10-02T10:00:03.000Z",
+        ),
+        line(
+            "user",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_1", "content": "src/lib.rs:3:fn old_helper() {}"}]),
+            "2026-10-02T10:00:04.000Z",
+        ),
+        line(
+            "assistant",
+            json!([{"type": "tool_use", "id": "toolu_2", "name": "Edit", "input": {"file_path": file, "old_string": "fn old_helper() {}", "new_string": "fn new_helper() {}"}}]),
+            "2026-10-02T10:00:06.000Z",
+        ),
+        line(
+            "user",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_2", "content": [{"type": "text", "text": "The file has been updated."}]}]),
+            "2026-10-02T10:00:07.000Z",
+        ),
+        line(
+            "assistant",
+            json!([{"type": "tool_use", "id": "toolu_3", "name": "Bash", "input": {"command": "cargo test -q"}}]),
+            "2026-10-02T10:00:08.000Z",
+        ),
+        line(
+            "user",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_3", "content": "error: 1 test failed", "is_error": true}]),
+            "2026-10-02T10:00:30.000Z",
+        ),
+        line(
+            "assistant",
+            json!([{"type": "text", "text": "Renamed old_helper to new_helper; one test still fails."}]),
+            "2026-10-02T10:00:40.000Z",
+        ),
+    ];
+    let transcript = claude.join(format!("projects/p/{chat}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(&transcript, lines.iter().map(|l| format!("{l}\n")).collect::<String>())
+        .unwrap();
+    let (hub, mut c) = super::fork_through::claude_setup(&claude, &[]).await;
+
+    let s = c.request(method::SESSION_NEW, adopt("claude", &chat)).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let events = replayed(&hub, &id);
+    let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "turn_started",
+            "user_message",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "agent_message_chunk",
+            "turn_end",
+            "turn_result"
+        ],
+        "{events:#?}"
+    );
+    let calls: Vec<&Value> =
+        events.iter().filter(|e| e.kind == "tool_call").map(update_of).collect();
+    assert_eq!(calls[0]["kind"], "execute");
+    assert_eq!(calls[0]["rawInput"]["command"], "rg -n old_helper");
+    assert_eq!(calls[1]["kind"], "edit");
+    assert_eq!(as_written(&calls[1]["locations"]), json!([{"path": file}]));
+    let done: Vec<&Value> =
+        events.iter().filter(|e| e.kind == "tool_call_update").map(update_of).collect();
+    assert_eq!(done[0]["status"], "completed");
+    assert_eq!(
+        done[0].pointer("/content/0/content/text"),
+        Some(&json!("src/lib.rs:3:fn old_helper() {}"))
+    );
+    assert_eq!(
+        as_written(&done[1]["content"]),
+        json!([{"type": "diff", "path": file, "oldText": "fn old_helper() {}", "newText": "fn new_helper() {}"}])
+    );
+    // src/ is not there: the canonical path is the project's real path and the rest as written.
+    let real = std::fs::canonicalize(&project).unwrap().join("src/lib.rs");
+    assert_eq!(done[1]["content"][0]["_meta"]["acpmux"]["canonicalPath"], json!(real));
+    assert_eq!(done[2]["status"], "failed");
+    assert_eq!(
+        update_of(&events[8]).pointer("/content/text"),
+        Some(&json!("Renamed old_helper to new_helper; one test still fails."))
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// A process that holds `lock` the way a running Codex holds its thread writer lock (an
 /// exclusive `flock`), until it is killed; returns once the lock is held. The kernel releases
 /// it when the process ends, as it does for a `codex exec` that finished.

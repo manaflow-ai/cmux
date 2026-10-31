@@ -109,7 +109,7 @@ public final class DaemonConnectingView: NSView {
                 guard let self else { return }
                 statusDue = true
                 DaemonLaunchTimings.shared.mark("connecting_status_shown")
-                Motion.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
+                Motion.panes.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
             }
         }
     }

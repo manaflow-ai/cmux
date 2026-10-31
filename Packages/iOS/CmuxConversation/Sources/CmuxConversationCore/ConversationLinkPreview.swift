@@ -354,6 +354,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
 /// Caption tint for a card, from the image's average color. Messages tints
 /// the caption with the image's dominant color (iOS 26 bubble tinting) and
 /// draws the title near-white over it.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationLinkTint {
     /// `rgb` is the average image color (0...1). Returns the caption color.
     public static func caption(fromAverage rgb: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
@@ -381,6 +382,7 @@ public enum ConversationLinkTint {
 
 /// Data detectors Messages applies to bubble text: links, phone numbers,
 /// addresses and dates, each underlined and tappable.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDataDetection {
     public static let types: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.link.rawValue
@@ -395,6 +397,33 @@ public enum ConversationDataDetection {
     /// translucent white line.
     public static func underlineAlpha(saturation: Double, brightness: Double) -> Double {
         saturation < 0.02 && brightness > 0.98 ? 0.46 : 0.26
+    }
+
+    // NSDataDetector is documented thread-safe for matching; it is created once.
+    nonisolated(unsafe) private static let detector = try? NSDataDetector(types: types)
+
+    /// Markdown marks a detected link may take in when an agent's text shows them as written
+    /// (`**https://a.com**` is detected as `https://a.com**`).
+    private static let markdownMarks: Set<unichar> = Set("*_~`".utf16)
+
+    /// The items the detectors find in `text`, each link without the Markdown marks at its
+    /// ends (Lawrence 2026-10-23: a tap on a Chief's `**https://github.com/login/device**`
+    /// opened `https://github.com/login/device**`).
+    public static func items(in text: String) -> [ConversationDetectedItem] {
+        let ns = text as NSString
+        guard let detector, ns.length > 0 else { return [] }
+        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            guard match.resultType == .link else { return ConversationDetectedItem(range: match.range, url: actionURL(for: match)) }
+            var range = match.range
+            while range.length > 0, markdownMarks.contains(ns.character(at: range.location + range.length - 1)) { range.length -= 1 }
+            while range.length > 0, markdownMarks.contains(ns.character(at: range.location)) { range.location += 1; range.length -= 1 }
+            guard range.length > 0 else { return nil }
+            if range == match.range { return ConversationDetectedItem(range: range, url: match.url) }
+            // A trimmed link is detected again on its own text, so its URL matches what it shows.
+            let trimmed = ns.substring(with: range)
+            let again = detector.firstMatch(in: trimmed, range: NSRange(location: 0, length: (trimmed as NSString).length))
+            return ConversationDetectedItem(range: range, url: again?.url ?? URL(string: trimmed))
+        }
     }
 
     /// What a tap opens: the link, a call, Maps, or Calendar at that date.

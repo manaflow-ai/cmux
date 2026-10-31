@@ -2,10 +2,14 @@ name: cmux-next crash-class rules
 
 # The crash classes found by the socket action sweep (cx-t7hu, cx-bpcj,
 # cx-050n): isolated deinits, task locals bound outside a task, and
-# synchronous NSWorkspace opens. The cmux-next checks job, which runs the full
-# check-concurrency.sh without blocking, is skipped for feat-cmux-next, so this
+# synchronous NSWorkspace opens; and availableData in a pipe's
+# readabilityHandler (cmuxterm-hq#4753). The full check-concurrency.sh also blocks
+# through the cmux-next checks job's final outcome aggregate. This narrower
 # blocking Linux check runs on every pull request and push that touches
-# CmuxNext Sources or the rules (about ten seconds, no build).
+# CmuxNext Sources or the rules (about ten seconds, no build). It also runs
+# the unrecognized-selector rule (scripts/cmux-next/check-objc-selectors.py):
+# a Swift `super` call to a method the framework superclass does not implement
+# at runtime (2026-10-20, `-[PageWKWebView draggingEnded:]`).
 on:
   pull_request:
     paths:
@@ -13,8 +17,16 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
+      - "tests/test_check_concurrency_generic_deinit.py"
+      - "tests/test_check_concurrency_pipe_reads.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
+      - "scripts/cmux-next/check-objc-selectors.py"
+      - "scripts/cmux-next/objc-selector-table.json"
+      - "scripts/cmux-next/check-cef-objc-contract.py"
+      - "scripts/cmux-next/chromium-objc-contract.json"
+      - "scripts/cmux-next/cef-manifest.json"
       - ".github/workflows/cmux-next-crash-class.yml"
   push:
     branches:
@@ -24,8 +36,16 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
+      - "tests/test_check_concurrency_generic_deinit.py"
+      - "tests/test_check_concurrency_pipe_reads.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
+      - "scripts/cmux-next/check-objc-selectors.py"
+      - "scripts/cmux-next/objc-selector-table.json"
+      - "scripts/cmux-next/check-cef-objc-contract.py"
+      - "scripts/cmux-next/chromium-objc-contract.json"
+      - "scripts/cmux-next/cef-manifest.json"
       - ".github/workflows/cmux-next-crash-class.yml"
   workflow_dispatch:
 
@@ -54,9 +74,35 @@ jobs:
             scripts/cmux-next
             scripts/ci/crash-class-gate.sh
             scripts/ci/pr_owned_findings.py
+            tests/test_check_concurrency_generic_deinit.py
+            tests/test_check_concurrency_pipe_reads.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: scripts/ci/crash-class-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
+
+      # The generic-class rule is red on #23050's shape and green with `nonisolated deinit`.
+      - name: Crash-class rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_generic_deinit.py
+
+      # The pipe-read rule is red on availableData in a readabilityHandler and green with readReady().
+      - name: Pipe-read rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_pipe_reads.py
+
+      # Every `super.<member>` must reach a selector its framework superclass
+      # answers on each macOS recorded in the table, or be guarded.
+      - name: Unrecognized-selector rule (super calls)
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/cmux-next/check-objc-selectors.py
+
+      # Every selector Chromium can send to NSApp or its delegate has a reviewed
+      # verdict, `implemented` ones are declared, and the contract was reviewed
+      # for the pinned engine (a CEF bump fails here until it is). The engine
+      # binary itself is read in cmux-next.yml's Release compile job.
+      - name: Chromium Objective-C contract
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/cmux-next/check-cef-objc-contract.py

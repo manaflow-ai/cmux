@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// cmux: where a clicked attachment opens (the user, 2026-10-20: a picture or video a Chief sent
 /// opens in cmux's pane on the right). The store's bytes have no extension, so the file page could
@@ -25,5 +25,20 @@ struct HomeAttachmentOpen {
             try files.copyItem(at: original, to: target)
         }
         return target
+    }
+}
+
+extension HomeAttachmentOpen {
+    /// cmux: opens `file` in `host` (``HomeFileHost``: cmux beside Home, never Finder), else
+    /// through the host's path-link opener (`onAppLink`), else with the system.
+    @MainActor static func open(_ file: URL, host: HomeFileHost?, appLink: ((URL) -> Void)? = nil) {
+        if let host { host.open(file) } else if let appLink { appLink(file) } else { NSWorkspace.shared.open(file) }
+    }
+
+    /// The attachment's menu rows: the host's file menu, or Open in Default App (`fallback`).
+    @MainActor static func menuItems(name: String, host: HomeFileHost?, resolve: @escaping @MainActor @Sendable () async -> URL?,
+                                     fallback: @escaping () -> Void) -> [NSMenuItem] {
+        if let host { return host.menuItems(forFileNamed: name, resolve: resolve) }
+        return [MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app", fallback)]
     }
 }

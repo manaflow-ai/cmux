@@ -7,8 +7,9 @@ import Testing
 
 /// Leo 2026-10-13 (cosmic-gray): moving the pointer from one workspace row to
 /// the next snapped the hover state. Hover entry is immediate; clearing the
-/// fill and controls uses the short hover-out treatment, and nothing in the
-/// row moves or resizes.
+/// fill uses the hover-out token (instant by default), and nothing in the row
+/// moves or resizes. Since Leo 2026-10-20 the controls clear at once too: no
+/// exit delay on hover-out, so the old row's buttons never trail the pointer.
 @MainActor
 struct WorkspaceRowHoverMotionTests {
     private static let name = "a workspace whose name runs under the hover buttons"
@@ -71,9 +72,9 @@ struct WorkspaceRowHoverMotionTests {
         row.layoutSubtreeIfNeeded()
         row.displayIfNeeded()
         for ((name, view), slot) in zip(Self.controls(row), slots) {
-            #expect(!view.isHidden && view.alphaValue == 0, "the \(name) vanished instead of fading out")
-            #expect(Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) snapped out")
-            #expect(view.frame == slot, "the \(name) left its slot as it faded out")
+            #expect(view.isHidden || view.alphaValue == 0, "the \(name) stayed after hover left")
+            #expect(!Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) faded out instead of clearing at once")
+            #expect(view.isHidden || view.frame == slot, "the \(name) left its slot")
         }
         #expect(!Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill should clear without a trail")
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")

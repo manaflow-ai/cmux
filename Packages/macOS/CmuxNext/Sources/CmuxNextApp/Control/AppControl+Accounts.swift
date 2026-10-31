@@ -20,6 +20,7 @@ extension AppControl {
                 let model = services.accounts.model
                 return .value(.object([
                     "signed_in": .bool(model.isSignedInToCmux),
+                    "active_team": services.cloud.auth.activeTeam.team.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) } ?? .null,
                     "refreshing": .bool(model.isRefreshing),
                     "handles_stable": .bool(services.accounts.handlesStable),
                     "providers": .array(model.rows.map(Self.json)),
@@ -65,13 +66,14 @@ extension AppControl {
                                     _ call: @escaping @Sendable (CodeRouterClient, String?, [String: JSONValue]) async throws -> Data)
         -> ControlMethod {
         .mainActor(name) { request in
-            if let refusal = Self.policyRefusal(name, disabled: services.registry.disabledFeatures) { throw refusal }
+            if let refusal = ControlError.policyRefusal(name, disabled: services.registry.disabledFeatures) { throw refusal }
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: "Cloud is not available in this build") }
             let params = request.params
             let team = (params["teamId"] ?? params["team_id"])?.stringValue
-            // RestrictToManagedTeam (P17-3): only the managed team, and only when the account has it.
-            if let managed = services.cloud.auth.managedTeamID, services.cloud.auth.teamID != managed || (team != nil && team != managed) {
-                throw ControlError(code: "managed", message: RefusalStrings.turnedOffByOrganization)
+            // RestrictToManagedTeam (P17-3) and the active team: no call acts in another team.
+            if let refusal = services.cloud.auth.activeTeam.refusal(requesting: team) {
+                throw refusal == .managed ? ControlError(code: "managed", message: RefusalStrings.turnedOffByOrganization)
+                    : ControlError(code: "not_active_team", message: "Not the active team. Switch teams in Settings > Accounts first.")
             }
             return .followUp {
                 do {
@@ -87,6 +89,7 @@ extension AppControl {
     nonisolated private static func code(_ error: CodeRouterError) -> String {
         switch error {
         case .notSignedIn: "not_signed_in"
+        case .scopeChanged: "scope_changed"
         case .timedOut: "timeout"
         case .http(let status, let code, _): code ?? "http_\(status)"
         case .transport: "unavailable"

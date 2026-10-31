@@ -5,24 +5,38 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsMenu.swift
 3 Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift
+# 2026-10-20 (base red): was an NSMenuItem subclass the check could not see; f408f10cb16c made it a target object. Markdown Share rows have no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownMenuAction.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIconMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/StatusIconSetMenu.swift
-1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/TitlebarHistoryMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsDivider.swift
+# 2026-10-20 (base red): the address field's display rows (Always Show Full URLs, Manage Search Engines) from e1dafcb90aa2 have no registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressBarView+Display.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressField.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserChromeView+BackForwardMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDeviceMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserFitFrameView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButtonsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ExtensionsMenu.swift
+# 2026-10-23 (base red): c7f7095c0b64 renders a page's own right-click rows (webviews ui/ContextMenu.tsx) as a native NSMenu and answers the chosen row id; the page runs the row, so there is no registered action for the host to call.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/WebContextMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift
+# 2026-10-20 (base red): one row builder for every file row; was an NSMenuItem subclass the check could not see until d2af2d78b672 made it a target object. File rows have no file-target registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileActionsMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
+# 2026-10-21 (base red): the pet's Chief Pet Settings… and Hide Chief Pet rows from #22390; their closures run the toggle action and the settings popover (ChiefPetActions), but the pet target cannot see the registry and Settings… has no registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
+# 2026-10-23: the one row builder (NSMenuItem.macScreen) of Mac Screen's toolbar Display, Quality and Send Keys menus and the device row's More menu; ported from SwiftUI Menu buttons (#22788, no-SwiftUI rule), which the check could not see. Those per-tab choices have no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift
+# Page-declared tab-row menu rows return the selected id to the page, which owns the action (as WebContextMenu does).
+1 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/PaneToolbarView.swift
 3 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Pasteboard.swift

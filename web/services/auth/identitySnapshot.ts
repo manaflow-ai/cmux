@@ -1,9 +1,15 @@
 import { canonicalizeEmailForMatching } from "../billing/emailMatching";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
-import { stackIdentitySnapshots } from "../../db/schema";
+import {
+  hexclaveTeamMemberships,
+  hexclaveTombstones,
+  hexclaveUsers,
+  stackIdentitySnapshots,
+} from "../../db/schema";
 import type { AuthedTeam, AuthedUser } from "../vms/auth";
+import { hexclaveTeamLockKey, hexclaveUserLockKey } from "./hexclave/mirrorStore";
 
 /**
  * How long a stored identity snapshot may answer for Stack.
@@ -33,6 +39,8 @@ export type IdentitySnapshotRead = {
   readonly user: AuthedUser;
   readonly ageMs: number;
 };
+
+export type IdentitySnapshotWrite = "stored" | "fenced" | "unavailable";
 
 /**
  * The stored identity for `userId`, or null when there is none, it is older
@@ -84,6 +92,7 @@ function authedUserFromSnapshotRow(
     selectedTeamId: row.selectedTeamId,
     teams,
     teamIds: teams.map((team) => team.id),
+    completeTeamList: true,
     userBillingPlanId: row.userBillingPlanId,
     billingPlanId: row.billingPlanId,
     billingSeats: row.billingSeats,
@@ -102,16 +111,16 @@ export async function writeIdentitySnapshot(
   user: AuthedUser,
   options: { readonly completeTeamList: boolean },
   db?: SnapshotDb,
-): Promise<void> {
-  if (!options.completeTeamList) return;
+): Promise<IdentitySnapshotWrite> {
+  if (!options.completeTeamList) return "fenced";
   const teams = user.teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
     billingPlanId: team.billingPlanId,
     billingSeats: team.billingSeats,
   }));
-  try {
-    await (db ?? cloudDb())
+  const write = async (target: Pick<ReturnType<typeof cloudDb>, "insert">) => {
+    await target
       .insert(stackIdentitySnapshots)
       .values({
         userId: user.id,
@@ -141,9 +150,69 @@ export async function writeIdentitySnapshot(
           refreshedAt: sql`excluded.refreshed_at`,
         },
       });
+  };
+  try {
+    if (db) {
+      await write(db);
+      return "stored";
+    }
+    const database = cloudDb();
+    const stored = await database.transaction(async (tx) => {
+      // The Hexclave reconciler holds this same lock while replacing a user's
+      // memberships. Therefore an old Stack result either commits before the
+      // revoke (and the revoke deletes it) or observes the new mirror and is
+      // refused; it cannot recreate stale membership after the revoke.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${hexclaveUserLockKey(user.id)}, 0))`);
+      // Whole-team deletion takes only its team lock. Follow the mirror's
+      // user-then-sorted-teams order so it either deletes this write later or
+      // commits first and makes the membership comparison below fail.
+      for (const teamId of [...new Set(user.teamIds)].sort()) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${hexclaveTeamLockKey(teamId)}, 0))`);
+      }
+      if (user.teamIds.length > 0) {
+        const [deletedTeam] = await tx
+          .select({ entityId: hexclaveTombstones.entityId })
+          .from(hexclaveTombstones)
+          .where(and(
+            eq(hexclaveTombstones.entityType, "team"),
+            inArray(hexclaveTombstones.entityId, [...new Set(user.teamIds)]),
+          ))
+          .limit(1);
+        if (deletedTeam) return false;
+      }
+      const [tombstone] = await tx
+        .select({ entityId: hexclaveTombstones.entityId })
+        .from(hexclaveTombstones)
+        .where(and(
+          eq(hexclaveTombstones.entityType, "user"),
+          eq(hexclaveTombstones.entityId, user.id),
+        ))
+        .limit(1);
+      if (tombstone) return false;
+      const [mirrored] = await tx
+        .select({ id: hexclaveUsers.id })
+        .from(hexclaveUsers)
+        .where(eq(hexclaveUsers.id, user.id))
+        .limit(1);
+      if (mirrored) {
+        const memberships = await tx
+          .select({ teamId: hexclaveTeamMemberships.teamId })
+          .from(hexclaveTeamMemberships)
+          .where(eq(hexclaveTeamMemberships.userId, user.id));
+        const current = [...new Set(memberships.map((row) => row.teamId))].sort();
+        const candidate = [...new Set(user.teamIds)].sort();
+        if (current.length !== candidate.length || current.some((teamId, index) => teamId !== candidate[index])) {
+          return false;
+        }
+      }
+      await write(tx);
+      return true;
+    });
+    return stored ? "stored" : "fenced";
   } catch {
-    // A snapshot that fails to persist costs one extra Stack call later. It is
-    // never worth failing the request the caller actually made.
+    // Callers decide whether persistence is an optimization or an
+    // authorization fence that must fail closed.
+    return "unavailable";
   }
 }
 

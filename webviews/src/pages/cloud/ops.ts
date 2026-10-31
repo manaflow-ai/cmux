@@ -407,6 +407,8 @@ export interface PortListResult {
 /** The args of `HostActions.browserTabOpen`. The host derives the store key from `machine`. */
 export interface BrowserTabOpenArgs {
   url: string;
+  incarnation: number;
+  generation: number;
   machineStore: { machine: string; machineName: string; proxy: BrowserRoute["proxy"] };
   engine: "cef";
 }
@@ -414,8 +416,16 @@ export interface BrowserTabOpenArgs {
 /** `cloud.browser.open`: a proxy route to the machine's localhost and the URL to load through it. */
 export interface BrowserRoute {
   machine: string;
-  proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number };
+  proxy: {
+    kind: "http" | "socks5";
+    host: "127.0.0.1";
+    port: number;
+    /** Random per-route credentials forwarded only to the native browser host. */
+    username: string;
+    password: string;
+  };
   url: string;
+  incarnation: number;
   generation: number;
 }
 

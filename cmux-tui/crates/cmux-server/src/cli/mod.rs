@@ -9,6 +9,7 @@
 //! replay record here.
 
 pub mod args;
+mod binary;
 mod db;
 mod lifecycle;
 mod pairing;

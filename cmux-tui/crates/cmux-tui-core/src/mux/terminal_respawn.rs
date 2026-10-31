@@ -24,8 +24,11 @@
 //! that typed end instead of a generic host loss.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
-//! (`terminal_respawn/prefill.rs`): an agent resume command is typed and run
-//! (#22292); the terminal's command line is typed without a newline. The manual
+//! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
+//! shell's own empty prompt ("Resume Agents After Restart", on by default)
+//! unless its flags turn approvals off; a resume command a person set, or an
+//! agent resume with approvals off, is typed without Return (#22292); a
+//! command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker.
 
@@ -561,7 +564,11 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
-        let prefill = self.respawn_prefill(&plan.terminal_id, record.as_ref());
+        let prefill = self.respawn_prefill(
+            &plan.terminal_id,
+            record.as_ref(),
+            crate::user_settings::resume_agents(),
+        );
         Ok(Some((surface, prefill)))
     }
 
@@ -586,9 +593,33 @@ impl Mux {
         if durable.lifecycle != TerminalLifecycle::Launching {
             return Ok(false);
         }
+        // A tab's name lives on its durable tab row, not on the runtime: the
+        // new runtime starts unnamed, and the dead one is gone (after a
+        // reboot it never existed in this owner).
+        let tab_names = registry
+            .resource_tabs_of_content(plan.public_id.as_str())?
+            .into_iter()
+            .filter_map(|tab| Some((tab.public_id, tab.name?)))
+            .collect::<HashMap<_, _>>();
         let before = state.clone();
         insert_restored_terminal_runtime_checked(&mut state, surface.clone())?;
         let content = ContentPublicId::Terminal(plan.public_id.clone());
+        {
+            let mut restored =
+                self.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
+            for slot in state.placements_of_content(&content) {
+                restored.remove(slot);
+                let name = state
+                    .resource_indexes
+                    .tab_ids
+                    .get(slot)
+                    .and_then(|tab_id| tab_names.get(tab_id))
+                    .cloned();
+                if let Some(placed) = state.surfaces.get(slot) {
+                    placed.set_name(name);
+                }
+            }
+        }
         let tab_ids = state
             .placements_of_content(&content)
             .iter()

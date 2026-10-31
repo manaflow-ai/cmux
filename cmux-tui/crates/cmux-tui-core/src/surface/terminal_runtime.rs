@@ -62,6 +62,9 @@ impl PtyTerminalRuntime {
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().unwrap();
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
         metadata.observe_output(bytes);
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -161,7 +164,8 @@ impl PtyTerminalRuntime {
 /// projectable into any number of panes without cloning its PTY or VT state.
 ///
 /// Lock order (outer first): `Mux::state` -> `kitty_limits_request` ->
-/// `geometry` -> `term` -> `runtime` -> `kitty_graphics_limits` -> `taps` ->
+/// `geometry` -> local output parser (direct PTYs only) -> `term` ->
+/// `runtime` -> `kitty_graphics_limits` -> `taps` ->
 /// leaf locks (`render`, `title`, `mouse_encoders`, `last_attach_colors`,
 /// `Mux::default_colors`, ...). These locks carry the ranks
 /// `LockRank::{MuxState, KittyLimitsRequest, Geometry, Terminal, Runtime,
@@ -185,16 +189,17 @@ pub struct PtyTerminalRuntime {
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
+    /// Shared read/parser state for a direct PTY. A geometry transaction drains
+    /// its queued bytes before TIOCSWINSZ, using the reader's normalizer and
+    /// observer path. Holder streams and byte backends are not direct PTYs.
+    #[cfg(unix)]
+    pub(super) local_output: Option<Arc<Mutex<local_output::LocalOutput>>>,
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     pub(super) journal_capture_epoch: AtomicU64,
     pub(super) journal_capture_gate: Mutex<()>,
     pub(super) journal_capture_idle: Condvar,
     pub(super) journal_capture_open: AtomicBool,
-    /// Set when the journal writer failed or stayed full past the durable
-    /// deadline. Capture stops, but `journal_capture_open` stays set so the
-    /// terminal reader keeps reading and rendering output.
-    pub(super) journal_capture_disabled: AtomicBool,
     pub(super) journal_capture_reserved: AtomicBool,
     pub(super) journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -239,6 +244,10 @@ pub struct PtyTerminalRuntime {
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
     pub(super) owner_detaching: AtomicBool,
+    /// The user asked to recover a terminal whose host link failed
+    /// (`restart-tab` on a `failed` tab): its host was ended, so the
+    /// reconnect loop stops its wait and retries at once.
+    pub(super) recover_requested: AtomicBool,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
@@ -297,7 +306,7 @@ pub struct PtyTerminalRuntime {
     /// every protocol-v7 render attachment.
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
-    pub(super) frame_requests: SyncSender<u64>,
+    pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
@@ -313,6 +322,10 @@ pub(super) enum PtyRuntime {
         writer: Box<dyn Write + Send>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
+        /// The holder runs this terminal's shell (`holder_runtime`): a
+        /// daemon shutdown detaches instead of killing it.
+        #[cfg(unix)]
+        holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
     },
     #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),

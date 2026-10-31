@@ -1,4 +1,4 @@
-# Search everything (Cmd+P and Cmd+Shift+A)
+# Search everything (Cmd+Shift+A)
 
 Status: design, 2026-10-20. Owners: engine (Rust, cmux-tui daemon) = "Search-everything index
 engine" agent; UI (mocks, Swift window) = "Search-everything UI" agent. The engine sections (1-9)
@@ -10,10 +10,14 @@ make it 100x faster than ripgrep; good ordering (VS Code / Raycast file search);
 state lives (TUI vs Swift); search ACP chats, old scrollback, full-screen TUI scrollback, chat
 sessions and all Chief data.
 
+Change (2026-10-20, later): Cmd+P and Cmd+Shift+A split again. Cmd+P lists only what is open in
+the workspaces now (workspaces, groups, panes, tabs); browser history, agent chat history and the
+rest of history made it noisy. Cmd+Shift+A is the search-everything window, with no chip.
+
 ## 1. Decisions (defaults picked by Chief, the user can override)
 
-- One search window. Cmd+P opens it with no scope. Cmd+Shift+A opens the same window with the
-  scope chip "Chats & agents" set; Backspace on an empty field (or the chip's x) clears it.
+- One search window. Cmd+Shift+A opens it with no scope chip; the sidebar's Search button opens
+  the same. Cmd+P is not this window: it is the Workspaces scope, the open items only.
 - The index lives in the cmux-tui daemon (Rust). The daemon already sees every PTY byte, every
   ACP/acpmux session and the workspace model, and it outlives app restarts and updates. Swift
   holds no index: it sends a query over the socket and renders hits. The app keeps only UI
@@ -267,12 +271,15 @@ type in any of them). Recommended: look A.
 ### 10.1 One window, built on the palette's `search` scope
 
 - The window is the palette panel on the `search` scope (a247, plans/cmux-next/sidebar-search.md).
-  No second panel, field or ranker. Cmd+P opens `palette.open {scope: search}`; Cmd+Shift+A opens
-  the same with the chip "Chats & agents" (daemon scopes `["chat", "chief"]`); the sidebar button
-  opens it anchored. Cmd+Shift+P stays the command list. Old Cmd+P (Go to) rows are all inside
-  Search, so nothing is lost; `palette.goToTab` / `tab.search` stay as aliases for scripts.
-- Backspace on an empty field, or the chip's x, removes the chip and searches everything with the
-  query kept.
+  No second panel, field or ranker. Cmd+Shift+A (`search.chats`, titled Search Everything; the id
+  stays for user key files) opens the `search` scope, whose open action it is; its empty query lists
+  the workspaces, and typed it adds history and agent chats (tests `CmdShiftASearchesEverythingTests`).
+  The sidebar button opens it anchored. Cmd+P (`goToWorkspace` with no workspace) opens the
+  `workspaces` scope: workspaces, then their groups, panes and tabs, and no history
+  (tests `CmdPListsOpenItemsTests`). Cmd+Shift+P stays the command list; `palette.goToTab` /
+  `tab.search` stay as aliases for scripts.
+- The "Chats & agents" scope (daemon scopes `["chat", "chief"]`) stays in the scope list; no key
+  opens it.
 
 ### 10.2 Layout (look A)
 
@@ -325,6 +332,6 @@ frecency over all kinds), plus one hint line with the prefixes: `>` commands, `@
 1. Mocks and this section (done).
 2. Daemon search source in the palette (`PaletteQueryProvider`, a247 phase 2): async,
    generation-tagged, cancelled per keystroke, stubbed until `search.query` exists.
-3. Cmd+P and Cmd+Shift+A open the `search` scope (Chats & agents chip for Cmd+Shift+A).
+3. Cmd+Shift+A opens the `search` scope; Cmd+P opens `workspaces` (open items only).
 4. Source chips row and the preview pane.
 5. Strings in all 21 locales; failing-first tests for each step on the Mac minis.

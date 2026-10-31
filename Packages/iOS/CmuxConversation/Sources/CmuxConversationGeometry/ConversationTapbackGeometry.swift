@@ -6,6 +6,7 @@ import CoreGraphics
 /// away from the bubble, each ringed by 0.5 pt of the page color
 /// (`TapbackPlatterPunchOutView`s of 35, 11 and 6 pt) so the badge stands off
 /// the bubble it overlaps. The glyph is 32 pt, centered in the disc.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTapbackGeometry {
     /// The platter's box (outline circles included), dots toward the leading edge.
     public static let platterSize = CGSize(width: 37.49, height: 43.44)
@@ -81,6 +82,7 @@ public enum ConversationTapbackGeometry {
 /// radius ~31; bubble 50 pt at 9.33 from the card's top; dots below it;
 /// 30.67 pt avatar 79 pt down. Multi-reactor spacing isn't observable in the
 /// simulator; each reactor gets a column of the one-reactor width.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ReactionDetailCardGeometry {
     public static let columnSize = CGSize(width: 123.67, height: 122.67)
     public static let topOffset: CGFloat = -0.33

@@ -5,9 +5,9 @@ extension HoverCardSettings {
     /// `sidebar.hoverCards.enabled`: On by default. Off: no card opens on hover; Show Resource Usage still opens one.
     public nonisolated static let enabledPath = ["sidebar", "hoverCards", "enabled"]
     public nonisolated static let enabledDefault = true
-    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.
+    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). Chrome's tab hover card delay at standard tab width (800 ms plus 500 ms, Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
-    public nonisolated static let delayDefault: Double = 250
+    public nonisolated static let delayDefault: Double = 1300
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
     /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]
@@ -31,6 +31,38 @@ extension HoverCardSettings {
     public nonisolated static let maxRowsPath = ["sidebar", "hoverCards", "maxRows"]
     public nonisolated static let maxRowsDefault: Double = 20
     public nonisolated static let maxRowsRange: ClosedRange<Double> = 1...100
+    /// `sidebar.hoverCards.groups.workspaceGroups`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsWorkspaceGroupsPath = ["sidebar", "hoverCards", "groups", "workspaceGroups"]
+    public nonisolated static let groupsWorkspaceGroupsDefault = true
+    /// `sidebar.hoverCards.groups.tabGroups`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsTabGroupsPath = ["sidebar", "hoverCards", "groups", "tabGroups"]
+    public nonisolated static let groupsTabGroupsDefault = true
+    /// `sidebar.hoverCards.groups.delay`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." Longer than a row's card so a sweep across headers opens none.
+    public nonisolated static let groupsDelayPath = ["sidebar", "hoverCards", "groups", "delay"]
+    public nonisolated static let groupsDelayDefault: Double = 1500
+    public nonisolated static let groupsDelayRange: ClosedRange<Double> = 0...5000
+    /// `sidebar.hoverCards.groups.order`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." Which part leads the group card; the rest follow in their usual order.
+    public nonisolated static let groupsOrderPath = ["sidebar", "hoverCards", "groups", "order"]
+    public nonisolated static let groupsOrderDefault: GroupHoverCardOrderSetting = .status
+    /// `sidebar.hoverCards.groups.maxMembers`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." The most member names a group card lists; the rest show as +N more.
+    public nonisolated static let groupsMaxMembersPath = ["sidebar", "hoverCards", "groups", "maxMembers"]
+    public nonisolated static let groupsMaxMembersDefault: Double = 8
+    public nonisolated static let groupsMaxMembersRange: ClosedRange<Double> = 1...50
+    /// `sidebar.hoverCards.groups.sections.status`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsSectionStatusPath = ["sidebar", "hoverCards", "groups", "sections", "status"]
+    public nonisolated static let groupsSectionStatusDefault = true
+    /// `sidebar.hoverCards.groups.sections.members`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsSectionMembersPath = ["sidebar", "hoverCards", "groups", "sections", "members"]
+    public nonisolated static let groupsSectionMembersDefault = true
+    /// `sidebar.hoverCards.groups.sections.activity`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsSectionActivityPath = ["sidebar", "hoverCards", "groups", "sections", "activity"]
+    public nonisolated static let groupsSectionActivityDefault = true
+    /// `sidebar.hoverCards.groups.sections.git`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsSectionGitPath = ["sidebar", "hoverCards", "groups", "sections", "git"]
+    public nonisolated static let groupsSectionGitDefault = true
+    /// `sidebar.hoverCards.groups.sections.ports`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too."
+    public nonisolated static let groupsSectionPortsPath = ["sidebar", "hoverCards", "groups", "sections", "ports"]
+    public nonisolated static let groupsSectionPortsDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -134,6 +166,110 @@ nonisolated enum HoverCardSettingsSchema {
                 kind: .number(SettingNumber(HoverCardSettings.maxRowsRange, step: 1, unit: .count)),
                 default: .number(HoverCardSettings.maxRowsDefault),
                 keywords: ["hover", "card", "history", "rows", "lines", "limit"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsWorkspaceGroupsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.workspaceGroups", "Cards on Workspace Groups"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.workspaceGroups.help", "A summary card opens when the pointer rests on a workspace group's header."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsWorkspaceGroupsDefault),
+                keywords: ["hover", "card", "group", "workspace", "summary"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsTabGroupsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.tabGroups", "Cards on Tab Groups"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.tabGroups.help", "A summary card opens when the pointer rests on a tab group's chip."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsTabGroupsDefault),
+                keywords: ["hover", "card", "group", "tab", "summary"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsDelayPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.delay", "Group Card Delay"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.delay.help", "How long the pointer rests on a group before its summary card opens."),
+                kind: .number(SettingNumber(HoverCardSettings.groupsDelayRange, step: 100, unit: .milliseconds)),
+                default: .number(HoverCardSettings.groupsDelayDefault),
+                keywords: ["hover", "card", "group", "delay", "milliseconds"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsOrderPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.order", "Group Card Leads With"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.order.help", "Which part of a group's card comes first."),
+                kind: .choice([
+                    SettingChoice(GroupHoverCardOrderSetting.status.rawValue, SettingsText.keyed("settings.choice.groupCardStatus", "Status")),
+                    SettingChoice(GroupHoverCardOrderSetting.members.rawValue, SettingsText.keyed("settings.choice.groupCardMembers", "Members")),
+                    SettingChoice(GroupHoverCardOrderSetting.activity.rawValue, SettingsText.keyed("settings.choice.groupCardActivity", "Latest Activity")),
+                ]),
+                default: .string(HoverCardSettings.groupsOrderDefault.rawValue),
+                keywords: ["hover", "card", "group", "order", "first"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsMaxMembersPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.maxMembers", "Group Card Members"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.maxMembers.help", "The most members a group's card lists by name."),
+                kind: .number(SettingNumber(HoverCardSettings.groupsMaxMembersRange, step: 1, unit: .count)),
+                default: .number(HoverCardSettings.groupsMaxMembersDefault),
+                keywords: ["hover", "card", "group", "members", "count"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsSectionStatusPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.status", "Group Card: Status"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.status.help", "Show how many members work, wait, failed or have unread items."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsSectionStatusDefault),
+                keywords: ["hover", "card", "group", "status", "working", "waiting", "unread"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsSectionMembersPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.members", "Group Card: Members"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.members.help", "Show the member count and the members' names."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsSectionMembersDefault),
+                keywords: ["hover", "card", "group", "members", "workspaces", "tabs", "names"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsSectionActivityPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.activity", "Group Card: Latest Activity"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.activity.help", "Show the member that changed last, and when."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsSectionActivityDefault),
+                keywords: ["hover", "card", "group", "activity", "latest", "recent"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsSectionGitPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.git", "Group Card: Branches"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.git.help", "Show the members' git branches."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsSectionGitDefault),
+                keywords: ["hover", "card", "group", "git", "branch"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.groupsSectionPortsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.ports", "Group Card: Ports"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.groups.sections.ports.help", "Show the members' listening ports."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.groupsSectionPortsDefault),
+                keywords: ["hover", "card", "group", "ports", "server"]
             ),
         ]
     }

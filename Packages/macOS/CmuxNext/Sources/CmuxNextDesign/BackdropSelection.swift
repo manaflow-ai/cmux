@@ -32,19 +32,24 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// The short title shown in the wallpaper grid: "Title — Artist" for art.
     public var title: String {
+        title(aerialNames: nil)
+    }
+
+    /// The title using metadata retained by the catalog, without rereading the aerial file.
+    public func title(aerialNames: [String: String]?) -> String {
         switch self {
         case .art(let art): return art.label
-        case .system(let path): return Self.systemTitle(path)
+        case .system(let path): return Self.systemTitle(path, aerialNames: aerialNames)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
         }
     }
 
     /// A macOS wallpaper's name: a shipped video's without its cut, an aerial's from idleassetsd.
-    private static func systemTitle(_ path: String) -> String {
+    private static func systemTitle(_ path: String, aerialNames: [String: String]? = nil) -> String {
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         guard AppleWallpapers.isVideo(path) else { return name }
-        if let aerial = AppleWallpapers.system.aerialNames()[name] { return aerial }
+        if let aerial = (aerialNames ?? AppleWallpapers.system.aerialNames())[name] { return aerial }
         return [" Light", " Dark", " Landscape"].reduce(name) { $0.replacingOccurrences(of: $1, with: "") }
     }
 
@@ -75,11 +80,16 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// The attribution shown below the thumbnail.
     public var attribution: String {
+        attribution(title: title)
+    }
+
+    /// The attribution using a title the caller already resolved.
+    public func attribution(title: String) -> String {
         switch self {
         case .art(let art): return art.attribution
-        case .system(let path):
+        case .system:
             return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: Self.systemTitle(path))
+                .replacingOccurrences(of: "%@", with: title)
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
@@ -96,18 +106,6 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         }
     }
 
-    /// The tint the selected work looks best under, replacing the theme's; nil for other sources.
-    public var preferredTintOpacity: Double? {
-        if case .art(let art) = self { return art.metadata.preferredTintOpacity }
-        return nil
-    }
-
-    /// The selected work's measured darkest and lightest colors; nil when unknown.
-    public var artRange: BackdropArtRange? {
-        if case .art(let art) = self { return art.metadata.range }
-        return nil
-    }
-
     /// A small image of the selection that is always here: the bundled thumbnail for art, the
     /// Desktop Pictures thumbnail for a macOS wallpaper.
     public var thumbnailURL: URL? {
@@ -116,12 +114,6 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return appleWallpaper(path, downloads: false).map(\.thumbnail) ?? imageURL
         case .file, .desktop: return imageURL
         }
-    }
-
-    /// The least theme tint over this image at full opacity (``BackdropArtMetadata/minimumTintOpacity``).
-    public var minimumTintOpacity: Double {
-        if case .art(let art) = self { return art.metadata.minimumTintOpacity }
-        return 0
     }
 
     /// Loads the selected image on the main actor for AppKit rendering.
@@ -181,8 +173,11 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system: return imageURL(for: dark ? .dark : .light)
         case .desktop:
             // macOS can report a file that is gone, a folder or a wallpaper description; resolve
-            // it to a picture that decodes (the fill color when there is none).
-            return DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first).resolvedURL(dark: dark)
+            // it to a picture that decodes (the fill color when there is none). The app's watch
+            // read it off the main thread; until its first reading lands (launch, before a
+            // window shows) it is read here.
+            let picture = BackdropImageStore.shared.desktop.picture ?? DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first)
+            return picture.resolvedURL(dark: dark)
         case .art, .file: return imageURL
         }
     }

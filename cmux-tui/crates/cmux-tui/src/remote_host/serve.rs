@@ -13,9 +13,12 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use super::admit::{self, Decision};
+use super::audit;
 use super::config::{self, Config};
+use super::grant::{self, Scope};
 use super::preface::{self, Op};
 use super::tailnet::{self, Tailnet};
+use cmux_json::JsonSet as _;
 
 /// How long a peer has to send its preface.
 const PREFACE_BOUND: Duration = Duration::from_secs(5);
@@ -34,6 +37,47 @@ pub(crate) struct Host {
     exe: PathBuf,
     socket: Mutex<Option<PathBuf>>,
     pending: Mutex<HashMap<IpAddr, usize>>,
+    /// Open teammate (guest) connections, mirrored to `active.json` for
+    /// `cmux host status` and the app's indicator.
+    guests: Mutex<Vec<(u64, Value)>>,
+}
+
+/// `<host dir>/active.json`: the open teammate connections.
+pub(crate) const ACTIVE_FILE: &str = "active.json";
+
+static NEXT_GUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl Host {
+    fn write_guests(&self, guests: &[(u64, Value)]) {
+        let list: Vec<&Value> = guests.iter().map(|(_, v)| v).collect();
+        let result = config::ensure_dir().and_then(|dir| {
+            let path = dir.join(ACTIVE_FILE);
+            let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
+            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
+            cmux_tui_core::platform::restrict_file(&tmp)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(())
+        });
+        if let Err(e) = result {
+            eprintln!("cmux host: cannot record teammate connections: {e:#}");
+        }
+    }
+
+    fn guest_opened(&self, entry: Value) -> u64 {
+        let id = NEXT_GUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut guests) = self.guests.lock() {
+            guests.push((id, entry));
+            self.write_guests(&guests);
+        }
+        id
+    }
+
+    fn guest_closed(&self, id: u64) {
+        if let Ok(mut guests) = self.guests.lock() {
+            guests.retain(|(g, _)| *g != id);
+            self.write_guests(&guests);
+        }
+    }
 }
 
 /// One pending connection; released when the connection is answered.
@@ -77,7 +121,15 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    let watch = super::service::agent_watch();
     let ready = super::service::take_ready_signal();
+    // One listener per state directory; the OS drops the lock with the
+    // process, so `status` and `stop` never act on a stale pid. Taken before
+    // the config is read: a `config::commit` that saved before this sees the
+    // new config here, and one that saves after finds the lock held and
+    // restarts this listener, so none serves access a write already removed.
+    let _lock = super::service::acquire()?;
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
@@ -94,9 +146,6 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     if self_ips.is_empty() {
         bail!("this machine has no tailnet address");
     }
-    // One listener per state directory; the OS drops the lock with the
-    // process, so `status` and `stop` never act on a stale pid.
-    let _lock = super::service::acquire()?;
     let mut listeners = Vec::new();
     for ip in &self_ips {
         let addr = SocketAddr::new(*ip, config.port);
@@ -121,7 +170,10 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         exe,
         socket: Mutex::new(None),
         pending: Mutex::new(HashMap::new()),
+        guests: Mutex::new(Vec::new()),
     });
+    // A listener that died left no one connected.
+    host.write_guests(&[]);
     let owner = config.owner.as_deref().unwrap_or("(none)");
     for listener in &listeners {
         eprintln!(
@@ -131,15 +183,41 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let mut threads = Vec::new();
+    // `None` when a listener stopped; the launchd agent's outcome otherwise.
+    let (done, events) = std::sync::mpsc::channel();
+    super::service::follow_app_updates(watch, done.clone());
+    let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        // Sent when the thread ends, a panic included: a listener that is gone always counts.
+        let stopped = ListenerStopped(done.clone());
+        std::thread::spawn(move || {
+            let _stopped = stopped;
+            accept_loop(&host, &listener);
+        });
     }
-    for thread in threads {
-        let _ = thread.join();
+    drop(done);
+    while running > 0 {
+        match events.recv() {
+            Ok(None) => running -= 1,
+            // KeepAlive restarts only an unsuccessful exit: launchd starts the new build.
+            Ok(Some(super::service::AgentExit::Replaced)) => {
+                bail!("an update replaced this cmux; launchd starts the new build")
+            }
+            Ok(Some(super::service::AgentExit::Removed)) => return Ok(()),
+            Err(_) => break,
+        }
     }
     Err(anyhow!("every listener stopped"))
+}
+
+/// Tells `run` that a listener stopped, when its thread ends for any reason.
+struct ListenerStopped(std::sync::mpsc::Sender<Option<super::service::AgentExit>>);
+
+impl Drop for ListenerStopped {
+    fn drop(&mut self) {
+        let _ = self.0.send(None);
+    }
 }
 
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
@@ -152,11 +230,15 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                     continue;
                 };
                 let host = Arc::clone(host);
-                std::thread::spawn(move || {
+                // A thread the OS refuses drops this connection, never the listener.
+                let spawned = std::thread::Builder::new().spawn(move || {
                     if let Err(e) = serve_one(&host, stream, peer, pending) {
                         eprintln!("cmux host: {peer}: {e:#}");
                     }
                 });
+                if let Err(e) = spawned {
+                    eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -175,25 +257,68 @@ fn serve_one(
     // `not_allowed`, never whether its preface was well formed. The config
     // is reread for every connection, so allow/deny/disable apply at once.
     let config = config::load()?;
-    let decision = admit::decide(&config, &host.self_ips, peer, host.tailnet.whois(peer));
-    let identity = match &decision {
-        Decision::Owner(identity) | Decision::Allowed(identity) => identity.clone(),
+    let whois = host.tailnet.whois(peer);
+    let seen = whois.as_ref().ok().cloned();
+    let decision = admit::decide(&config, &host.self_ips, peer, whois);
+    let record = |op: &str, outcome: &str, reason: Option<&str>| {
+        let scopes: Vec<&str> = match &decision {
+            Decision::Guest(_, scopes) => scopes.iter().map(|s| s.name()).collect(),
+            _ => Vec::new(),
+        };
+        audit::append(&json!({
+            "peer": peer.to_string(),
+            "login": seen.as_ref().and_then(|i| i.login.clone()),
+            "node": seen.as_ref().map(|i| i.node.clone()),
+            "decision": decision.access().unwrap_or("refused"),
+            "op": op,
+            "outcome": outcome,
+            "reason": reason,
+            "scopes": scopes,
+        }));
+    };
+    let (identity, scopes) = match &decision {
+        Decision::Owner(identity) | Decision::Allowed(identity) => (identity.clone(), None),
+        Decision::Guest(identity, scopes) => (identity.clone(), Some(scopes.clone())),
         Decision::Refused(reason) => {
             eprintln!("cmux host: refused {peer}: {reason}");
+            record("admit", "refused", Some(*reason));
             preface::write_value(&mut stream, &preface::refusal("not_allowed"))?;
             return Ok(());
         }
     };
     let Some(line) = preface::read_line(&mut stream, deadline)? else { return Ok(()) };
     let Some(op) = preface::parse_request(&line) else {
+        record("preface", "refused", Some("bad preface"));
         preface::write_value(&mut stream, &preface::refusal("bad_preface"))?;
         return Ok(());
     };
     let access = decision.access().unwrap_or_default();
     let who = format!("{} ({})", identity.login.as_deref().unwrap_or_default(), identity.node);
+    // A teammate grant opens only what its scopes name (design 4).
+    if let Some(scopes) = &scopes {
+        let allowed = match op {
+            Op::Probe => scopes.contains(&Scope::Status),
+            Op::Connect => grant::may_connect(scopes),
+        };
+        if !allowed {
+            let op_name = if op == Op::Probe { "probe" } else { "connect" };
+            eprintln!("cmux host: refused {who} {op_name}: scope not granted");
+            record(op_name, "refused", Some("scope not granted"));
+            preface::write_value(&mut stream, &preface::refusal("scope_not_granted"))?;
+            return Ok(());
+        }
+    }
     match op {
         Op::Probe => {
-            preface::write_value(&mut stream, &probe_reply(host, &config, access))?;
+            record("probe", "ok", None);
+            let mut reply = probe_reply(host, &config, access);
+            if let Some(scopes) = &scopes {
+                reply.set_path(
+                    &["host", "scopes"],
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()),
+                );
+            }
+            preface::write_value(&mut stream, &reply)?;
             Ok(())
         }
         Op::Connect => {
@@ -211,9 +336,28 @@ fn serve_one(
             stream.set_write_timeout(None)?;
             keepalive(&stream);
             eprintln!("cmux host: connected {who} as {access}");
-            splice(stream, daemon)?;
+            record("connect", "connected", None);
+            let guest = scopes.as_ref().map(|scopes| {
+                host.guest_opened(json!({
+                    "login": identity.login,
+                    "node": identity.node,
+                    "peer": peer.to_string(),
+                    "scopes": scopes.iter().map(|s| s.name()).collect::<Vec<_>>(),
+                    "since": grant::now_rfc3339(),
+                    "listener_pid": std::process::id(),
+                }))
+            });
+            let result = if proxied(&config, identity.login.as_deref(), scopes.as_deref()) {
+                super::agent_proxy::run(stream, daemon, identity, peer)
+            } else {
+                splice(stream, daemon)
+            };
+            if let Some(id) = guest {
+                host.guest_closed(id);
+            }
+            record("connect", "closed", None);
             eprintln!("cmux host: closed {who}");
-            Ok(())
+            result.map_err(Into::into)
         }
     }
 }
@@ -232,7 +376,19 @@ fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
     })
 }
 
-type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
+/// Whether a teammate connection takes the filtered agent proxy instead of a raw
+/// splice: a grant without `shell`, and any login with a shared chat even with
+/// `shell` (a share never comes with a raw daemon connection; chat-multiplayer
+/// design section 2). The owner and full-access logins (no scopes) splice.
+pub(super) fn proxied(config: &Config, login: Option<&str>, scopes: Option<&[Scope]>) -> bool {
+    let Some(scopes) = scopes else { return false };
+    let shared = login.is_some_and(|login| {
+        config.shares.iter().any(|share| config::same_login(&share.login, login))
+    });
+    shared || !scopes.contains(&Scope::Shell)
+}
+
+pub(super) type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
 
 impl Host {
     fn connect_daemon(&self, config: &Config) -> anyhow::Result<DaemonStream> {
@@ -361,5 +517,23 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
         to.write_all(&buf[..n])?;
         to.flush()?;
         total += n as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ListenerStopped;
+
+    #[test]
+    fn a_listener_that_panics_still_counts_as_stopped() {
+        let (done, events) = std::sync::mpsc::channel();
+        let stopped = ListenerStopped(done.clone());
+        let thread = std::thread::spawn(move || {
+            let _stopped = stopped;
+            panic!("the OS refused a thread");
+        });
+        assert!(thread.join().is_err());
+        assert_eq!(events.try_recv(), Ok(None));
+        drop(done);
     }
 }

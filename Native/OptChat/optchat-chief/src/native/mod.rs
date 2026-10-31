@@ -48,8 +48,8 @@ use crate::prompt::{DATE_DESCRIPTION, ZOOM_DESCRIPTION};
 use crate::tools::Call;
 use crate::turn::{TurnOutcome, TurnStart, usage_line};
 
-/// The result of a local tool call in a remote-origin turn on this engine.
-const REMOTE_REFUSED: &str = "Refused: this turn started from a paired device, and running commands or editing files then needs the user's approval, which this engine cannot ask for. Say what you would run; the user can approve it from the Mac.";
+/// The result of a local tool call in a turn another person started.
+const REMOTE_REFUSED: &str = "Refused: another person's message is in this turn, and such a turn may not run commands or edit files on this Mac. Reply in words; the owner can run it themselves.";
 
 /// Tries per model call (parity item 8). A transient failure waits the
 /// server's `retry-after` when it gives one, else `Native::retry` doubled
@@ -252,10 +252,9 @@ impl Native {
         self.run_gated(chat, start, log, mailbox, interrupted, &|| false)
     }
 
-    /// `run`, with `gated` saying whether the turn's local effects need an
-    /// approval (a remote-origin turn): then the bash and editor tools are
-    /// refused, since this engine cannot ask the Chief chat yet; the memory
-    /// tools still answer.
+    /// `run`, with `gated` saying whether the turn's local effects are
+    /// refused (a turn another person started): then the bash and editor
+    /// tools are refused; the memory tools still answer.
     pub fn run_gated(
         &self,
         chat: &OptChat,

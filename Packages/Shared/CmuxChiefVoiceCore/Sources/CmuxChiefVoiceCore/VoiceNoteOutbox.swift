@@ -1,3 +1,8 @@
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// The on-disk store of voice notes not yet delivered to the Chief.
@@ -23,6 +28,34 @@ public actor VoiceNoteOutbox {
     /// - Parameter directory: Where notes live; the app passes a folder in Application Support.
     public init(directory: URL) {
         self.directory = directory
+    }
+
+    /// Creates an outbox for one authenticated account below a shared root.
+    ///
+    /// - Parameters:
+    ///   - rootDirectory: The parent folder for every account's pending notes.
+    ///   - accountID: The authenticated account that owns this outbox.
+    public init(rootDirectory: URL, accountID: String) {
+        Self.discardLegacyUnscopedNotes(in: rootDirectory)
+        let digest = SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
+        directory = rootDirectory.appendingPathComponent("account-\(digest)", isDirectory: true)
+    }
+
+    /// Deletes notes written before outboxes recorded their owning account.
+    ///
+    /// Those direct children cannot be assigned safely after an account switch;
+    /// account-scoped subdirectories are preserved.
+    /// - Parameter rootDirectory: The former shared outbox and current account-folder root.
+    public nonisolated static func discardLegacyUnscopedNotes(in rootDirectory: URL) {
+        let files = FileManager()
+        let legacy = (try? files.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        )) ?? []
+        for file in legacy where file.pathExtension == "json" || file.pathExtension == "m4a" {
+            try? files.removeItem(at: file)
+        }
     }
 
     /// Where the audio of note `id` is written.

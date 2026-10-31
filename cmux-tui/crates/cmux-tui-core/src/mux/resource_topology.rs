@@ -116,6 +116,10 @@ pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
 /// split keeps the user's focus; the daemon's and the user's own splits omit
 /// it and focus the new pane.
 pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
+
+/// `workspace.create`'s `focus` field: whether the new workspace becomes the
+/// focused one. The resource router sends `false` when a caller omits it.
+pub(crate) const WORKSPACE_CREATE_FOCUS_FIELD: &str = "focus";
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;

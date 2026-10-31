@@ -1,0 +1,55 @@
+[package]
+name = "cmux-mobile-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-next-ios Mac bridge: registers the Mac, answers WebRTC and WireGuard dials, serves link channels"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cmux-mobile-link.workspace = true
+cmux-rd-core.workspace = true
+# The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
+cmux-rd-engine.workspace = true
+cmux-rd-proto.workspace = true
+futures-util.workspace = true
+libc = "0.2"
+reqwest.workspace = true
+# P-256 verification of the phone's pairing keys (src/pairing.rs); already in
+# the graph through rustls.
+ring = "0.17"
+# Sealed pushes and mailbox replies (src/seal.rs): P-256 ECDH, HKDF-SHA256 and
+# AES-256-GCM, as CryptoKit does them on the phone; already in the graph through
+# webrtc (dtls).
+p256 = { version = "0.13", features = ["ecdh"] }
+hkdf = "0.12"
+aes-gcm = "0.10"
+sha2 = "0.10"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process"] }
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[features]
+# cmux-mobile-fake-backend: the fake backend from cmux-mobile-link's test support.
+fake-backend = ["cmux-mobile-link/testing"]
+
+[[bin]]
+name = "cmux-mobile-fake-backend"
+required-features = ["fake-backend"]
+
+[dev-dependencies]
+cmux-mobile-link = { workspace = true, features = ["testing"] }
+cmux-rd-core.workspace = true
+cmux-rd-engine.workspace = true
+tempfile = "3"

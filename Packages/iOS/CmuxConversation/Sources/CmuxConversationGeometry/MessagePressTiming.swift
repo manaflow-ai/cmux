@@ -17,6 +17,7 @@ import Foundation
 /// grows to 222.7 pt while held and lifts to 234.5 pt with the menu; a
 /// 278 pt bubble to 291.5 pt and 303.5 pt. A small bubble lifts no more
 /// than 1.15 times its size (69.7 -> 80 pt, 83.3 -> 96 pt, 119.7 -> 137 pt).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum MessagePressTiming {
     public static let liftBegins: TimeInterval = 0.15
     public static let clickDown: TimeInterval = 0.4

@@ -208,6 +208,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
         return Wire.immutableJson(result);
@@ -300,6 +305,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object cloudRequestsList() throws CmuxException {
         Object result = execute(Commands.CLOUD_REQUESTS_LIST, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudSelfhostInfo() throws CmuxException {
+        Object result = execute(Commands.CLOUD_SELFHOST_INFO, Map.of());
         return Wire.immutableJson(result);
     }
 
@@ -601,6 +611,11 @@ public abstract class GeneratedCmuxClient {
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
+    }
+
+    public final GetHostSizePolicyResult getHostSizePolicy(GetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_HOST_SIZE_POLICY, request.toWire());
+        return GetHostSizePolicyResult.fromWire(result);
     }
 
     public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
@@ -907,6 +922,11 @@ public abstract class GeneratedCmuxClient {
         return PaneNeighborResult.fromWire(result);
     }
 
+    public final Object parkTabs(ParkTabsRequest request) throws CmuxException {
+        Object result = execute(Commands.PARK_TABS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
         Object result = execute(Commands.PASTE_IMAGE, request.toWire());
         return PasteImageResult.fromWire(result);
@@ -1137,6 +1157,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final SetHostSizePolicyResult setHostSizePolicy(SetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_HOST_SIZE_POLICY, request.toWire());
+        return SetHostSizePolicyResult.fromWire(result);
+    }
+
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
         return Wire.immutableJson(result);
@@ -1279,6 +1304,11 @@ public abstract class GeneratedCmuxClient {
         return TerminalHistoryPagesResult.fromWire(result);
     }
 
+    public final TerminalPortsResult terminalPorts(TerminalPortsRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_PORTS, request.toWire());
+        return TerminalPortsResult.fromWire(result);
+    }
+
     public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_READ_RANGE, request.toWire());
         return TerminalReadRangeResult.fromWire(result);
@@ -1287,6 +1317,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_RESOURCES, request.toWire());
         return TerminalResourcesResult.fromWire(result);
+    }
+
+    public final TerminalResumeCommandResult terminalResumeCommand(TerminalResumeCommandRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_RESUME_COMMAND, request.toWire());
+        return TerminalResumeCommandResult.fromWire(result);
     }
 
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {

@@ -7,6 +7,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type {
   AccountsState,
+  DevicesState,
   Diagnostic,
   Domains,
   HarnessesState,
@@ -25,6 +26,7 @@ export const settingsKeys = {
   host: ["settings", "host"] as const,
   accounts: ["settings", "accounts"] as const,
   harnesses: ["settings", "harnesses"] as const,
+  devices: ["settings", "devices"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };
@@ -43,6 +45,7 @@ export type ScopeData = {
 export type HostData = HostLists;
 export type AccountsData = AccountsState;
 export type HarnessesData = HarnessesState;
+export type DevicesData = DevicesState;
 export type ThemeColorsData = ReadonlyMap<string, GhosttyTheme>;
 
 export function createSettingsQueryClient(): QueryClient {
@@ -135,7 +138,12 @@ export function optimistic(data: ScopeData, write: Write): ScopeData {
 
 function publishedDomains(snapshot: SnapshotResult): Domains {
   const domains = snapshot.domains ?? {};
-  return { themes: domains.themes ?? [], font_families: domains.font_families ?? [], sounds: domains.sounds ?? [] };
+  return {
+    themes: domains.themes ?? [],
+    font_families: domains.font_families ?? [],
+    sounds: domains.sounds ?? [],
+    recent_fonts: domains.recent_fonts ?? [],
+  };
 }
 
 /** Diagnostics keyed by schema row: the row whose key equals the path or is its prefix. */

@@ -150,7 +150,6 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
       <label
         className="md-reading-label md-width-scrub"
         htmlFor={id}
-        title={t(L.readingWidthHint)}
         onPointerDown={onScrubStart}
         onPointerMove={onScrubMove}
         onPointerUp={onScrubEnd}
@@ -175,6 +174,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
             onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onBlur={commit}
+            // ui-allow: the width field's own editing keys (Return applies, Esc puts the value back, Up and Down step), as a design tool's dimension field.
             onKeyDown={onKeyDown}
           />
           <span className="md-width-unit" aria-hidden="true">
@@ -183,6 +183,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
           <span className="md-width-stepper">
             <button
               type="button"
+              // ui-allow: the stepper repeats the field's Up and Down keys for the pointer, so Tab skips it.
               tabIndex={-1}
               aria-label={t(L.readingWidthIncrease)}
               onClick={(event) => step(1, event.shiftKey)}
@@ -191,6 +192,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
             </button>
             <button
               type="button"
+              // ui-allow: the stepper repeats the field's Up and Down keys for the pointer, so Tab skips it.
               tabIndex={-1}
               aria-label={t(L.readingWidthDecrease)}
               onClick={(event) => step(-1, event.shiftKey)}

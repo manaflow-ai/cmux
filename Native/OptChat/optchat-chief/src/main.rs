@@ -15,19 +15,31 @@ optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the moni
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
+optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind] [--top N] [--json] [--mux-home DIR]... [--chiefs]
+                                                          tokens, cost, cache hit and turn time over time (the usage ledger)
+optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces into the usage ledger
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never] [--mux-home DIR]
-                                                           per-Chief settings (on only from the Mac, outside a remote-origin turn)
+optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
+                       | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
+                                                           per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] | rollback | checkpoint | restore | verify
+                                                           move this Chief to another home or host (see `optchat-chief move help`)
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
+optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]
+                                                           Chief-to-Chief messages through the agent hub ($MUX_HOME/optchat/peer-chiefs.json)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
+optchat-chief pack list | status|login|wait|paste|share|logout|token|check|install NAME [--json] [--mux-home DIR]
+                                                           the Chief's tool packs: CLIs, skills and sign-ins (plans/cmux-next/chief-toolpacks-DESIGN.md)
+optchat-chief github status | login | wait [SECONDS] | pat FILE|- | mac | logout [--json] [--mux-home DIR]
+                                                           this Chief's GitHub login (default: the Mac's gh): `pack ... github`
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -54,10 +66,92 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    // `move` parses its own switches (`--stop-host`, `--dry-run`, ...).
+    if args.first().is_some_and(|a| a == "move") {
+        let code = optchat_chief::migrate::cli(&args[1..]);
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
+    // `pack mcp|mcp-headers PACK SERVER`: a pack's MCP server (stdout is the
+    // protocol) and Claude Code's headers helper.
+    if args.first().is_some_and(|a| a == "pack")
+        && args
+            .get(1)
+            .is_some_and(|a| a == "mcp" || a == "mcp-headers")
+    {
+        let flags = Flags::parse(&args);
+        let (pack, server) = (
+            flags.words.get(2).cloned().unwrap_or_default(),
+            flags.words.get(3).cloned().unwrap_or_default(),
+        );
+        let home = home(&flags);
+        let out = if args[1] == "mcp" {
+            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+        } else {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+                println!("{h}");
+                0
+            })
+        };
+        return match out {
+            Ok(code) => std::process::ExitCode::from(u8::try_from(code).unwrap_or(1)),
+            Err(e) => {
+                eprintln!("optchat-chief pack: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
+    // `pack` and its `github` alias read their own `--json`.
+    if let Some(verb) = args
+        .first()
+        .filter(|a| *a == "github" || *a == "pack")
+        .cloned()
+    {
+        let as_json = args.iter().any(|a| a == "--json");
+        args.retain(|a| a != "--json");
+        let flags = Flags::parse(&args);
+        let out = if verb == "github" {
+            optchat_chief::github::run(&flags, &home(&flags), as_json)
+        } else {
+            optchat_chief::toolpacks::run(&flags, &home(&flags), as_json)
+        };
+        return match out {
+            Ok(out) => {
+                println!("{out}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief {verb}: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
+    // `peer-chiefs` parses its own switches (`--config`, `--key`, ...).
+    if args.first().is_some_and(|a| a == "peer-chiefs") {
+        return match optchat_chief::peer_chiefs::cli(&args[1..]) {
+            Ok(out) => {
+                println!("{out}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief peer-chiefs: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    // `memory import-from ... --stop-host`: also a boolean (a bare flag would take the next word).
+    for a in args.iter_mut() {
+        if a == "--stop-host" {
+            *a = "--stop-host=1".to_owned();
+        }
+        // `memory import-from detect --exports`: a boolean too.
+        if a == "--exports" {
+            *a = "--exports=1".to_owned();
+        }
+    }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
     // own `--json` from the raw arguments). The verb may follow options.
@@ -87,8 +181,10 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "react" | "reply" | "control" | "profile"
-            | "chiefs"),
+            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")
@@ -126,6 +222,16 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
+        Some("usage") => match optchat_chief::usage::run(&args[1..]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief usage: {e}");
                 1
             }
         },
@@ -196,16 +302,28 @@ fn main() -> std::process::ExitCode {
             let result = set.and_then(|set| {
                 match optchat_chief::tools::ask_settings(&paths.tools_socket, set) {
                     // No host: no turn runs, so the Mac's own CLI edits the file.
+                    // A subagent gets no owner controls this way either (the host
+                    // refuses it on the socket, tools.rs).
+                    Err(e)
+                        if e.contains("not running")
+                            && optchat_chief::turn_caller::this_process_is_a_subagent() =>
+                    {
+                        Err("subagents have no owner controls".to_owned())
+                    }
                     Err(e) if e.contains("not running") => {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            use optchat_chief::chief_settings::{
-                                CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl,
-                            };
+                            use optchat_chief::chief_settings::{CACHE_TTL, parse_ttl};
                             match key {
-                                REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                optchat_chief::chief_settings::TRACE_FULL => {
+                                    s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
+                                    s.cloud_auto_pause_idle_secs =
+                                        optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)
@@ -229,7 +347,14 @@ fn main() -> std::process::ExitCode {
         }
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
-            let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
+            let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|e| {
+                // The host's refusal stands, and a subagent gets no page
+                // from the files either (the settings arm above).
+                if e.contains("subagents have no owner controls")
+                    || optchat_chief::turn_caller::this_process_is_a_subagent()
+                {
+                    return Err("subagents have no owner controls".to_owned());
+                }
                 let chat = optchat_chief::browse::open_offline(&paths.chat, &paths.memory_db)?;
                 let page = optchat_chief::browse::html(&chat);
                 chat.shutdown();

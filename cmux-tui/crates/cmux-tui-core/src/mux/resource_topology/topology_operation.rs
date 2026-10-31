@@ -1,6 +1,7 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn resource_creation_resolution(
@@ -36,6 +37,7 @@ impl Mux {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resource_create_empty_workspace_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -44,6 +46,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         mark: crate::state::home_store::EmptyWorkspaceMark,
+        focus: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut fingerprint = json!({
             "operation":"workspace.create",
@@ -56,6 +59,9 @@ impl Mux {
         if let Some((field, value)) = mark.fingerprint_field() {
             fingerprint["fields"][field] = value;
         }
+        if focus {
+            fingerprint["fields"][WORKSPACE_CREATE_FOCUS_FIELD] = Value::Bool(true);
+        }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
@@ -66,7 +72,8 @@ impl Mux {
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         // A retry carries the same fields (the fingerprint), so the same source.
-        let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+        let name_source =
+            crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
@@ -145,7 +152,16 @@ impl Mux {
         state.resource_indexes.workspaces.reserve(1);
         state.resource_indexes.workspace_ids.reserve(1);
         let mut deltas = Vec::with_capacity(2);
-        if let Some(previous) = state.workspaces.get(state.active_workspace) {
+        // Without focus the focused workspace stays; the first one is
+        // focused either way.
+        let focus = focus || state.workspaces.get(state.active_workspace).is_none();
+        let active_index = if focus { index } else { state.active_workspace };
+        let active_public_id = if focus {
+            public_id.clone()
+        } else {
+            state.workspaces[state.active_workspace].public_id.clone()
+        };
+        if let Some(previous) = state.workspaces.get(state.active_workspace).filter(|_| focus) {
             deltas.push(workspace_resource_upsert(
                 0,
                 registry.session_id().as_str(),
@@ -163,7 +179,7 @@ impl Mux {
             &name,
             (name_source, 0),
             index,
-            true,
+            focus,
         ));
         let created_path = json!({"kind":"workspace","workspace_id":public_id});
         let durable = RegistryWorkspace {
@@ -186,7 +202,7 @@ impl Mux {
                         active_screen: None,
                     },
                     ResourceChange::SetWorkspaceOrder { workspace_ids: order },
-                    ResourceChange::SetActiveWorkspace { workspace_id: Some(public_id.clone()) },
+                    ResourceChange::SetActiveWorkspace { workspace_id: Some(active_public_id) },
                 ],
             },
             json!({
@@ -197,7 +213,7 @@ impl Mux {
             Value::Array(deltas),
             move |state| {
                 state.push_workspace(workspace);
-                state.active_workspace = index;
+                state.active_workspace = active_index;
             },
         )
         .with_workspace_ledger(ResourceWorkspaceLedger {
@@ -360,7 +376,7 @@ impl Mux {
             "fields": fingerprint_fields,
         });
         if selector_candidates.len() > 1 {
-            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+            fingerprint.set("selector_fallbacks", json!(&selector_candidates[1..]));
         }
         let commit = self.resource_correlated_creation_operation(
             operation,

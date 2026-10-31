@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const VM = new Set(["vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
-const PUBLICATION = new Set(["vm.domain.list", "vm.domain.verify", "vm.publication.list", "vm.publication.create", "vm.publication.update", "vm.publication.delete", "vm.publication.verify"]);
+const PUBLICATION = new Set(["vm.domain.list", "vm.domain.verify", "vm.publication.list", "vm.publication.create", "vm.publication.update", "vm.publication.delete", "vm.publication.verify", "vm.api.provision", "vm.publication.api-key.list", "vm.publication.api-key.create", "vm.publication.api-key.revoke"]);
 const CLOUD = new Set(["network.list", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.list", "firewall.get", "firewall.create", "firewall.delete"]);
 const FS = new Set(["vm.fs.list", "vm.fs.read", "vm.fs.stat", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove"]);
 const MUTATIONS = new Set(["vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.create", "firewall.delete"]);
@@ -35,6 +35,9 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
   async function request(operation, params, idempotencyKey) {
     if (!catalogOps.has(operation)) throw new Error(`Cloud operation is not in the catalog: ${operation}`);
     if (fixture && Object.hasOwn(fixture, operation)) return structuredClone(fixture[operation]);
+    const requestIdempotencyKey = operation === "vm.snapshot.create"
+      ? idempotencyKey ?? randomUUID()
+      : idempotencyKey;
     let method = "GET", path = "/api/vm", query = "", payload;
     if (VM.has(operation)) {
       if (operation === "vm.list") { method = "GET"; }
@@ -70,10 +73,14 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       else if (operation === "vm.domain.verify") { method = "POST"; path = `/api/vm/domains/${encodeURIComponent(routeSegment(params, "name", operation))}/verify`; payload = {}; }
       else if (operation === "vm.publication.list") { method = "GET"; path = "/api/vm/publications"; }
       else if (operation === "vm.publication.create") { method = "POST"; path = "/api/vm/publications"; payload = { ...params }; }
+      else if (operation === "vm.api.provision") { method = "POST"; path = "/api/vm/apis"; payload = { ...params }; }
       else {
         const id = routeSegment(params, "id", operation);
         path = `/api/vm/publications/${encodeURIComponent(id)}`;
         if (operation === "vm.publication.verify") { method = "POST"; path += "/verify"; payload = {}; }
+        else if (operation === "vm.publication.api-key.list") { method = "GET"; path += "/api-keys"; }
+        else if (operation === "vm.publication.api-key.create") { method = "POST"; path += "/api-keys"; payload = bodyWithout(params, "id"); }
+        else if (operation === "vm.publication.api-key.revoke") { method = "DELETE"; path += `/api-keys/${encodeURIComponent(routeSegment(params, "key_id", operation))}`; }
         else if (operation === "vm.publication.update") { method = "PATCH"; payload = bodyWithout(params, "id"); }
         else if (operation === "vm.publication.delete") { method = "DELETE"; }
         else { method = "POST"; payload = bodyWithout(params, "id"); }
@@ -83,15 +90,15 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       const isMutation = descriptor.class === "mutation";
       method = isMutation ? "POST" : "POST";
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     } else {
       // Network policy operations are owner-routed through the Cloud API catalog.
       const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,
-      headers: { authorization: `Bearer ${bearerToken}`, ...(payload === undefined ? {} : { "content-type": "application/json" }), ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) },
+      headers: { authorization: `Bearer ${bearerToken}`, ...(payload === undefined ? {} : { "content-type": "application/json" }), ...(requestIdempotencyKey ? { "idempotency-key": requestIdempotencyKey } : {}) },
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
     let value;

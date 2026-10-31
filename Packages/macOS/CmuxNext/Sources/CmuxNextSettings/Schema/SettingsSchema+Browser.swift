@@ -10,17 +10,26 @@ nonisolated enum BrowserSettingsSchema {
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
         let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
+        let importGroup = SettingsText.keyed("settings.group.import", "Import")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
-                title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),
-                help: SettingsText.keyed("settings.browser.defaultEngine.help", "New browser tabs open in this engine."),
+                title: SettingsText.keyed("settings.browser.defaultEngine", "Browser Engine"),
+                help: SettingsText.keyed("settings.browser.defaultEngine.help", "Browser tabs and cmux pages, such as History and Apps, open in this engine."),
                 kind: .choice([
                     SettingChoice(BrowserDefaultEngine.chromium.rawValue, "Chromium"),
                     SettingChoice(BrowserDefaultEngine.webkit.rawValue, "WebKit"),
                 ]),
                 default: .string(BrowserDefaultEngine.fallback.rawValue), keywords: ["chrome", "safari", "cef"]
+            ),
+            SettingDescriptor(
+                BrowserSiteEngines.configPath, section: .browser, group: engine,
+                title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
+                help: SettingsText.keyed("settings.browser.siteEngines.help",
+                                         "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                kind: .stringMap, default: BrowserSiteEngines.fallback.jsonValue,
+                keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
             ),
             SettingDescriptor(
                 BrowserNewTabPage.configPath, section: .browser, group: engine,
@@ -35,6 +44,22 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
             ),
             SettingDescriptor(
+                BrowserImportSetting.configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
+                help: SettingsText.keyed("settings.browser.importEnabled.help",
+                                         "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."),
+                kind: .toggle, default: .bool(BrowserImportSetting.fallback),
+                keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
+            ),
+            SettingDescriptor(
+                BrowserCookieBannerSetting().configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
+                help: SettingsText.keyed("settings.browser.importCookieBanner.help",
+                                         "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."),
+                kind: .toggle, default: .bool(BrowserCookieBannerSetting().fallback),
+                keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
+            ),
+            SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,
                 title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
                 help: SettingsText.keyed(
@@ -43,6 +68,31 @@ nonisolated enum BrowserSettingsSchema {
                 ),
                 kind: .toggle, default: .bool(AgentCursorSetting().fallback),
                 keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
+            ),
+            SettingDescriptor(
+                AgentMouseSetting().motionPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMotion.help",
+                    "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+                ),
+                kind: .choice([
+                    SettingChoice("human", SettingsText.keyed("settings.choice.agentMouseHuman", "Human")),
+                    SettingChoice("instant", SettingsText.keyed("settings.choice.agentMouseInstant", "Instant")),
+                ]),
+                default: .string(AgentMouseSetting().fallback.motion.rawValue),
+                keywords: ["agent", "mouse", "pointer", "cursor", "human", "motion", "automation"]
+            ),
+            SettingDescriptor(
+                AgentMouseSetting().maxMoveMsPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMaxMove", "Longest Agent Pointer Move"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMaxMove.help",
+                    "The longest time one agent pointer move takes with human motion. Short moves take less."
+                ),
+                kind: .number(SettingNumber(AgentMouseSetting().maxMoveMsRange, step: 10, unit: .milliseconds)),
+                default: .number(AgentMouseSetting().fallback.maxMoveMs),
+                keywords: ["agent", "mouse", "pointer", "speed", "duration"]
             ),
             SettingDescriptor(
                 BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
@@ -56,11 +106,17 @@ nonisolated enum BrowserSettingsSchema {
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
                 summary: SettingsText.keyed("settings.browser.hibernation.summary", "Frees memory; history and scroll are kept"),
                 kind: .choiceOrNumber([
-                    SettingChoice("moderate", SettingsText.keyed("settings.choice.moderate", "After 1 Hour")),
+                    SettingChoice("moderate", SettingsText.keyed("settings.choice.after30Minutes", "After 30 Minutes")),
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),
-                default: .string("moderate"), keywords: ["memory saver", "sleep", "discard"]
+                // Unset is its own behaviour, not "moderate": hidden pages only freeze and are never
+                // discarded on their own (`BrowserHibernationSetting.fallback`). Any written value,
+                // "moderate" included, turns automatic discards on, so it shows as customized and
+                // Reset returns to unset.
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard"),
+                keywords: ["memory saver", "sleep", "discard", "freeze", "reload"]
             ),
             SettingDescriptor(
                 ["browser", "hibernationExclusions"], section: .browser, group: memory,

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """mac-app-relay: the cmux app control socket of a Chief host with no app.
 
-The Cloud Chief VM runs no cmux app, so `cmux mcp serve` there lists no app
-tools (the right-column browser, workspaces, tabs) and the Chief host drops
-them. This relay listens on a Unix socket on the VM and sends each request
-line to the user's Mac app through the Mac gate (`mac --stdin -- …`,
-lawbook0:7420 over Tailscale), then writes the app's one-line answer back.
-The host gives the socket to its turns as CMUX_SOCKET_PATH
-(`CMUX_CHIEF_APP_SOCKET` in the host's unit), so Cloud Chief drives the Mac
-app with the same tools as the local Chief.
+The Cloud Chief VM runs no cmux app. This relay listens on a Unix socket on
+the VM and forwards bounded diagnostics to the user's Mac app through the Mac
+gate (`mac --stdin -- …`, lawbook0:7420 over Tailscale), then writes the app's
+one-line answer back. Every app action is denied until the Mac can verify an
+unforgeable Chief capability and owned object ids. The host names the socket
+with `CMUX_CHIEF_APP_SOCKET` and gives it to turns as `CMUX_SOCKET_PATH`.
 
 The app protocol is one JSON request line and one JSON answer line, so each
 line is one gate call (about 0.4 s). Streams (`cmux events`) do not work
@@ -19,7 +17,8 @@ log name the cause.
 usage:
   mac-app-relay.py --listen PATH [--mac-socket PATH] [--mac CMD] [--timeout S]
 
-  --listen      the Unix socket to serve (made 0600; a stale file is replaced)
+  --listen      the Unix socket to serve (a stale file is replaced)
+  --socket-mode socket permissions, 0600 or 0660 (default 0600)
   --mac-socket  the app control socket on the Mac (default /tmp/cmux-nightly.sock,
                 the NIGHTLY app; `cmux --json identify` there prints it)
   --mac         the Mac gate client (default `mac`, tools/cloud-chief/vm/mac in hq)
@@ -55,6 +54,13 @@ sys.stdout.buffer.write(b)
 
 MAX_LINE = 512 << 10  # the gate's --stdin limit
 
+# This is a remote relay policy, not only a model-tool filter. Only bounded
+# diagnostics cross the host boundary. App actions remain denied until the
+# Mac can verify an unforgeable Cloud Chief capability and owned object ids.
+READ_METHODS = frozenset((
+    "system.ping", "system.identify", "system.capabilities",
+))
+
 
 def unreachable(request_id, message):
     """An app error answer for `request_id` that says why the app did not answer."""
@@ -63,6 +69,27 @@ def unreachable(request_id, message):
         "ok": False,
         "error": {"code": "app.unreachable", "message": message, "retryable": True},
     }) + "\n"
+
+
+def denied(request_id):
+    """A stable refusal that discloses none of the rejected request."""
+    return json.dumps({
+        "id": request_id,
+        "ok": False,
+        "error": {
+            "code": "app.remote_denied",
+            "message": "the Cloud Chief relay does not allow this app request",
+            "retryable": False,
+        },
+    }) + "\n"
+
+
+def allowed(request):
+    """Whether one decoded app request is in the Cloud Chief relay policy."""
+    if not isinstance(request, dict):
+        return False
+    method = request.get("method")
+    return method in READ_METHODS and isinstance(request.get("params", {}), dict)
 
 
 class Relay:
@@ -81,12 +108,14 @@ class Relay:
         """The app's answer line to one request line, or an app error line."""
         try:
             request = json.loads(line)
-            request_id = request.get("id")
-            method = request.get("method")
-        except (ValueError, AttributeError):
-            request_id, method = None, None
+        except ValueError:
+            request = None
+        request_id = request.get("id") if isinstance(request, dict) else None
+        method = request.get("method") if isinstance(request, dict) else None
         if len(line) > MAX_LINE:
             return unreachable(request_id, "request over 512 KiB; the Mac gate takes no more")
+        if not allowed(request):
+            return denied(request_id)
         try:
             done = subprocess.run(self.command(method), input=line, capture_output=True,
                                   timeout=self.timeout + 70)
@@ -120,7 +149,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
-def serve(listen, relay, ready=None):
+def serve(listen, relay, ready=None, socket_mode=0o600):
     """Serves `listen` until the process ends; `ready` (an Event) is set once it listens."""
     try:
         os.unlink(listen)
@@ -131,7 +160,7 @@ def serve(listen, relay, ready=None):
         server = Server(listen, Handler)
     finally:
         os.umask(old)
-    os.chmod(listen, 0o600)
+    os.chmod(listen, socket_mode)
     server.relay = relay
     if ready is not None:
         ready.set()
@@ -141,11 +170,12 @@ def serve(listen, relay, ready=None):
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--listen", required=True)
+    p.add_argument("--socket-mode", choices=("0600", "0660"), default="0600")
     p.add_argument("--mac-socket", default=os.environ.get("MAC_APP_SOCKET", "/tmp/cmux-nightly.sock"))
     p.add_argument("--mac", default=os.environ.get("MAC_GATE_CLIENT", "mac"))
     p.add_argument("--timeout", type=int, default=30)
     a = p.parse_args(argv[1:])
-    serve(a.listen, Relay(shlex.split(a.mac), a.mac_socket, a.timeout))
+    serve(a.listen, Relay(shlex.split(a.mac), a.mac_socket, a.timeout), socket_mode=int(a.socket_mode, 8))
     return 0
 
 

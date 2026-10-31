@@ -28,7 +28,7 @@ final class MobilePairingPageService: InternalPageProvider {
         })
     }
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
 
     init(services: AppServices) {
         self.services = services
@@ -36,7 +36,7 @@ final class MobilePairingPageService: InternalPageProvider {
 
     /// Opens the page in the active window; automation (`focus` false) opens it without moving focus.
     func open(focus: Bool) throws {
-        guard let window = services.windows.active, services.pages.show(.mobilePairing, in: window, focus: focus) != nil else {
+        guard let services, let window = services.windows.active, services.pages.show(.mobilePairing, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
     }
@@ -46,6 +46,7 @@ final class MobilePairingPageService: InternalPageProvider {
     var symbol: String { "iphone.radiowaves.left.and.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         let provider = MobilePairingPageProvider(services: services)
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),

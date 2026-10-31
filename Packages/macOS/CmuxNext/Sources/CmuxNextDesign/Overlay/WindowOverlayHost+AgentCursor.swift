@@ -1,7 +1,10 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
-/// The view that carries a window's agent cursor layer. It takes no mouse
-/// (`hitTest` is nil) and no accessibility focus.
+/// The view that carries a window's agent cursor layer. It takes the mouse
+/// only on a name tag, which is a link to its agent's workspace (user,
+/// 2026-10-20): a highlight and a tooltip on hover (the arrow stays), a press
+/// on click. Each tag is a VoiceOver button; the carrier itself is no element.
 ///
 /// Two subviews, bottom to top: a behind-window glass (`NSVisualEffectView`)
 /// masked by `glassLayer`, where each cursor cuts its name tag and caption
@@ -14,6 +17,13 @@ final class AgentCursorCarrierView: NSView {
     let glassLayer = CALayer()
     let glassView = NSVisualEffectView()
     private let cursorView = PassThroughLayerView()
+    /// The clickable tags (`WindowOverlayHost.agentCursorTags`).
+    weak var tags: (any AgentCursorTagSource)?
+    /// The tag under the pointer.
+    private(set) var hovered: AgentCursorTagTarget?
+    /// The tag a mouse down landed on; its mouse up there presses it.
+    private var pressing: String?
+    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -43,7 +53,72 @@ final class AgentCursorCarrierView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// The carrier's own (y-up) rect of a y-down cursor-layer rect.
+    func localRect(_ frame: CGRect) -> NSRect {
+        NSRect(x: frame.minX, y: bounds.height - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// The tag at `point` in the carrier's own coordinates.
+    func tag(at point: NSPoint) -> AgentCursorTagTarget? {
+        guard let tags else { return nil }
+        let down = CGPoint(x: point.x, y: bounds.height - point.y)
+        return tags.agentCursorTags().last { $0.frame.contains(down) }
+    }
+
+    /// Only a tag takes the mouse; every other click goes to the page.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview, tags != nil else { return nil }
+        return tag(at: convert(point, from: superview)) == nil ? nil : self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        pressing = tag(at: convert(event.locationInWindow, from: nil))?.id
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressing = nil }
+        guard let id = pressing, tag(at: convert(event.locationInWindow, from: nil))?.id == id else { return }
+        tags?.pressAgentCursorTag(id)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        guard tracking == nil else { return }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited,
+                                                         .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hover(tag(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseExited(with event: NSEvent) { hover(nil) }
+
+    /// The pointer is on `tag`, or on no tag: the tag's highlight (by its source) and its
+    /// tooltip. The cursor stays the arrow, as over any native control.
+    func hover(_ tag: AgentCursorTagTarget?) {
+        guard tag?.id != hovered?.id else { return }
+        hovered = tag
+        tags?.hoverAgentCursorTag(tag?.id)
+        if let tag {
+            setThemedToolTipRegions([(rect: localRect(tag.frame), text: tag.help)])
+            if let tracker = TooltipTracker.all(of: self).last { TooltipPresenter.shared.enter(tracker) }
+        } else {
+            setThemedToolTipRegions([])
+        }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        (tags?.agentCursorTags() ?? []).map { tag in
+            AgentCursorTagElement(tag, frame: localRect(tag.frame), parent: self) { [weak self] in
+                self?.tags?.pressAgentCursorTag(tag.id)
+            }
+        }
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -87,6 +162,7 @@ extension WindowOverlayHost {
     private var agentCursorCarrierView: AgentCursorCarrierView {
         if let agentCursorCarrier { return agentCursorCarrier }
         let carrier = AgentCursorCarrierView(frame: .zero)
+        carrier.tags = agentCursorTags
         agentCursorCarrier = carrier
         placeAgentCursor()
         return carrier
@@ -152,6 +228,43 @@ extension WindowOverlayHost {
         let inWindow = content.convert(content.bounds, to: nil)
         let inPanel = inWindow.offsetBy(dx: window.frame.minX - panel.frame.minX, dy: window.frame.minY - panel.frame.minY)
         return root.convert(inPanel, from: nil)
+    }
+
+    /// The window's agent cursors came, went, showed or hid: the panel
+    /// takes the mouse over their tags (`acceptsMouse`) while any shows.
+    public func agentCursorTagsDidChange() {
+        if agentCursorTags?.agentCursorTags().isEmpty != false { agentCursorCarrier?.hover(nil) }
+        updateMouseRouting()
+    }
+
+    /// The tag under `point` in the panel's coordinates, while the cursor
+    /// draws in the panel (else the window's own views route the mouse).
+    func agentCursorTag(atPanelPoint point: NSPoint) -> AgentCursorTagTarget? {
+        guard let carrier = agentCursorCarrier, carrier.window === panel else { return nil }
+        return carrier.tag(at: carrier.convert(point, from: nil))
+    }
+
+    /// Whether any agent cursor tag shows in the panel now.
+    var showsAgentCursorTags: Bool {
+        guard let carrier = agentCursorCarrier, carrier.window === panel else { return false }
+        return agentCursorTags?.agentCursorTags().isEmpty == false
+    }
+
+    /// The pointer is at `point` in the panel's coordinates: the tag under it
+    /// (or none) is hovered.
+    func hoverAgentCursorTag(at point: NSPoint) {
+        guard let carrier = agentCursorCarrier, carrier.window === panel else { return }
+        carrier.hover(agentCursorTag(atPanelPoint: point))
+    }
+
+    /// Where a click on the tag of cursor `id` lands: the window that draws
+    /// the cursor (the overlay panel or the main window) and the tag's
+    /// center in its coordinates; nil when the tag is not shown (debug input).
+    public func agentCursorTagClickPoint(_ id: String) -> (window: NSWindow, point: NSPoint)? {
+        guard let carrier = agentCursorCarrier, let window = carrier.window,
+              let tag = agentCursorTags?.agentCursorTags().first(where: { $0.id == id }) else { return nil }
+        let local = carrier.localRect(tag.frame)
+        return (window, carrier.convert(NSPoint(x: local.midX, y: local.midY), to: nil))
     }
 
     func removeAgentCursor() {

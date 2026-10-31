@@ -169,16 +169,16 @@ import QuartzCore
         let shown = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
         let start = from ?? shown
         layer.removeAnimation(forKey: Self.slideKey)
-        Motion.transaction(nil) {
+        Motion.sidebar.transaction(nil) {
             // A page's layer keeps its shift through AppKit's geometry writes.
             (layer as? SpacePageLayer)?.shiftX = x
             layer.setValue(x, forKeyPath: keyPath)
         }
-        guard let spring, Motion.animatesMovement, start != x else {
+        guard let spring, Motion.sidebar.animatesMovement, start != x else {
             if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.slideKey) }
             return
         }
-        let animation = Motion.springAnimation(spring, keyPath, from: start, to: x)
+        let animation = Motion.sidebar.springAnimation(spring, keyPath, from: start, to: x)
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.slideKey)
@@ -214,14 +214,15 @@ import QuartzCore
         let model = list.model
         model.sections = sections
         model.collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id)) // as `SidebarModel(sections:)` sets them
-        model.showWorkspaceTabs = host.model.showWorkspaceTabs
-        model.collapsedWorkspaces = host.model.collapsedWorkspaces
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.detailedStatus = host.model.detailedStatus
         model.showsTimestamps = host.model.showsTimestamps
+        model.showsColors = host.model.showsColors
+        model.showsLocalMachine = host.model.showsLocalMachine
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
+        model.newWorkspaceShortcut = host.model.newWorkspaceShortcut // an empty space's hint names the effective shortcut
         container.frame = page.frame
         container.wantsLayer = true
         container.layer?.masksToBounds = true
@@ -239,7 +240,7 @@ import QuartzCore
         guard let page = view as? SpacePageView else { return }
         if let layer = page.layer {
             layer.removeAllAnimations()
-            Motion.transaction(nil) {
+            Motion.sidebar.transaction(nil) {
                 (layer as? SpacePageLayer)?.shiftX = 0
                 layer.opacity = 1
             }
@@ -257,12 +258,12 @@ import QuartzCore
         page.wantsLayer = true
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        if Motion.animatesMovement {
+        if Motion.sidebar.animatesMovement {
             let d = CGFloat(direction) * width
             translate(snapshot, -d, animated: .screen, from: 0)
             translate(page, 0, animated: .screen, from: d)
         } else if let layer = snapshot.layer {
-            Motion.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
+            Motion.sidebar.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
         }
         CATransaction.commit()
     }

@@ -1,8 +1,7 @@
-//! Cloud Chief app tools (2026-10-20): a Chief host with no cmux app of its
-//! own (the Cloud Chief VM) reaches the user's Mac app through an app socket
-//! relay that `CMUX_CHIEF_APP_SOCKET` names, and a turn whose cmux tool list
-//! cannot be read, or lists no app tools, keeps the last known list and says
-//! why, instead of losing the app tools' denials silently.
+//! Cloud Chief Mac boundary (2026-10-20): a Chief host with no cmux app of
+//! its own names a diagnostics-only relay with `CMUX_CHIEF_APP_SOCKET`.
+//! App actions remain denied even when a current or last-known catalog lists
+//! them, and an unreadable catalog fails closed.
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -170,11 +169,11 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
     let first = cmux_tool_denials(session.path(), &cli.env());
     assert!(first.contains(&deny), "{first:?}");
     assert!(
-        !first.contains(&"mcp__cmux__app_show_pane".to_owned()),
-        "a Chief tool is kept: {first:?}"
+        first.contains(&"mcp__cmux__app_show_pane".to_owned()),
+        "remote app actions must be denied even when the catalog lists them: {first:?}"
     );
 
-    // The Mac is asleep: the list fails. The app tools' denials stay.
+    // The Mac is asleep: the list fails. The app-action denials stay.
     cli.fail("cmux mcp: cannot reach the Mac gate");
     let failed = cmux_tool_denials(session.path(), &cli.env());
     assert!(
@@ -212,4 +211,39 @@ fn a_turn_names_the_home_chat_and_a_subagent_does_not() {
     );
     let pinned = optchat_chief::cmux_env::pinned_subset(&env);
     assert_eq!(pinned.get(optchat_chief::cmux_env::HOME_CHAT_KEY), None);
+}
+
+/// A Chief turn messages the agent chats the user started (#25571): the cmux chat tools that
+/// send to, read and check a chat stay allowed; starting or interrupting one stays denied.
+#[test]
+fn a_chief_turn_keeps_the_tools_that_message_agent_chats() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(session.path().join(".claude")).unwrap();
+    cli.answer(
+        &[
+            "agents_snapshot",
+            "agents_chat_send",
+            "agents_chat_read",
+            "agents_chat_state",
+            "agents_chat_new",
+            "agents_chat_interrupt",
+            "app_show_pane",
+        ],
+        true,
+        None,
+    );
+    let denied = cmux_tool_denials(session.path(), &cli.env());
+    for kept in ["agents_chat_send", "agents_chat_read", "agents_chat_state"] {
+        assert!(
+            !denied.contains(&format!("mcp__cmux__{kept}")),
+            "{kept} must reach the Chief's turn: {denied:?}"
+        );
+    }
+    for gone in ["agents_chat_new", "agents_chat_interrupt", "app_show_pane"] {
+        assert!(
+            denied.contains(&format!("mcp__cmux__{gone}")),
+            "{gone} stays denied: {denied:?}"
+        );
+    }
 }

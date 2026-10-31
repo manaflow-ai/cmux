@@ -81,7 +81,7 @@ struct PaneZoomMotionTests {
                                                    b: row("c", ["p7", "p8", "p9"])))
 
     /// The token's time scale (`ui.animationSpeed`), so budgets hold at any speed.
-    static var scale: Double { Motion.spring(.move).response / MotionSpring.move.base.response }
+    static var scale: Double { Motion.panes.spring(.move).response / MotionSpring.move.base.response }
 
     @Test(arguments: [("p1", "p4"), ("p4", "p1"), ("p2", "p3")])
     func inA2x2ZoomTheZoomedPaneLaysOutLiveAndCoversTheOthersWhichNeverFadeOrMove(zoomed: String, opposite: String) throws {

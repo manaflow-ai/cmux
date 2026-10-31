@@ -1,4 +1,4 @@
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 import Foundation
 
@@ -27,7 +27,7 @@ extension IPhoneHostService {
             "remove_help": .string(IPhoneHostStrings.removeHelp),
             // Shown with phase "removed": the person's way to let iPhones connect again.
             "allow_again_title": .string(IPhoneHostStrings.allowAgain),
-            // Phones asking to pair (cnx-ios verify/phone-approvals.md): Allow and Don't Allow
+            // Phones asking to pair (cmux-next-ios verify/phone-approvals.md): Allow and Don't Allow
             // here are the person's own gesture, as in the prompt.
             "pending_title": .string(IPhoneHostStrings.pendingTitle),
             "pending": .array(pendingRows),
@@ -38,13 +38,22 @@ extension IPhoneHostService {
         ]
     }
 
+    /// `mobile.allowIPhoneConnections` as the service follows it (the Mobile Pairing page's switch).
+    public var allowsConnections: Bool { allowed }
+
+    /// hostd's phase (the Mobile Pairing page's step).
+    public var phase: MobileHostState.Phase { state.phase }
+
+    /// What a removed Mac says (the Mobile Pairing page's detail line).
+    public static var removedText: String { IPhoneHostStrings.removed }
+
     /// The waiting pairing requests, oldest first: who asks, as which account, since when.
     private var pendingRows: [JSONValue] {
         guard allowed else { return [] }
         return prompts.pending.map { request in
             var facts = [IPhoneHostStrings.signedInAs(account?.email ?? account?.userID ?? "")]
             if let registered = request.registeredAt { facts.append(IPhoneHostStrings.deviceRegistered(registered)) }
-            facts.append(IPhoneHostStrings.pairKey(CnxPairedDevices.fingerprint(request.approvalKey)))
+            facts.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
             return ["id": .string(request.phoneDeviceID), "title": .string(IPhoneHostStrings.noticeTitle(Self.displayName(request))),
                     "subtitle": .string(facts.joined(separator: " · "))]
         }
@@ -52,14 +61,25 @@ extension IPhoneHostService {
 
     /// The account's phones (known to the service) with their live link if one is up, then any
     /// live link the list does not have yet. Only a known phone can be removed.
+    /// The phones Settings > Devices lists (plans/cmux-next/add-device-DESIGN.md 2.4): each one the
+    /// account knows, and whether it has a live link now. Remove is ``removePhone(id:)``.
+    /// A paired phone's row is its link id, the id its acpmux record is named for (its Full-access
+    /// switch); Remove takes any of its ids.
+    public var devicePhones: [(id: String, name: String, connected: Bool)] {
+        guard allowed else { return [] }
+        return knownPhones.map { phone in
+            (paired?.pairing(of: phone)?.id ?? phone.id, phone.name, state.phones.contains { phone.owns($0.phoneDeviceID) })
+        }
+    }
+
     private var phoneRows: [JSONValue] {
         guard allowed else { return [] }
         let links = state.phones
         var rows: [JSONValue] = knownPhones.map { phone in
             let link = links.first { phone.owns($0.phoneDeviceID) }
-            // Paired here (cnx-ios verify/phone-approvals.md): its links and Face ID approvals
+            // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
-            let pairing = paired?.devices.first { phone.owns($0.id) }
+            let pairing = paired?.pairing(of: phone)
             return ["id": .string(phone.id), "title": .string(phone.name),
                     "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
                     "connected": .bool(link != nil), "removable": .bool(true),
@@ -101,8 +121,9 @@ extension IPhoneHostService {
         }
     }
 
-    static func subtitle(_ phone: CnxPhoneLink) -> String {
+    static func subtitle(_ phone: MobileHostPhoneLink) -> String {
         var parts = [IPhoneHostStrings.transport(phone.transport), IPhoneHostStrings.path(phone.path)]
+        if let media = phone.mediaPath { parts.append(IPhoneHostStrings.videoWebRTC(media)) }
         if let since = phone.since {
             parts.append(IPhoneHostStrings.since(since.formatted(date: .omitted, time: .shortened)))
         }

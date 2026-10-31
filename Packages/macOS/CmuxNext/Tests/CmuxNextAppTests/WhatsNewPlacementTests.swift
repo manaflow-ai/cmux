@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Foundation
@@ -30,7 +31,7 @@ struct WhatsNewPlacementTests {
         #expect(!center.unseen.isEmpty, "the update has notes the user has not seen")
         #expect(center.showsUpdatedCard, "the bottom-left card shows after the update")
 
-        let top = SidebarWhatsNewItemFeed.items(settings: nil, lanes: AgentLaneStore())
+        let top = SidebarModel.topItems()
         #expect(!top.contains { $0.item.id.rawValue.contains("whats-new") }, "no What's New item at the top of the sidebar")
 
         center.dismissUpdated()

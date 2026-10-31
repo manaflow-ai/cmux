@@ -26,9 +26,12 @@ mod history;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-mod plan;
+pub(super) mod plan;
 mod screen;
+mod session_reset;
+pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
+mod settings;
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -156,39 +159,40 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
+    let words = tokens.words.get(1..).unwrap_or_default();
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
+        return Err(UsageError::new(format!(
+            "`{}` runs no command: drop the words after --",
+            tokens.words.join(" ")
+        )));
+    }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => {
-            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
-        }
-        "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "workspace" => {
-            parse_workspace(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "screen" => {
-            parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
-        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "conversation" => {
-            conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
-        }
-        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
-        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
-        "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags)?,
+        "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
+        "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
+        "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
+        "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
+        "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
+        "browser" => parse_browser(words, &mut selectors, &mut tokens.flags)?,
+        "notification" => parse_notification(words, &mut tokens.flags)?,
+        "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
+        "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
+        "notify" => parse_notify(words, &mut tokens.flags)?,
+        "agent" => parse_agent(words, &mut tokens.flags, tokens.argv)?,
+        "sidebar" => parse_sidebar(words, &mut selectors, &mut tokens.flags)?,
+        "pairing" => parse_pairing(words, &mut selectors, &mut tokens.flags)?,
+        "projection" => parse_projection(words, &mut selectors, &mut tokens.flags)?,
+        "provider" => parse_provider(words, &mut selectors, &mut tokens.flags)?,
+        "raw" => parse_raw(words, &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value, surface)),
     };
     tokens.flags.reject_remaining()?;
@@ -200,10 +204,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => super::lifecycle::ServerAction::Stop {
-            force: flags.boolean("force"),
-            end_terminals: flags.boolean("end-terminals"),
-        },
+        ["stop"] => stop_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -240,6 +241,30 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
+/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
+/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// defaults to the bound `server ensure` gives a restore
+/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    let restore_wait = match flags.take("restore-wait-seconds") {
+        None => crate::local_owner::RESTORE_DEADLINE,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
+            _ => {
+                return Err(UsageError::new(
+                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
+                ));
+            }
+        },
+    };
+    Ok(super::lifecycle::ServerAction::Stop {
+        force: flags.boolean("force"),
+        end_terminals: flags.boolean("end-terminals"),
+        restore_wait,
+    })
+}
+
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     let mut words = Vec::new();
     let mut flags = Flags::default();
@@ -274,7 +299,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') && value != "-" {
+        } else if value.starts_with('-') && value != "-" && value.parse::<f64>().is_err() {
             // A lone `-` is a word: standard input, for commands that read it.
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -283,6 +308,67 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
         index += 1;
     }
     Ok(Tokens { words, flags, argv })
+}
+
+/// Whether the command `scope words…` reads the words after `--`: workspace,
+/// screen, pane and terminal-tab create, workspace and pane run, pane split
+/// (also under a workspace, screen or pane path), the workspace
+/// status/progress/log and checklist commands (which check their own verbs),
+/// and agent messages. Every other command would drop
+/// them, so the caller is told instead.
+fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn tab(words: &[&str]) -> bool {
+        matches!(words, ["create", "terminal"])
+    }
+    fn pane(words: &[&str]) -> bool {
+        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
+            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
+    }
+    fn screen(words: &[&str]) -> bool {
+        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
+    }
+    fn workspace(words: &[&str]) -> bool {
+        let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
+        match words {
+            ["create"] | [_, "run", ..] => true,
+            [first, ..] if area(first) => true,
+            [_, second, ..] if area(second) => true,
+            [_, "screen", tail @ ..] => screen(tail),
+            _ => false,
+        }
+    }
+    match scope {
+        "workspace" => workspace(words),
+        "screen" => screen(words),
+        "pane" => pane(words),
+        "tab" => tab(words),
+        "agent" => matches!(words, ["message", ..]),
+        "settings" | "config" => {
+            matches!(words, ["get", ..] | ["set", ..] | ["reset", ..] | ["unset", ..])
+        }
+        _ => false,
+    }
+}
+
+/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
+/// creates a terminal: the new terminal runs it instead of a plain shell.
+fn insert_creation_command(
+    params: &mut Map<String, Value>,
+    argv: Option<Vec<String>>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    match (argv, flags.take("shell")) {
+        (None, None) => Ok(()),
+        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+            params.insert("argv".into(), json!(argv));
+            Ok(())
+        }
+        (None, Some(script)) if !script.is_empty() => {
+            params.insert("shell".into(), Value::String(script));
+            Ok(())
+        }
+        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
+    }
 }
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
@@ -448,10 +534,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop {
-                    force: flags.boolean("force"),
-                    end_terminals: flags.boolean("end-terminals"),
-                },
+                action: stop_action(flags)?,
                 session,
             }))
         }
@@ -691,6 +774,7 @@ fn parse_pane_strings(
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -719,16 +803,7 @@ fn parse_pane_strings(
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             // The new pane runs this instead of a shell, so no empty shell
             // tab is left beside the command's (agent evals, mode 3).
-            match (argv, flags.take("shell")) {
-                (None, None) => {}
-                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
-                    params.insert("argv".into(), json!(argv));
-                }
-                (None, Some(script)) if !script.is_empty() => {
-                    params.insert("shell".into(), Value::String(script));
-                }
-                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
-            }
+            insert_creation_command(&mut params, argv, flags)?;
             // A script's split keeps the user's focus unless it asks.
             if flags.boolean("focus") {
                 params.insert("focus".into(), Value::Bool(true));
@@ -812,7 +887,7 @@ fn parse_pane_strings(
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags)
+            parse_tab_strings(tail, selectors, flags, argv)
         }
         _ => usage("pane action"),
     }
@@ -822,15 +897,17 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags)
+    parse_tab_strings(&refs, selectors, flags, argv)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
@@ -847,6 +924,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
@@ -859,6 +937,7 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
+            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
@@ -1184,6 +1263,27 @@ fn parse_terminal(
 
 use browser::parse_browser;
 
+/// `--terminal <term_id>` or `--workspace <ws_id>` of `notification create|clear`.
+fn notification_scope(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let terminal = flags.take("terminal");
+    let workspace = flags.take("workspace");
+    if terminal.is_some() && workspace.is_some() {
+        return Err(UsageError::new("give --terminal or --workspace, not both"));
+    }
+    if let Some(terminal) = terminal {
+        validate_prefixed_id("terminal", "term", &terminal)?;
+        params.insert("terminal_id".into(), Value::String(terminal));
+    }
+    if let Some(workspace) = workspace {
+        validate_prefixed_id("workspace", "ws", &workspace)?;
+        params.insert("workspace_id".into(), Value::String(workspace));
+    }
+    Ok(())
+}
+
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
@@ -1209,18 +1309,12 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
         ["clear"] => {
             let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
         ["ack", ids @ ..] => {
@@ -1260,7 +1354,8 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// agent hook written for a local terminal works unchanged inside a machine.
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
-/// session or `--workspace` asks for a session-level row; a machine cannot
+/// session or `--workspace` names a workspace (`current`: a session-level
+/// row); a machine cannot
 /// address anything outside its own session. `--reply` asks the app for a
 /// banner that takes a typed reply for the target terminal (only it).
 /// `--window` and `--id-format` are accepted for signature
@@ -1299,7 +1394,18 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     if let Some(surface) = &surface {
         validate_prefixed_id("terminal", "term", surface)?;
     }
+    // `--workspace ws_…` scopes the row (and a clear) to that workspace;
+    // `current` keeps its session-level meaning.
+    let workspace_id = workspace.as_ref().filter(|workspace| *workspace != "current").cloned();
+    if workspace_id.is_some() && surface.is_some() {
+        return Err(UsageError::new(
+            "--workspace <ws_id> and --surface are one scope or the other: a terminal's notification already belongs to its workspace",
+        ));
+    }
     let mut params = Map::new();
+    if let Some(workspace_id) = workspace_id {
+        params.insert("workspace_id".into(), Value::String(workspace_id));
+    }
     if flags.boolean("clear") {
         if flags.take("title").is_some()
             || flags.take("subtitle").is_some()
@@ -1855,9 +1961,7 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for (key, value) in selectors.params() {
-        params.insert(key, value);
-    }
+    params.extend(selectors.params());
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1872,6 +1976,7 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -2264,14 +2369,11 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" => {
+            "close" | "keep" | "shell" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
-            "shell" => {
-                return Err(UsageError::new("--on-exit shell is not supported yet"));
-            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close or keep"));
+                return Err(UsageError::new("--on-exit must be close, keep or shell"));
             }
         }
     }
@@ -2845,215 +2947,6 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
     }
 }
 
-pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
-    let output = global.output;
-    let messages = &crate::localization::catalog().session_reset;
-    let routing_options = [
-        global.socket.as_ref().map(|_| "--socket"),
-        global.session.as_ref().map(|_| "--session"),
-        global.machine.as_ref().map(|_| "--machine"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    if !routing_options.is_empty() {
-        let options = routing_options.join(", ");
-        return super::wire::print_local_error(
-            &json!({
-                "code": "session.reset_state.routing_options_unsupported",
-                "message": messages.routing_options_unsupported(&options),
-                "details": { "options": routing_options },
-                "retryable": false,
-            }),
-            output,
-            2,
-        );
-    }
-    let state_root =
-        match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
-            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
-            None => {
-                return super::wire::print_local_error(
-                    &json!({
-                        "code": "session.reset_state.no_state_root",
-                        "message": messages.no_state_root,
-                        "details": {},
-                        "retryable": false,
-                    }),
-                    output,
-                    1,
-                );
-            }
-        };
-    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state_root);
-    if !plan.force {
-        let preview = match resetter.preview(&plan.session) {
-            Ok(preview) => preview,
-            Err(error) => {
-                let advice = reset_failure_advice(&error);
-                return super::wire::print_local_error(
-                    &json!({
-                        "code": advice.code,
-                        "message": format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery),
-                        "details": {
-                            "session": &plan.session,
-                            "reason": advice.reason,
-                            "recovery": advice.recovery,
-                        },
-                        "retryable": false,
-                    }),
-                    output,
-                    1,
-                );
-            }
-        };
-        return super::wire::print_local_success(
-            &json!({
-                "session": plan.session,
-                "state_root": preview.state_root,
-                "session_dir": preview.session_dir,
-                "terminal_host_root": preview.terminal_host_root,
-                "pending_reset_dirs": preview.pending_reset_dirs,
-                "requires_force": preview.requires_force,
-                "confirm_reset": preview.confirm_reset,
-            }),
-            output,
-        );
-    }
-    match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
-        Ok(reset) => super::wire::print_local_success(
-            &json!({
-                "session": plan.session,
-                "removed_session_state": reset.removed_session_state,
-                "removed_terminal_hosts": reset.removed_terminal_hosts,
-            }),
-            output,
-        ),
-        Err(error) => {
-            let advice = reset_failure_advice(&error);
-            let message = if advice.code == "session.reset_state.confirmation_required" {
-                format!("{}; {}", messages.confirmation_required, messages.confirmation_recovery)
-            } else {
-                format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery)
-            };
-            super::wire::print_local_error(
-                &json!({
-                    "code": advice.code,
-                    "message": message,
-                    "details": {
-                        "session": plan.session,
-                        "reason": advice.reason,
-                        "recovery": advice.recovery,
-                    },
-                    "retryable": false,
-                }),
-                output,
-                1,
-            )
-        }
-    }
-}
-
-struct ResetFailureAdvice {
-    code: &'static str,
-    reason: &'static str,
-    recovery: &'static str,
-}
-
-fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
-    let messages = &crate::localization::catalog().session_reset;
-    if reset_error_starts_with(error, &["reset confirmation is required"]) {
-        ResetFailureAdvice {
-            code: "session.reset_state.confirmation_required",
-            reason: messages.confirmation_required,
-            recovery: messages.confirmation_recovery,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &["safe saved-state reset is not supported on this platform"],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.unsupported",
-            reason: messages.reason_reset_unsupported,
-            recovery: messages.recovery_reset_unsupported,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &[
-            "workspace state root is not a directory",
-            "workspace session state path is not a directory",
-            "terminal host state path is not a directory",
-            "private reset path is not a directory",
-            "session lock directory is not a directory",
-            "not a directory:",
-        ],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.invalid_state_path",
-            reason: messages.reason_invalid_state_path,
-            recovery: messages.recovery_invalid_state_path,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &["workspace session is already owned by another daemon"],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.session_running",
-            reason: messages.reason_session_running,
-            recovery: messages.recovery_session_running,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &[
-            "terminal host state still has live or unverified hosts",
-            "terminal host state has live or unverified hosts",
-        ],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.terminal_hosts_live",
-            reason: messages.reason_terminal_hosts_live,
-            recovery: messages.recovery_terminal_hosts_live,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &["terminal host liveness cannot be verified on this platform"],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.terminal_hosts_unsupported",
-            reason: messages.reason_terminal_hosts_unsupported,
-            recovery: messages.recovery_terminal_hosts_unsupported,
-        }
-    } else if reset_error_starts_with(
-        error,
-        &["reset path changed during reset", "reset path changed during fingerprint"],
-    ) {
-        ResetFailureAdvice {
-            code: "session.reset_state.state_changed",
-            reason: messages.reason_state_changed,
-            recovery: messages.recovery_state_changed,
-        }
-    } else if reset_error_starts_with(error, &["reset confirmation scan exceeds"]) {
-        ResetFailureAdvice {
-            code: "session.reset_state.state_too_large",
-            reason: messages.reason_state_too_large,
-            recovery: messages.recovery_state_too_large,
-        }
-    } else {
-        ResetFailureAdvice {
-            code: "session.reset_state.filesystem",
-            reason: messages.reason_filesystem,
-            recovery: messages.recovery_filesystem,
-        }
-    }
-}
-
-fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
-    error.chain().any(|cause| {
-        let cause = cause.to_string();
-        prefixes.iter().any(|prefix| cause.starts_with(prefix))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3108,6 +3001,39 @@ mod tests {
         let flagged = protocol(&["browser", "open", "--url", "https://example.com/docs"]);
         assert_eq!(operation(&flagged), "tab.create_browser");
         assert_eq!(flagged.params["url"], "https://example.com/docs");
+    }
+
+    #[test]
+    fn browser_open_and_tab_create_browser_take_an_engine() {
+        let chromium = protocol(&["browser", "open", "https://a.test", "--engine", "chromium"]);
+        assert_eq!(chromium.params["engine"], "cef");
+        let chrome = protocol(&[
+            "tab",
+            "create",
+            "browser",
+            "--url",
+            "https://a.test",
+            "--engine",
+            "Chrome",
+        ]);
+        assert_eq!(chrome.params["engine"], "cef");
+        let webkit = protocol(&["browser", "open", "https://a.test", "--engine", "webkit"]);
+        assert_eq!(webkit.params["engine"], "webkit");
+        // No flag: no field, so `browser.defaultEngine` decides.
+        assert!(protocol(&["browser", "open", "https://a.test"]).params.get("engine").is_none());
+        let profile = protocol(&[
+            "browser",
+            "profile",
+            "open",
+            "https://a.test",
+            "--profile",
+            "p",
+            "--engine",
+            "chromium",
+        ]);
+        assert_eq!(profile.params["engine"], "cef");
+        let unknown = strings(&["browser", "open", "https://a.test", "--engine", "gecko"]);
+        assert!(parse(&unknown, super::super::Surface::CmuxTui).is_err());
     }
 
     #[test]
@@ -3186,6 +3112,44 @@ mod tests {
     }
 
     #[test]
+    fn settings_crud_routes_to_daemon_operations() {
+        let get = protocol(&["settings", "get", "appearance.theme"]);
+        assert_eq!(operation(&get), "settings.get");
+        assert_eq!(
+            get.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let set = protocol(&["settings", "set", "appearance.theme", "dark"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "appearance.theme", "value": "dark", "machine": "current", "session": "current"})
+        );
+
+        let reset = protocol(&["settings", "reset", "appearance.theme"]);
+        assert_eq!(operation(&reset), "settings.reset");
+        assert_eq!(
+            reset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let unset = protocol(&["settings", "unset", "appearance.theme"]);
+        assert_eq!(operation(&unset), "settings.reset");
+        assert_eq!(
+            unset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let negative = protocol(&["settings", "set", "custom.counter", "-1"]);
+        assert_eq!(negative.params["value"], -1);
+
+        let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
+        assert_eq!(literal.params["key"], "custom.label");
+        assert_eq!(literal.params["value"], "--literal");
+    }
+
+    #[test]
     fn coding_agent_hook_management_stays_local() {
         let CommandPlan::AgentHooks(plan) = parse(
             &strings(&["agent", "hook", "install", "codex", "claude-code"]),
@@ -3200,41 +3164,6 @@ mod tests {
 
     fn operation(plan: &RequestPlan) -> String {
         plan.operation.name().unwrap()
-    }
-
-    #[test]
-    fn reset_failure_advice_classifies_fingerprint_race_as_state_changed() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "reset path changed during fingerprint: /tmp/cmux-state/registry"
-        ));
-        assert_eq!(advice.code, "session.reset_state.state_changed");
-        assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_classifies_confirmation_scan_limit() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "reset confirmation scan exceeds 64 paths; scoped state is too large"
-        ));
-        assert_eq!(advice.code, "session.reset_state.state_too_large");
-        assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
-        ));
-        assert_eq!(advice.code, "session.reset_state.unsupported");
-        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_ignores_marker_text_inside_paths() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "workspace state root is not a directory: /tmp/already owned by another daemon"
-        ));
-        assert_eq!(advice.code, "session.reset_state.invalid_state_path");
     }
 
     fn operation_catalog() -> Value {
@@ -3501,6 +3430,38 @@ mod tests {
             assert!(
                 parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
                 "accepted invalid source {invalid:?}"
+            );
+        }
+    }
+
+    /// `notify --workspace ws_…` and `notification create|clear --workspace`
+    /// scope the row to that workspace (`workspace_id`), never the session.
+    #[test]
+    fn notify_workspace_sends_the_workspace_scope() {
+        const WS: &str = "ws_00000000000000000000000000000042";
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let create = protocol(&["notify", "--workspace", WS, "--title", "x"]);
+        assert_eq!(create.operation.name().unwrap(), "notification.create");
+        assert_eq!(create.params["workspace_id"], WS);
+        assert!(create.params.get("terminal_id").is_none());
+        let clear = protocol(&["notify", "--clear", "--workspace", WS]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["workspace_id"], WS);
+        // `current` keeps its session-level meaning.
+        let session = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(session.params.get("workspace_id").is_none());
+        let resource =
+            protocol(&["notification", "create", "--title", "t", "--body", "", "--workspace", WS]);
+        assert_eq!(resource.params["workspace_id"], WS);
+        let resource_clear = protocol(&["notification", "clear", "--workspace", WS]);
+        assert_eq!(resource_clear.params["workspace_id"], WS);
+        for both in [
+            &["notify", "--workspace", WS, "--surface", TERMINAL][..],
+            &["notification", "clear", "--workspace", WS, "--terminal", TERMINAL],
+        ] {
+            assert!(
+                parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
+                "{both:?}: a workspace and a terminal scope together"
             );
         }
     }
@@ -3915,14 +3876,8 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy = parse(
-                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
-                super::super::Surface::CmuxTui,
-            );
-            assert!(
-                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
-                "--on-exit shell must be a typed not-yet-supported usage error"
-            );
+            let shell = protocol(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]);
+            assert_eq!(shell.params["on_exit"], "shell");
             assert!(
                 parse(
                     &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),
@@ -4338,6 +4293,7 @@ mod tests {
         }
     }
 
+    mod argv_tail_tests;
     mod name_source_tests;
     mod split_focus_tests;
     mod transport_path_coverage_tests;

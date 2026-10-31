@@ -275,6 +275,11 @@ fn create_workspace(
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
     }
     let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool).unwrap_or(false);
+    let focus = request
+        .fields
+        .get(crate::mux::WORKSPACE_CREATE_FOCUS_FIELD)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mutation = mutation(&request)?;
     let correlation_key =
         request.fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
@@ -286,6 +291,7 @@ fn create_workspace(
             expected_revision(&request.fields)?,
             &mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
+            focus,
         )
         .map_err(resource_operation_error)?;
     let workspace_id = result_id(&commit.result, "workspace.create", "workspace")?;
@@ -311,6 +317,11 @@ fn dispatch_exact_topology_mutation(
         // unless it asks, like `tab.create_terminal`; the user's own splits
         // never come through here (tests/agent-evals/RESULTS.md, mode 1).
         fields.entry(crate::mux::PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
+    if operation == ResourceOperation::WorkspaceCreate {
+        // Likewise a programmatic `workspace.create` opens in the background
+        // unless the caller passes `focus: true`.
+        fields.entry(crate::mux::WORKSPACE_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
     }
     let commit = mux
         .resource_topology_operation(

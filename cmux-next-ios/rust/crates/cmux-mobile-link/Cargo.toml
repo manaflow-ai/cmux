@@ -1,0 +1,52 @@
+[package]
+name = "cmux-mobile-link"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-next-ios link: framed channel mux, signaling client, WebRTC and WireGuard dialers"
+
+[lints]
+workspace = true
+
+[features]
+# The in-process fake signaling server and test TURN server (tests here
+# and in cmux-mobile-host).
+testing = ["dep:rcgen"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1"
+base64.workspace = true
+bytes.workspace = true
+cmux-rd-core.workspace = true
+cmux-rd-proto.workspace = true
+cmux-transport.workspace = true
+cmux-wg.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+reqwest.workspace = true
+rcgen = { version = "0.13", optional = true }
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Larger UDP socket buffers for the tunnel (a replay burst after a roam).
+socket2 = "0.6"
+thiserror.workspace = true
+tokio.workspace = true
+# TURN over TLS (dial/turn.rs); ring only, like every other TLS here.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+webpki-roots = "1"
+webrtc.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+cmux-mobile-link = { path = ".", features = ["testing"] }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true

@@ -1,4 +1,52 @@
 use super::*;
+use crate::test_exec::write_executable;
+
+#[test]
+fn cli_session_resource_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.memory_mb", "6144").unwrap();
+    config.set_session_resource("session.swap_mb", "2048").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+    assert_eq!(config.session.swap_mb, Some(2048));
+    config.set_session_resource("session.memory_mb", "default").unwrap();
+    assert_eq!(config.session.memory_mb, None);
+}
+
+#[test]
+fn session_task_caps_are_typed_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.tasks_max", "8192").unwrap();
+    config.set_session_resource("session.sessions-tasks-max", "131072").unwrap();
+    assert_eq!(config.session.tasks_max, Some(8192));
+    assert_eq!(config.session.sessions_tasks_max, Some(131_072));
+    let json = serde_json::to_value(&config.session).unwrap();
+    assert_eq!(json, serde_json::json!({"tasksMax": 8192, "sessionsTasksMax": 131072}));
+    let back: SessionResourceConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(back, config.session);
+    // 0 is no cap; `infinity` is the same.
+    config.set_session_resource("session.sessions_tasks_max", "infinity").unwrap();
+    assert_eq!(config.session.sessions_tasks_max, Some(0));
+    config.set_session_resource("session.tasks_max", "default").unwrap();
+    assert_eq!(config.session.tasks_max, None);
+    assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
+}
+
+#[test]
+fn cli_session_cpu_class_is_a_config_value() {
+    use crate::cpu_class::CpuClass;
+    let mut config = Config::default();
+    config.set_session_resource("session.cpu_class", "normal").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Normal));
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["session"]["cpuClass"], "normal");
+    let loaded: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(loaded.session.cpu_class, Some(CpuClass::Normal));
+    config.set_session_resource("session.cpu-class", "Background").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Background));
+    assert!(config.set_session_resource("session.cpu_class", "utility").is_err());
+    config.set_session_resource("session.cpu_class", "default").unwrap();
+    assert_eq!(config.session.cpu_class, None);
+}
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
@@ -117,26 +165,202 @@ fn a_launcher_failure_does_not_repeat_its_full_argv() {
     assert!(!error.contains(SENTINEL), "launcher failure exposed its argv: {error}");
 }
 
-/// Creates an executable (0755) script without this process ever holding a
-/// write descriptor for it.
-///
-/// Tests run on many threads. A sibling test that forks while this process
-/// holds such a descriptor hands a copy to its child until that child execs,
-/// and executing the script in that window fails with ETXTBSY ("Text file
-/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
-/// rename does not either (the child holds the same inode). A short-lived
-/// `sh` opens, writes, and closes the file in its own process, so no fork of
-/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
-fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-    let path = path.as_ref();
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
+#[cfg(unix)]
+#[test]
+fn config_load_refuses_a_symlinked_state_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-link-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("target.json");
+    let config = dir.join("config.json");
+    std::fs::write(&target, "{}").unwrap();
+    symlink(&target, &config).unwrap();
+
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a linked config loaded");
+    assert!(error.to_string().contains("config.json"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn writable_legacy_state_is_refused_before_it_is_narrowed_or_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-state-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a writable state directory was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&home).unwrap().permissions().mode() & 0o777, 0o777);
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let config = home.join("config.json");
+    std::fs::write(&config, r#"{"permissionPolicy":"deny-all"}"#).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a writable config was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&config).unwrap().permissions().mode() & 0o777, 0o666);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A state path another account may write is still refused, and left as it
+/// is: acpmux did not make it that way (a `mkdir` or a shell redirect under
+/// umask 002 did). The refusal names the exact `chmod` that fixes it
+/// (ergo-walk2, 2026-10-25).
+#[cfg(unix)]
+#[test]
+fn the_writable_state_refusal_names_the_chmod_that_fixes_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-fix-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let error = private_state_dir(&home).expect_err("a group-writable home was trusted");
+    let fix = format!("`chmod 700 {}`", home.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&home), 0o775, "a home acpmux did not make is not changed");
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let log = home.join("daemon.log");
+    std::fs::write(&log, "").unwrap();
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o664)).unwrap();
+    let error = private_state_append(&log).expect_err("a group-writable log was trusted");
+    let fix = format!("`chmod 600 {}`", log.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&log), 0o664, "a log acpmux did not make is not changed");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_state_home_below_a_non_sticky_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a replaceable state pathname was trusted");
+    assert!(error.to_string().contains("writable ancestor"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-acl-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/chmod")
+        .args(["+a", "group:everyone allow add_file,delete_child", shared.to_str().unwrap()])
+        .status()
         .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+    assert!(status.success());
+    let error =
+        private_state_dir(&home).expect_err("an ACL-replaceable state pathname was trusted");
+    assert!(error.to_string().contains("ACL"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
+    cfg.join_discovered(BTreeMap::from([(
+        "cmux".to_owned(),
+        prof(HarnessKind::ClaudeStdio, &["claude"]),
+    )]));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("cmux"));
+    assert_eq!(cfg.auto_fallback, Some(("claude".into(), "cmux".into())));
+}
+
+#[test]
+fn the_cmux_router_profile_defaults_to_deepseek_v4_1_flash_1017() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+    // Claude Code's background calls run on the same model.
+    assert_eq!(
+        found["cmux"].env.get("ANTHROPIC_SMALL_FAST_MODEL").map(String::as_str),
+        Some("deepseek/deepseek-v4.1-flash-1017")
+    );
+}
+
+#[test]
+fn the_cmux_router_profile_starts_on_the_model_router_setting() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("deepseek/deepseek-v4.1-flash"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
+}
+
+#[test]
+fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("anthropic/claude-opus-5-5"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+}
+
+#[test]
+fn the_model_router_setting_is_read_from_the_settings_document() {
+    let doc = serde_json::json!({"agents": {"modelRouter": {"model": "deepseek/deepseek-v4-pro"}}});
+    assert_eq!(
+        super::discover::cmux_router_model_in(&doc).as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
+}
+
+/// Every Claude Code profile reads Claude's store, whatever family it declares (`claude-sr2`),
+/// so adopt finds its chats there; other profiles keep their family.
+#[test]
+fn a_claude_code_profile_of_its_own_family_reads_the_claude_store() {
+    let mut sr2 = prof(HarnessKind::ClaudeStdio, &["sr2", "claude2"]);
+    sr2.family = Some("claude-sr2".into());
+    assert_eq!(derive_family("claude-sr2", &sr2), "claude-sr2");
+    assert_eq!(store_family("claude-sr2", &sr2), "claude");
+    assert_eq!(store_family("claude", &prof(HarnessKind::ClaudeStdio, &["claude"])), "claude");
+    let codex = prof(HarnessKind::Acp, &["codex-acp"]);
+    assert_eq!(store_family("codex", &codex), "codex");
+    let mut pi = prof(HarnessKind::Acp, &["pi-acp"]);
+    pi.family = Some("pi".into());
+    assert_eq!(store_family("pi", &pi), "pi");
 }

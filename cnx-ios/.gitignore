@@ -1,7 +1,0 @@
-CnxApp.xcodeproj/
-App/Info.plist
-.build/
-build/
-verify/evidence/
-# The repo root ignores artifacts/ (case-insensitively on macOS); keep source folders named Artifacts.
-!CnxKit/Sources/**/Artifacts/

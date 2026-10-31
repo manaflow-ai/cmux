@@ -47,6 +47,16 @@ public final class ToastUndoStep: NSObject {
         return step
     }
 
+    /// The step registered last: a change that just registered one (the sidebar document's, through the App) is it.
+    public static var latest: ToastUndoStep? { newest }
+
+    /// Gives this step a toast: the toast's Undo runs this step's inverse, never another change's on the stack's top.
+    public func share(with handle: CmuxToastHandle) {
+        self.handle = handle
+        handle.onAction = { [self] in run(fromToast: true) }
+        handle.ownsUndoTop = { [weak self] manager in self?.isTop(of: manager) == true }
+    }
+
     /// A step for a change sent and not answered yet (cx-kpicb): it is on the stack and its toast shows from the send, so
     /// the next Cmd-Z undoes this change, not the one before it. `fill` gives it the inverse when the reply comes; an
     /// undo that comes first runs the inverse then. `abandon` (refused, a no-op) takes it off the stack and the toast.

@@ -6,35 +6,60 @@
 
 use super::*;
 
-use crate::routes;
+use crate::{route_account, routes};
+use cmux_json::JsonSet as _;
 
 impl Hub {
+    /// A new chat's named route exists and serves its harness family.
+    pub(super) async fn check_new_route(
+        &self,
+        route_id: &str,
+        family: &str,
+    ) -> Result<(), RpcError> {
+        let (dir, _) = crate::routes::places(&*self.config.read().await);
+        let found = crate::routes::find(dir.as_deref(), route_id)
+            .map_err(|e| RpcError::invalid_params(format!("route {route_id}: {}", e.message())))?;
+        if !found.serves(family) {
+            return Err(RpcError::invalid_params(format!(
+                "route {route_id} does not serve the {family} harness"
+            )));
+        }
+        Ok(())
+    }
+
     /// The route env of a spawn, applied over `env`: the session's chat
     /// binding, else its workspace's, family's or the global one. No
     /// binding: `env` is unchanged. A binding to a route that is gone or
     /// that cannot start is the spawn's error, never a silent other route;
-    /// a non-chat binding to a route of another family is skipped.
+    /// a non-chat binding to a route of another family is skipped. Returns
+    /// the account home it gave a chat whose conversation has none yet
+    /// (route_account.rs records it once the chat has started). `forking`:
+    /// the session forks its parent's conversation, which has a home.
     pub(super) async fn apply_route(
         &self,
         meta: &SessionMeta,
+        forking: bool,
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
-    ) -> Result<Option<String>, RpcError> {
+    ) -> Result<Option<PathBuf>, RpcError> {
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, profile, env).await
+        let has_home = forking || route_account::has_home(meta);
+        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, has_home, profile, env).await
     }
 
     /// [`Self::apply_route`] for a spawn of harness `harness` that may not
     /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
-    /// profile's, family's or global route applies.
+    /// profile's, family's or global route applies. `has_home`: the chat's
+    /// conversation already has a folder, which the route does not change.
     pub(super) async fn apply_route_for(
         &self,
         harness: &str,
         session: Option<&str>,
         workspace: Option<&str>,
+        has_home: bool,
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
-    ) -> Result<Option<String>, RpcError> {
+    ) -> Result<Option<PathBuf>, RpcError> {
         let (dir, state) = routes::places(&*self.config.read().await);
         let family = crate::config::derive_family(harness, profile);
         let mut bindings = routes::bindings(&state);
@@ -43,23 +68,21 @@ impl Hub {
             bindings.chats.clear();
         }
         // A profile's own route (the `cmux` harness) replaces a family or
-        // global binding; a chat or workspace binding still wins.
-        let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
-        let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
-        // Your own endpoint (byo_endpoint.rs) names its provider itself: a
-        // family or global binding never rewrites it.
-        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
-        let Some((id, scope)) = (match (bound, profile_route) {
-            (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
-            (_, Some(id)) => Some((id, "profile")),
-            (_, None) if own_endpoint => None,
-            (bound, None) => bound,
-        }) else {
+        // global binding; a chat or workspace binding still wins; your own
+        // endpoint is never rewritten by a family or global one.
+        let Some((id, scope)) = routes::spawn_route(
+            &bindings,
+            session.unwrap_or_default(),
+            workspace,
+            &family,
+            &profile.env,
+        ) else {
             return Ok(None);
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; restore it or pick another (`cmux route use`)"
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
+                 or pick another account in the chat's Account menu"
             )))
         })?;
         if !route.serves(&family) {
@@ -70,13 +93,22 @@ impl Hub {
             }
             return Ok(None);
         }
-        let route_env =
-            tokio::task::spawn_blocking(move || routes::env_for(&route, &family, &state))
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
-                .map_err(|e| route_error(&e))?;
+        let home = route.file.account_home.clone().map(PathBuf::from);
+        let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
+        let fam = family.clone();
+        let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
-        Ok(Some(id))
+        // A home the profile pins (a Chief turn's, a claude-sr profile's) is
+        // only replaced by a route picked for this chat or profile.
+        let pinned = before.is_some() && !matches!(scope, "chat" | "profile");
+        if has_home || pinned {
+            route_account::keep_home(&family, before, env);
+            return Ok(None);
+        }
+        Ok(home)
     }
 
     /// Bind a chat to a route (None: back to the inherited one) and move its
@@ -103,6 +135,17 @@ impl Hub {
                 .map_err(|e| RpcError::internal(e.to_string()))?
                 .map_err(|e| route_error(&e))?;
         }
+        if let (Some(id), Some(profile)) = (&route, &profile)
+            && route_account::has_home(&meta)
+        {
+            // Its conversation stays in its folder: another account's route
+            // would not move it there, so it is refused instead.
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let (_, env) = self.harness_env(&meta).await;
+            let current = route_account::current_home(&meta, &family, &env);
+            let to = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+            route_account::switch_allowed(current.as_deref(), &to).map_err(|e| route_error(&e))?;
+        }
         let from = routes::bindings(&state).chats.get(&session.id).cloned();
         routes::set_binding(&state, &format!("chat:{}", session.id), route.as_deref())
             .map_err(|e| route_error(&e))?;
@@ -126,6 +169,24 @@ impl Hub {
         Ok(json!({"routeId": route, "applied": "now"}))
     }
 
+    /// A new chat that started in an account home keeps it as its store
+    /// from now on (route_account.rs `record`); a failed start records nothing.
+    pub(super) fn keep_account_home<T>(
+        &self,
+        session: &Session,
+        spawn: &super::spawn::Spawn,
+        child: T,
+    ) -> T {
+        let recorded = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            route_account::record(&mut m, spawn.account_home.as_deref())
+        };
+        if recorded {
+            self.save_meta(session);
+        }
+        child
+    }
+
     /// Restart the harness on its current binding and resume the same agent
     /// session; the new process starts now (prewarm), so the next prompt does
     /// not wait for it.
@@ -133,6 +194,11 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
+        // A shutdown began: no agent starts here any more, and the one it left running is the
+        // next daemon's to adopt (`shutdown.rs`). The binding is written; nothing moved yet.
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         session.route_switch.store(false, Ordering::SeqCst);
         if session.child.lock().await.is_none() {
             return Ok(());
@@ -202,6 +268,35 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// An adopted agent whose host (an older build) recorded no caller token
+    /// cannot prove its session, so its sub-session tools are refused. It
+    /// restarts as `acpmux session restart` asks, in the same conversation
+    /// and keeping its sub-sessions, once it is between turns: a recovered
+    /// turn ends its process when it ends (`hosts.rs`), a later turn moves it
+    /// before the next one (`turns.rs`), and an idle agent ends now and starts
+    /// again at its next prompt. Never during a turn or an open permission
+    /// prompt.
+    pub(super) fn restart_unproven(self: &Arc<Self>, session: &Arc<Session>, proven: bool) {
+        if proven {
+            return;
+        }
+        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): restarting it between turns for its sub-session tools");
+        session.route_switch.store(true, Ordering::SeqCst);
+        let hub = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            let _turn = session.turn_lock.lock().await;
+            if session.turn().is_none()
+                && session.pending_permissions().is_empty()
+                && session.route_switch.swap(false, Ordering::SeqCst)
+            {
+                hub.detach_child(&session).await;
+            }
+        });
+    }
+}
+
 /// What `restart_harnesses` did: how many sessions restarted now, how many
 /// restart when their turn ends, and `(session, error)` for each whose
 /// harness could not start again.
@@ -222,6 +317,19 @@ fn is_chief(meta: &SessionMeta) -> bool {
         || meta.harness.starts_with("optchat-compact-")
 }
 
+/// Whether another route can solve a failed turn: auth, limits, an overloaded or full
+/// provider (`is_capacity_error`, with or without its status code), server errors, an
+/// unreachable proxy. A capacity error retries in place too (`auto_resume.rs`); the route's
+/// diagnostics, probe and `autoFallback` still see it.
+fn is_route_failure(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    super::turn_errors::is_limit_error(message)
+        || super::turn_errors::is_capacity_error(message)
+        || ["500", "502", "connection refused", "unreachable", "timed out", "agent process closed"]
+            .iter()
+            .any(|w| lower.contains(w))
+}
+
 impl Hub {
     /// A failed turn on a bound route (ROUTES R3): name the route, offer its
     /// first fallback that serves this harness (`fallback: {routeId, name}`),
@@ -234,21 +342,7 @@ impl Hub {
         session: &Arc<Session>,
         message: &str,
     ) -> Option<Value> {
-        let lower = message.to_lowercase();
-        let route_class = super::turn_errors::is_limit_error(message)
-            || [
-                "500",
-                "502",
-                "503",
-                "529",
-                "connection refused",
-                "unreachable",
-                "timed out",
-                "agent process closed",
-            ]
-            .iter()
-            .any(|w| lower.contains(w));
-        if !route_class {
+        if !is_route_failure(message) {
             return None;
         }
         let (dir, state) = routes::places(&*self.config.read().await);
@@ -266,15 +360,17 @@ impl Hub {
                 hub.append(&s, "mux", "route_probe", probe);
             });
         }
-        let next = route
-            .file
-            .fallback
-            .iter()
-            .filter(|f| **f != id)
-            .find_map(|f| routes::find(dir.as_deref(), f).ok().filter(|r| r.serves(&family)));
+        // A fallback never names another account: the chat keeps its folder.
+        let (_, env) = self.harness_env(&meta).await;
+        let home = route_account::current_home(&meta, &family, &env);
+        let next = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+            routes::find(dir.as_deref(), f).ok().filter(|r| {
+                r.serves(&family) && route_account::switch_allowed(home.as_deref(), r).is_ok()
+            })
+        });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
-            out["fallback"] = json!({"routeId": next.id, "name": next.name()});
+            out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
             if route.file.auto_fallback
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
@@ -286,7 +382,7 @@ impl Hub {
                     json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
                 );
                 session.route_switch.store(true, Ordering::SeqCst);
-                out["fallback"]["applied"] = json!(true);
+                out.set_path(&["fallback", "applied"], json!(true));
             }
         }
         Some(out)
@@ -302,5 +398,26 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
     match e.reason() {
         Some(reason) => base.with_data(json!({"reason": reason})),
         None => base,
+    }
+}
+
+#[cfg(test)]
+mod route_failure_tests {
+    use super::is_route_failure;
+
+    #[test]
+    fn overloads_with_or_without_a_status_are_route_failures() {
+        for m in [
+            "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "Selected model is at capacity. overloaded",
+            "API Error: 529 overloaded_error",
+            "API Error: 503 no non-exhausted claude accounts available",
+            "You've reached your usage limit for this account",
+            "API Error: 500 Internal server error",
+            "connection refused",
+        ] {
+            assert!(is_route_failure(m), "{m}");
+        }
+        assert!(!is_route_failure("simulated internal error"));
     }
 }

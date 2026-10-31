@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the
@@ -191,7 +192,7 @@ public final class CmuxDialogCenter {
             dismiss(id)
             return
         }
-        let view = CmuxDialogView(spec: entry.spec)
+        let view = CmuxDialogView(spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
         view.onPress = { [weak self] button in self?.press(id, button: button) }
         entries[id]?.view = view
         host.show(view, in: scope) { [weak self] in self?.dismiss(id) }
@@ -214,7 +215,9 @@ public final class CmuxDialogCenter {
         for field in entry.spec.fields {
             switch field {
             case .text(let id, _, let initial, _, _): values[id] = .text(initial)
-            case .choice(let id, _, let options, let selected): values[id] = .text(selected ?? options.first?.value ?? "")
+            case .choice(let id, _, let options, let selected):
+                let enabled = options.filter(\.isEnabled)
+                values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
             case .preview: break
             }

@@ -74,11 +74,11 @@ fn a_host_that_misses_its_hello_is_started_once_more() {
 }
 
 #[test]
-fn a_second_failure_is_reported_not_retried_forever() {
+fn a_third_failure_is_reported_not_retried_forever() {
     let mut h = Harness::new(default_script());
     {
         let mut inner = h.agents.inner.lock().unwrap();
-        for _ in 0..2 {
+        for _ in 0..3 {
             inner
                 .session_errors_once
                 .push_back("session/new: agent host did not answer hello within 5s".into());
@@ -102,5 +102,57 @@ fn only_host_start_failures_are_transient() {
     ));
     assert!(!is_transient_start_failure(
         "session/new: env key X is not one a session may set"
+    ));
+}
+
+/// acp-chief-issues.md #3: "session/new: agent process closed" (a96, a198,
+/// 22 compactor and subagent starts on 2026-10-19) is sr2 or Claude Code
+/// exiting while it starts, mostly while the sr2 gateway is slow (its stderr:
+/// "read rotation: ... context deadline exceeded", "connection refused").
+/// The same spawn a moment later starts. It is tried again, with a pause,
+/// up to three tries in all.
+#[test]
+fn a_harness_that_dies_while_it_starts_is_started_again() {
+    let mut h = Harness::new(default_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner
+            .session_errors_once
+            .push_back("session/new: agent process closed".into());
+        inner.session_errors_once.push_back(
+            "session/new: agent process closed (claude-sr2): claude2: read rotation: context deadline exceeded".into(),
+        );
+    }
+    let answer = spawn_one(&mut h).expect("the spawn answers");
+    assert!(answer.contains("Started a1"), "{answer}");
+    assert_eq!(subagent_sessions(&h), 1);
+}
+
+#[test]
+fn a_harness_that_dies_three_times_is_reported() {
+    let mut h = Harness::new(default_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        for _ in 0..3 {
+            inner
+                .session_errors_once
+                .push_back("session/new: agent process closed".into());
+        }
+    }
+    let answer = spawn_one(&mut h).expect("the spawn answers");
+    assert!(answer.contains("a1: did not start"), "{answer}");
+    assert_eq!(subagent_sessions(&h), 0);
+}
+
+#[test]
+fn a_harness_that_closes_for_want_of_a_login_is_not_retried() {
+    assert!(is_transient_start_failure(
+        "session/new: agent process closed"
+    ));
+    assert!(!is_transient_start_failure(
+        "session/new: agent process closed (claude): Not logged in · Please run /login"
+    ));
+    assert!(!is_transient_start_failure(
+        "session/new: agent process closed (codex): unknown option --foo"
     ));
 }

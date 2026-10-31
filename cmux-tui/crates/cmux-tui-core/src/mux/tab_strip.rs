@@ -9,6 +9,7 @@
 //! tab whose group or pin changed and every tab group the change touched,
 //! so `session.events` readers converge without refetching.
 
+pub(crate) mod reopen_identity;
 pub(crate) mod tab_slot;
 
 use std::collections::BTreeSet;
@@ -83,6 +84,7 @@ pub(crate) struct StripEdit {
 impl Mux {
     /// Commit a tab strip change. Returns `mutate`'s output (`None` on a
     /// replay, which runs nothing) and the commit.
+    #[track_caller]
     pub(crate) fn commit_tab_strip_change<R>(
         self: &Arc<Self>,
         request: StripRequest,

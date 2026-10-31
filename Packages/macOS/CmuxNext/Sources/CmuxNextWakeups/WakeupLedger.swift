@@ -49,6 +49,14 @@ public final class WakeupLedger: Sendable {
             second = now
         }
 
+        mutating func add(_ count: UInt32, at nanos: UInt64, second: UInt64) {
+            roll(to: second)
+            total &+= UInt64(count)
+            lastNanos = nanos
+            let slot = Int(second % UInt64(WakeupLedger.bucketCount))
+            buckets[slot] = buckets[slot] &+ count
+        }
+
         /// Call after `roll(to: now)`: buckets older than `bucketCount` seconds are zero.
         func rate(at now: UInt64) -> Double {
             var sum: UInt64 = 0
@@ -78,14 +86,10 @@ public final class WakeupLedger: Sendable {
     public func record(_ owner: String, reason: String = "wake", count: UInt32 = 1) {
         let now = uptime()
         let second = now / 1_000_000_000
+        // In place (one hash, no copy): a copy out of the dictionary made the bucket array
+        // copy itself on write, one allocation per frame client per frame.
         counters.withLock { counters in
-            var counter = counters[Key(owner: owner, reason: reason)] ?? Counter(second: second)
-            counter.roll(to: second)
-            counter.total &+= UInt64(count)
-            counter.lastNanos = now
-            let slot = Int(second % UInt64(Self.bucketCount))
-            counter.buckets[slot] = counter.buckets[slot] &+ count
-            counters[Key(owner: owner, reason: reason)] = counter
+            counters[Key(owner: owner, reason: reason), default: Counter(second: second)].add(count, at: now, second: second)
         }
         activity.add(1, ordering: .relaxed)
     }

@@ -39,6 +39,10 @@ public struct PaletteSources {
     /// Scopes beyond the built-in ones (browser history, app scopes): each
     /// joins the scope graph and makes its page on entry.
     public var scopes: [PaletteScopeContribution] = []
+    /// The App's pages whose rows join Search (scope `search`, the sidebar's
+    /// Search button): browser history, agent chats. Each page's rows keep
+    /// their own section, or take the contribution's.
+    public var searchContributions: [PaletteSearchContribution] = []
     /// Prefixes the user assigned (cmux.json `palette.scopes.<id>.prefix`):
     /// a character, or nil to turn a scope's prefix off. Read on every open.
     public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?

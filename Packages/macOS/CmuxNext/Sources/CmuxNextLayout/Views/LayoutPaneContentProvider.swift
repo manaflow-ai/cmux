@@ -12,6 +12,9 @@ import CmuxNextDesign
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
+    /// Whether this pane's live content keeps its painted size while a split or close springs.
+    /// The host clips the held page and lays it out once when the spring lands.
+    func holdsContentInMotion(for pane: PaneID) -> Bool
     /// The pane left the layout. Called in the same update, with no removal animation.
     func releaseContentView(_ view: NSView, for pane: PaneID)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
@@ -20,6 +23,7 @@ public protocol LayoutPaneContentProvider: AnyObject {
 }
 
 extension LayoutPaneContentProvider {
+    public func holdsContentInMotion(for pane: PaneID) -> Bool { false }
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
 }
@@ -42,13 +46,18 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
+    /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
+    var userMotionStepped: () -> Void = {}
+    /// A user gesture ended with nothing left to spring: the motion it started ends.
+    var userMotionEnded: () -> Void = {}
     /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
-    /// Screens whose panes spring into a closed pane's space now (`ScreenContentView.closing`).
-    var closingScreens: Set<ScreenID> = [] {
-        didSet { if oldValue.isEmpty != closingScreens.isEmpty { gridHoldDidChange(!closingScreens.isEmpty) } }
+    /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
+    var gridHoldScreens: Set<ScreenID> = [] {
+        didSet { if oldValue.isEmpty != gridHoldScreens.isEmpty { gridHoldDidChange(!gridHoldScreens.isEmpty) } }
     }
-    /// The first close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
+    /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
@@ -86,16 +95,18 @@ final class LayoutViewContext {
     var reduceMotionOverride: Bool?
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
-    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.animatesMovement }
+    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement }
 
     /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
-    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.animatesPaneLayout }
+    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content)
+        let host = PaneHostView(pane: pane, content: content) { [weak self] in
+            self?.provider?.holdsContentInMotion(for: pane) ?? false
+        }
         hosts[pane] = host
         return host
     }

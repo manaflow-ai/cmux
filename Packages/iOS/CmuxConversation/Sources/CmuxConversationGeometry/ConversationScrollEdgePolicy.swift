@@ -1,6 +1,7 @@
 import CoreGraphics
 
 /// When the transcript's system scroll edge effects should be live.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationScrollEdgePolicy {
     /// Whether transcript content lies under the bottom bar band (the
     /// composer, and the keyboard below it). At rest on the newest message

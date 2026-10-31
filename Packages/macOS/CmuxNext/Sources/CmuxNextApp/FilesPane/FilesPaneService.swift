@@ -33,14 +33,22 @@ final class FilesPaneService: InternalPageProvider {
     private var titleWatch: [String: Task<Void, Never>] = [:]
     /// The folder the next new tab opens on (``open(folder:focus:)``); home when nil.
     private var pendingFolder: URL?
+    /// The item the next new tab selects (``reveal(_:focus:)``).
+    private var pendingSelection: URL?
+    /// The shared file menu's Open as Text, Open With and Share rows for the pane's context menu.
+    private lazy var fileMenu = FileActionsMenu(actions: .init(
+        openInCmux: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane) },
+        revealInFiles: { [weak self] url in try? self?.reveal(url, focus: true) },
+        openAsText: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane, asText: true) }))
 
     init(services: AppServices) {
         self.services = services
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
+            // task-owner: stored in volumeWatch; the service lives as long as the app
             Task { @MainActor in
-                for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { sidebar.refreshLocations() }
+                for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { await sidebar.refreshLocations() }
             }
         }
     }
@@ -75,6 +83,19 @@ final class FilesPaneService: InternalPageProvider {
         }
     }
 
+    /// Opens a new Files tab on `item`'s folder with `item` selected (Reveal in cmux Files): beside
+    /// a docked Home or chat, never in it. A folder opens on itself.
+    func reveal(_ item: URL, focus: Bool) throws {
+        let isFolder = FileOpenKind(url: item) == .folder
+        pendingSelection = isFolder ? nil : item
+        do {
+            try open(folder: isFolder ? item : item.deletingLastPathComponent(), focus: focus)
+        } catch {
+            pendingSelection = nil
+            throw error
+        }
+    }
+
     private func makeTab(_ folder: URL) -> Tab {
         let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
                                                                                    aliasWord: FilesPaneView.aliasWord)),
@@ -87,7 +108,14 @@ final class FilesPaneService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         var tab = tabs[key] ?? makeTab(pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser)
         pendingFolder = nil
+        if let selection = pendingSelection {
+            pendingSelection = nil
+            let model = tab.model
+            // task-owner: one listing; ends when the item is selected
+            Task { await model.open(selection.deletingLastPathComponent(), select: selection) }
+        }
         let view = FilesPaneView(model: tab.model, sidebar: sidebar, icons: icons) { [weak self] url in self?.openFile(url, from: key) }
+        view.fileMenu = fileMenu
         tab.view = view
         tabs[key] = tab
         let model = tab.model
@@ -107,14 +135,18 @@ final class FilesPaneService: InternalPageProvider {
         tabs.removeValue(forKey: key)?.view?.stop()
     }
 
-    /// Text and code open in cmux's viewers beside the pane; anything else in its default app.
+    /// A double-clicked file opens in cmux when cmux shows its kind (``FileOpenKind``: Markdown,
+    /// web pages, images, PDF, media, text, code) beside the pane; apps and documents cmux cannot
+    /// show (Office files, archives) open in their default app, as in Finder.
     private func openFile(_ url: URL, from key: String) {
         guard let services else { return }
-        let type = UTType(filenameExtension: url.pathExtension)
-        if type?.conforms(to: .text) == true || type?.conforms(to: .sourceCode) == true || url.pathExtension.isEmpty,
-           services.viewers.openFile(url, in: services.paneController(showingTab: key), userChose: true) == nil {
-            return
+        switch FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false) {
+        case .markdown, .web, .preview, .editor:
+            let source = services.paneController(showingTab: key)
+            if services.linkOpener.openFile(url, from: source) { return }
+        case .folder, .app, .other:
+            break
         }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
     }
 }

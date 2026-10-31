@@ -14,6 +14,6 @@ extension DaemonConnection {
               ready.identity.sessionResourceID == expectedSessionID else {
             throw DaemonError.malformedResponse("Job carrier owner/session did not match the admitted route")
         }
-        return AgentCLIJobCarrier(machine: expectedMachineID, session: expectedSessionID, transport: ready.transport)
+        return AgentCLIJobCarrier(machine: expectedMachineID, session: expectedSessionID, transport: ready.transport, identity: ready.identity)
     }
 }

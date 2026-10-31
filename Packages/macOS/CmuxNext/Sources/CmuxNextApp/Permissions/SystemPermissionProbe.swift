@@ -60,7 +60,7 @@ final class SystemPermissionProbe: PermissionProbe {
         let grants = Task { @MainActor in
             for await _ in ObservationStream({ ObservationTrigger(setup.permissions) }) { continuation.yield() }
         }
-        nonisolated(unsafe) let observers: [any NSObjectProtocol] = [active, trust] // the tokens are only removed, once, in onTermination
+        nonisolated(unsafe) let observers: [any NSObjectProtocol] = [active, trust] // crash-allow: an immutable array of opaque observer tokens, read only by onTermination (runs once); removeObserver is thread-safe
         let notifications = notifications
         let distributed = distributed
         continuation.onTermination = { _ in

@@ -6,6 +6,16 @@ import LocalAuthentication
 /// Reads the Chromium framework's code and resources into the file cache on
 /// the library-load thread, before `CefInitialize` runs on the main thread.
 ///
+/// The framework binary is read BEFORE it is mapped (``readBinary(_:)``,
+/// called ahead of `cef_load_library`). `dlopen` holds dyld's loader lock
+/// while it maps the image, validates its signature and applies its fixups;
+/// on a cold file cache (every nightly update) that took about 2 s, and
+/// every main-thread `dlopen` or `dladdr` in that window waited for the lock
+/// (Sentry MainThreadHang `__ulock_wait2` in `dyld4::APIs::dlopen_from` from
+/// WebKit's Safe Browsing load, and `dyld_image_header_containing_address`
+/// from `+[NSView clipsToBounds]`, 2-4 s after launch, the restored tab's
+/// CEF load). Read first, the lock is held only for cached pages.
+///
 /// Mapping the framework (`dlopen`) does not read its code. On a cold file
 /// cache `CefInitialize` and the first browser window then wait on page-ins
 /// of the 367 MiB framework on the main thread: in a macOS 26 VM each held
@@ -28,6 +38,11 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         var files: Int = 0
         var duration: Duration = .zero
         var services: Duration = .zero
+        /// The binary read before the map (``readBinary(_:)``).
+        var binary: Duration = .zero
+        /// Time inside `cef_load_library`: how long dyld's loader lock was
+        /// held for the framework (``noteMapped(_:)``).
+        var map: Duration = .zero
     }
 
     /// The last read in this process (`debug.cef`).
@@ -46,8 +61,33 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         return [layout.frameworkBinary] + resourceFiles
     }
 
-    /// Reads every file of `layout` once (call off the main thread), then
-    /// primes ImageIO (`CEFRuntime.primeImageIO`).
+    /// Reads the framework binary into the file cache (call off the main
+    /// thread, before `cef_load_library`), so the map that follows holds
+    /// dyld's loader lock only for cached pages.
+    static func readBinary(_ layout: CEFRuntimeLayout) {
+        let clock = ContinuousClock()
+        let started = clock.now
+        let binary = read([layout.frameworkBinary])
+        let duration = clock.now - started
+        lastReport.withLock { report in
+            if report == nil { report = Report() }
+            report?.binary = duration
+            report?.bytes = binary.bytes
+            report?.files = binary.files
+        }
+    }
+
+    /// Records how long `cef_load_library` took (the loader-lock hold).
+    static func noteMapped(_ duration: Duration) {
+        lastReport.withLock { report in
+            if report == nil { report = Report() }
+            report?.map = duration
+        }
+    }
+
+    /// Reads every file of `layout` but the binary (``readBinary(_:)`` read
+    /// it before the map) once (call off the main thread), then primes
+    /// ImageIO (`CEFRuntime.primeImageIO`).
     static func warm(_ layout: CEFRuntimeLayout) {
         // The service asks run beside the read and the start, never in its
         // way: a slow or hung daemon must not hold Chromium's start.
@@ -64,26 +104,36 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         }
         let clock = ContinuousClock()
         let started = clock.now
-        var report = Report()
+        let resources = read(files(in: layout).filter { $0 != layout.frameworkBinary })
+        let duration = clock.now - started
+        lastReport.withLock { stored in
+            var report = stored ?? Report()
+            report.bytes += resources.bytes
+            report.files += resources.files
+            report.duration = report.binary + duration
+            stored = report
+        }
+        CEFRuntime.primeImageIO()
+    }
+
+    /// Reads each file to its end; returns the bytes and files read.
+    private static func read(_ urls: [URL]) -> (bytes: Int, files: Int) {
+        var bytes = 0
+        var files = 0
         let size = 1 << 20
         let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16384)
         defer { buffer.deallocate() }
-        for url in files(in: layout) {
+        for url in urls {
             // concurrency-allow: the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
             let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else { continue }
             defer { close(descriptor) }
-            report.files += 1
+            files += 1
             // concurrency-allow: the library-load thread, never the main thread
-            while case let count = read(descriptor, buffer, size), count > 0 || (count < 0 && errno == EINTR) {
-                report.bytes += max(count, 0)
+            while case let count = Darwin.read(descriptor, buffer, size), count > 0 || (count < 0 && errno == EINTR) {
+                bytes += max(count, 0)
             }
         }
-        report.duration = clock.now - started
-        lastReport.withLock { stored in
-            report.services = stored?.services ?? .zero
-            stored = report
-        }
-        CEFRuntime.primeImageIO()
+        return (bytes, files)
     }
 }

@@ -34,6 +34,20 @@ export function isPageURL(value: unknown): value is string {
   return bare !== null && bare.includes(".");
 }
 
+/**
+ * An http or https address with a host and nothing else: no user info, no path other than "/",
+ * no query, no fragment (Swift `SettingDescriptor.httpOrigin`, cmux-config `is_http_origin`).
+ */
+export function isHttpOrigin(value: unknown): value is string {
+  if (typeof value !== "string" || /[\s?#@]/.test(value) || !/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname !== "" && url.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
 function hostOf(url: string): string | null {
   try {
     const host = new URL(url).hostname;
@@ -103,10 +117,13 @@ export function isCustomDensity(value: unknown): boolean {
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
   if (row.validation === "domain:backdrop_selection") {
-    // A listed painting, Shuffle Daily, or a macOS wallpaper by absolute path (each Mac has its own set).
-    if (typeof value === "string" && (choices.includes(value) || value === "daily" || /^(system|file):\//.test(value)))
+    // A listed painting, Shuffle Paintings, a shuffled folder, or a macOS wallpaper by absolute path (each Mac has its own set).
+    if (
+      typeof value === "string" &&
+      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value))
+    )
       return null;
-    return "expected none, daily, a listed painting, system:<absolute path> or file:<absolute path>";
+    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
   }
   if (row.validation === "domain:custom_densities") {
     return Array.isArray(value) && value.every(isCustomDensity)
@@ -126,6 +143,14 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return inRange(row, value)
         ? null
         : `expected one of ${choices.join(", ")} or a number from ${row.range?.min} to ${row.range?.max}`;
+    case "choice_or_url": {
+      if (typeof value === "string" && choices.includes(value)) return null;
+      const key = row.url_key ?? "url";
+      const members = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.keys(value) : [];
+      return members.length === 1 && members[0] === key && isHttpOrigin((value as Record<string, unknown>)[key])
+        ? null
+        : `expected one of ${choices.join(", ")} or {"${key}": "http(s)://host[:port]"}`;
+    }
     case "number":
       return inRange(row, value) ? null : `expected a number from ${row.range?.min} to ${row.range?.max}`;
     case "color":
@@ -179,6 +204,15 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         Object.values(value).every((item) => typeof item === "string")
         ? null
         : "expected an object of strings";
+    case "sound_rules":
+      return typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.values(value).every(
+          (item) => typeof item === "string" || (typeof item === "object" && item !== null && !Array.isArray(item)),
+        )
+        ? null
+        : "expected an object of sound rules";
     case "string_list":
       if (row.choices) {
         const values = row.choices.map((choice) => choice.value);

@@ -10,48 +10,68 @@ import Foundation
 /// `~~strike~~`, `` `code` ``, `[label](url)` and `<url>`. Only http, https
 /// and mailto URLs, a cmux app link (URL.isCmuxAppLink) and a path
 /// (URL.isHomePathLink) become links; another scheme shows its label as text.
-/// Bare paths and cmux ids in plain text (or a whole code span) link too
-/// (HomeAutoLinks).
+/// Bare paths, cmux ids and web URLs in plain text (or a whole code span)
+/// link too (HomeAutoLinks).
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
     /// `chips`: links to cmux objects, files and GitHub objects show as chips (HomeLinkChip):
     /// the transcript passes true; a plain-text use (the sidebar preview) keeps the default.
     static func render(_ source: String, chips: Bool = false) -> (text: String, runs: [TextRun]) {
+        var pass = Pass(chips: chips)
+        for raw in source.split(separator: "\n", omittingEmptySubsequences: false) { pass.line(raw) }
+        return (pass.out.text, pass.out.runs)
+    }
+
+    /// One left-to-right pass over a source, line by line: the only state a line hands the next
+    /// is whether a code fence is open (and whether a line came before), so a pass stopped after
+    /// any line resumes exactly (HomeMarkdownRenderer: a streaming reply renders only its new lines).
+    struct Pass {
         var out = Output()
-        out.chips = chips
         var inFence = false
         var first = true
-        for raw in source.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(raw)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+        init(chips: Bool = false) { out.chips = chips }
+
+        /// Renders one source line (no newline). `lines`: rendered lines outside a fence, by
+        /// their source (the renderer's cache); nil renders every line.
+        mutating func line(_ raw: Substring, lines: HomeMarkdownLineCache? = nil) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 inFence.toggle()
-                continue
+                return
             }
             if !first { out.append("\n", []) }
             first = false
             if inFence {
-                out.append(line, line.isEmpty ? [] : ["code"])
-                continue
+                out.append(String(raw), raw.isEmpty ? [] : ["code"])
+                return
             }
-            let indent = line.prefix { $0 == " " || $0 == "\t" }
-            let body = Substring(line.dropFirst(indent.count))
-            let pad = String(repeating: "   ", count: min(4, indent.count / 2))
-            if let (level, rest) = heading(body), level > 0 {
-                Inline.parse(Array(rest), into: &out, styles: ["bold"], link: nil)
-            } else if let rest = bullet(body) {
-                out.append(pad + "• ", [])
-                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
-            } else if let (number, rest) = numbered(body) {
-                out.append(pad + number + " ", [])
-                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+            if let lines {
+                out.append(lines.rendered(raw))
             } else {
-                out.append(String(indent), [])
-                Inline.parse(Array(body), into: &out, styles: [], link: nil)
+                HomeMarkdown.renderLine(String(raw), into: &out)
             }
         }
-        return (out.text, out.runs)
+    }
+
+    /// One line outside a code fence: heading, bullet, numbered item or paragraph text.
+    static func renderLine(_ line: String, into out: inout Output) {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let body = Substring(line.dropFirst(indent.count))
+        let pad = String(repeating: "   ", count: min(4, indent.count / 2))
+        if let (level, rest) = heading(body), level > 0 {
+            Inline.parse(Array(rest), into: &out, styles: ["bold"], link: nil)
+        } else if let rest = bullet(body) {
+            out.append(pad + "• ", [])
+            Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+        } else if let (number, rest) = numbered(body) {
+            out.append(pad + number + " ", [])
+            Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+        } else {
+            out.append(String(indent), [])
+            Inline.parse(Array(body), into: &out, styles: [], link: nil)
+        }
     }
 
     private static func heading(_ s: Substring) -> (Int, Substring)? {
@@ -107,13 +127,24 @@ enum HomeMarkdown {
             text += s
             length += n
         }
+
+        /// Appends a line rendered on its own (`renderLine` into an empty Output): its runs move by
+        /// this text's length. A run never joins one before it: the line follows a newline (no run)
+        /// or starts the text.
+        mutating func append(_ line: Output) {
+            guard !line.text.isEmpty else { return }
+            runs.reserveCapacity(runs.count + line.runs.count)
+            for var r in line.runs { r.start += length; runs.append(r) }
+            text += line.text
+            length += line.length
+        }
     }
 
     enum Inline {
         static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?) {
             var i = 0
             var plain = ""
-            // Plain text outside a link links its bare paths and cmux ids (HomeAutoLinks).
+            // Plain text outside a link links its bare paths, cmux ids and web URLs (HomeAutoLinks).
             func flush() {
                 if link == nil { out.appendLinkingBare(plain, styles) } else { out.append(plain, styles, link: link) }
                 plain = ""

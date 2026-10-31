@@ -11,10 +11,14 @@ extension MessagesLabHomeView {
     func debugScaleGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         let s = demo.renderScale
-        var bitmaps = 0, offScale = 0, cellsOff = 0
+        var bitmaps = 0, offScale = 0, cellsOff = 0, cellsOffInactive = 0, typingOffInactive = 0
+        let typingFill = Fixture.typingColors(inactive: demo.inactive).fill.cgColor
         var ratioMin = CGFloat.infinity, ratioMax: CGFloat = 0
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             if cell.renderScale != s { cellsOff += 1 }
+            if cell.inactive != demo.inactive { cellsOffInactive += 1 }
+            // A typing row's drawn fill (RowCell.typingBody) is its view's state's, exactly.
+            if case .typing? = cell.spec?.kind, cell.typingBody.fillColor != typingFill { typingOffInactive += 1 }
             // Text rows only (a media row's placeholder thumbnail is fitted to its bubble, not drawn at the layer's
             // size), and a shown, unstretched bitmap (long text hides it under its tiles).
             guard case let .part(p)? = cell.spec?.kind, case .text = p.part else { continue }
@@ -33,9 +37,10 @@ extension MessagesLabHomeView {
                 "rowBitmaps": Double(bitmaps), "rowBitmapsOffScale": Double(offScale), "cellsOffScale": Double(cellsOff),
                 "composeScale": Double(demo.compose.renderScale), "headerScale": Double(demo.header.layer.contentsScale),
                 "bitmapPxPerPtMin": bitmaps > 0 ? Double(ratioMin) : 0, "bitmapPxPerPtMax": Double(ratioMax),
-                // The palette state the rows draw with (process-wide) and the window's key state, and whether the
-                // bitmaps' colour space is the window screen's (b5742f3 display-change colour check).
-                "fixtureInactive": Fixture.inactive ? 1 : 0, "windowKey": (controller.host.window?.isKeyWindow ?? false) ? 1 : 0,
+                // The view's own inactive state (MessagesLab 806ef0c), the visible rows drawn with another one, the
+                // window's key state, and whether the bitmaps' colour space is the window screen's (b5742f3 check).
+                "viewInactive": demo.inactive ? 1 : 0, "cellsOffInactive": Double(cellsOffInactive),
+                "typingOffInactive": Double(typingOffInactive), "windowKey": (controller.host.window?.isKeyWindow ?? false) ? 1 : 0,
                 "appActive": NSApp.isActive ? 1 : 0, "lightAppearance": Fixture.lightAppearance ? 1 : 0,
                 "colorSpaceIsScreen": controller.host.window?.screen?.colorSpace?.cgColorSpace.map { $0 == DisplayScale.colorSpace } == true ? 1 : 0]
     }

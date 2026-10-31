@@ -7,13 +7,14 @@
 // drops a cell selection, and copying cells writes a Markdown table and an HTML table. Column
 // widths are a view setting: they never change the markdown a save writes.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { TextSelection } from "@milkdown/kit/prose/state";
-import { CellSelection } from "@milkdown/kit/prose/tables";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor } from "../src/pages/markdown/editor";
 import type { TableWidths } from "../src/pages/markdown/tables";
 
 let dom: JSDOM;
+// ProseMirror loaded after the page says it is a Mac (beforeAll): see there.
+let TextSelection: typeof import("@milkdown/kit/prose/state").TextSelection;
+let CellSelection: typeof import("@milkdown/kit/prose/tables").CellSelection;
 let MarkdownEditor: typeof Editor;
 let storedTableWidths: typeof import("../src/pages/markdown/tables").storedTableWidths;
 let headerKey: typeof import("../src/pages/markdown/tables").headerKey;
@@ -21,6 +22,13 @@ let widthTables: typeof import("../src/pages/markdown/tables");
 
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
+  // The editor runs in a Mac WebView, where ProseMirror's Mod is Cmd: its keymaps read
+  // navigator.platform once, when they load. jsdom's platform is "", and bun's is the host's,
+  // so on a Linux runner Mod was Ctrl and the third Cmd-A below never reached Select All.
+  // This holds only when this file has its own process (scripts/ci/run-webviews-tests.sh):
+  // ProseMirror decides once per process, so after another editor test (markdown-selection,
+  // markdown-link-bubble) loaded it in the same `bun test`, the override comes too late.
+  Object.defineProperty(dom.window.navigator, "platform", { value: "MacIntel", configurable: true });
   const scope = globalThis as Record<string, unknown>;
   for (const key of [
     "window",
@@ -53,6 +61,8 @@ beforeAll(async () => {
     prototype.getClientRects = rects;
     prototype.getBoundingClientRect = box;
   }
+  ({ TextSelection } = await import("@milkdown/kit/prose/state"));
+  ({ CellSelection } = await import("@milkdown/kit/prose/tables"));
   ({ MarkdownEditor } = await import("../src/pages/markdown/editor"));
   widthTables = await import("../src/pages/markdown/tables");
   ({ storedTableWidths, headerKey } = widthTables);
@@ -169,7 +179,7 @@ describe("markdown table keys", () => {
     const selection = md.view().state.selection;
     expect(selection instanceof CellSelection).toBe(true);
     let cells = 0;
-    (selection as CellSelection).forEachCell(() => cells++);
+    (selection as InstanceType<typeof CellSelection>).forEachCell(() => cells++);
     expect(cells).toBe(6);
     // The third Cmd-A is the editor's own Select All: the whole document.
     md.key("a", { meta: true });

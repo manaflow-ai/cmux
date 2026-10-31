@@ -20,13 +20,18 @@ import AppKit
     let list: SidebarListView
     private var model: SidebarModel { list.model }
 
-    /// The visible keyboard stops in drawn order.
+    /// The visible keyboard stops in drawn order. A group drawn as its one row (`SidebarLayout+SoleMember`) has that
+    /// row for its header: two stops, the group's (the row draws its focus ring) and then its member's, as a header
+    /// and its first member are, so every key on a focused group works there as on a header.
     var stops: [Stop] {
-        list.displayed.rows.compactMap { row in
+        list.displayed.rows.flatMap { row -> [Stop] in
             switch row.key {
-            case let .group(group): .group(group)
-            case let .workspace(id): model.isPlaceholder(id) ? nil : .workspace(id)
-            default: nil
+            case let .group(group): return [.group(group)]
+            case let .workspace(id):
+                guard !model.isPlaceholder(id) else { return [] }
+                guard row.standsForGroup, let group = row.group else { return [.workspace(id)] }
+                return [.group(group), .workspace(id)]
+            default: return []
             }
         }
     }
@@ -103,7 +108,13 @@ import AppKit
         // (reuse, scrolling, a reload that dropped it) draws the ring too.
         list.showsFocusRing = ring && group != nil
         for key in [old, group].compactMap({ $0 }) {
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = list.showsFocusRing && key == group
+            let ringed = list.showsFocusRing && key == group
+            // The header, or the one row a group draws as (`SidebarListView.configure` rings it on a reload too).
+            switch list.displayed.groupRow(key).flatMap({ list.rowViews[$0.key] }) {
+            case let header as GroupHeaderRowView: header.isKeyboardFocused = ringed
+            case let row as WorkspaceRowView: row.isKeyboardFocused = ringed
+            default: break
+            }
         }
     }
 
@@ -144,8 +155,9 @@ import AppKit
     }
 
     private func toggle(_ group: GroupID) {
+        // The fold draws itself on the group's rows (`SidebarListView.foldGroup`): no list reload.
+        model.noteUserIntent()
         model.send(.toggleCollapse(.group(group)))
-        list.reload(animated: true)
     }
 
     private func group(containing id: WorkspaceID) -> GroupID? {

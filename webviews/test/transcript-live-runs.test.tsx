@@ -1,11 +1,12 @@
-// Codex-style tool runs while a turn runs (cx-ncc.108, behind the Debug toggle
-// agentPane.debug.codexToolRuns): the Codex desktop app never lets a running turn's tool calls pile
-// up as a list. The run in flight is one line that names the newest call and replaces itself as
-// calls go by; once text follows a run, that run settles into one summary line ("Read files"),
-// which opens to its calls. Off (the default), every call keeps its row.
+// Codex-style tool runs while a turn runs (cx-ncc.108, the Debug toggle
+// agentPane.debug.codexToolRuns, on by default): the Codex desktop app never lets a running turn's
+// tool calls pile up as a list. Each run folds into one summary line ("Read 2 files, ran a command")
+// that opens to its calls, the latest run too as its calls finish; the call in flight leaves the
+// run for the turn's live line, which names it and replaces itself as calls go by. Off, every call
+// keeps its row.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -22,7 +23,7 @@ const call = (id: string, kind: string, status = "completed") => ({
   text: "",
   tool: { id, title: id, kind, status },
 });
-const run = (id: string, calls: ReturnType<typeof call>[]) => row(id, "activity", { items: calls });
+const run = (id: string, calls: AcpmuxActivity[]) => row(id, "activity", { items: calls });
 const text = (id: string) => row(id, "assistant", { text: id });
 
 // A running turn: a plan, two reads and a listing, a sentence, then two commands, the second still
@@ -31,7 +32,8 @@ const live = [
   row("u", "user"),
   text("plan"),
   run("reads", [call("README.md", "read"), call("retry.py", "read"), call("ls src", "execute")]),
-  text("between"),
+  // Text long enough to stand between the runs (a short note folds into them: turns.ts mergeShortNotes).
+  row("between", "assistant", { text: "between ".repeat(30) }),
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
 
@@ -41,21 +43,66 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
-      .map((entry) => [entry.id, renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ")]),
+      // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+      .map((entry) => [
+        entry.id,
+        renderToStaticMarkup(<ToolRows row={entry} />)
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " "),
+      ]),
   );
 }
 
 test("with live runs on, a run that text followed reads as one summary line", () => {
   const reads = drawnRuns(true).reads!;
-  expect(reads).toContain("Read files, ran a command");
+  expect(reads).toContain("Read 2 files, ran a command");
   expect(reads).not.toContain("README.md");
   expect(reads).not.toContain("ls src");
 });
 
-test("with live runs on, the run in flight is one line naming its newest call", () => {
+test("with live runs on, the call in flight leaves the run for the live line", () => {
   const commands = drawnRuns(true).commands!;
-  expect(commands).toContain("wc -l retry.py");
-  expect(commands).not.toContain("git log");
+  expect(commands).toContain("git log");
+  expect(commands).not.toContain("wc -l retry.py");
+  const status = turnView(live, new Set(), { working: true, liveRuns: true }).find((entry) => entry.kind === "working");
+  expect(status?.doing).toBe("wc -l retry.py");
+});
+
+test("with live runs on, a thought still coming leaves the latest run; earlier ones stay", () => {
+  const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
+  const rows = [
+    row("u", "user"),
+    run("first", [thought("Looking around"), call("README.md", "read"), call("ls src", "execute")]),
+    row("next", "assistant", { text: "next ".repeat(40) }),
+    run("latest", [call("git log", "execute"), thought("Now I should check")]),
+  ];
+  const shaped = turnView(rows, new Set(), { working: true, liveRuns: true });
+  const latest = shaped.find((entry) => entry.id === "latest")!;
+  expect(latest.items?.map((item) => item.text ?? item.tool?.id)).toEqual([""]);
+  expect(latest).toMatchObject({ foldRun: true, settled: true });
+  expect(shaped.find((entry) => entry.id === "first")!.items).toHaveLength(3);
+});
+
+test("with live runs on, a run whose only step is in flight draws nothing yet", () => {
+  const rows = [row("u", "user"), run("only", [call("bun test", "execute", "in_progress")])];
+  const shaped = turnView(rows, new Set(), { working: true, liveRuns: true });
+  expect(shaped.find((entry) => entry.id === "only")).toBeUndefined();
+  expect(shaped.find((entry) => entry.kind === "working")?.doing).toBe("bun test");
+});
+
+test("an ended turn's open Worked for folds each run into its summary line", () => {
+  const ended = [
+    ...live.slice(0, 4),
+    run("commands", [call("git log", "execute"), call("wc", "execute")]),
+    text("done"),
+    row("s", "turnSummary", { status: "completed", toolCount: 5 }),
+  ];
+  // The long text between the runs is a takeaway, so each run folds under its own line.
+  const open = new Set(["worked-u", "worked-between"]);
+  const folded = turnView(ended, open, { liveRuns: true }).filter((entry) => entry.kind === "activity");
+  expect(folded.map((entry) => entry.foldRun)).toEqual([true, true]);
+  const listed = turnView(ended, open, { liveRuns: false }).filter((entry) => entry.kind === "activity");
+  expect(listed.map((entry) => entry.foldRun)).toEqual([undefined, undefined]);
 });
 
 test("with live runs off, a running turn lists every call", () => {

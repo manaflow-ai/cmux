@@ -13,6 +13,7 @@ mock.module("../app/lib/stack", () => ({
 const snapshotState = {
   stored: null as { user: AuthedUser; ageMs: number } | null,
   writes: [] as { user: AuthedUser; completeTeamList: boolean }[],
+  writeResult: "stored" as "stored" | "fenced" | "unavailable",
   deletes: [] as string[],
 };
 
@@ -27,6 +28,7 @@ mock.module("../services/auth/identitySnapshot", () => ({
     options: { completeTeamList: boolean },
   ) => {
     snapshotState.writes.push({ user, completeTeamList: options.completeTeamList });
+    return snapshotState.writeResult;
   },
   deleteIdentitySnapshot: async (userId: string) => {
     snapshotState.deletes.push(userId);
@@ -39,7 +41,7 @@ mock.module("../services/auth/identitySnapshot", () => ({
 const tombstoneState = { blocked: false };
 const isAccountDeleted = async () => tombstoneState.blocked;
 
-const { verifyRequestFromSnapshot, clearNativeAuthCacheForTests, clearStackThrottleCircuitForTests } =
+const { verifyRequest, verifyRequestFromSnapshot, clearNativeAuthCacheForTests, clearStackThrottleCircuitForTests } =
   await import("../services/vms/auth");
 
 const snapshotUser: AuthedUser = {
@@ -92,6 +94,7 @@ beforeEach(() => {
   getUser.mockResolvedValue(stackUser);
   snapshotState.stored = null;
   snapshotState.writes = [];
+  snapshotState.writeResult = "stored";
   snapshotState.deletes = [];
   tombstoneState.blocked = false;
 });
@@ -117,6 +120,45 @@ describe("verifyRequestFromSnapshot", () => {
     expect(snapshotState.writes).toHaveLength(1);
     expect(snapshotState.writes[0]?.completeTeamList).toBe(true);
     expect(snapshotState.writes[0]?.user.teamIds).toEqual(["team-a", "team-b"]);
+  });
+
+  test("a deleted shared snapshot cannot resurrect process-cached team membership", async () => {
+    await verifyRequest(nativeRequest("good-token"), { forceCompleteTeamList: true });
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    getUser.mockResolvedValue({
+      ...stackUser,
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+    snapshotState.stored = null;
+
+    const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
+      verifyAccessToken: localIdentity,
+      isAccountDeleted,
+    });
+    expect(user?.teamIds).toEqual([]);
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("a mirror fence refuses the in-flight fresh identity", async () => {
+    snapshotState.writeResult = "fenced";
+    const user = await verifyRequestFromSnapshot(nativeRequest("good-token"), {
+      verifyAccessToken: localIdentity,
+      isAccountDeleted,
+    });
+    expect(user).toBeNull();
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("the same mirror fence refuses a stale cookie identity", async () => {
+    snapshotState.writeResult = "fenced";
+    const user = await verifyRequestFromSnapshot(
+      new Request("https://cmux.test/api/vm", { headers: { cookie: "stack-session=test" } }),
+      { allowCookie: true, isAccountDeleted },
+    );
+    expect(user).toBeNull();
+    expect(getUser).toHaveBeenCalledTimes(1);
   });
 
   test("a token the local check rejects falls back to Stack even with a snapshot", async () => {

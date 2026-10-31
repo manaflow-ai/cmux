@@ -22,6 +22,7 @@ import {
   parseOptionalObjectBody,
   stringField,
 } from "../../../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../../../services/vms/allocationRateLimit";
 
 // Fork cold-provisions a machine (and may snapshot the source first); same
 // budget and rationale as POST /api/vm (see app/api/vm/route.ts).
@@ -39,9 +40,6 @@ export async function POST(
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Same as POST /api/vm: open the provider pool after authentication
-      // without waiting, so the source probe does not pay a cold handshake.
-      void preconnectFreestyle();
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
         try {
@@ -73,6 +71,14 @@ export async function POST(
       const idempotency = idempotencyKeyFromRequest(request);
       if (!idempotency.ok) return idempotency.response;
       const idempotencyKey = idempotency.key;
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "vm.fork",
+        billingTeamId: entitlements.billingTeamId,
+      });
+      if (limited) return limited;
+      // Same as POST /api/vm: warm the provider only after admission.
+      void preconnectFreestyle();
       const name = stringField(body, "name");
       setSpanAttributes(span, {
         "cmux.vm.id": id,
@@ -102,7 +108,7 @@ export async function POST(
         onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,
-          retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
+          retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before forking another.",
         }),
       });
       if (!run.ok) return run.response;

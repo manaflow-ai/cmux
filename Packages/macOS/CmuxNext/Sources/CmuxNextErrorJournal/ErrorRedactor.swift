@@ -8,8 +8,10 @@ import Foundation
 /// ```
 public struct ErrorRedactor {
     private let rules: [(NSRegularExpression, String)]
-    private let assignmentAnchors: NSRegularExpression
-    private let queryAssignments: NSRegularExpression
+    private let assignmentAnchors: NSRegularExpression?
+    private let queryAssignments: NSRegularExpression?
+    /// False when a built-in pattern failed to compile: ``redact(_:)`` then keeps no text at all.
+    private let complete: Bool
     private static let sensitiveAssignmentComponents: Set<String> = [
         "auth", "authorization", "cookie", "credential", "credentials", "password", "passwd", "pwd", "secret",
         "token",
@@ -38,26 +40,35 @@ public struct ErrorRedactor {
             // Long opaque runs (keys, hashes, base64 payloads).
             (#"[A-Za-z0-9+/_=-]{48,}"#, "<blob>"),
         ]
-        rules = patterns.map { (try! NSRegularExpression(pattern: $0.0), $0.1) } // swiftlint:disable:this force_try
-        assignmentAnchors = try! NSRegularExpression( // swiftlint:disable:this force_try
+        // Constant patterns (ErrorJournalTests). Were one ever to fail to compile, redaction fails
+        // closed: the whole text is replaced rather than journaled half-scrubbed, and nothing crashes.
+        let compiled = patterns.compactMap { pattern, replacement in
+            (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
+        }
+        let anchors = try? NSRegularExpression(
             pattern: #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
         )
-        queryAssignments = try! NSRegularExpression( // swiftlint:disable:this force_try
+        let query = try? NSRegularExpression(
             pattern: #"(?=(^|[?#&;\s="'=(:,])([^=?&#;\s"']+)=)"#
         )
+        rules = compiled
+        assignmentAnchors = anchors
+        queryAssignments = query
+        complete = compiled.count == patterns.count && anchors != nil && query != nil
     }
 
     /// Returns `text` with every secret replaced by a placeholder.
     public func redact(_ text: String) -> String {
+        guard complete, let assignmentAnchors, let queryAssignments else { return "<redacted>" }
         var text = text
         for (rule, replacement) in rules {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return redactQueryAssignments(in: redactAssignments(in: text))
+        return redactQueryAssignments(in: redactAssignments(in: text, anchors: assignmentAnchors), queryAssignments)
     }
 
-    private func redactAssignments(in text: String) -> String {
+    private func redactAssignments(in text: String, anchors assignmentAnchors: NSRegularExpression) -> String {
         let source = text as NSString
         let result = NSMutableString(string: text)
         let matches = assignmentAnchors.matches(in: text, range: NSRange(location: 0, length: source.length))
@@ -78,7 +89,7 @@ public struct ErrorRedactor {
         return result as String
     }
 
-    private func redactQueryAssignments(in text: String) -> String {
+    private func redactQueryAssignments(in text: String, _ queryAssignments: NSRegularExpression) -> String {
         let source = text as NSString
         let result = NSMutableString(string: text)
         let matches = queryAssignments.matches(in: text, range: NSRange(location: 0, length: source.length))

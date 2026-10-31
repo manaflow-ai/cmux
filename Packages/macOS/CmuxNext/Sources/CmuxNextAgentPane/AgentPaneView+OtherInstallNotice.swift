@@ -21,7 +21,7 @@ extension AgentPaneView {
         let width = label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32)
         width.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            label.topAnchor.constraint(equalTo: tabRowCover.bottomAnchor, constant: 8), // below a shared tab row
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
             width,
         ])

@@ -28,7 +28,21 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        use crate::journal_reducers::hook_roster_state;
+        let native_event =
+            ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
+        // Attention-worthy transitions earn a notification even when they
+        // leave the roster state as it is (a failed tool call of a working
+        // agent: PostToolUseFailure keeps it working but still reports the
+        // error).
+        let notification = agent_hook_notification(ingress);
+        // Only a kind that moves a terminal under some current state, or
+        // earns a notification, gets past this guard.
+        if notification.is_none()
+            && hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none()
+        {
+            return Ok(());
+        }
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +50,17 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        // A completed tool call resumes only a blocked agent, so the roster's state decides it.
+        let current = self
+            .agent_records
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&terminal_id)
+            .map(|record| record.state);
+        let state = hook_roster_state(&ingress.kind, native_event, current);
+        if state.is_none() && notification.is_none() {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -53,6 +78,42 @@ impl Mux {
                 "terminal {terminal_id} is not available for agent hook projection"
             )));
         };
+        // How the CLI was started is read once, while it runs, at the first
+        // hook of its session this terminal applies: its start, or a later
+        // hook when that one was applied first (each hook is its own
+        // connection, and the fence then drops the older start). Read before
+        // the fences lock, which serializes every terminal's hooks.
+        let first_of_session = ingress.kind == "agent.session.started" || {
+            let session_id = ingress
+                .payload
+                .get("normalized")
+                .and_then(|value| value.get("agent_session_id"))
+                .and_then(Value::as_str)
+                .filter(|session_id| !session_id.is_empty());
+            let fences = self.agent_hook_fences.lock().unwrap();
+            session_id.is_some_and(|session_id| {
+                fences
+                    .get(&terminal_id)
+                    .is_none_or(|fence| fence.ended || fence.session_id != session_id)
+            })
+        };
+        let job = first_of_session
+            .then(|| {
+                self.state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .cloned()
+            })
+            .flatten()
+            .and_then(|runtime| runtime.process_id())
+            .and_then(|pid| {
+                crate::platform::foreground_job_launch(
+                    pid,
+                    crate::workspace_registry::relaunch_store::AGENT_JOB_ENV_KEYS,
+                )
+            });
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
@@ -77,19 +138,12 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        let next_fence = HookFence::next(
-            previous_fence.as_ref(),
-            agent_session_id.clone(),
-            sequence,
-            state == AgentState::Done,
-            observed_at_ms,
-        );
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
         // replays the notification instead of posting it twice, and the fence
         // (stored by the report) still advances exactly once.
-        if let Some((title, body, level)) = agent_hook_notification(ingress) {
+        if let Some((title, body, level)) = notification {
             self.create_durable_notification(
                 &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
@@ -102,6 +156,16 @@ impl Mux {
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
+        // A notification that leaves the roster state as it is reports
+        // nothing and leaves the fence where the last report stored it.
+        let Some(state) = state else { return Ok(()) };
+        let next_fence = HookFence::next(
+            previous_fence.as_ref(),
+            agent_session_id.clone(),
+            sequence,
+            state == AgentState::Done,
+            observed_at_ms,
+        );
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -110,7 +174,7 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -158,38 +222,62 @@ impl Mux {
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
     ) {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             && ingress.payload.get("format").and_then(Value::as_str)
                 != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
         {
             return;
         }
+        let Some(deltas) = self.advance_agent_roster(Some(commit.sequence)) else { return };
+        for (delta, _) in deltas {
+            self.apply_roster_delta(delta, &ingress.kind);
+        }
+    }
+
+    /// Fold the journal into the roster through `through` (the journal head
+    /// when `None`) and save the snapshot with its cursor. Returns the
+    /// plugin deltas, each with its record's kind, or `None` when the roster
+    /// was already there or the tail could not be read.
+    fn advance_agent_roster(
+        &self,
+        through: Option<u64>,
+    ) -> Option<Vec<(crate::journal_reducers::RosterDelta, String)>> {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+        };
         let _fold = self.agent_roster_fold.lock().unwrap();
         // Consume every intervening committed record under registry -> roster
         // lock order. Concurrent appends and delayed hook retries cannot jump
         // the cursor over a record that startup replay would have consumed.
         let (deltas, cursor, snapshot) = {
             let registry = self.workspace_registry.lock().unwrap();
+            let through = match through {
+                Some(through) => through,
+                None => match registry.session_journal_head() {
+                    Ok(head) => head,
+                    Err(error) => {
+                        eprintln!("cmux-tui: reading the journal head failed: {error}");
+                        return None;
+                    }
+                },
+            };
             let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
-                return;
+            if through <= host.cursor {
+                return None;
             }
             let mut deltas = Vec::new();
-            while host.cursor < commit.sequence {
+            while host.cursor < through {
                 // Terminal output between agent events is skipped by the read:
                 // the roster ignores it, and this runs under the registry lock.
                 let (records, reached) = match registry.session_journal_without_output_after(
                     host.cursor,
-                    commit.sequence,
+                    through,
                     512,
                 ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
-                        return;
+                        return None;
                     }
                 };
                 for record in &records {
@@ -201,14 +289,20 @@ impl Mux {
                     if record.payload.get("format").and_then(Value::as_str)
                         == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
                     {
-                        deltas.extend(changes);
+                        deltas
+                            .extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                     }
+                }
+                if reached <= host.cursor {
+                    break;
                 }
                 host.cursor = reached;
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        // The connection alone, never the workspace registry lock, so state
+        // commits do not wait behind the snapshot write (issue 23038).
+        if let Err(error) = self.registry_connection.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             cursor,
@@ -216,8 +310,25 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
-        for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+        Some(deltas)
+    }
+
+    /// Fold the journal tail into the roster and save its cursor at the
+    /// head, so a start replays at most one maintenance tick of records.
+    /// Shutdown does not call it: it takes the registry lock, which a commit
+    /// stuck in admission can hold, and shutdown must stay bounded.
+    ///
+    /// Lawrence 2026-10-30: the cursor moved only with agent events, so a
+    /// quiet stretch left it 9,821 records behind on a nightly registry and
+    /// each start decoded 13 sealed segments (about 300 ms cold) to fold
+    /// records that change nothing. Same fold, locks and save as an agent
+    /// event's ([`Mux::fold_agent_roster`]); a plugin delta it meets first is
+    /// applied here, since the live fold then finds the record behind the
+    /// cursor.
+    pub(super) fn catch_up_agent_roster(&self) {
+        let Some(deltas) = self.advance_agent_roster(None) else { return };
+        for (delta, kind) in deltas {
+            self.apply_roster_delta(delta, &kind);
         }
     }
 

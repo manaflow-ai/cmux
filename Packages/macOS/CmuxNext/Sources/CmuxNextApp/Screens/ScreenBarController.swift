@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextTabs
 import Observation
@@ -37,6 +38,10 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        // The screen bar's + is a plain one-click new-screen action. Holding or right-clicking
+        // still exposes the existing screen type menu through the strip's context path.
+        view.opensNewTabMenuOnPress = false
+        view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
@@ -121,7 +126,7 @@ final class ScreenBarController {
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
             // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.shared.screenMetadata), let screen = screen(id) else {
+            guard daemon.supports(DaemonCapability.screenMetadata.rawValue), let screen = screen(id) else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -129,11 +134,11 @@ final class ScreenBarController {
             ScreenCommands.create(in: workspace, daemon: daemon, content: content)
         case .pin(let id), .unpin(let id):
             let pin = if case .pin = intent { true } else { false }
-            if let screen = screen(id) { ScreenCommands.setPinned(screen, pin, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.setPinned(screen, pin, daemon: daemon), of: "screen.togglePin", ActionInvocation()) }
         case .rename(let id):
             view.beginInlineRename(id)
         case .renameCommitted(let id, let name):
-            if let screen = screen(id) { ScreenCommands.rename(screen, to: name, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.rename(screen, to: name, daemon: daemon), of: "screen.rename", ActionInvocation()) }
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
@@ -147,7 +152,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute, .toggleZoom:
             break
         }
     }
@@ -210,14 +215,16 @@ final class ScreenBarController {
 
     private func contextMenu(for target: TabContextTarget) -> NSMenu? {
         let registry = content.services.registry
-        switch target {
+        let menu = switch target {
         case .tab(let id, _):
-            return registry.makeContextMenu(for: .screen, target: ActionTargetRef(kind: .screen, id: id.rawValue))
+            registry.makeContextMenu(for: .screen, target: ActionTargetRef(kind: .screen, id: id.rawValue))
         case .group(let id), .savedGroup(let id):
-            return registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
+            registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
         case .emptyStrip, .newTabButton:
-            return registry.makeContextMenu(for: .screenBar)
+            registry.makeContextMenu(for: .screenBar)
         }
+        // A standard macOS menu in the bar's light or dark look, like every right-click menu.
+        return menu.themeRows(in: content.themeScope.fullStrength)
     }
 }
 

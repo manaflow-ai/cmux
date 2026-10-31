@@ -14,7 +14,8 @@
 //! - It stays first in the top (ungrouped) section of the personal order:
 //!   a placement that moves it into a group or behind another ungrouped
 //!   workspace is refused with `home.pinned_first`. Grouped workspaces may
-//!   take any index.
+//!   take any index. The rule judges the change: an order that already has
+//!   home elsewhere (a synced order) takes other moves.
 //! - The creation commit writes the workspace row, the kind row and the
 //!   personal placement in one transaction.
 //!
@@ -367,27 +368,41 @@ pub(crate) fn refuse_close_id(connection: &Connection, workspace_id: &str) -> an
     }
 }
 
-/// After a personal order change: the home row of the local session must be
-/// ungrouped and the first ungrouped row (the top section). Grouped rows may
-/// precede it. A store without a home, or a home without a row, is not
-/// checked.
-pub(crate) fn require_home_first(connection: &Connection) -> anyhow::Result<()> {
-    let Some((workspace, key)) = live_home(connection)? else { return Ok(()) };
+/// Whether the home row of the local session is ungrouped and the first
+/// ungrouped row (the top section). Grouped rows may precede it. None for a
+/// store without a home, or a home without a row.
+pub(crate) fn home_first(connection: &Connection) -> anyhow::Result<Option<(bool, String)>> {
+    let Some((workspace, key)) = live_home(connection)? else { return Ok(None) };
     let local = crate::state::values::local_registry_id(connection)?;
     let rows = read_workspaces(connection)?;
     let Some(home) =
         rows.iter().position(|row| row.session_id == local && row.workspace_key == key)
     else {
-        return Ok(());
+        return Ok(None);
     };
     let first_ungrouped = rows.iter().position(|row| row.group.is_none());
     // Mixed order: no group slot before Home either.
     let group_before = crate::workspace_registry::personal_store::read_groups(connection)?
         .iter()
         .any(|group| group.top_index.is_some_and(|top| top <= home));
-    if rows[home].group.is_none() && first_ungrouped == Some(home) && !group_before {
-        Ok(())
-    } else {
-        Err(HomeRule::new(HomeRuleKind::PinnedFirst, workspace).into())
+    let first = rows[home].group.is_none() && first_ungrouped == Some(home) && !group_before;
+    Ok(Some((first, workspace)))
+}
+
+/// After a personal order change: refuse it when it took the home row out
+/// of the top section's first slot. `before` is [`home_first`] before the
+/// change. The rule judges the change, not the order: an order that already
+/// had home elsewhere (a synced order, an older store) does not block every
+/// other move (2026-10-20, home at index 13 refused every `workspace.place`).
+pub(crate) fn require_home_first(
+    connection: &Connection,
+    before: Option<(bool, String)>,
+) -> anyhow::Result<()> {
+    let was_first = before.is_none_or(|(first, _)| first);
+    match home_first(connection)? {
+        Some((false, workspace)) if was_first => {
+            Err(HomeRule::new(HomeRuleKind::PinnedFirst, workspace).into())
+        }
+        _ => Ok(()),
     }
 }

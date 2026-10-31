@@ -34,6 +34,7 @@ struct ContextMenuShapeTests {
             case .submenu(let id, let children):
                 Row(id: id, title: dropEllipsis(labels[id] ?? byID[id]?.title ?? id.rawValue), children: rows(children, labels: labels))
             case .folder(let folder, let children): Row(id: nil, title: folder.title, children: rows(children, labels: labels))
+            case .group(let group, let children): Row(id: nil, title: group.title, children: rows(children, labels: labels))
             }
         }
     }
@@ -116,7 +117,24 @@ struct ContextMenuShapeTests {
         let row = rows(.workspaceRow)
         let more = try #require(submenu("More", in: row))
         #expect(submenu("Group", in: more) == nil)
-        #expect(ids(submenu("New", in: more) ?? []).contains("saveLayoutTemplate"))
+        #expect(ids(more).contains("saveLayoutTemplate"))
+    }
+
+    /// More is one submenu, not a stack of them (Leo 2026-10-20: flatten "More ›"): its short
+    /// folders (New, Appearance, Copy, Tools, Close) read as its sections; only a folder longer
+    /// than `inlineFolderLimit` (Options) stays a submenu in it.
+    @Test func moreShowsItsShortFoldersAsSections() throws {
+        for context in [ActionMenuContext.workspaceRow, .tab, .pane] {
+            let more = try #require(submenu("More", in: rows(context)), "\(context) has More")
+            for folder in more where folder.id == nil && !folder.isSeparator {
+                let count = ids(folder.children ?? []).count
+                #expect(count > ContextMenuEssentials.inlineFolderLimit, "\(context): More › \(folder.title) has \(count) rows; it should be a section")
+            }
+        }
+        let more = try #require(submenu("More", in: rows(.workspaceRow)))
+        for id: ActionID in ["palette.closeOtherWorkspaces", "workspace.newAbove"] {
+            #expect(more.contains { $0.id == id }, "\(id) is a row of More itself")
+        }
     }
 
     /// The sidebar's Sort submenu is called Sort; a section's menu names what each Hide hides.
@@ -131,12 +149,12 @@ struct ContextMenuShapeTests {
     }
 
     /// A group's own menu drops the group's noun and uses the group editor's words for the
-    /// rows the editor shows (SidebarGroupEditorControls: Close Group, Ungroup, Move to New Window).
+    /// rows the editor shows (SidebarGroupEditorControls: Close All in Group, Ungroup, Move to New Window).
     @Test func groupMenusUseTheGroupEditorsWords() {
         func title(_ id: ActionID, in context: ActionMenuContext) -> String? {
             flatten(rows(context)).first { $0.row.id == id }?.row.title
         }
-        #expect(title("workspaceGroup.closeWorkspaces", in: .workspaceGroup) == "Close Group")
+        #expect(title("workspaceGroup.closeWorkspaces", in: .workspaceGroup) == "Close All in Group")
         #expect(title("workspaceGroup.ungroup", in: .workspaceGroup) == "Ungroup")
         #expect(title("workspaceGroup.moveToNewWindow", in: .workspaceGroup) == "Move to New Window")
         #expect(title("tabGroup.close", in: .tabGroup) == "Close Group")

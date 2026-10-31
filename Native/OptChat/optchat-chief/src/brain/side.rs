@@ -47,7 +47,7 @@ impl Brain {
                     reason: "local".into(),
                 }]);
             }
-            Change::ReadCursor { .. } | Change::MessageUpdated { .. } => {}
+            Change::MessageUpdated { .. } | Change::ReadCursor { .. } => {}
         }
     }
 
@@ -216,63 +216,51 @@ impl Brain {
             && self.under_chief_budget(conversation, summary, read, &message)
         {
             let labelled = if self.settings.membership.local_side {
-                labelled_from(summary, &message.author, &text)
+                labelled_from(
+                    summary,
+                    &message.author,
+                    &text,
+                    &self.settings.membership.owner,
+                )
             } else {
                 labelled(summary, &text)
             };
-            let by_owner = self.settings.membership.is_owner_message(summary, &message);
-            match crate::approval::Answer::parse(&text) {
-                // An answer to this conversation's pending approval (only a
-                // person answers one, never another Chief).
-                Some(answer) if by_owner && self.has_approval(Some(conversation)) => {
-                    self.answer_approval(answer, &message, Some(conversation));
-                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &labelled) {
-                        (self.log)(&format!("logging an approval failed: {e}"));
-                    }
+            let remote = message
+                .origin
+                .as_ref()
+                .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+            let images = match self.daemon.as_mut() {
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
+                _ => Vec::new(),
+            };
+            // The turn opens other files from this Mac; the line names where.
+            let files = match self.daemon.as_mut() {
+                Some(daemon) if has_files => {
+                    let root = self.file.attachments_dir();
+                    super::files::read_files(daemon.as_mut(), &message, &root)
                 }
-                _ => {
-                    let remote = message
-                        .origin
-                        .as_ref()
-                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
-                    let images = match self.daemon.as_mut() {
-                        Some(daemon) if has_images => {
-                            super::images::read_images(daemon.as_mut(), &message)
-                        }
-                        _ => Vec::new(),
-                    };
-                    // The turn opens other files from this Mac; the line names where.
-                    let files = match self.daemon.as_mut() {
-                        Some(daemon) if has_files => {
-                            let root = self.file.attachments_dir();
-                            super::files::read_files(daemon.as_mut(), &message, &root)
-                        }
-                        _ => Vec::new(),
-                    };
-                    let logged = super::files::logged_text(
-                        &super::images::logged_text(&labelled, &images),
-                        &files,
-                    );
-                    if let Some(target) = crate::membership::thread_target(summary, &message) {
-                        self.reply_threads.insert(message.id.clone(), target);
-                    }
-                    self.queue_in(
-                        Some(conversation.to_owned()),
-                        logged,
-                        images,
-                        Source::Message {
-                            seq: message.seq,
-                            id: message.id.clone(),
-                            remote,
-                            requires_approval: !self
-                                .settings
-                                .membership
-                                .is_owner_message(summary, &message),
-                        },
-                    );
-                    return;
-                }
+                _ => Vec::new(),
+            };
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&labelled, &images), &files);
+            if let Some(target) = crate::membership::thread_target(summary, &message) {
+                self.reply_threads.insert(message.id.clone(), target);
             }
+            self.queue_in(
+                Some(conversation.to_owned()),
+                logged,
+                images,
+                Source::Message {
+                    seq: message.seq,
+                    id: message.id.clone(),
+                    remote,
+                    requires_approval: !self
+                        .settings
+                        .membership
+                        .is_owner_message(summary, &message),
+                },
+            );
+            return;
         }
         if !self.queued_messages_of(Some(conversation)) {
             self.state
@@ -337,15 +325,24 @@ impl Brain {
 
 /// [`labelled`] with the author's kind and name (local side conversations,
 /// where people and other Chiefs write):
-/// `[in conv <id> "<title>" from person|Chief|agent "<name>"]`. The name is
+/// `[in conv <id> "<title>" from your owner|person|Chief|agent "<name>"]`. The name is
 /// cleaned as the title is; the kind comes from the participant record, so a
 /// Chief named like a person still reads as a Chief.
-fn labelled_from(summary: &Summary, author: &str, text: &str) -> String {
+/// The owner's own messages (its local identity or a paired device of it)
+/// say `from your owner "<name>"`: in a shared conversation the Chief must tell
+/// its owner from everyone else (CHIEF-DONE B3: the owner's requests run,
+/// anyone else's keep the approval rule).
+fn labelled_from(summary: &Summary, author: &str, text: &str, owner: &str) -> String {
     let participant = summary.participants.iter().find(|p| p.id == author);
     let name = clean_label(participant.map_or(author, |p| p.display_name.as_str()));
+    let human = participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human);
     let kind = if cmux_chief::rules::is_chief(summary, author) {
         "Chief"
-    } else if participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human) {
+    } else if human
+        && participant.is_some_and(|p| p.id == owner || p.person.as_deref() == Some(owner))
+    {
+        "your owner"
+    } else if human {
         "person"
     } else {
         "agent"
@@ -383,4 +380,45 @@ fn clean_label(text: &str) -> String {
         .chars()
         .take(LABEL_TITLE_CHARS)
         .collect()
+}
+
+#[cfg(test)]
+mod owner_label_tests {
+    use super::labelled_from;
+    use cmux_conversation::Summary;
+    use serde_json::json;
+
+    fn summary() -> Summary {
+        serde_json::from_value(json!({
+            "id": "conv_launch", "owner": "local", "title": "Launch", "rev": 1, "last_seq": 0, "read_cursors": {},
+            "created_at": "2026-10-26T00:00:00Z", "updated_at": "2026-10-26T00:00:00Z",
+            "participants": [
+                {"id": "user_local", "kind": "human", "display_name": "Lawrence"},
+                {"id": "remote_ins1", "kind": "human", "display_name": "Lawrence iPhone", "person": "user_local"},
+                {"id": "user_leo", "kind": "human", "display_name": "Leo"},
+                {"id": "agent_leo", "kind": "agent", "agent_class": "mux", "display_name": "Leo's Chief"}
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_owner_and_its_devices_read_as_your_owner_and_nobody_else_does() {
+        let s = summary();
+        assert_eq!(
+            labelled_from(&s, "user_local", "ship it", "user_local"),
+            "[in conv conv_launch \"Launch\" from your owner \"Lawrence\"] ship it"
+        );
+        assert!(
+            labelled_from(&s, "remote_ins1", "ship it", "user_local")
+                .contains("from your owner \"Lawrence iPhone\"")
+        );
+        assert!(
+            labelled_from(&s, "user_leo", "ship it", "user_local").contains("from person \"Leo\"")
+        );
+        assert!(
+            labelled_from(&s, "agent_leo", "done", "user_local")
+                .contains("from Chief \"Leo's Chief\"")
+        );
+    }
 }

@@ -67,6 +67,29 @@ public nonisolated struct HomeChiefAvatars: Sendable {
         await read(chiefs: [chief])[chief]
     }
 
+    /// The header's avatar of Chief `chief`: its picture's bytes, else its text, else the bytes of
+    /// the picture file `fallback` (the chosen pet character). Files are read off the main actor.
+    public func headerAvatar(chief: String, fallback: URL?) async -> (text: String?, picture: Data?) {
+        let avatar: (text: String?, picture: Data?)
+        switch await read(chief: chief) {
+        case .picture(let url)?: avatar = (nil, await Task.detached { try? Data(contentsOf: url) }.value)
+        case .text(let text)?: avatar = (text, nil)
+        case nil: avatar = (nil, nil)
+        }
+        return await Self.orFallback(avatar, fallback)
+    }
+
+    /// The header's avatar from a Chief's files alone (a cloud Chief has no registry here), else
+    /// the bytes of `fallback`.
+    public static func headerAvatar(files: HomeChiefFiles, fallback: URL?) async -> (text: String?, picture: Data?) {
+        await orFallback(await Task.detached { files.headerAvatar() }.value, fallback)
+    }
+
+    private static func orFallback(_ avatar: (text: String?, picture: Data?), _ fallback: URL?) async -> (text: String?, picture: Data?) {
+        guard avatar.text == nil, avatar.picture == nil, let fallback else { return avatar }
+        return (nil, await Task.detached { try? Data(contentsOf: fallback) }.value)
+    }
+
     /// `refs`: the registry's pictures (nil: no registry, or it cannot be reached).
     private func read(chief: String, refs: [String: String]?) async -> HomeChiefAvatar? {
         let files = files(chief)
@@ -136,11 +159,18 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// - Throws: when `source` is not a usable picture, or the registry cannot be reached or refuses it.
     public func setPicture(from source: URL, chief: String) async throws {
         let files = files(chief)
+        try await setPicture(try await Task.detached { try files.pictureData(from: source) }.value, chief: chief)
+    }
+
+    /// Makes `picture` (a crop the person chose, ``HomeChiefPictureCrop``) Chief `chief`'s, as
+    /// ``setPicture(from:chief:)`` does with a file's.
+    /// - Throws: when the registry cannot be reached or refuses it, or the files cannot be written.
+    public func setPicture(_ picture: ChiefAvatarPicture, chief: String) async throws {
+        let files = files(chief)
         guard let registry else {
-            try await Task.detached { try files.writePicture(from: source) }.value
+            try await Task.detached { try files.writePicture(picture) }.value
             return
         }
-        let picture = try await Task.detached { try files.pictureData(from: source) }.value
         try await registry.setPicture(picture, of: chief)
         await Task.detached { files.clearPicture() }.value
     }

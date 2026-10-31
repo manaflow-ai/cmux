@@ -5,12 +5,14 @@
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { AccountReader } from "./account";
+import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
 import { TransferWatch, type FileTransfer } from "./transfers";
 import {
   applyEvent,
   defaultMemory,
+  memoryChoices,
   normalizeMachine,
   settled,
   visibleRows,
@@ -42,7 +44,11 @@ import {
   type SnapshotListResult,
 } from "./ops";
 
-export type Connection = "connecting" | "connected" | "disconnected";
+export type Connection = "connecting" | "connected" | "disconnected" | "failed";
+
+/** The first and the longest wait before the store reads auth again after the link refused it. */
+export const CLOUD_RESTART_MIN_MS = 1_000;
+export const CLOUD_RESTART_MAX_MS = 10_000;
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -62,6 +68,8 @@ export interface CreateDraft {
   refusal?: PlanRefusal;
   /** The backend cannot create machines yet (no machine image configured): its own sentence. */
   blocked?: "no_snapshot_configured";
+  /** Opened from a storefront tier: the new machine opens in a workspace once it runs. */
+  openWhenRunning?: boolean;
 }
 
 export interface CloudState {
@@ -74,6 +82,8 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
+  /** The last plan read failed (not "not served"): the storefront says so and offers Retry. */
+  planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
   /** "Later" hid the classic migration banner for this page session. */
@@ -84,6 +94,10 @@ export interface CloudState {
   blocked?: "no_snapshot_configured";
   selection?: string;
   detail?: MachineDetail;
+  /** The storefront (`#/get`): what a cloud machine gives, the plan's sizes and Get. */
+  view: CloudView;
+  /** A machine created from the storefront: the page connects it once the mirror shows it running. */
+  openWhenRunning?: string;
   create?: CreateDraft;
   error?: string;
   /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
@@ -95,9 +109,18 @@ export interface CloudState {
   transfers: FileTransfer[];
 }
 
+/** `machines` lists the team's machines; `get` is the storefront. */
+export type CloudView = "machines" | "get";
+
+/** The view from the page's URL fragment: `#/get` is the storefront, anything else the list. */
+export function parseView(hash: string): CloudView {
+  return hash.replace(/^#\/?/, "").split("?", 1)[0] === "get" ? "get" : "machines";
+}
+
 export interface CloudStoreOptions {
   newKey?: () => string;
   layout?: MachineLayout;
+  view?: CloudView;
 }
 
 /** The host's answer to a native machine action: the op's answer fields, or a declined sheet. */
@@ -113,6 +136,12 @@ export class CloudStore {
    * result (and closes its watch) when it changed, so an old account or team never writes state.
    */
   private session = 0;
+  /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
+  private accountEpoch = 0;
+  /** The next `start` after a first auth read the link refused (`startLater`); cleared by stop. */
+  private restart: ReturnType<typeof setTimeout> | undefined;
+  /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
+  private restartAttempts = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -132,6 +161,7 @@ export class CloudStore {
       teams: [],
       migrationDismissed: false,
       layout: options.layout ?? "rows",
+      view: options.view ?? "machines",
       unavailable: [],
       transfers: [],
     };
@@ -187,18 +217,48 @@ export class CloudStore {
     } catch (error) {
       if (session !== this.session) return;
       this.started = false;
-      this.set({ loading: false, ...failure(error) });
+      const failed = failure(error);
+      const connection = connectionFailure(error);
+      this.set({ ...failed, loading: false, connection });
+      if (connection === "disconnected") this.startLater();
       return;
     }
     if (session !== this.session) return;
-    this.set({ auth, connection: "connected" });
+    // Back after `startLater`: the refused read's error goes, and the page loads as on a first
+    // start (Retry does the same before it starts).
+    const recovered = this.restartAttempts > 0;
+    this.restartAttempts = 0;
+    this.set({
+      auth,
+      connection: "connected",
+      ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
+    });
     if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
   }
 
   stop(): void {
     this.started = false;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    this.restartAttempts = 0;
     this.endSession();
+  }
+
+  /**
+   * The link refused the first auth read (on a launch or a daemon restart the daemon or its Cloud
+   * relay is not up yet): read it again on its own, 1 s and then doubling to 10 s, so the page
+   * comes up once the link does. The connection stays "disconnected" meanwhile (the page shows it
+   * only once that lasts, ui/lasting.ts) and Retry still asks at once. Ends with a read that
+   * succeeds or a failure that is not the link's, and with `stop` (the last listener leaving).
+   */
+  private startLater(): void {
+    clearTimeout(this.restart);
+    const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
+    this.restart = setTimeout(() => {
+      this.restart = undefined;
+      if (this.listeners.size > 0) void this.start();
+    }, delay);
   }
 
   get canRetry(): boolean {
@@ -208,13 +268,18 @@ export class CloudStore {
   /** After a disconnect: drops the old session and starts again (the localized Retry button). */
   async retry(): Promise<void> {
     this.stop();
-    this.set({ connection: this.client ? "connecting" : "disconnected", loading: true, error: undefined });
+    this.set({
+      connection: this.client ? "connecting" : "disconnected",
+      loading: true,
+      error: undefined,
+      errorCode: undefined,
+    });
     await this.start();
   }
 
   /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
   async signIn(): Promise<void> {
-    if (!this.client || this.state.connection === "disconnected") return;
+    if (!this.client || this.state.connection !== "connected") return;
     const session = this.session;
     try {
       const result = await this.client.call<ActionRunResult | null>(ACTION_RUN, {
@@ -286,12 +351,29 @@ export class CloudStore {
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
+  /** Storefront Retry after a failed plan read. */
+  retryPlan(): Promise<void> {
+    return this.account.readPlan(this.session);
+  }
+
+  setView(view: CloudView): void {
+    if (view !== this.state.view) this.set({ view });
+  }
+
   // Create sheet.
 
-  openCreate(): void {
+  /**
+   * Opens the create sheet, on `memoryMb` when the plan allows it. From a storefront tier
+   * (`openWhenRunning`), the created machine opens in a workspace once it runs.
+   */
+  openCreate(memoryMb?: number, openWhenRunning = false): void {
     if (!this.canChange() || this.state.create) return;
     const key = this.key();
-    this.set({ create: { key, name: "", memoryMb: defaultMemory(this.state.plan), submitting: false } });
+    const allowed = memoryChoices(this.state.plan).some((choice) => choice.mb === memoryMb && choice.allowed);
+    const size = allowed ? memoryMb : defaultMemory(this.state.plan);
+    this.set({
+      create: { key, name: "", memoryMb: size, submitting: false, ...(openWhenRunning ? { openWhenRunning } : {}) },
+    });
     void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, {}).then(
       ({ snapshots }) => this.state.create?.key === key && this.set({ create: { ...this.state.create, snapshots } }),
       () => undefined,
@@ -326,6 +408,7 @@ export class CloudStore {
       idempotency_key: draft.key,
     };
     const session = this.session;
+    const accountEpoch = this.accountEpoch;
     try {
       const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
         action: CloudOps.machineCreate,
@@ -340,6 +423,18 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
+      // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
+      if (
+        draft.openWhenRunning &&
+        result?.machine?.id &&
+        accountEpoch === this.accountEpoch &&
+        this.state.auth?.signedIn
+      ) {
+        const id = result.machine.id;
+        this.set({ openWhenRunning: id, view: "machines" });
+        void this.select(id);
+        this.openIfRunning();
+      }
       if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(draft.key);
@@ -462,6 +557,7 @@ export class CloudStore {
   }
 
   private restartSession(): number {
+    this.accountEpoch += 1;
     this.endSession();
     return this.session;
   }
@@ -501,7 +597,7 @@ export class CloudStore {
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, ...failure(error) });
+      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -536,7 +632,11 @@ export class CloudStore {
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
-    const gone = this.state.selection && !machines.some((machine) => machine.id === this.state.selection);
+    // The machine Get just created stays selected until its first event reaches the mirror.
+    const gone =
+      this.state.selection &&
+      this.state.selection !== this.state.openWhenRunning &&
+      !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
     this.set({
       machines,
@@ -546,6 +646,24 @@ export class CloudStore {
       ...(gone ? { selection: undefined, detail: undefined } : {}),
       ...patch,
     });
+    this.openIfRunning();
+  }
+
+  /**
+   * A machine Get created opens in a workspace (the host's connect action) the first time the mirror
+   * shows it running; a machine that fails or is being deleted drops the wish without connecting.
+   * A machine the mirror does not show yet keeps the wish (its first event may follow the reply).
+   */
+  private openIfRunning(): void {
+    const id = this.state.openWhenRunning;
+    if (!id) return;
+    const machine = this.state.machines.find((m) => m.id === id);
+    if (machine?.status === "running") {
+      this.set({ openWhenRunning: undefined });
+      void this.connect(id);
+    } else if (machine?.status === "failed" || machine?.status === "deleting") {
+      this.set({ openWhenRunning: undefined });
+    }
   }
 
   /**
@@ -634,7 +752,7 @@ export class CloudStore {
   }
 
   private canChange(): boolean {
-    return !!this.client && this.state.connection !== "disconnected" && !!this.state.auth?.signedIn;
+    return !!this.client && this.state.connection === "connected" && !!this.state.auth?.signedIn;
   }
 
   private key(): string {
@@ -661,6 +779,8 @@ function signedOutState(): Partial<CloudState> {
     selection: undefined,
     detail: undefined,
     create: undefined,
+    openWhenRunning: undefined,
+    planFailed: undefined,
     error: undefined,
     loading: false,
   };
@@ -690,7 +810,7 @@ function codeOf(error: unknown): string | undefined {
  * alert at a time, so an error banner replaces the no-image banner.
  */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
-  if (isPageError(error) && error.code === "cmux.protocol.transport") {
+  if (connectionFailure(error) === "disconnected") {
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};

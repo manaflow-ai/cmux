@@ -58,7 +58,10 @@ export type TeamSeatReconcileDependencies = {
   readonly activeSubscription?: (stackTeamId: string) => Promise<ActiveTeamSubscriptionRow | null>;
   readonly stripe?: TeamSeatStripeClient;
   /** Mirrors the updated subscription into our rows and Stack `cmuxSeats`. */
-  readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
+  readonly apply?: (
+    subscription: Stripe.Subscription,
+    dependencies: { readonly markTeamSeatsDirty: false },
+  ) => Promise<unknown>;
   readonly captureError?: (error: unknown, context: Record<string, string | number | boolean>) => void;
 };
 
@@ -169,7 +172,7 @@ async function updateStripeQuantity(
   }
   if (current === to) return { changed: false, value: current };
   const updated = await client.updateQuantity(subscriptionId, item.id, to);
-  await (dependencies.apply ?? applySubscriptionUpdate)(updated);
+  await (dependencies.apply ?? applySubscriptionUpdate)(updated, { markTeamSeatsDirty: false });
   return { changed: true, value: planItem(updated)?.quantity ?? to };
 }
 

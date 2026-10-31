@@ -511,11 +511,17 @@ import Testing
             b: 42,
             c: 11_235
         ))
+        // Darwin groups interpolated integers by locale; corelibs Foundation does not.
+        #if canImport(Darwin)
+        let payloadSize = "11,235 bytes"
+        #else
+        let payloadSize = "11235 bytes"
+        #endif
         #expect(simulatorFrame.fields == [
             .init(key: "surface", value: "19"),
             .init(key: "state", value: "Cached frame sent"),
             .init(key: "frame_sequence", value: "42"),
-            .init(key: "payload_size", value: "11,235 bytes"),
+            .init(key: "payload_size", value: payloadSize),
         ])
 
         let simulatorInput = englishPresentation.describe(DiagnosticEvent(

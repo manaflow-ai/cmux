@@ -1,5 +1,5 @@
-//! The tools a chat has (cx-thur3): every session's summary and
-//! `_acpmux/info` list cmux's own tools (`agent_tools.rs`) and, for Claude
+//! The tools a chat has (cx-thur3): per-session reads and attachments
+//! list cmux's own tools (`agent_tools.rs`) and, for Claude
 //! Code, the MCP servers, skills and plugins its system/init reports, as
 //! `tools` rows with `toolsMutable`. `_acpmux/set_tools` records the chat's
 //! choice for one MCP server: Claude Code then starts with
@@ -157,6 +157,11 @@ impl Client {
     }
 }
 
+fn assert_summary_without_tools(summary: &Value) {
+    assert!(summary.get("tools").is_none(), "summary carries tools: {summary}");
+    assert!(summary.get("toolsMutable").is_none(), "summary carries toolsMutable: {summary}");
+}
+
 fn fake_bin(dir: &Path, name: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
@@ -249,6 +254,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let cmux_servers = vec![
         row("mcp:cmux-cua", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
+        row("mcp:cmux-forum", "cmux", "cmux", true, false),
+        row("mcp:acpmux", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
     assert_eq!(rows(&info["tools"]), cmux_servers, "{info}");
@@ -260,8 +267,16 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .find(|s| s["sessionId"] == json!(acp))
         .cloned()
         .expect("the session is listed");
-    assert_eq!(rows(&summary["tools"]), cmux_servers, "{summary}");
-    assert_eq!(summary["toolsMutable"], json!(false), "{summary}");
+    assert_summary_without_tools(&summary);
+    let acp_list = local.call("session/list", json!({})).await.unwrap();
+    let acp_row = acp_list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == json!(acp))
+        .expect("the ACP list includes the session");
+    assert_eq!(rows(&acp_row["_meta"]["acpmux"]["tools"]), cmux_servers, "{acp_row}");
+    assert_eq!(acp_row["_meta"]["acpmux"]["toolsMutable"], false, "{acp_row}");
     // It cannot change them mid-session: refused, never a silent no-op.
     let refused = local
         .call("_acpmux/set_tools", json!({"sessionId": acp, "id": "mcp:cmux", "enabled": false}))
@@ -278,6 +293,33 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let info = local.call("_acpmux/info", json!({"sessionId": acp})).await.unwrap();
     assert_eq!(info["status"], json!("closed"), "not started to be refused: {info}");
 
+    // Closed sessions stay listed. Whole lists, pages and the initial watch all
+    // omit only the tool inventory; the one-session read keeps every tool.
+    assert_eq!(rows(&info["tools"]), cmux_servers);
+    for method in ["_acpmux/sessions", "_acpmux/watch"] {
+        for params in [json!({}), json!({"limit": 1})] {
+            let result = watcher.call(method, params).await.unwrap();
+            let listed = result["sessions"].as_array().unwrap();
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0]["sessionId"], acp);
+            assert_eq!(listed[0]["status"], "closed");
+            assert_summary_without_tools(&listed[0]);
+        }
+    }
+
+    // Even trusted peers get compact rows by default. A peer daemon opts in to
+    // inventories because its per-session wait cache must keep them up to date.
+    let mut peer = client(&hub, Origin::Peer);
+    for method in ["_acpmux/sessions", "_acpmux/watch"] {
+        let compact = peer.call(method, json!({})).await.unwrap();
+        assert_summary_without_tools(&compact["sessions"][0]);
+        for params in [json!({"withTools": true}), json!({"withTools": true, "limit": 1})] {
+            let full = peer.call(method, params).await.unwrap();
+            assert_eq!(rows(&full["sessions"][0]["tools"]), cmux_servers);
+            assert_eq!(full["sessions"][0]["toolsMutable"], false);
+        }
+    }
+
     // Claude Code: cmux's servers and skills, then what its init reports
     // (cmux's own server and skill and plugin once, the user's after them).
     // linear is off in the user's own Claude config: cmux cannot turn it on.
@@ -290,9 +332,12 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         vec![
             row("mcp:cmux-cua", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
+            row("mcp:cmux-forum", "cmux", "cmux", true, true),
+            row("mcp:acpmux", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),
+            row("skill:cmux:acpmux", "cmux", "cmux", true, false),
             row("mcp:github", "mcp", "claude", true, true),
             row("mcp:linear", "mcp", "claude", false, false),
             row("mcp:claude.ai Foo  (Beta)", "mcp", "claude", true, true),
@@ -301,6 +346,16 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         ],
         "{info}"
     );
+
+    // A per-session attachment keeps the inventory even while the same connection
+    // watches the census. Census-only notices omit it.
+    let mut census = client(&hub, Origin::Local);
+    census.call("_acpmux/watch", json!({})).await.unwrap();
+    let attached = watcher.call("_acpmux/attach", json!({"sessionId": claude})).await.unwrap();
+    assert_eq!(attached["session"]["tools"], info["tools"]);
+    assert_eq!(attached["session"]["toolsMutable"], info["toolsMutable"]);
+    let discovered = peer.changed(&claude, "tools").await;
+    assert_eq!(discovered["session"]["tools"], info["tools"]);
 
     // Turn the user's github server off in an idle chat: the row flips,
     // watchers hear it, and Claude Code restarts now (resumed) without it.
@@ -312,8 +367,11 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .await
         .expect("set_tools");
     assert_eq!(set["applied"], json!("now"), "{set}");
+    assert_summary_without_tools(&census.changed(&claude, "tools").await["session"]);
     let tool = |tools: &Value, id: &str| rows(tools).into_iter().find(|r| r.0 == id).unwrap();
     assert_eq!(tool(&set["tools"], "mcp:github"), row("mcp:github", "mcp", "claude", false, true));
+    // The opted-in peer receives the new inventory even without attaching.
+    while tool(&peer.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     // The first `tools` change is Claude Code's init; then the set's.
     while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     let args = argv(&local.ask(&claude, "hi").await);
@@ -322,6 +380,35 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // The new process's init reports github connected: the chat's choice stays.
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:github").3, "{info}");
+
+    // cmux's computer use server runs behind the cmux server (code mode):
+    // turned off, it leaves that server's CMUX_MCP_UPSTREAMS too, since
+    // `--disallowedTools mcp__cmux-cua` names no tool there. Then back on.
+    let upstreams = |args: &[String]| -> Vec<String> {
+        let at = args.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+        let config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&args[at + 1]).unwrap()).unwrap();
+        let list = config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"].as_str().unwrap();
+        let list: Value = serde_json::from_str(list).unwrap();
+        list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
+    };
+    assert!(upstreams(&args).contains(&"cmux-cua".to_owned()), "{args:?}");
+    for enabled in [false, true] {
+        let set = local
+            .call(
+                "_acpmux/set_tools",
+                json!({"sessionId": claude, "id": "mcp:cmux-cua", "enabled": enabled}),
+            )
+            .await
+            .expect("set_tools");
+        assert_eq!(set["applied"], json!("now"), "{set}");
+        while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:cmux-cua").3
+            != enabled
+        {}
+        let args = argv(&local.ask(&claude, "hi").await);
+        let has = upstreams(&args).contains(&"cmux-cua".to_owned());
+        assert_eq!(has, enabled, "{args:?}");
+    }
 
     // A skill, or a server the user's own config turned off, cannot be
     // changed here, and an unknown id is not found.

@@ -263,6 +263,137 @@
         }
       }
     },
+    "clipboardRead.message.unknownOrigin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program in “%1$@” asked for the clipboard contents. Its origin could not be verified."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب برنامج في “%1$@” محتويات الحافظة. تعذّر التحقق من مصدره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program u “%1$@” zatražio je sadržaj međuspremnika. Njegovo porijeklo nije bilo moguće provjeriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program i “%1$@” bad om indholdet af udklipsholderen. Dets oprindelse kunne ikke bekræftes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Programm in „%1$@“ hat den Inhalt der Zwischenablage angefordert. Seine Herkunft konnte nicht überprüft werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa en “%1$@” pidió el contenido del portapapeles. No se pudo verificar su origen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme dans « %1$@ » a demandé le contenu du presse-papiers. Son origine n’a pas pu être vérifiée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma in “%1$@” ha chiesto il contenuto degli appunti. Non è stato possibile verificarne l’origine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」で実行中のプログラムがクリップボードの内容を要求しました。プログラムの実行元を確認できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីមួយក្នុង “%1$@” បានស្នើសុំខ្លឹមសារក្ដារតម្បៀតខ្ទាស់។ មិនអាចផ្ទៀងផ្ទាត់ប្រភពរបស់វាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”에서 실행 중인 프로그램이 클립보드 내용을 요청했습니다. 프로그램의 출처를 확인할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program i «%1$@» ba om innholdet i utklippstavlen. Opprinnelsen kunne ikke bekreftes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program w „%1$@” poprosił o zawartość schowka. Nie można było zweryfikować jego pochodzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa em “%1$@” pediu o conteúdo da área de transferência. Não foi possível verificar sua origem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа в «%1$@» запросила содержимое буфера обмена. Не удалось проверить её источник."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมใน “%1$@” ขอเนื้อหาในคลิปบอร์ด แต่ไม่สามารถยืนยันที่มาของโปรแกรมได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” içindeki bir program pano içeriğini istedi. Programın kaynağı doğrulanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Програма в «%1$@» запитала вміст буфера обміну. Не вдалося перевірити її походження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một chương trình trong “%1$@” đã yêu cầu nội dung bảng nhớ tạm. Không thể xác minh nguồn gốc của chương trình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”中的程序请求读取剪贴板内容。无法验证该程序的来源。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」中的程式要求讀取剪貼簿內容。無法驗證該程式的來源。"
+          }
+        }
+      }
+    },
     "clipboardRead.host.thisMac": {
       "extractionState": "manual",
       "localizations": {

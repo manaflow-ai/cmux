@@ -1,8 +1,8 @@
-//! Every wait the daemon makes on an agent host has a deadline and a typed
-//! error (`HostTimeout`), and a host's death is watched by at most one
-//! thread however often the daemon waits on it. The deadlines are injected
-//! (`spawn_within`, `query_within`); production passes `BOOTSTRAP_BUDGET`
-//! and `QUERY_BUDGET`.
+//! Every wait the daemon makes on a running agent host's answer has a
+//! deadline and a typed error (`HostTimeout`), and a host's death is watched
+//! by at most one thread however often the daemon waits on it. The deadlines
+//! are injected (`query_within`); production passes `QUERY_BUDGET`. A host's
+//! start has no deadline: `host_start_wave.rs`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -36,6 +36,7 @@ async fn a_query_the_host_never_answers_times_out() {
         start_nonce: "n".into(),
         harness_pid: None,
         owner_token: "00".into(),
+        caller_token: None,
         protocol_min: agent_host::PROTOCOL_MIN,
         protocol_max: agent_host::PROTOCOL_MAX,
         host_build: "fake".into(),

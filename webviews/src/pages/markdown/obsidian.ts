@@ -213,6 +213,7 @@ function decorate(
                 fold.type = "button";
                 fold.className = "md-callout-fold";
                 fold.contentEditable = "false";
+                // ui-allow: the fold button sits inside the editable text, where Tab belongs to the editor; a click folds it.
                 fold.tabIndex = -1;
                 fold.setAttribute("aria-expanded", String(!isFolded));
                 fold.addEventListener("mousedown", (event) => {

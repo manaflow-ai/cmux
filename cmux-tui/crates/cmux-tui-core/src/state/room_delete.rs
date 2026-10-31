@@ -179,6 +179,7 @@ impl Mux {
         let outcome = self.close_tabs_for_room_delete(
             plan.closing,
             operation,
+            crate::resource::ResourceOperation::WorkspaceClose,
             fingerprint,
             mutation,
             RoomClose { before_patch: &before_patch, result: plan.result, bare: plan.bare },

@@ -18,6 +18,8 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
@@ -122,6 +124,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_cli_intents;
+#[cfg(unix)]
 mod agent_cli_job;
 #[cfg(unix)]
 mod agent_inventory;
@@ -129,9 +133,15 @@ mod agent_inventory;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+};
+#[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -149,6 +159,10 @@ mod origin_gate;
 mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+mod starter_exit;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -180,6 +194,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -199,7 +214,9 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 mod cmd_sizing;
+mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
+pub use size_lease::SIZE_LEASE_CAPABILITY;
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -222,6 +239,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
@@ -254,11 +272,12 @@ use split_respawn::{
 };
 mod terminal_create;
 mod terminal_history;
+mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
-pub use capabilities::build_capabilities;
+pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
 pub use daemon_build::{
     BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
@@ -348,6 +367,13 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
+/// A phone or tablet view that lists this in `set-client-info` shows a
+/// terminal grid larger than its own correctly (letterbox or pan). Without it
+/// the daemon never applies a PTY grid larger than that view's reported size
+/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
+/// such a phone renders the PTY's output into its own grid, so a wider PTY
+/// overprints and cuts its rows. The daemon advertises it in `identify`.
+pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they
@@ -384,6 +410,10 @@ pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
 pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
+/// The daemon answers `terminal-ports`: loopback ports the terminal's text
+/// names (also from tmux panes) that accept a connect
+/// (workspace-proxy-DESIGN.md section 6). No process scanning.
+pub const TERMINAL_PORTS_CAPABILITY: &str = "terminal-ports-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
@@ -392,6 +422,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `terminal-resume-command`: a person's resume command for one
+/// terminal, typed on the new prompt when the terminal is respawned.
+pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// Advertised only while this owner's unplaced-terminal reaper runs (the
 /// owner was started with `--terminal-reap-grace-seconds`). Without it a
 /// detached terminal lives until it is ended or the session ends, so a
@@ -440,6 +473,13 @@ pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
 pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
+/// An agent's "needs you here" mark on a tab: `attention` (a reason, or null
+/// to clear) on `tab.update` and the tab resource's `extra.attention`
+/// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
+/// tab's navigation to another page, or the tab's close clears it.
+pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Persisted request identities and compare-and-clear for tab attention.
+pub const TAB_ATTENTION_REQUEST_ID_CAPABILITY: &str = "tab-attention-request-id-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
@@ -447,6 +487,9 @@ pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
 /// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
 /// (null is automatic) and the workspace snapshot's `extra.task_status`.
 pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
+/// `workspace.create` takes `focus`: a created workspace becomes the focused
+/// one only with `focus: true` (the app sends it for the person's creations).
+pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -553,6 +596,11 @@ pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 pub fn api_revision_range() -> (u32, u32) {
     api_revision_wire::identify_fields()
 }
+
+/// The compiled API revision history for clients connecting to an older daemon.
+pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
+    api_revision_wire::compat()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -614,6 +662,15 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
+/// `set-host-size-policy`'s `policy`: a mode and optionally the order.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostSizePolicyRequest {
+    mode: String,
+    #[serde(default)]
+    order: Option<Vec<String>>,
+}
+
 /// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
@@ -631,6 +688,11 @@ struct ClientIdentityWire {
 }
 
 impl ClientIdentityWire {
+    /// The same identity without a user or a device id.
+    fn anonymous(self) -> Self {
+        Self { user_id: None, device_id: None, ..self }
+    }
+
     fn is_empty(&self) -> bool {
         self.user_id.is_none()
             && self.display_name.is_none()
@@ -649,6 +711,7 @@ impl ClientIdentityWire {
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
             device_id: self.device_id.map(clamp_client_label),
+            remote: false,
         }
     }
 }
@@ -683,6 +746,8 @@ impl DetachNotice {
     }
 }
 
+// Variant names are the wire command names (`terminal-resume-command`).
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
@@ -790,6 +855,11 @@ enum Command {
         /// so a refusal names its update command.
         #[serde(default)]
         install: Option<String>,
+        /// `host-size-policy-v1`: this connection is a remote device's
+        /// spliced lane (cmux-mobile-host sets it on every phone), never one
+        /// of this host's own views. Sticky: `false` never clears it.
+        #[serde(default)]
+        remote: Option<bool>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -874,6 +944,16 @@ enum Command {
     },
     GetSizeState {
         surface: SurfaceId,
+    },
+    /// The host sizing policy (`host-size-policy-v1`) and, with `surface`,
+    /// which of its terminal's participants are this host's own views.
+    GetHostSizePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Store the host sizing policy in the settings file and apply it.
+    SetHostSizePolicy {
+        policy: HostSizePolicyRequest,
     },
     /// Record explicit input or focus activity for the caller's own view, or
     /// with `view` for one of its relay sub-views (input a relay forwards).
@@ -1069,6 +1149,18 @@ enum Command {
         terminal_id: Option<String>,
         keep: bool,
     },
+    /// Read, set (a string) or clear (null) the resume command of one hosted
+    /// terminal, named by exactly one of a PTY `surface` or a stable
+    /// `terminal_id`. A respawn of the terminal types the command on its new
+    /// prompt without a newline. An absent `command` only reads it.
+    TerminalResumeCommand {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        command: Option<Option<String>>,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -1099,6 +1191,7 @@ enum Command {
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     RestartTab(tab_restart::Params),
+    ParkTabs(tab_park::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -1458,6 +1551,11 @@ enum Command {
     ProcessInfo {
         surface: SurfaceId,
     },
+    /// Dev-server ports the terminal shows that accept a loopback connect
+    /// (`terminal-ports-v1`), read when the request arrives.
+    TerminalPorts {
+        surface: SurfaceId,
+    },
     /// CPU time and memory of terminal process trees, read on request.
     /// Omitted `surfaces` means every PTY surface.
     TerminalResources {
@@ -1724,6 +1822,9 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     /// `cloud-requests-list`: the person's message requests (no fields).
     CloudRequestsList(cloud_conversations::NoParams),
+    /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
+    /// server's identity of the person (no fields).
+    CloudSelfhostInfo(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -1738,6 +1839,7 @@ enum Command {
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
     CloudConversationTyping(cloud_conversations::TypingParams),
+    CloudConversationPresence(cloud_conversations::PresenceParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),
@@ -2208,6 +2310,7 @@ impl Command {
             | Self::BrowserReload { surface }
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
+            | Self::TerminalPorts { surface }
             | Self::MoveTab { surface, .. }
             | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
@@ -2227,7 +2330,8 @@ impl Command {
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
-            | Self::SetSizePolicy { surface, .. } => *surface,
+            | Self::SetSizePolicy { surface, .. }
+            | Self::GetHostSizePolicy { surface } => *surface,
             _ => None,
         }
     }
@@ -2532,7 +2636,7 @@ use connection_scheduler::{
 mod bounded_outbound;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection, write_line_outbound_item,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
@@ -2651,7 +2755,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.set("split_id", json!(public_id));
             }
             value
         }
@@ -2760,9 +2864,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.set("registry_id", json!(registry_id));
+    workspaces.set("generation", json!(generation));
+    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 
@@ -2793,6 +2897,9 @@ mod orphan_shutdown_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+#[path = "server/starter_exit_tests.rs"]
+mod starter_exit_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
@@ -2816,6 +2923,9 @@ mod pinned_columns_tests;
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
 
+#[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;

@@ -7,20 +7,50 @@ import Foundation
 /// and a `browser_…` selector (a daemon-owned browser) to the daemon.
 public struct BrowserPageService: Sendable {
     let engine: any BrowserPageEngine
-    /// Which agent drives which tab through `browser.page.right`.
+    /// Which agent drives which tab: `browser.page.right` and every write verb
+    /// that names an `agent` (``leasing(_:)``).
     let leases: BrowserTabLeases
+    /// The passkey hand-off (`browser.page.passkey`); nil serves no such method.
+    let passkeys: BrowserPasskeyRequests?
+    /// Lists a tab in a second pane (`browser.page.mirror`, and the Home mirror of a tab an
+    /// agent starts driving); nil (tests, hosts without strips) mirrors nothing.
+    let mirrors: (any BrowserTabMirrorHost)?
+    /// `browser.agentMouse.*` as it is now, read per click.
+    let agentMouse: @Sendable () async -> AgentMouseSetting.Value
+    /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
+    /// only cmux-browser-host has the cross-session secret masker required before agent captures.
+    let allowsUnsafeCapture: Bool
 
-    public init(engine: any BrowserPageEngine) {
-        self.init(engine: engine, leases: BrowserTabLeases())
+    /// - Parameters:
+    ///   - engine: runs page operations in the app's tabs.
+    ///   - passkeys: the passkey hand-off the app's banners answer; nil (tests, hosts without
+    ///     banners) leaves `browser.page.passkey` unserved.
+    ///   - agentMouse: the person's `browser.agentMouse.*` settings, read per click; nil
+    ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
+    ///   - mirrors: lists a tab in a second pane (``BrowserTabMirrorHost``); nil serves
+    ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
+    public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
+                agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
+                mirrors: (any BrowserTabMirrorHost)? = nil) {
+        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
+                  allowsUnsafeCapture: false, mirrors: mirrors)
     }
 
-    init(engine: any BrowserPageEngine, leases: BrowserTabLeases) {
+    init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
+         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
+         mirrors: (any BrowserTabMirrorHost)? = nil) {
         self.engine = engine
         self.leases = leases
+        self.passkeys = passkeys
+        self.mirrors = mirrors
+        self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
+        self.allowsUnsafeCapture = allowsUnsafeCapture
     }
 
     public func install(on router: ControlRouter) {
         let engine = engine
+        let leases = leases
+        let register: ([ControlMethod]) -> Void = { router.register($0.map(self.leasing)) }
         func page(_ name: String, _ operation: @escaping @Sendable (ControlCall) throws -> BrowserPageOperation) -> ControlMethod {
             .async("browser.page.\(name)") { call in
                 let tab = try Self.tab(call)
@@ -28,7 +58,7 @@ public struct BrowserPageService: Sendable {
                 return .object(Self.base(tab))
             }
         }
-        router.register([
+        register([
             page("navigate") { .navigate(try Self.string($0, "url")) },
             page("back") { _ in .back },
             page("forward") { _ in .forward },
@@ -40,6 +70,8 @@ public struct BrowserPageService: Sendable {
                 result["url"] = state["url"] ?? .string(tab.url ?? "about:blank")
                 result["title"] = state["title"] ?? ""
                 result["profile"] = .string(tab.browserProfileID ?? "default")
+                // Who drives this tab now (#24413), so an agent sees it before it acts.
+                if let driver = await leases.holder(of: tab.id) { result["driver"] = .string(driver) }
                 return .object(result)
             },
             .async("browser.page.eval") { call in
@@ -84,26 +116,36 @@ public struct BrowserPageService: Sendable {
             element("text", BrowserPageScripts.text, engine: engine),
             element("value", BrowserPageScripts.value, engine: engine),
         ])
-        router.register(waitAndCaptureMethods())
-        router.register(tabMethods(router: router))
+        register(waitAndCaptureMethods())
+        register(tabMethods(router: router))
         router.register([rightMethod(router: router)])
-        router.register(inputMethods())
-        router.register(browserUseMethods())
-        router.register(cookieAndStorageMethods())
+        register(passkeyMethods())
+        register(inputMethods())
+        register(rawInputMethods())
+        register(browserUseMethods())
+        register(cookieAndStorageMethods())
+        register([mirrorMethod()])
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.
     private func element(_ name: String, _ make: @escaping @Sendable (String, String?) -> String, engine: any BrowserPageEngine) -> ControlMethod {
-        .async("browser.page.\(name)") { call in
+        let agentMouse = agentMouse
+        return .async("browser.page.\(name)") { call in
             let selector = try Self.string(call, "selector")
             let tab = try Self.tab(call)
             let text = call.request.params["text"]?.stringValue
-            let value = try await Self.run(engine, .evaluate(make(selector, text)), tab)["value"] ?? .null
+            let mouse = name == "click" ? await agentMouse() : nil
+            let value: JSONValue
+            if let mouse, mouse.motion == .human {
+                value = try await Self.humanClick(engine, selector: selector, path: HumanPointerPath(mouse), tab: tab)
+            } else {
+                value = try await Self.run(engine, .evaluate(make(selector, text)), tab)["value"] ?? .null
+            }
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
             if let input = Self.agentInput(element: name, answer: value, text: text) {
-                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
             }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null

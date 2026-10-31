@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "requis : cette machine est partagée avec l’équipe" },
   "agentHarness": {
     "title": "Configuration de harness détectée",
     "selectionNotice": "La sélection d’un fournisseur ne lance ni n’active ces harnesses.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planification, TDD, sous-agents et revue"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Requête de VM Cloud retardée",
+      "message": "L’allocation d’une VM Cloud est temporairement indisponible.",
+      "action": "Attendez une minute, puis réessayez avec la même clé d’idempotence."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "La requête d’instantané nécessite une clé de nouvelle tentative",
+      "message": "Les instantanés de VM Cloud nécessitent une clé d’idempotence.",
+      "action": "Réessayez avec un Idempotency-Key stable de 128 caractères maximum."
+    },
+    "snapshotInProgress": {
+      "title": "L’instantané est toujours en cours",
+      "message": "Un instantané utilisant cette clé d’idempotence est toujours en cours pour cette Cloud VM.",
+      "action": "Attendez la fin du premier instantané, puis réessayez avec la même clé d’idempotence."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Clé de nouvelle tentative d’instantané déjà utilisée",
+      "message": "Cette clé d’idempotence a déjà été utilisée pour une autre demande d’instantané sur cette Cloud VM.",
+      "action": "Utilisez une nouvelle clé d’idempotence pour un instantané portant un autre nom."
+    },
+    "snapshotQuota": {
+      "title": "Limite d’instantanés atteinte",
+      "message": "Cette VM Cloud a atteint sa limite d’instantanés.",
+      "action": "Supprimez un instantané existant, puis réessayez avec la même clé d’idempotence."
+    },
     "guestInstall": {
       "title": "Configuration de la Cloud VM incomplète",
       "reason": "La configuration invitée de la Cloud VM n'est pas terminée.",
@@ -28,7 +54,7 @@
     "recreateRequired": {
       "title": "Recréez cette machine",
       "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
-      "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
+      "action": "Créez une nouvelle machine. Préparez un point de connexion SCP avec `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, puis copiez vos fichiers avec SCP avant de supprimer cette machine."
     },
     "guestUnresponsive": {
       "title": "La machine ne répond pas",
@@ -38,7 +64,7 @@
     "inProgress": {
       "title": "Toujours en cours",
       "message": "Le fournisseur cloud n'a pas encore terminé cette modification. Elle peut encore aboutir.",
-      "action": "Vérifiez l'état de la machine avec cmux vm ls ou dans la liste des machines avant de réessayer."
+      "action": "Vérifiez l'état de la machine avec cmux cloud list-machines ou dans la liste des machines avant de réessayer."
     },
     "providerTimeout": {
       "title": "Le fournisseur cloud est lent",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "La machine est occupée",
       "message": "Cette machine démarre, se met en pause ou ne tourne pas, elle ne peut donc pas faire cela pour le moment.",
-      "action": "Patientez un instant et réessayez. Vérifiez l'état de la machine avec cmux vm ls et reprenez-la d'abord si elle est en pause."
+      "action": "Patientez un instant et réessayez. Vérifiez l'état de la machine avec cmux cloud list-machines et reprenez-la d'abord si elle est en pause."
     },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
         "restore": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
-        "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux vm new`.",
-        "openPort": "Ne réessayez pas. Accédez au service depuis la machine avec `cmux vm exec`, ou utilisez un type de machine capable d’ouvrir des ports.",
-        "default": "Ne réessayez pas. Exécutez `cmux vm ls` ou contactez le support si cela vous semble incorrect."
+        "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux cloud new-machine`.",
+        "openPort": "Ne réessayez pas. Accédez au service depuis la machine avec `cmux cloud exec --target machine:<id> --command <command>`, ou utilisez un type de machine capable d’ouvrir des ports.",
+        "default": "Ne réessayez pas. Exécutez `cmux cloud list-machines` ou contactez le support si cela vous semble incorrect."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro requis",
-      "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
-      "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
+      "title": "cmux {plan} requis",
+      "message": "Les Cloud VM nécessitent un abonnement cmux {plan}.",
+      "action": "Passez à cmux {plan} sur {upgradeUrl} pour créer des Cloud VM."
     },
     "displayName": {
       "title": "Nom de machine non valide",
@@ -94,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Les machines de {memory} Gio nécessitent cmux {plan}. Votre forfait prend en charge jusqu’à {max} Gio.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "La taille de RAM de la machine source n’a pas pu être vérifiée.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Cette taille de machine n’est pas disponible. Choisissez jusqu’à {max} Gio.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go comprend deux VM enregistrées, y compris la VM en cours.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go permet une seule VM en cours à la fois.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Les 40 heures de VM de Go sont épuisées ce mois-ci. Les VM enregistrées seront disponibles au prochain cycle de facturation.",
-      "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "savedMessage": "Plus: 1 VM conservée au total, même en pause",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
+      "activeMessage": "Plus: 1 VM Cloud",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "hoursMessage": "Plus: Aucun plafond mensuel d’heures",
+      "hoursAction": "https://cmux.com/pricing",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "Quota de calcul {plan} épuisé",
       "computeMessage": "Votre forfait {plan} a utilisé ses {included} heures de calcul pour cette période de facturation. Une heure de calcul correspond à 1 vCPU avec 2 Go de mémoire pendant une heure. Vos machines pourront redémarrer le {resetDate}.",
       "computeAction": "Les machines en pause conservent leurs fichiers. Contactez le support si vous avez besoin de plus de calcul avant le {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Quota de disque {plan} épuisé",
       "storageMessage": "Votre forfait {plan} inclut {included} Go de disque pour l'ensemble des machines enregistrées. Les machines enregistrées utilisent {used} Go, et cette demande nécessite {requested} Go.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ressources Cloud VM insuffisantes",
@@ -132,7 +158,7 @@
       "action": "Mettez en pause ou supprimez une VM."
     },
     "activeLimit": {
-      "counted": "Comptées actuellement : {machines}. Les machines en pause ne comptent pas.",
+      "counted": "Machines comptabilisées : {machines}. Les machines en pause comptent dans la limite.",
       "provisioning": "{name} (en cours de provisionnement)",
       "separator": ", "
     }
@@ -531,7 +557,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +569,10 @@
             "Historique des sessions en local"
           ],
           "go": [
-            "1 Cloud VM active",
-            "40 heures de VM par mois",
-            "2 VM enregistrées"
+            "1 VM conservée au total, même en pause",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disque",
+            "Assistance communautaire",
+            "Aucun plafond mensuel d’heures"
           ],
           "pro": [
             "Agents cloud sur des Cloud VMs",
@@ -610,6 +637,12 @@
         "title": "Facturé via l’App Store",
         "body": "Votre forfait a été acheté dans l’app cmux pour iPhone et est facturé par Apple. Modifiez-le ou résiliez-le dans vos abonnements App Store.",
         "manage": "Gérer dans l’App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Votre forfait Plus se renouvelle le {date}.",
+        "pendingBody": "Votre forfait Plus se termine le {date}.",
+        "monthlyPrice": "${amount}/mois"
       }
     },
     "mobileDevices": {
@@ -944,7 +977,7 @@
       },
       "plan": {
         "free": "Gratuit",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2941,9 +2974,9 @@
       "limitsTitle": "Limites de forfait",
       "limitsDesc": "Vos machines actives partagent un même pool de vCPU et de mémoire. Lancez une grande machine ou plusieurs petites. Les machines en pause n'utilisent pas le pool. Le disque est défini par machine et ne fait pas partie du pool.",
       "limitsFree": "Les comptes gratuits ne peuvent pas créer de machines.",
-      "limitsPaid": "Les comptes Pro et Founder's Edition peuvent avoir jusqu'à 5 machines actives qui partagent 20 vCPU et 40 GB de mémoire. Une machine est active tant qu'elle est en cours d'exécution ou de démarrage.",
-      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 5 machines actives par siège payant. Chaque siège payant ajoute 20 vCPU et 40 GB de mémoire au pool de l'équipe.",
-      "limitsMax": "Les comptes Max peuvent avoir jusqu'à 5 machines actives qui partagent 80 vCPU et 160 GB de mémoire. Une machine Max peut utiliser jusqu'à 64 GB et 32 vCPU, y compris les tailles 24 GB / 12 vCPU et 32 GB / 16 vCPU ; Pro et Team s'arrêtent à 16 GB et 8 vCPU.",
+      "limitsPaid": "Les comptes Pro et Founder's Edition peuvent avoir jusqu'à 5 machines, y compris les machines en pause qui partagent 20 vCPU et 40 GB de mémoire.",
+      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 5 machines, y compris les machines en pause par siège payant. Chaque siège payant ajoute 20 vCPU et 40 GB de mémoire au pool de l'équipe.",
+      "limitsMax": "Les comptes Max peuvent avoir jusqu'à 5 machines, y compris les machines en pause qui partagent 80 vCPU et 160 GB de mémoire. Une machine Max peut utiliser jusqu'à 64 GB et 32 vCPU, y compris les tailles 24 GB / 12 vCPU et 32 GB / 16 vCPU ; Pro et Team s'arrêtent à 16 GB et 8 vCPU.",
       "limitsPoolFull": "Si une machine créée, reprise, agrandie ou dupliquée dépasse le pool, cmux refuse la demande et indique la part du pool déjà utilisée. Mettez en pause ou supprimez une machine pour libérer des ressources, ou passez à Max.",
       "limitsPricing": "Consultez la page des tarifs pour les prix actuels. Il n'y a ni facturation à l'usage ni frais de dépassement.",
       "agentUpdatesTitle": "Garder les agents de code à jour",
@@ -2953,7 +2986,7 @@
       "agentUpdatesToggle": "La feuille Nouvelle machine active ce réglage par défaut. Pour le changer sur une machine existante, faites un clic droit sur la machine et choisissez Garder les agents à jour, ou exécutez cmux vm agent-updates. cmux vm new garde les versions de l'image sauf si vous passez --agent-updates latest. Désactiver les mises à jour conserve les versions déjà installées.",
       "agentUpdatesNetwork": "Les mises à jour n'utilisent que github.com, api.github.com, objects.githubusercontent.com et release-assets.githubusercontent.com. cmux autorise ces hôtes dans tous les modes réseau, y compris Liste autorisée et Pas d'internet, donc une politique réseau ne bloque jamais les mises à jour.",
       "resizeTitle": "Redimensionner",
-      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 128 GB avec Pro et Team, ou 256 GB avec Max (Go est limité à 16 GB). La mémoire va jusqu'à 16 GB et le CPU jusqu'à 8 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max. Une machine plus grande utilise davantage votre pool. Votre forfait fixe le maximum réel.",
+      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 128 GB avec Pro et Team, ou 256 GB avec Max (Plus est limité à 128 GB). La mémoire va jusqu'à 16 GB et le CPU jusqu'à 8 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max. Une machine plus grande utilise davantage votre pool. Votre forfait fixe le maximum réel.",
       "pauseTitle": "Mettre en pause et reprendre",
       "pauseDesc": "cmux vm pause arrête le calcul de la machine. Le disque, les espaces de travail et l'historique des terminaux sont conservés. Les processus en cours s'arrêtent. cmux vm resume redémarre la machine. Ouvrir une machine en pause ou y exécuter une commande la redémarre aussi.",
       "pauseIdle": "Les machines ne se mettent pas en pause d'elles-mêmes lorsqu'elles sont inactives. Une machine continue de tourner jusqu'à ce que vous la mettiez en pause ou la supprimiez.",
@@ -5233,7 +5266,18 @@
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store"
+    "manageInAppStore": "Gérer dans l’App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "Choisir Plus",
+      "featuresLead": "Comprend :",
+      "features": [
+        "1 VM conservée au total, même en pause",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Assistance communautaire",
+        "Aucun plafond mensuel d’heures"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

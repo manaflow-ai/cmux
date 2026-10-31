@@ -190,7 +190,9 @@ class DriftReportingOverVariables(unittest.TestCase):
 
 
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS"}
+# RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
+# checked by runner_pools.py --check on main, which writes it (as main's copy of this test says).
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -220,6 +222,19 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
             "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
         )
+
+
+class NightlyNextBuildVariable(unittest.TestCase):
+    def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
+        name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6",
+                      "blacksmith-6vcpu-macos-26", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
+                      "glaeda-nightly-nonsense", "glaeda-nightly-std"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
 
 
 class SideLaneVariable(unittest.TestCase):
@@ -254,6 +269,21 @@ class FastLaneVariable(unittest.TestCase):
                 self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
         # Other runner variables still may not name one.
         self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-fast-std-xcode-26.6"}))
+
+
+class SessionLaneVariable(unittest.TestCase):
+    def test_only_an_owned_session_label_is_allowed_beyond_the_policy(self) -> None:
+        # CI_SESSION_LANE_RUNNER is cmux-next generated files' own owned session runner label.
+        name = "CI_SESSION_LANE_RUNNER"
+        for label in ("", "glaeda-session-light-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-light-xcode-26.6", "glaeda-fast-light-xcode-26.6", "glaeda-session-nonsense",
+                      "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-session-light-xcode-26.6"}))
 
 
 class AwsSideRunnerVariable(unittest.TestCase):
@@ -319,11 +349,12 @@ class NightlyRunnerVariable(unittest.TestCase):
                 )
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
 
-    def test_nightly_asks_for_the_trusted_pool_and_the_runner_together(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
-        self.assertIn("fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, "
-                      "vars.CI_NIGHTLY_TRUSTED_RUNNER))", text)
-        self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
+    def test_nightly_no_longer_asks_for_a_single_trusted_runner(self) -> None:
+        text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        self.assertIn("vars.CI_SIDE_LANE_RUNNER", text)
+        self.assertNotIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", text)
+        self.assertNotIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
+
 
 
 class NextNightlyTrustedLabels(unittest.TestCase):

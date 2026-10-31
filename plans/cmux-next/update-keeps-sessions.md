@@ -51,9 +51,17 @@ the app and both daemons.
   Fix 1: `open_work` keeps the turn's own prompt and its steers apart. A steer answered `steered`
   never settles the turn; a steer answer with another stop reason does (codex-acp answers only the
   last prompt, `steer_end.rs`). Recovery waits for the turn's own answer or such a steer answer.
-- The Chief host restart (2.2) moves to "when idle": the app must not SIGTERM a Chief host while a
-  Chief turn runs; it waits for the turn to end, then hands off. Owner: a185 (turn resume); the
-  open item is recorded in this doc.
+- The Chief host restart (2.2) moves to "when idle" (a185, 2026-10-20): `HomeBrainHost.start` no
+  longer SIGTERMs a Chief host mid-turn. A host that takes it (`state/host.handoff` names its pid)
+  gets SIGUSR1 (`ChiefHostStop.askToHandOffWhenIdle`); the brain lets the running turn (or an
+  adopted turn session) end, starts no new turn, posts held replies, saves and exits 0 without
+  ending its acpmux; the stale acpmux stays up meanwhile (`AcpmuxChiefHandoff.handOffIfStale`
+  `waitFor`, not counted as decided). The exit restarts `start` (`ChiefBrainWatch`), which hands
+  the daemon off and launches the next host; it answers what came in meanwhile. A turn past 10 min
+  stops the host anyway; the next host adopts the turn session and waits for its end. An older
+  host (no mark) is still stopped as before, and its cut turn resumes in the next host (resume
+  note, no error in the run record). Tests: optchat-chief `tests/turn_survives_lost_acpmux.rs`
+  `a_handoff_when_idle_*`, CmuxNext `ChiefHostIdleHandoffTests`.
 
 ## 4. Tests and guard
 

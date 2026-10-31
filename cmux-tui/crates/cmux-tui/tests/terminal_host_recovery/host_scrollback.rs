@@ -43,3 +43,6 @@ fn flooded_terminal_host_keeps_only_a_replay_window_of_scrollback() {
     // (~16 MB) stays well under 32.
     assert!(grown_mib < 32, "the host grew {grown_mib} MiB of scrollback");
 }
+
+#[path = "sized_attach.rs"]
+mod sized_attach;

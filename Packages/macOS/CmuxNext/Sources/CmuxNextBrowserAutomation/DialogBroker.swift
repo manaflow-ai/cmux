@@ -72,8 +72,9 @@ final class DialogBroker {
         // Permission and HTTP credential prompts stay the person's: an agent
         // never answers them (credentials, plans/cmux-next/passwords.md).
         // Nor is another app opened for an agent, nor a password saved, nor
-        // an email's verification code read or filled.
-        case .permission, .credentials, .openExternalApp, .savePassword, .verificationOffer: nil
+        // an email's verification code read or filled, nor a page's
+        // "Leave site?" answered (unsaved work is the person's).
+        case .permission, .credentials, .openExternalApp, .savePassword, .verificationOffer, .beforeUnload: nil
         }
     }
 }

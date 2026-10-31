@@ -119,19 +119,19 @@ recording) cannot run in CI; section 6 lists what was and was not checked.
   which Chief when there are several (v1 takes the pinned Chief, else the first).
 - Real Home backend: today delivery reaches the mock owner, like every other Home send on iOS.
 
-## 8. cnx-ios (2026-10-20): the Action Button now targets Aziz's app
+## 8. cmux-next-ios (2026-10-20): the Action Button now targets Aziz's app
 
-The user's cmux-next iPhone app is `cnx-ios/` (merged from `feat-cnx-ios`), not `ios/CmuxiOS`.
+The user's cmux-next iPhone app is `cmux-next-ios/` (merged from `feat-cnx-ios`), not `ios/CmuxiOS`.
 The flow is ported there and reuses `CmuxChiefVoiceCore` unchanged:
 
-- `cnx-ios/CnxKit/Sources/CnxVoice`: the recorder, microphone permission and on-device
+- `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice`: the recorder, microphone permission and on-device
   transcriber (iOS adapters as above), `ChiefVoiceController` (presents the call, ends it on an
   audio interruption) and `ChiefCallScreen` (SwiftUI, full screen).
 - Delivery: `ChiefVoiceTextDelivery` (core) sends to `ChiefSources.shared.primary` (the Cloud
   Chief when ready, else the Mac Chief) through `ChiefSession.send`, which queues in its own
   outbox while the Chief is not connected. That conversation carries text and images only, so
   the Chief gets the transcript (or "Voice note (N s), no transcript"); the audio is not sent.
-- `cnx-ios/App/ChiefVoiceIntents.swift`: "Call Chief" and "Record Voice Note for Chief" intents and
+- `cmux-next-ios/App/ChiefVoiceIntents.swift`: "Call Chief" and "Record Voice Note for Chief" intents and
   the App Shortcuts the Action Button setting lists. `project.yml` adds the speech usage string
   and the `audio` background mode.
 - Ships through the cmux INTERNAL TestFlight lane (`rc/cnx-ios-internal-*`, bundle

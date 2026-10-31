@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -65,6 +66,10 @@ final class HistoryService {
             self?.daemonHistory
         }
         routes[profile] = route
+        route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
+            guard let sync = self?.services.onboarding.historySync else { return }
+            Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
+        }
         history.persistence = route
         if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
         let log = sink.log
@@ -87,6 +92,12 @@ final class HistoryService {
         let sink = BrowserVisitSink(log: BrowserVisitLog(url: url))
         sinks[profile] = sink
         return sink
+    }
+
+    /// Drains writes routed to the app-local log before daemon handoff.
+    func flushLocalHistory(profile: BrowserProfileID) async -> Bool {
+        guard let sink = sinks[profile] else { return true }
+        return await sink.flush()
     }
 
     /// Every profile's log: the default one first.
@@ -151,22 +162,38 @@ final class HistoryService {
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
         return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
-            let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
-            case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
-            case .screen: .screen
-            // A closed window lists as its workspace (it reopens with the workspaces it kept).
-            case .workspace, .window: .workspace
-            }
+            let kind = Self.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
-                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil)
+                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil,
+                                                    agentSession: Self.closedAgentSession(item))
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
         }
+    }
+
+    static func closedKind(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.Kind {
+        switch item.kind {
+        case .tab:
+            switch shownTab(item)?.kind {
+            case "conversation": .conversationTab
+            case "browser": .browserTab
+            default: .terminalTab
+            }
+        case .screen: .screen
+        case .workspace, .window: .workspace
+        }
+    }
+
+    /// A closed tab can be an agent chat. A screen or workspace remains its container kind,
+    /// even when the first tab it would reopen is an agent chat.
+    static func closedAgentSession(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.AgentSession? {
+        guard item.kind == .tab, let agent = shownTab(item)?.agentSession else { return nil }
+        return .init(sessionID: agent.session, harness: agent.harness)
     }
 
     /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
@@ -198,8 +225,11 @@ final class HistoryService {
         let tab = shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
         let url = realText(tab?.url)
+        // The closed record deliberately omits the agent's host. Without trustworthy source
+        // identity, a local daemon tree is not proof that its chat belongs to this app's acpmux.
+        let agentTitle = closedAgentSession(item) == nil ? nil : AgentPaneModel.tabTitle
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 
@@ -209,6 +239,7 @@ final class HistoryService {
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
+        if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
         if daemonHistory != nil {
             // The daemon removes page visits and trail entries and hides agents; terminal commands
             // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
@@ -242,6 +273,7 @@ final class HistoryService {
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
         if daemonHistory != nil {
             let wireID = BrowserProfileRecord.wireID(for: profile)
             daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }
@@ -287,6 +319,7 @@ final class HistoryService {
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
         if daemonHistory != nil {
             // One site removal on the daemon (one backup); memory forgets without persistence.
             daemonMutation { try await $0.removeSite(host: host, profile: nil) }
@@ -298,9 +331,9 @@ final class HistoryService {
         }
         for (profile, _) in profileLogs {
             guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
+            // One removal in the log; memory forgets without persistence (not a Remove from History per page).
             sink(for: engine).remove(host: host)
-            let memory = services.cache.history(for: engine)
-            for entry in memory.entries where entry.url.host()?.lowercased() == host.lowercased() { memory.removeEntry(for: entry.url) }
+            services.cache.history(for: engine).forget(host: host)
         }
         onChange?()
     }

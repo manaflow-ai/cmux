@@ -10,19 +10,20 @@ import Foundation
 /// (New Browser Tab, the default engine), Ask Agent a new agent tab with a
 /// seed (as the Feed's Start Agent).
 final class AppPaletteGoToSource: PaletteGoToSource {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
 
     init(services: AppServices) {
         self.services = services
     }
 
-    private var pane: PaneController? { services.windows.active?.focusedPane }
+    private var pane: PaneController? { services?.windows.active?.focusedPane }
 
     func baseDirectory() -> String? {
         pane.flatMap(ViewerService.folder(of:))
     }
 
     func open(_ target: PaletteQueryTarget) {
+        guard let services else { return }
         guard let pane else { return services.registry.refuse(MiscHandlerStrings.noPane) }
         switch target {
         case .file(let url):
@@ -37,6 +38,7 @@ final class AppPaletteGoToSource: PaletteGoToSource {
     }
 
     func askAgent(about target: PaletteQueryTarget, prompt: String?) {
+        guard let services else { return }
         guard let pane else { return services.registry.refuse(MiscHandlerStrings.noPane) }
         let text = target.agentText(prompt: prompt)
         // The user's own words go out at once (a person's action); the bare place waits in the composer.

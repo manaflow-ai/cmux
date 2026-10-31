@@ -1,0 +1,139 @@
+{
+  "title": "Launch clip: three new themes",
+  "settings": {
+    "appearance": {
+      "theme": "Soft Blue"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Workspace infra",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "infra"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Workspace docs-site",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "docs-site"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "shot": false
+    },
+    {
+      "title": "A shell in app",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; uname -sm; echo; ls /System/Applications | head -12\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Agent chat beside the terminal",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 4,
+      "shot": false,
+      "optional": "agent chat needs the agent backend on this runner"
+    },
+    {
+      "title": "Soft Blue",
+      "wait": 3
+    },
+    {
+      "title": "Clay Orange",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Clay Orange"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Olive Grey",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Olive Grey"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue Light"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Clay Orange Light",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Clay Orange Light"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Back to Soft Blue",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue"
+      ],
+      "wait": 2
+    }
+  ]
+}

@@ -5,8 +5,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("status-glyphs.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -23,10 +23,14 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order.
-  const CODEX = ["idle", "waiting", "shieldLine", "dot", "info"];
+  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order (idle, waiting,
+  // permission, done, error). A wait is the attention dot, no talk bubble (3207401535b6), so the
+  // set draws the dot twice: the wait's in the warning color, done's in Codex's blue.
+  const CODEX = ["idle", "dot", "shieldLine", "dot", "info"];
+  const CODEX_WAITING = 1;
+  const CODEX_DONE = 3;
   const url = (variant: string, scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("ui.status-glyphs", { variant, colorScheme: scheme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -36,8 +40,8 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "ui.status-glyphs", { browser });
   });
 
   afterAll(async () => {
@@ -120,15 +124,16 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       [9, 10, 0],
       [10, 10, 1],
     ],
+    // The attention dot (301bd2794ea1): a disc of radius 6 at the center, its extremes on pixel edges.
     waiting: [
-      [10, 1, 0],
-      [10, 2, 1],
-      [10, 3, 1],
-      [10, 4, 0],
-      [0, 8, 0],
-      [1, 8, 1],
-      [2, 8, 1],
-      [3, 8, 0],
+      [10, 3, 0],
+      [10, 4, 1],
+      [10, 15, 1],
+      [10, 16, 0],
+      [3, 10, 0],
+      [4, 10, 1],
+      [15, 10, 1],
+      [16, 10, 0],
     ],
     permission: [
       [1, 6, 0],
@@ -177,15 +182,19 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
           const inked = ink(glyph.alpha).length / (pixels * pixels);
           if (glyph.name !== "dot") expect(`${glyph.name} ink ${inked < 0.4}`).toBe(`${glyph.name} ink true`);
         }
-        // Codex's blue for done; the error's red is the theme's danger color, never the waiting grey.
+        // Codex's blue for done; the wait's dot and the error's red are other colors.
         const color = (name: string) => drawn.find((glyph) => glyph.name === name)!.color;
-        expect(color("dot")).toBe("rgb(57, 130, 245)");
-        expect(color("info")).not.toBe(color("waiting"));
+        const waiting = drawn[CODEX_WAITING]!.color;
+        expect(drawn[CODEX_DONE]!.color).toBe("rgb(57, 130, 245)");
+        expect(waiting).not.toBe(drawn[CODEX_DONE]!.color);
+        expect(color("info")).not.toBe(waiting);
         // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x, 16 at 2x (a
         // 2x2 dot and a 2x6 stem), and the two differ in color too (grey and red). Other pairs: 10 and 30.
         const least = (a: string, b: string) => (scale === 1 ? 10 : [a, b].sort().join("/") === "idle/info" ? 16 : 30);
         for (let i = 0; i < drawn.length; i++) {
           for (let j = i + 1; j < drawn.length; j++) {
+            // The wait's dot and done's are one shape, told apart by color (checked above).
+            if (i === CODEX_WAITING && j === CODEX_DONE) continue;
             const count = differ(drawn[i]!.alpha, drawn[j]!.alpha);
             expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least(drawn[i]!.name, drawn[j]!.name)}`).toBe(
               `${drawn[i]!.name}/${drawn[j]!.name} true`,
@@ -196,16 +205,30 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
     }
   }
 
-  for (const [variant, scheme] of [
-    ["sheet", "light"],
-    ["sheet", "dark"],
-    ["wallpaper", "dark"],
+  // The Static set and its hq#1957 competitors (Dots and Pictograms, Debug only): each draws the six
+  // states with its own glyphs, held to the same rules.
+  const capital = (name: string) => name[0]!.toUpperCase() + name.slice(1);
+  const SET_NAMES: Record<string, string[]> = {
+    static: NAMES,
+    dots: NAMES.map((name) => `dots${capital(name)}`),
+    pictograms: NAMES.map((name) => `pictograms${capital(name)}`),
+  };
+  for (const [variant, scheme, set] of [
+    ["sheet", "light", "static"],
+    ["sheet", "dark", "static"],
+    ["wallpaper", "dark", "static"],
+    ["dots", "light", "dots"],
+    ["dots", "dark", "dots"],
+    ["dots-wallpaper", "dark", "dots"],
+    ["pictograms", "light", "pictograms"],
+    ["pictograms", "dark", "pictograms"],
+    ["pictograms-wallpaper", "dark", "pictograms"],
   ] as const) {
     for (const scale of [1, 2]) {
       test(`${variant} ${scheme} @${scale}x: six static glyphs, apart by shape, crisp, still, theme-colored`, async () => {
         const { pixels, glyphs: drawn } = await glyphs(variant, scheme, scale);
         expect(pixels).toBe(10 * scale);
-        expect(drawn.map((glyph) => glyph.name)).toEqual(NAMES);
+        expect(drawn.map((glyph) => glyph.name)).toEqual(SET_NAMES[set]!);
         for (const glyph of drawn) {
           // Never animated: no running animation, no transition.
           expect(`${glyph.name}: ${glyph.animations} ${glyph.motion}`).toBe(`${glyph.name}: 0 none 0s`);

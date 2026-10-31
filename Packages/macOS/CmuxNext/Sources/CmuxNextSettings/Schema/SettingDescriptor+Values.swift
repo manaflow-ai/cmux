@@ -5,13 +5,14 @@ extension SettingDescriptor {
     /// key that is absent reads its old key, as the parser does, so Settings
     /// shows the value the app applies.
     public func storedValue(in root: JSONValue) -> JSONValue? {
-        root.value(at: path) ?? WorkspaceRowSetting.legacyValue(for: path, in: root)
+        root.value(at: path) ?? RenamedSettingKeys.legacyValue(for: path, in: root)
     }
 
     /// The stored value when it is valid, else the default (what the app
     /// applies: a bad value keeps the default, with a diagnostic).
     public func effectiveValue(in root: JSONValue) -> JSONValue? {
-        if let stored = storedValue(in: root), accepts(stored) { return stored }
+        if let stored = storedValue(in: root),
+           let value = AgentPaneDisplaySettingsSchema.pageValue(id, stored), accepts(value) { return value }
         return defaultValue
     }
 
@@ -32,6 +33,10 @@ extension SettingDescriptor {
         case .choiceOrNumber(let choices, let number):
             if let text = value.stringValue { return choices.contains { $0.value == text } }
             return value.doubleValue.map { number.range.contains($0) } ?? false
+        case .choiceOrURL(let choices, let urlKey):
+            if let text = value.stringValue { return choices.contains { $0.value == text } }
+            guard let members = value.objectValue, members.count == 1, let text = members[urlKey]?.stringValue else { return false }
+            return Self.httpOrigin(text) != nil
         case .toggle:
             return value.boolValue != nil
         case .number(let number):
@@ -65,6 +70,9 @@ extension SettingDescriptor {
         case .stringMap:
             guard case .object(let members) = value else { return false }
             return members.values.allSatisfy { $0.stringValue != nil }
+        case .soundRules:
+            guard case .object(let members) = value else { return false }
+            return members.values.allSatisfy(NotificationSoundRule.accepts)
         case .stringList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }
@@ -85,6 +93,21 @@ extension SettingDescriptor {
     public func toggledValue(in root: JSONValue) -> Bool? {
         guard kind == .toggle else { return nil }
         return !(effectiveValue(in: root)?.boolValue ?? false)
+    }
+
+    /// `text` as an origin (`scheme://host[:port]`, scheme and host lowercased)
+    /// when it is an http or https address with a host and nothing else: no user
+    /// info, no path other than "/", no query, no fragment. The same rule as
+    /// cmux-config `is_http_origin` and the Settings page's `httpOrigin`.
+    static func httpOrigin(_ text: String) -> URL? {
+        guard !text.contains(where: \.isWhitespace), !text.contains("?"), !text.contains("#"), !text.contains("@"),
+              var components = URLComponents(string: text), let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = components.host, !host.isEmpty,
+              components.path.isEmpty || components.path == "/" else { return nil }
+        components.scheme = scheme
+        components.path = ""
+        components.percentEncodedHost = components.percentEncodedHost?.lowercased()
+        return components.url
     }
 
     static func isHexColor(_ text: String) -> Bool {

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Runs email verification AutoFill for the app's browser tabs
@@ -7,8 +8,9 @@ public import Foundation
 /// fills the code into the page or opens the link in the same tab.
 ///
 /// Mail has no change signal cmux can subscribe to, so while a page waits (at most the 10-minute
-/// window) the source is read every `pollInterval` on the injected clock; the loop ends when no
-/// page waits or the feature turns off.
+/// window) the source is read every `pollInterval` on the injected clock, each read a one-shot
+/// ``DemandTimer`` deadline armed after the last one; the reads end when no page waits or the
+/// feature turns off.
 ///
 /// ```swift
 /// let coordinator = VerificationAutofillCoordinator(
@@ -20,13 +22,14 @@ public final class VerificationAutofillCoordinator {
     private let source: any VerificationEmailSource
     private let isEnabled: () -> Bool
     private let now: () -> Date
-    private let clock: any Clock<Duration>
     private let pollInterval: Duration
+    private let pollTimer: DemandTimer
 
     private var tabs: [BrowserTabID: WeakTab] = [:]
     private var shown: [BrowserTabID: (prompt: BrowserPrompt, emailID: String)] = [:]
-    private var loop: Task<Void, Never>?
     private var responses: [Task<Void, Never>] = []
+    /// True while a poll's read runs: no next read is armed until it ends (one osascript at a time).
+    private var polling = false
 
     /// The last error of the mail source (for example ``MailAppVerificationSource/Failure/notAuthorized``),
     /// nil after a good read.
@@ -46,8 +49,8 @@ public final class VerificationAutofillCoordinator {
         self.source = source
         self.isEnabled = isEnabled
         self.now = now
-        self.clock = clock
         self.pollInterval = pollInterval
+        self.pollTimer = DemandTimer(owner: "VerificationAutofill.poll", clock: clock)
     }
 
     /// The tab's detector reported that its top frame waits for a verification email.
@@ -56,14 +59,13 @@ public final class VerificationAutofillCoordinator {
         guard isEnabled(), let url = tab.state.url else { return }
         tabs[tab.id] = WeakTab(tab)
         inbox.pageStartedWaiting(VerificationPageSignal(tab: tab.id, pageURL: url, startedAt: now(), agentDriven: tab.isAgentDriven))
-        startLoop()
+        schedulePoll()
     }
 
     /// The setting changed: turning it off ends every wait and withdraws every offer.
     public func settingChanged() {
         guard !isEnabled() else { return }
-        loop?.cancel()
-        loop = nil
+        pollTimer.cancel()
         inbox.clearAll()
         let open = shown.values.map(\.prompt)
         shown.removeAll()
@@ -71,7 +73,7 @@ public final class VerificationAutofillCoordinator {
         for prompt in open { prompt.respond(.cancel) }
     }
 
-    /// One read of the source and the offers it makes. The loop calls it; tests call it directly.
+    /// One read of the source and the offers it makes. The poll deadline calls it; tests call it directly.
     func pollOnce() async {
         guard isEnabled() else { return settingChanged() }
         refreshTabs()
@@ -100,18 +102,18 @@ public final class VerificationAutofillCoordinator {
 
     // MARK: - Private
 
-    private func startLoop() {
-        guard loop == nil else { return }
-        let (clock, interval) = (clock, pollInterval)
-        loop = Task { [weak self] in
-            while !Task.isCancelled {
-                // A bounded, cancellable pause between reads of an external source with no change
-                // signal; the loop ends when no page waits or the setting turns off.
-                do { try await clock.sleep(for: interval) } catch { return }
-                guard let self else { return }
-                await self.pollOnce()
-                guard self.inbox.hasWaitingPages, self.isEnabled() else { self.loop = nil; return }
-            }
+    /// Arms the next read unless one is pending or running: a source with no change signal is read
+    /// once per `pollInterval` only while a page waits and the setting is on, and reads never overlap
+    /// (an older read finishing last would replace a newer offer).
+    private func schedulePoll() {
+        guard !polling else { return }
+        pollTimer.scheduleIfIdle(after: pollInterval) { @MainActor [weak self] in
+            guard let self else { return }
+            self.polling = true
+            await self.pollOnce()
+            self.polling = false
+            guard self.inbox.hasWaitingPages, self.isEnabled() else { return }
+            self.schedulePoll()
         }
     }
 

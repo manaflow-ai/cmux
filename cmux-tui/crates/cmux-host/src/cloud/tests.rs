@@ -9,7 +9,9 @@ use std::rc::Rc;
 use cmux_server_core::install_key::{SystemRandom, verify};
 use serde_json::{Value, json};
 
-use super::client::{BindResult, Http, MemoryStore, Store, bind_machine, ensure_install_key};
+use super::client::{
+    BindResult, Http, MemoryStore, Store, bind_machine, ensure_install_key, record_owner_kind,
+};
 use super::wire::*;
 
 const DEV: &str = "https://cmux-api-development.debussy.workers.dev";
@@ -147,4 +149,148 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     assert_eq!(bound["env"], "dev");
     assert_eq!(store.read(BIND_FILE), None);
     assert_eq!(store.mode_of(BOUND_FILE), Some(0o600));
+}
+
+#[test]
+fn owner_kind_is_written_once_and_never_replaces_a_record() {
+    use crate::team_ssh::enroll::TEAM_ENROLL_FILE;
+    // Nothing recorded: the bind records `owner`, 0644.
+    let mut store = MemoryStore::default();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some("owner\n"));
+    assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o644));
+    // A record the create (or anything else) wrote first is kept, whatever it says.
+    for existing in ["team\n", "owner\n", "", "something-else\n"] {
+        let mut store = MemoryStore::default();
+        store.write(VM_KIND_FILE, existing, 0o600).unwrap();
+        record_owner_kind(&mut store).unwrap();
+        assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some(existing));
+        assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o600));
+    }
+    // A team enroll on disk with no record: nothing is written.
+    let mut store = MemoryStore::default();
+    store.write(TEAM_ENROLL_FILE, "{}", 0o600).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE), None);
+    // A check that fails for any reason but "not found" writes nothing.
+    for broken in [VM_KIND_FILE, TEAM_ENROLL_FILE] {
+        let mut store = MemoryStore::default();
+        store.make_unreadable(broken);
+        assert!(record_owner_kind(&mut store).is_err(), "{broken}");
+        assert_eq!(store.mode_of(VM_KIND_FILE), None, "{broken}");
+    }
+}
+
+/// The agent's real store under a temporary root.
+#[cfg(target_os = "linux")]
+fn file_store() -> (tempfile::TempDir, super::role::FileStore, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = super::role::FileStore::new(crate::config::Paths::new(dir.path()));
+    let kind = dir.path().join(VM_KIND_FILE.trim_start_matches('/'));
+    (dir, store, kind)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn owner_kind_keeps_a_record_it_cannot_read() {
+    // Not UTF-8: it cannot be read as text, but it is a record, so it stays.
+    let (_dir, mut store, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    std::fs::write(&kind, [0xff, 0xfe, b'\n']).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read(&kind).unwrap(), [0xff, 0xfe, b'\n']);
+    // A path that cannot be checked (its directory is a file): an error, no write.
+    let (dir, mut store, _) = file_store();
+    std::fs::write(dir.path().join("etc"), "not a directory").unwrap();
+    assert!(record_owner_kind(&mut store).is_err());
+    assert_eq!(std::fs::read_to_string(dir.path().join("etc")).unwrap(), "not a directory");
+}
+
+/// A writer (the devbox sync, the create's write) that lands right after
+/// `record_owner_kind` checks for a record.
+#[cfg(target_os = "linux")]
+struct LandsAfterCheck {
+    inner: super::role::FileStore,
+    kind: std::path::PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl Store for LandsAfterCheck {
+    fn read(&self, file: &str) -> Option<String> {
+        self.inner.read(file)
+    }
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let present = self.inner.present(file)?;
+        if file == VM_KIND_FILE && !present {
+            std::fs::write(&self.kind, "team\n").unwrap();
+        }
+        Ok(present)
+    }
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        self.inner.write(file, text, mode)
+    }
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        self.inner.create_new(file, text, mode)
+    }
+    fn remove(&mut self, file: &str) {
+        self.inner.remove(file);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn owner_kind_never_replaces_a_record_written_after_its_check() {
+    let (dir, inner, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    let mut store = LandsAfterCheck { inner, kind: kind.clone() };
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "team\n");
+    // No temp file is left beside it.
+    let names: Vec<_> = std::fs::read_dir(kind.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["vm-kind"]);
+    // With nothing there, the same store writes `owner`, 0644.
+    let (_dir2, mut store, kind) = file_store();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&kind).unwrap().permissions().mode() & 0o777, 0o644);
+    drop(dir);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_write_leaves_no_temp_file() {
+    use super::role::WriteStep;
+    let temps = |dir: &std::path::Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .map(|e| e.unwrap().file_name().into_string().unwrap())
+                    .filter(|name| name.contains(".tmp-"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Rename] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.write(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Link] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.create_new(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    // A write that works leaves only the file.
+    let (_dir, mut store, kind) = file_store();
+    store.write(VM_KIND_FILE, "owner\n", 0o644).unwrap();
+    assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new());
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
 }

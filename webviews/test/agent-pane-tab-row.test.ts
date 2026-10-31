@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -81,10 +82,10 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = () => {
+  const url = (target = `session=${CHAT}`) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&${target}`;
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -130,12 +131,13 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Bridge = { applyTabRow?(row: unknown): void };
+  type Bridge = { applyTabRow?(row: unknown): void; applyPreview?(on: boolean): void };
   type Recorder = { __tabRowCalls?: unknown[] };
 
   /// Opens the chat and records its `pane.tabRowTools` calls in `window.__tabRowCalls`.
   async function openChat(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText(REPLY).waitFor();
     await page.waitForFunction(
@@ -160,7 +162,8 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   /// The header's height and mode, and how far its tools end from the page's right edge.
   const header = (page: Page) =>
     page.evaluate(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       const header = document.querySelector<HTMLElement>(".acpmux-header")!;
       const tools = header.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect();
       return {
@@ -174,10 +177,11 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   test("without an offered row the header is its own row and reports nothing", async () => {
     const page = await openChat();
     const before = await header(page);
-    expect(before).toMatchObject({ tabRow: false, height: 44, inset: 8 });
+    // Its own row is the compact toolbar's 28px (5b181c2efb9f, --acpmux-header-height).
+    expect(before).toMatchObject({ tabRow: false, height: 28, inset: 8 });
     // A row of height 0 (the setting is off, or the pane's tabs are hidden) changes nothing.
     await offer(page, { height: 0, trailingInset: 40 });
-    await page.waitForTimeout(200);
+    // header() reads after two painted frames: the row, had it applied, and any report are in by then.
     expect(await header(page)).toEqual(before);
     expect(await calls(page)).toEqual([]);
     await page.close();
@@ -195,7 +199,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     );
     expect(tools).toBeGreaterThan(0);
     // The tools' width and the gap the tabs keep from them.
-    expect(reported.at(-1)).toEqual({ width: tools + 8 });
+    expect(reported.at(-1)).toEqual({ width: tools + 4 });
     // Only the tools take clicks: the row's left part is the App's tabs.
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-header")!).pointerEvents)).toBe(
       "none",
@@ -203,7 +207,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     // The row ends (the setting turned off): the header's own row again, and the tabs get the width back.
     await offer(page, { height: 0, trailingInset: 0 });
     await page.waitForFunction(() => !document.querySelector(".acpmux-header[data-tab-row]"));
-    expect(await header(page)).toMatchObject({ tabRow: false, height: 44 });
+    expect(await header(page)).toMatchObject({ tabRow: false, height: 28, inset: 8 });
     await page.waitForFunction(() => {
       const last = ((window as Recorder).__tabRowCalls ?? []).at(-1) as { width?: number } | undefined;
       return last?.width === 0;
@@ -223,5 +227,37 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
     expect(((await calls(page)) as { width: number }[]).at(-1)).toEqual(first);
     await page.close();
+  });
+
+  // Leo's DEV build showed "Coverage unverified" at the right of every chat's tab row, a new chat
+  // that had not started included: acpmux v1 reports `isolation: "unverified"` for every session and
+  // a chat with no session has no summary, so the badge (Labs preview only) said the same thing on
+  // every tab. The enforcement detail stays in the continuation review (handoff/ReviewMessage.tsx).
+  test("Labs preview on: the row draws no coverage badge, in a chat or in a new chat with no session yet", async () => {
+    for (const target of [`session=${CHAT}`, "new"]) {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await installPaintedFrames(page);
+      await page.goto(url(target));
+      // A new chat before its first prompt: the chat view with no session and no summary.
+      if (target === "new") await page.locator(".acpmux-handoff-header-tools").waitFor();
+      else await page.getByText(REPLY).waitFor();
+      await page.waitForFunction(() =>
+        Boolean((window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge?.applyPreview),
+      );
+      await page.evaluate(() => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyPreview!(true));
+      await offer(page, { height: 28, trailingInset: 40 });
+      await page.locator(".acpmux-header[data-tab-row]").waitFor();
+      const tools = await page.evaluate(async () => {
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const tools = document.querySelector<HTMLElement>(".acpmux-handoff-header-tools")!;
+        return { badges: tools.querySelectorAll(".acpmux-session-coverage").length, text: tools.innerText };
+      });
+      if (target === "new") expect(await page.getByText(REPLY).count()).toBe(0);
+      expect(tools.badges, target).toBe(0);
+      expect(tools.text, target).not.toContain("Coverage unverified");
+      expect(tools.text, target).not.toContain("Native policy");
+      await page.close();
+    }
   });
 });

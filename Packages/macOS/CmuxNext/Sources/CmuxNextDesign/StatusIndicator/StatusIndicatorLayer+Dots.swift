@@ -1,4 +1,5 @@
 import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The agent working mark (WORKING-AND-LOADING-INDICATORS): three dots in a
 /// row, drawn by one `CAReplicatorLayer` around one dot, so it costs one
@@ -41,7 +42,7 @@ extension StatusIndicatorLayer {
     /// The pulse on the first dot; the copies follow a third of a cycle
     /// apart. Nil when loops are stopped (`Motion.period`).
     func waveAnimation() -> CAAnimation? {
-        guard let period = Motion.period(.pulse), let pulse = Motion.pulseAnimation(low: Float(config.pulseLow)) else { return nil }
+        guard let period = Motion.indicators.period(.pulse), let pulse = Motion.indicators.pulseAnimation(low: Float(config.pulseLow)) else { return nil }
         dotsLayer?.instanceDelay = period / Double(Self.dotsCount)
         return pulse
     }

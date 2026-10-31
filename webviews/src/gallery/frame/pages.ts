@@ -6,6 +6,7 @@ import { HostError, installMockHost, type HostOp } from "../../../test/latency/m
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
 import { CodeRouterOps } from "../../pages/coderouter/types";
@@ -62,6 +63,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       ...(context.env.fontFamily && { family: context.env.fontFamily }),
       ...(context.env.fontSize && { size: context.env.fontSize }),
     };
+  // The app keeps a file's table column widths with the file (`cmux.markdown.setTableWidths`, its
+  // xattr) and sends them back in the config. Here the tab's session storage stands in, so the
+  // widths outlive a reload of the frame as they outlive a reopen in the app.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const tableWidths = (path: string): unknown => {
+    try {
+      return JSON.parse(sessionStorage.getItem(widthsKey(path)) ?? "null");
+    } catch {
+      return null;
+    }
+  };
   const config = (path: string) => {
     const file = files.get(path);
     if (!file) throw new HostError("cmux.markdown.not_found", path);
@@ -69,6 +81,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       path,
       text: file.text,
       hash: file.hash,
+      tableWidths: tableWidths(path),
       readOnly: state.readOnly === true,
       githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
@@ -104,6 +117,15 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
+        try {
+          if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+          else sessionStorage.removeItem(widthsKey(params.path));
+        } catch {
+          // Refused storage only loses the widths on the next reload.
+        }
+        return null;
+      },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({
           path,
@@ -118,6 +140,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   root.dataset.cmuxPage = "markdown";
   root.dataset.cmuxWebviewKind = "markdown";
   await import("../../pages/markdown/main");
+  // Cmd-F as the app sends it, once the editor has drawn the document.
+  const query = state.find;
+  if (query) {
+    const started = Date.now();
+    const openFind = () => {
+      if (document.querySelector(".md-doc [contenteditable]") || Date.now() - started > 4_000)
+        host.emit("cmux.page.command", { command: "find", text: query });
+      else requestAnimationFrame(openFind);
+    };
+    requestAnimationFrame(openFind);
+  }
 }
 
 function filePatch(file: DiffFixtureFile): string {
@@ -298,21 +331,60 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const provider = new MockCloudProvider({ signedIn: state.signedIn ?? true, unsupported: [] });
   provider.machines = JSON.parse(JSON.stringify(state.machines));
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
-  const host = installMockHost(
-    pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: CloudOps.authStatus,
-      error: state.error,
-    }),
-    [CloudOps.machineWatch, CloudOps.fileTransferChanged, "cmux.page.connection", CLOUD_PAGE_COMMAND],
-  );
+  if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
+  if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
+  const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
+    mode: state.mode === "normal" ? undefined : state.mode,
+    firstOperation: CloudOps.authStatus,
+    error: state.error,
+  });
+  if (state.pendingAction) {
+    const pendingOp =
+      state.pendingAction === "forward"
+        ? CloudOps.portForward
+        : state.pendingAction === "close"
+          ? CloudOps.portClose
+          : CLOUD_ACTION_RUN;
+    const pending = operations[pendingOp];
+    operations[pendingOp] = async (params, context) => {
+      if (state.pendingAction === "browser" && (params as { action?: string }).action !== "browser.tab.open")
+        return pending(params, context);
+      return await new Promise<never>(() => undefined);
+    };
+  }
+  const host = installMockHost(operations, [
+    CloudOps.machineWatch,
+    CloudOps.fileTransferChanged,
+    "cmux.page.connection",
+    CLOUD_PAGE_COMMAND,
+  ]);
   host.delayMs = 0;
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
   document.documentElement.dataset.cloudMachinesLayout = state.layout ?? "rows";
+  if (state.hash) location.hash = state.hash;
   await import("../../pages/cloud/main");
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
+  if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "ports-pending") {
+    clickLater(".cloud-machine");
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(".cloud-forward-port");
+      if (input && state.pendingAction === "forward") {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, "3000");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector<HTMLElement>(".cloud-forward-add")?.click();
+      } else {
+        document
+          .querySelector<HTMLElement>(
+            state.pendingAction === "browser" ? ".cloud-forward-browser" : ".cloud-forward-close",
+          )
+          ?.click();
+      }
+    }, 320);
+  }
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {
@@ -334,8 +406,9 @@ export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context
 
 export async function mountChangelogPage(state: ChangelogPageVariant, _context: StageContext): Promise<void> {
   const provider = new MockChangelogProvider(JSON.parse(JSON.stringify(state.notes)), state.current);
+  // Every changelog operation the page calls (its reels too), as the app's host serves them.
   const host = installMockHost(
-    pageOps(provider, [ChangelogOps.list, ChangelogOps.get, CHANGELOG_ACTION_RUN], {
+    pageOps(provider, [...Object.values(ChangelogOps), CHANGELOG_ACTION_RUN], {
       mode: state.mode === "normal" ? undefined : state.mode,
       firstOperation: ChangelogOps.list,
       error: state.error,

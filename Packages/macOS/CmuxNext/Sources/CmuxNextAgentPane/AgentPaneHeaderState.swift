@@ -16,27 +16,32 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// Debug Settings' Side sessions (/btw) is on (``AgentPaneTunables/sideSessions``): the composer
     /// offers `/btw`. The init reads the toggle unless given, so a watch that builds the state observes it.
     public var sideSessions: Bool
-    /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101), read
-    /// like `sideSessions`.
-    public var sessionRail: Bool
+    /// The header offers the Inspector (Debug Settings `agent.inspector`, cx-ncc.101), read like
+    /// `sideSessions`.
+    public var inspector: Bool
+    /// The header's Browser opens the chat's page and Preview is no button of its own (Debug Settings
+    /// `agentChat.browserOpensPreview`, on by default), read like `sideSessions`.
+    public var browserOpensPreview: Bool
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
-                sideSessions: Bool? = nil, sessionRail: Bool? = nil) {
+                sideSessions: Bool? = nil, inspector: Bool? = nil, browserOpensPreview: Bool? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
         self.floatingChat = floatingChat
         self.sideSessions = sideSessions ?? AgentPaneTunables.sideSessions.value
-        self.sessionRail = sessionRail ?? AgentPaneTunables.sessionRail.value
+        self.inspector = inspector ?? AgentPaneTunables.inspector.value
+        self.browserOpensPreview = browserOpensPreview ?? AgentPaneTunables.browserOpensPreview.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
-            && pullRequest == other.pullRequest && sideSessions == other.sideSessions && sessionRail == other.sessionRail
+            && pullRequest == other.pullRequest && sideSessions == other.sideSessions && inspector == other.inspector
+            && browserOpensPreview == other.browserOpensPreview
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -44,7 +49,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "sideSessions": .bool(sideSessions), "sessionRail": .bool(sessionRail), "version": JSONValue(version),
+         "sideSessions": .bool(sideSessions), "inspector": .bool(inspector), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null]
     }
 }

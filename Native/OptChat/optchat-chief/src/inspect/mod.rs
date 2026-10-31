@@ -10,8 +10,16 @@
 //! (`ReadOnly`, `query_only`), and reads trace and status files. Nothing
 //! here can append, build a node, or write state.
 //!
-//! `http.rs` serves it on 127.0.0.1 behind a per-launch token.
+//! `http.rs` serves it on 127.0.0.1 behind a per-launch token, only with
+//! `OPTCHAT_INSPECTOR_WEB=1` (the fallback); the app's native Memory
+//! Inspector asks through its daemon and the tools socket's `inspect` tool.
+//!
+//! The owner's changes (`edit.rs`) are the one exception to read-only: the
+//! POST paths `/api/memory/edit|delete|undo`, which only `tool_answer` with
+//! `writes` on serves (a caller that is not the Chief's own turn or
+//! subagent), never the HTTP server.
 
+pub mod edit;
 pub mod http;
 mod trace_cache;
 mod tree;
@@ -35,6 +43,8 @@ pub struct Inspector {
     /// The turn sessions' system text as this host built it (prompt.rs).
     pub system_text: String,
     trace: trace_cache::TraceCache,
+    /// The owner's change book (`edit.rs`); None: read-only.
+    editor: Option<Arc<edit::Editor>>,
 }
 
 /// An API answer: a JSON body, or an HTTP status and a plain reason.
@@ -61,6 +71,60 @@ impl Inspector {
             settle_status,
             system_text,
             trace: trace_cache::TraceCache::default(),
+            editor: None,
+        }
+    }
+
+    /// This inspector with the owner's change book (the POST paths, the
+    /// change list, stale marks).
+    pub fn with_editor(mut self, editor: Arc<edit::Editor>) -> Inspector {
+        self.editor = Some(editor);
+        self
+    }
+
+    pub fn editor(&self) -> Option<&Arc<edit::Editor>> {
+        self.editor.as_ref()
+    }
+
+    /// The stale summaries' names (waiting to be built again after a change).
+    fn stale_names(&self) -> Vec<String> {
+        self.editor
+            .as_ref()
+            .map(|e| e.stale().into_iter().map(|n| n.name()).collect())
+            .unwrap_or_default()
+    }
+
+    /// `/api/view`: the view's lines as the next turn reads them, oldest
+    /// first, each with its node, size, text and stale mark.
+    fn view(&self) -> Answer {
+        let stale = self.editor.as_ref().map(|e| e.stale()).unwrap_or_default();
+        let view = self.chat.render_view();
+        let lines: Vec<Value> = view
+            .parts
+            .iter()
+            .map(|part| {
+                let text = self.chat.node(*part);
+                json!({
+                    "name": part.name(),
+                    "level": part.l,
+                    "start": part.start(),
+                    "n": part.n(),
+                    "built": text.is_some(),
+                    "bytes": text.as_ref().map(String::len),
+                    "text": text,
+                    "stale": stale.contains(part),
+                })
+            })
+            .collect();
+        Ok(json!({"lines": lines, "bytes": view.text.len()}))
+    }
+
+    /// One owner change (POST): `/api/memory/edit|delete|undo`.
+    pub fn answer_write(&self, path: &str, query: &[(String, String)]) -> Answer {
+        match &self.editor {
+            Some(editor) if WRITE_PATHS.contains(&path) => editor.answer(path, query),
+            Some(_) => Err(not_found(format!("no API {path}"))),
+            None => Err((503, "memory changes are off on this host".into())),
         }
     }
 
@@ -85,6 +149,11 @@ impl Inspector {
             "/api/level" => self.level(q("l"), q("from"), q("limit")),
             "/api/date" => self.date(q("id")),
             "/api/search" => self.search(q("q").unwrap_or(""), q("limit")),
+            "/api/view" => self.view(),
+            "/api/memory/changes" => match &self.editor {
+                Some(editor) => Ok(editor.changes()),
+                None => Ok(json!({"changes": [], "stale": []})),
+            },
             _ => Err(not_found(format!("no API {path}"))),
         }
     }
@@ -132,6 +201,8 @@ impl Inspector {
             "last_turn": last,
             "last_error": last_error,
             "trace_on": self.traces.is_dir(),
+            "stale": self.stale_names(),
+            "editable": self.editor.is_some(),
             "constants": {
                 "node_bytes": optchat_core::NODE,
                 "view_bytes": optchat_core::VIEW,
@@ -228,9 +299,9 @@ pub(crate) fn parse_or<T: std::str::FromStr>(
     }
 }
 
-/// The paths the tools socket's `inspect` tool answers: every read-only API
-/// path, and nothing else (no page, no ticket).
-pub const INSPECT_PATHS: [&str; 7] = [
+/// The paths the tools socket's `inspect` tool answers with GET: every
+/// read-only API path, and nothing else (no page, no ticket).
+pub const INSPECT_PATHS: [&str; 9] = [
     "/api/status",
     "/api/turns",
     "/api/turn",
@@ -238,7 +309,12 @@ pub const INSPECT_PATHS: [&str; 7] = [
     "/api/level",
     "/api/date",
     "/api/search",
+    "/api/view",
+    "/api/memory/changes",
 ];
+
+/// The owner's change paths, POST only, through `tool_answer` with `writes`.
+pub const WRITE_PATHS: [&str; 3] = ["/api/memory/edit", "/api/memory/delete", "/api/memory/undo"];
 
 /// Largest answer the `inspect` tool returns; a larger one is refused (413),
 /// never cut.
@@ -246,18 +322,32 @@ pub const INSPECT_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// The tools socket's `inspect` tool: `{"tool": "inspect", "method"?: "GET",
 /// "path": "/api/..", "query"?: {key: value}}` answers `{"status": 200,
-/// "body": ..}` or `{"status": 4xx|5xx, "error": ".."}`. Read-only by
-/// construction: GET only, the `INSPECT_PATHS` allowlist, `cap` bytes at most.
-pub fn tool_answer(inspector: &Inspector, req: &Value, cap: usize) -> Value {
+/// "body": ..}` or `{"status": 4xx|5xx, "error": ".."}`. GET reads the
+/// `INSPECT_PATHS` allowlist; POST changes the memory through the
+/// `WRITE_PATHS`, and only when `writes` (the caller is not one of the
+/// Chief's own turn or subagent sessions). `cap` bytes at most.
+pub fn tool_answer(inspector: &Inspector, req: &Value, cap: usize, writes: bool) -> Value {
     let fail = |status: u16, why: &str| json!({"status": status, "error": why});
     let method = req.get("method").and_then(Value::as_str).unwrap_or("GET");
-    if method != "GET" {
-        return fail(405, "the inspector is read-only: GET only");
-    }
     let path = req.get("path").and_then(Value::as_str).unwrap_or("");
-    if !INSPECT_PATHS.contains(&path) {
-        return fail(404, "not an inspector path");
-    }
+    let write = match method {
+        "GET" if INSPECT_PATHS.contains(&path) => false,
+        "GET" => return fail(404, "not an inspector path"),
+        "POST" if !WRITE_PATHS.contains(&path) => {
+            return fail(
+                405,
+                "POST only changes the memory: /api/memory/edit, delete or undo",
+            );
+        }
+        "POST" if !writes => {
+            return fail(
+                403,
+                "the Chief and its agents cannot change their own memory here",
+            );
+        }
+        "POST" => true,
+        _ => return fail(405, "GET or POST only"),
+    };
     let query: Vec<(String, String)> = req
         .get("query")
         .and_then(Value::as_object)
@@ -274,7 +364,12 @@ pub fn tool_answer(inspector: &Inspector, req: &Value, cap: usize) -> Value {
                 .collect()
         })
         .unwrap_or_default();
-    match inspector.answer(path, &query) {
+    let answer = if write {
+        inspector.answer_write(path, &query)
+    } else {
+        inspector.answer(path, &query)
+    };
+    match answer {
         Ok(body) => {
             if body.to_string().len() > cap {
                 return fail(413, "the answer is larger than the inspector's cap");

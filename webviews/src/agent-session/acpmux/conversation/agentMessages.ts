@@ -1,7 +1,10 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`) and Claude Code's SendMessage. The transcript draws
-// them as message cards (MessageCard.tsx) instead of raw shell or JSON.
+// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage,
+// cmux-sessions' send_to_session and the acpmux MCP server's send (`acpmux_send` behind the cmux
+// server, acpmux_mcp.rs). The transcript draws them as message cards (MessageCard.tsx) instead of
+// raw shell or JSON. A shell `acpmux send` is acpmuxSends.ts's.
 import type { AcpmuxActivity } from "../model";
+import { mcpCall } from "./mcpCalls";
 
 /// How the message went out, for the card's quiet label.
 export type AgentMessageChannel = "coordinator" | "terminal" | "mailbox" | "agent";
@@ -22,6 +25,19 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (tool.command) return commandMessage(tool.command);
   const input = parseInput(tool.inputSummary);
+  const chief = mcpCall(tool);
+  const tell = chief
+    ? chief.server === "optchat" && chief.tool === "tell"
+      ? chief.args
+      : undefined
+    : /^(?:optchat\.)?tell$/.test(tool.title.trim())
+      ? input
+      : undefined;
+  if (tell && typeof tell === "object" && !Array.isArray(tell)) {
+    const args = tell as Record<string, unknown>;
+    if (typeof args.id === "string" && args.id.trim() && typeof args.message === "string")
+      return { channel: "agent", to: args.id, text: args.message };
+  }
   // Claude Code's own tool, by its exact name: an MCP tool such as `mcp__gmail__send_message`
   // is not a message to an agent.
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
@@ -29,6 +45,24 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
     return { channel: "agent", to: input.to, text: oneMessage(text) };
   }
+  // The cmux-sessions MCP server's message to a chat (session_mcp.rs, #21858), as a harness names
+  // an MCP tool: `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session` or bare.
+  if (
+    input &&
+    /^(?:(?:mcp__)?cmux-sessions(?:__|\.))?send_to_session$/.test(tool.title.trim()) &&
+    typeof input.session === "string"
+  )
+    return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
+  // The acpmux MCP server's send (acpmux_mcp.rs): `acpmux_send` behind the cmux server
+  // (`mcp__cmux__acpmux_send`, Codex's `{server: "cmux", tool: "acpmux_send"}`), `send` on the
+  // acpmux server itself, or the tool's bare or dotted name.
+  const acpmux = acpmuxSendArgs(tool);
+  if (acpmux && typeof acpmux.to === "string" && acpmux.to.trim())
+    return {
+      channel: "agent",
+      to: acpmux.to.trim(),
+      text: oneMessage(typeof acpmux.text === "string" ? acpmux.text : ""),
+    };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];
@@ -40,6 +74,18 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
       return { channel: "mailbox", to, text: oneMessage(diff.newText.slice(before.length)) };
   }
   return undefined;
+}
+
+function acpmuxSendArgs(tool: Tool): Record<string, unknown> | undefined {
+  const call = mcpCall(tool);
+  if (call) {
+    const named =
+      (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send");
+    return named && call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? (call.args as Record<string, unknown>)
+      : undefined;
+  }
+  return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim()) ? parseInput(tool.inputSummary) : undefined;
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {
@@ -148,6 +194,117 @@ function sendMessage(args: string[]): AgentMessage | undefined {
     index += (inWorkspace ?? inSurface)?.[1] ?? 1;
   }
   return { channel: "terminal", to: surface ?? workspace, text: oneMessage(rest.join(" ")) };
+}
+
+/// How far a send got, as one word on its line (Leo 2026-10-21: the raw result is "immediately
+/// TMI"): from the call's state and what it printed. Claude Code's SendMessage answers with JSON
+/// (`{"success":true,"message":"Message queued for delivery to …"}`), `acpmux send --no-wait`
+/// prints `queued` or `steered` (or `--json`'s `{"queued":…,"steered":…}`), tell-coordinator its
+/// receipt (`delivered to leoli-24 (id …)`). Anything else that finished reads as sent; a result
+/// that says it failed reads as failed.
+export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
+
+export function messageDelivery(
+  tool: Pick<Tool, "status" | "exitCode" | "output">,
+  message?: Pick<AgentMessage, "channel" | "text" | "to">,
+): Delivery {
+  if (tool.status === "pending" || tool.status === "in_progress") return "sending";
+  if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
+  // A mailbox write prints what it wrote (`tee -a`), never a receipt: its words are the message's.
+  if (message?.channel === "mailbox") return "sent";
+  const words = (text: string) => receiptWords(text, message);
+  const output = (tool.output ?? "").trim();
+  if (!output) return "sent";
+  const value = parseJson(output);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const result = value as Record<string, unknown>;
+    const error = typeof result.error === "string" ? result.error.trim() : result.error;
+    if (
+      result.success === false ||
+      result.ok === false ||
+      result.isError === true ||
+      (error !== undefined && error !== null && error !== "" && error !== false)
+    )
+      return "failed";
+    if (result.steered === true || result.delivered === true) return "delivered";
+    if (result.queued === true) return "queued";
+    const said = [result.message, result.status, result.result].find((part) => typeof part === "string");
+    return typeof said === "string" ? deliveryWords(words(said)) : "sent";
+  }
+  const text = words(output);
+  return text ? deliveryWords(text) : "sent";
+}
+
+/// A receipt's own words: without the message echoed back whole on its first lines ("the earlier
+/// message was not delivered" is the message, not its receipt) and without the recipient's name
+/// after "to" (a session named `undelivered` is not a failure). Only whole lines and the name are
+/// cut, so a short message ("not") never erases the receipt's words.
+function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">): string {
+  let rest = text.trim();
+  const echoed = message?.text.trim();
+  if (echoed && (rest === echoed || rest.startsWith(`${echoed}\n`))) rest = rest.slice(echoed.length).trim();
+  const to = message?.to?.trim();
+  if (to)
+    rest = rest.replace(new RegExp(`\\bto\\s+${to.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "gi"), "to");
+  return rest;
+}
+
+/// A send's printed words, read for how far it got.
+function deliveryWords(text: string): Delivery {
+  // Chief's tell tool returns a plain-text outcome rather than JSON. Refusals are
+  // successful tool calls at the transport layer, so the generic empty-output
+  // fallback would otherwise label a cancelled or deleted agent as Sent.
+  const outcome = /^\s*outcome\s*:\s*(queued|done|noop|refused)\b/i.exec(text)?.[1]?.toLowerCase();
+  if (outcome === "refused") return "failed";
+  if (outcome === "queued") return "queued";
+  if (outcome === "done" || outcome === "noop") return "sent";
+  if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
+  // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
+  if (
+    /(?:\bnot|\bnever|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|(?<![\w-])undeliver(?:able|ed)?(?![\w-])/i.test(
+      text,
+    )
+  )
+    return "failed";
+  if (/\bqueued\b/i.test(text)) return "queued";
+  if (/^\s*steered\s*$/im.test(text) || /\bdelivered\b/i.test(text)) return "delivered";
+  return "sent";
+}
+
+/// Why a send was not delivered, when its result says (Leo 2026-10-21: a card read "Sent" over a
+/// `success:false` result, "was stopped by the user and won't be resumed"): the agent it went to
+/// was stopped, no agent goes by that name, or (`other`) the result does not say.
+export type NotDelivered = "stopped" | "noAgent" | "other";
+
+export function notDeliveredReason(tool: Pick<Tool, "output">): NotDelivered {
+  const output = (tool.output ?? "").trim();
+  const value = parseJson(output);
+  const result = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const said =
+    [result.error, result.message, result.reason, result.result].find((part) => typeof part === "string") ?? output;
+  const text = String(said);
+  if (
+    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b|\b(?:cloud )?vm\b[^.\n]{0,40}\bdeleted\b/i.test(
+      text,
+    )
+  )
+    return "noAgent";
+  if (
+    /\b(?:stopped|cancelled|canceled|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
+      text,
+    )
+  )
+    return "stopped";
+  return "other";
+}
+
+function parseJson(text: string): unknown {
+  if (!text.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n/;

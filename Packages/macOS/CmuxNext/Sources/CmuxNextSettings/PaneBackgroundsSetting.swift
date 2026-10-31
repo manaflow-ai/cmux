@@ -4,6 +4,8 @@ public import CmuxNextDesign
 /// or a copy in each pane (`perPane`); plans/cmux-next/pane-backgrounds-DESIGN.md. A missing key
 /// is the default; a bad value is the default plus a diagnostic.
 public nonisolated struct PaneBackgroundsSetting: Sendable {
+    public init() {}
+
     /// The shared Settings, CLI and cmux.json path.
     public static let configPath = ["appearance", "paneBackgrounds"]
 

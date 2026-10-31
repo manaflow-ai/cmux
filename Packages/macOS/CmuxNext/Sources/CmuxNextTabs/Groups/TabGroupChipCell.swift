@@ -191,7 +191,7 @@ final class TabGroupChipCell {
     }
 
     func updateColors(animated: Bool) {
-        Motion.transaction(animated ? .hover : nil) { applyColors() }
+        Motion.feedback.transaction(animated ? .hover : nil) { applyColors() }
     }
 
     private func applyColors() {

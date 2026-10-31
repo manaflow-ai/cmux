@@ -64,6 +64,7 @@ extension NSAttributedString.Key {
 }
 
 /// Pure helpers between run lists and attributed strings. All ranges are UTF-16.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationRichText {
     /// Clips runs to the text, drops plain or empty ones, resolves overlaps
     /// (later runs win), sorts them and merges adjacent equal spans.

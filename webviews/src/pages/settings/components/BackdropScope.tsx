@@ -63,17 +63,17 @@ export function BackdropScopePicker({
   );
 }
 
-/** Where the slider rests while the workspace follows the work's own tint. */
+/** Where the slider rests while the workspace follows All Workspaces' opacity. */
 const FOLLOW_OPACITY = 0.5;
 /** How long keyboard steps pause before the tint is saved. */
 const KEY_SAVE_MS = 400;
-/** At 1 the glass hides the art (the host caps a workspace's tint the same way). */
-const MAX_OPACITY = 0.95;
+/** At 1 the window turns opaque and hides the art, like the host's cap. */
+const MAX_OPACITY = 1;
 
 /**
  * This Workspace's Opacity over art: the slider previews the tint while it moves (never written)
- * and saves it on release; Use the Work's Own clears it. The legibility floor keeps text readable
- * however low it goes.
+ * and saves it on release; Use All Workspaces clears it. It is the tint over the picture, however
+ * low: readability comes from Opacity and Material, never from the picture.
  */
 export function WorkspaceOpacity({
   background,
@@ -120,8 +120,8 @@ export function WorkspaceOpacity({
             </div>
             <div className="row-help">
               {stored === null && drag === null
-                ? t("settingsWindow.backdropPicker.workspaceOpacityFollows")
-                : t("settingsWindow.backdropPicker.workspaceOpacityHelp")}
+                ? t("settingsWindow.backdropPicker.workspaceOpacityFollowsAll")
+                : t("settingsWindow.backdropPicker.workspaceOpacityCovers")}
             </div>
           </div>
           <div className="row-control">
@@ -157,7 +157,7 @@ export function WorkspaceOpacity({
               />
               {stored !== null && (
                 <button type="button" className="link-button" onClick={() => void save(null)}>
-                  {t("settingsWindow.backdropPicker.workspaceOpacityReset")}
+                  {t("settingsWindow.backdropPicker.workspaceOpacityUseAll")}
                 </button>
               )}
             </span>

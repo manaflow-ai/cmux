@@ -1,6 +1,7 @@
 // cmux-web-test-timeout: 300
 // The composer is quiet, like Claude's and ChatGPT's (Leo 2026-10-18): the box itself never answers
-// the pointer, while the model and reasoning pills do, with one subtle step. A click on a pill
+// the pointer, while the model button does, with one subtle step. The model button names the model
+// and its effort and is the one control for both (Leo 2026-10-20: no effort chip, no speed bolt). A click on a pill
 // holds that same step while its menu is open: no brighter press tone that flashes and no edge
 // ring around the open pill.
 //
@@ -11,8 +12,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -38,7 +40,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -47,55 +49,42 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The first load can run Vite's dependency optimizer and reload mid-compile.
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "reasoning-chip" } });
+    await warmGalleryFrame(vite, ["agent-pane.composer", "agent-pane.composer-pickers"], { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
   });
 
-  // The composer bar's buttons by their place: +, the model, effort and mode chips and the bolt.
+  // The composer bar's buttons by their place: +, the model button and the mode chip.
   // (The pane's composer shows no Plan toggle, App.tsx showPlan={false}; the picker rail's gallery
   // stage below covers Plan.)
   const BAR = {
     plus: ".acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-composer-bar .acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-composer-bar .acpmux-effort .acpmux-picker-button",
     mode: ".acpmux-composer-bar .acpmux-access .acpmux-picker-button",
-    fast: ".acpmux-composer-bar .acpmux-fast",
   };
   // A chip is named by its label, or by a selector (one that starts with ".").
   const STAGES = [
-    { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model", "Effort"] },
-    // The Default template's stage layout: the same chips in the footer under the box.
-    { entry: "agent-pane.new-tab", variant: "reasoning-chip-stage", chips: ["Model", "Effort"] },
-    { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Effort"] },
-    // The bolt on, so its resting look is asserted; + and the mode chip open menus.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model"] },
+    // The Default template's stage layout: the same button in the footer under the box.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip-stage", chips: ["Model"] },
+    { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Model"] },
+    // Fast mode on (only in the model button's menu); + and the mode chip open menus.
     { entry: "agent-pane.composer", variant: "quiet-chips", chips: [BAR.plus, BAR.mode] },
   ];
   // Plan on (the picker rail's play turns it on): accent ink, no pill at rest.
   const REST_STAGES = [...STAGES, { entry: "agent-pane.composer-pickers", variant: "plan", chips: ["Model"] }];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const chip = (name: string) => (name.startsWith(".") ? name : `button[aria-haspopup][aria-label="${name}"]`);
 
   const open = async (engine: string, entry: string, variant: string) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    await installPaintedFrames(page);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -104,8 +93,23 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
     // At rest: nothing focused, the pointer off the composer.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await page.waitForFunction((controls) => !document.querySelector(`${controls}:hover`), CONTROLS);
+    await settle(page);
     return page;
+  };
+  /** Waits for a painted frame with the pointer's or focus's change and for every transition it
+   *  started to end, so a read sees what the page holds, not a fade on its way there. */
+  const settle = (page: Page) =>
+    page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      const transitions = document.getAnimations().filter((animation) => animation instanceof CSSTransition);
+      await Promise.all(transitions.map((transition) => transition.finished.catch(() => {})));
+      await window.cmuxPaintFrame();
+    });
+  /** Waits for the pointer to be over `selector`, then for the page to settle. */
+  const hovered = async (page: Page, selector: string) => {
+    await page.waitForFunction((selector) => document.querySelector(selector)?.matches(":hover"), selector);
+    await settle(page);
   };
   const look = (page: Page, selector: string) =>
     page
@@ -147,7 +151,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       const box = (await page.locator(".nt-box").boundingBox())!;
       // Over the box's own empty area, clear of the field's text and every control.
       await page.mouse.move(box.x + box.width - 24, box.y + 10);
-      await page.waitForTimeout(300);
+      await hovered(page, ".nt-box");
       expect(await look(page, ".nt-box")).toEqual(rest);
       await page.close();
     });
@@ -159,7 +163,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           const rest = await look(page, chip(name));
           const box = (await page.locator(chip(name)).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
+          await hovered(page, chip(name));
           const hover = await look(page, chip(name));
           // Hover lives under a fine pointer only; a headless engine may report a coarse one.
           const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
@@ -167,7 +171,8 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           await page.mouse.down();
           const pressed = await look(page, chip(name));
           await page.mouse.up();
-          await page.waitForTimeout(300);
+          await page.waitForSelector(`${chip(name)}[aria-expanded="true"]`);
+          await settle(page);
           const opened = await look(page, chip(name));
           expect(
             await page.locator(chip(name)).first().getAttribute("aria-expanded"),
@@ -197,33 +202,34 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           const name = stage.chips[0]!;
           const box = (await page.locator(chip(name)).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
-          const hovered = await pills();
-          const under = hovered.filter((each) => each.hovered).map((each) => each.label);
+          await hovered(page, chip(name));
+          const pilled = await pills();
+          const under = pilled.filter((each) => each.hovered).map((each) => each.label);
           expect(under.length, "the pointer is over one button").toBe(1);
           expect(
-            hovered.filter((each) => each.pill).map((each) => each.label),
+            pilled.filter((each) => each.pill).map((each) => each.label),
             "only the hovered button pills",
           ).toEqual(under);
         }
         await page.close();
       });
 
-    // Keyboard focus gives the focused button the hover's pill, with no edge, and keeps its outline:
-    // every bar button, + and the bolt included (Leo 2026-10-19).
-    test(`${engine}: keyboard focus pills the focused button only, ringless, with its outline`, async () => {
+    // Keyboard focus gives the focused button the hover's pill, with no edge and no outline: every bar
+    // button, + included (Leo 2026-10-19). The outline went with #23745 (Leo 2026-10-21: no focus
+    // rings in the agent pane; the pill alone marks a focused button).
+    test(`${engine}: keyboard focus pills the focused button only, ringless, with no outline`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       for (const [name, selector] of Object.entries(BAR)) {
         // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
         await page.keyboard.press("Shift");
         await page.locator(selector).first().focus();
-        await page.waitForTimeout(250);
+        await settle(page);
         const controls = await pillsOf(page);
         const focused = controls.filter((each) => each.focused);
         expect(focused.length, `${name} has keyboard focus`).toBe(1);
         expect(focused[0]!.filled, `${name}: focus draws the pill`).toBe(true);
         expect(focused[0]!.edge, `${name}: no edge around the focused pill`).toBe("none");
-        expect(focused[0]!.outline, `${name}: the focus outline stays`).not.toBe("none");
+        expect(focused[0]!.outline, `${name}: no focus outline`).toBe("none");
         expect(
           controls.filter((each) => each.pill && !each.focused).map((each) => each.label),
           `${name}: no other button pills`,
@@ -259,16 +265,16 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
         const eased = await button.evaluate((element) => getComputedStyle(element).transitionProperty);
         const box = (await button.boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(200);
+        await hovered(page, target.selector);
         const hover = await read();
         await page.mouse.down();
         const pressed = await read();
         // Held: a chip whose menu opened on pointerdown has lost :active by now, but keeps
         // data-press-active (popoverTrigger.ts) until the release.
-        await page.waitForTimeout(300);
+        await settle(page);
         const held = await read();
         await page.mouse.up();
-        await page.waitForTimeout(400);
+        await settle(page);
         const after = await read();
         await page.close();
         expect(eased, "no transform to ease").not.toContain("transform");

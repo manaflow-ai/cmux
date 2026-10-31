@@ -22,12 +22,14 @@
 //!   `name=value` argument with a secret name, a known token prefix, a long
 //!   high-entropy value, a bearer token or URL password in a script, or a
 //!   control character is not stored at all (dropping arguments would change
-//!   what the command does), and neither is one over [`ARGV_CAP`] bytes. The argv is only typed on the new prompt, never with a
-//!   newline, so it never runs on its own. It is not copied into the closed
+//!   what the command does), and neither is one over [`ARGV_CAP`] bytes. The argv is never typed or run
+//!   again: the marker line only names it. It is not copied into the closed
 //!   history: reopen never runs a command again, so it has no use there.
 //! - `env`: values of the named keys in [`ENV_KEYS`] only, minus any key that
 //!   names a secret ([`names_secret`]).
-//! - `title`, `agent` (`{harness, session_id}`), `updated_at_ms`.
+//! - `title`, `agent` (`{harness, session_id, args?, env?}`: the session
+//!   the terminal's agent CLI runs, from its hooks, and how that CLI was
+//!   started, see [`agent_launch`]), `updated_at_ms`.
 //!
 //! Rows of tombstoned terminals are removed when the registry opens. A closed
 //! tab keeps its own copy in the closed history (`closed_fields`), so reopen
@@ -40,12 +42,21 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+use cmux_json::JsonSet as _;
+
+mod agent_launch;
+pub(crate) use agent_launch::{
+    AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job,
+    job_is_non_interactive, kept_agent_args, resumable_harness,
+};
 
 /// The environment keys a relaunch record keeps, by exact name.
 ///
-/// - `TERM`, `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`:
+/// - `TERM`, `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`:
 ///   the terminal identity the app gave the shell, so programs see the same
 ///   terminal after reopen (`TERM` is replayed only with a usable `TERMINFO`).
+///   `TERM_PROGRAM_VERSION` is deliberately excluded: cmux forwards TUI mouse
+///   reports instead of providing Ghostty's native selection path.
 /// - `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, `CMUX_TAG`: which app owns the
 ///   terminal, so the `cmux` CLI in the reopened shell talks to that app.
 ///
@@ -58,7 +69,6 @@ pub(crate) const ENV_KEYS: &[&str] = &[
     "TERMINFO",
     "COLORTERM",
     "TERM_PROGRAM",
-    "TERM_PROGRAM_VERSION",
     "CMUX_SOCKET_PATH",
     "CMUX_BUNDLE_ID",
     "CMUX_TAG",
@@ -76,7 +86,8 @@ pub(crate) const ARGV_CAP: usize = 64 * 1024;
 /// Prefixes of well-known tokens (OpenAI and Anthropic `sk-`, GitHub,
 /// Slack `xox?-`). An argument or `name=value` value starting with one is
 /// never stored.
-const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
+pub(crate) const TOKEN_PREFIXES: &[&str] =
+    &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
 
 /// Shells whose argv may still be "the user's shell" with integration flags.
 const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "ksh", "tcsh"];
@@ -342,6 +353,8 @@ pub(crate) struct StoredRelaunch {
     pub env: Vec<(String, String)>,
     /// `(harness, session_id)` of the agent the terminal last ran.
     pub agent: Option<(String, String)>,
+    /// How that agent's CLI was started, when it was read at its session start.
+    pub agent_launch: Option<AgentLaunch>,
 }
 
 /// Whether `session_id` may be stored and offered to a resume command:
@@ -389,31 +402,68 @@ impl WorkspaceRegistry {
             .filter(|(key, _)| keeps_env_key(key))
             .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.into())))
             .collect();
-        let agent =
-            agent.and_then(|agent| serde_json::from_str::<Value>(&agent).ok()).and_then(|agent| {
-                let harness = agent["harness"].as_str()?.to_string();
-                let session_id = agent["session_id"].as_str()?.to_string();
-                resumable_session_id(&session_id).then_some((harness, session_id))
-            });
+        let agent = agent
+            .and_then(|agent| serde_json::from_str::<Value>(&agent).ok())
+            .filter(|agent| agent[NON_INTERACTIVE] != true);
+        let agent_launch = agent.as_ref().and_then(stored_agent_launch);
+        let agent = agent.and_then(|agent| {
+            let harness = agent["harness"].as_str()?.to_string();
+            let session_id = agent["session_id"].as_str()?.to_string();
+            resumable_session_id(&session_id).then_some((harness, session_id))
+        });
         let argv = argv
             .filter(|_| kind == RelaunchKind::Command)
             .and_then(|argv| serde_json::from_str::<Vec<String>>(&argv).ok())
             .and_then(|argv| stored_argv(&argv));
         let cwd = cwd.and_then(|cwd| absolute(&cwd));
-        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, argv, env, agent }))
+        let agent_launch = agent_launch.filter(|_| agent.is_some());
+        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, argv, env, agent, agent_launch }))
     }
 
     /// Record (`Some`) or forget (`None`) the agent session terminal
-    /// `terminal_public_id` runs, from its agent hooks. An id that is not
-    /// resumable is never stored.
+    /// `terminal_public_id` runs, from its agent hooks, with how its CLI was
+    /// started (`launch`) when that was read: at its session start. Without
+    /// one, what is already stored for the same session is kept: its launch,
+    /// or that it is a non-interactive run (`AgentStart::NonInteractive`),
+    /// which no respawn resumes. An id that is not resumable is never stored.
     pub(crate) fn record_terminal_relaunch_agent(
         &mut self,
         terminal_public_id: &str,
         agent: Option<(&str, &str)>,
+        start: AgentStart<'_>,
     ) -> anyhow::Result<()> {
         let agent = match agent {
             Some((harness, session_id)) if resumable_session_id(session_id) => {
-                Some(json!({"harness": harness, "session_id": session_id}).to_string())
+                // A failed lookup costs only what was stored, never the agent record.
+                let stored = match start {
+                    AgentStart::Unknown => {
+                        self.stored_agent_of(terminal_public_id, harness, session_id).ok().flatten()
+                    }
+                    _ => None,
+                };
+                let non_interactive = matches!(start, AgentStart::NonInteractive)
+                    || stored.as_ref().is_some_and(|agent| agent[NON_INTERACTIVE] == true);
+                let kept = match start {
+                    AgentStart::Launch(launch) => Some(launch.clone()),
+                    _ => stored.as_ref().and_then(stored_agent_launch),
+                };
+                let mut record = json!({"harness": harness, "session_id": session_id});
+                if non_interactive {
+                    record[NON_INTERACTIVE] = json!(true);
+                } else if let Some(launch) = kept {
+                    record.set("args", json!(launch.args));
+                    record.set(
+                        "env",
+                        Value::Object(
+                            launch
+                                .env
+                                .into_iter()
+                                .map(|(key, value)| (key, json!(value)))
+                                .collect(),
+                        ),
+                    );
+                }
+                Some(record.to_string())
             }
             Some(_) => return Ok(()),
             None => None,
@@ -428,6 +478,66 @@ impl WorkspaceRegistry {
         )?;
         Ok(())
     }
+}
+
+/// What a session-start hook read of how the agent's CLI was started.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AgentStart<'a> {
+    /// Not read (a later hook, or the process could not be read).
+    Unknown,
+    /// An interactive session, started like this.
+    Launch(&'a AgentLaunch),
+    /// A non-interactive run (`claude -p`, `codex exec`): nothing to resume.
+    NonInteractive,
+}
+
+/// The agent record field that marks a non-interactive run's session.
+const NON_INTERACTIVE: &str = "non_interactive";
+
+impl WorkspaceRegistry {
+    /// The agent record stored for `harness` session `session_id` of terminal
+    /// `terminal_public_id`, if that is the session its record names.
+    fn stored_agent_of(
+        &self,
+        terminal_public_id: &str,
+        harness: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<Value>> {
+        let stored = self
+            .connection
+            .get()
+            .query_row(
+                "SELECT r.agent_json FROM terminal_relaunch r
+                 JOIN resource_terminals t ON t.terminal_id = r.terminal_id
+                 WHERE t.public_id = ?1 AND t.deleted_revision IS NULL",
+                [terminal_public_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
+        Ok(stored.filter(|agent| agent["harness"] == harness && agent["session_id"] == session_id))
+    }
+}
+
+/// The launch in a stored agent record, filtered again as on write: its
+/// arguments only when none looks like a credential, its environment only the
+/// harness's account directory.
+fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
+    let harness = agent["harness"].as_str()?;
+    let args = agent.get("args")?.as_array()?;
+    let args =
+        args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
+    if !resumable_harness(harness) {
+        return None;
+    }
+    let args = kept_agent_args(harness, &args);
+    let env = account_env_key(harness)
+        .and_then(|key| Some((key, agent.get("env")?.get(key)?.as_str()?)))
+        .filter(|(_, dir)| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
+        .map(|(key, dir)| vec![(key.to_string(), dir.to_string())])
+        .unwrap_or_default();
+    Some(AgentLaunch { args, env })
 }
 
 /// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.

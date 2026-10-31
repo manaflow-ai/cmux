@@ -42,6 +42,10 @@ extension TabStripView {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
 
+    func isInNewTabMenuButton(_ point: CGPoint) -> Bool {
+        !newTabMenuButton.isHidden && newTabMenuButton.frame.contains(convert(point, to: contentView))
+    }
+
     // MARK: - Hover
 
     func setHovered(_ id: TabID?) {
@@ -84,6 +88,8 @@ extension TabStripView {
             if let id { cells[id]?.isAudioHovered = true }
         }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+        // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
     }
 
@@ -133,12 +139,20 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        if isInNewTabMenuButton(point) {
+            showNewTabMenu(anchor: newTabMenuButton)
+            return
+        }
         if !isInNewTabButton(point), let id = arrivingCloseTab(at: point) {
             pressedCloseID = id
             cells[id]?.isClosePressed = true
             return
         }
         if isInNewTabButton(point) {
+            if opensNewTabMenuOnPress, !event.modifierFlags.contains(.option) {
+                showNewTabMenu()
+                return
+            }
             pressedNewTab = true
             newTabButton.isPressed = true
             newTabHold.start()
@@ -163,8 +177,9 @@ extension TabStripView {
                 cells[id]?.isAudioPressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
-                beginInlineRename(id)
+            // The first click selected the tab; the second renames it (the screen bar) or zooms its pane.
+            if event.clickCount == 2, Self.selectionClick(event.modifierFlags) == .plain {
+                if renamesOnDoubleClick { beginInlineRename(id) } else { model.send(.toggleZoom(id)) }
                 return
             }
             // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
@@ -172,13 +187,10 @@ extension TabStripView {
             selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
-        // Between tabs or trailing buttons: the strip's, never the window's.
-        guard titlebarHit(at: point) == .empty else { return }
-        // In the window's top row empty space is the titlebar: the window
-        // already moved it or ran the double-click action
-        // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
-        if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
+        // Empty strip space does nothing here: only the + button opens a tab
+        // (Leo 2026-10-12). In the window's top row it is the titlebar, which
+        // the window already moved or ran its double-click action for
+        // (`TitlebarDragPolicy`).
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -269,6 +281,10 @@ extension TabStripView {
     private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
+        if isInNewTabMenuButton(point) {
+            showNewTabMenu(anchor: newTabMenuButton)
+            return nil
+        }
         if isInNewTabButton(point) {
             // Anchored under the button, like the press-and-hold menu.
             showNewTabMenu()
@@ -311,15 +327,18 @@ extension TabStripView {
         return true
     }
 
-    /// The new tab menu (which kind of tab: terminal, WebKit, Chromium)
-    /// under the + button. Right-click and press-and-hold open it; a plain
-    /// click opens a terminal tab.
-    func showNewTabMenu() {
+    /// One menu builder for the adjacent chooser, hold/right-click and press-menu strips.
+    func showNewTabMenu(anchor: NSView? = nil) {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
-        let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
-        menuTracking.begin(menu)
-        menu.popUp(positioning: nil, at: origin, in: self)
+        let anchor = anchor ?? newTabButton
+        let fromChooser = anchor === newTabMenuButton
+        if fromChooser { newTabMenuButton.isHighlighted = true }
+        defer { if fromChooser { newTabMenuButton.isHighlighted = false } }
+        let origin = CmuxPopoverAnchor.menuPoint(for: anchor, in: self, gap: 2)
+        // Only the control that opened the menu stays lit: the + for hold/right-click, the chooser for its own press.
+        menuTracking.begin(menu, fromNewTabButton: !fromChooser)
+        presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }
 

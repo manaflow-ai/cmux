@@ -126,25 +126,56 @@ impl Client {
     async fn claude_config(&mut self, session: &str) -> Value {
         let argv: Vec<String> = serde_json::from_str(&self.ask(session, "hi").await).unwrap();
         let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
-        serde_json::from_str(&std::fs::read_to_string(&argv[at + 1]).unwrap()).unwrap()
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&argv[at + 1]).unwrap()).unwrap();
+        // The servers the cmux server runs behind its code mode, by name.
+        let upstreams = config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"]
+            .as_str()
+            .map(|text| serde_json::from_str::<Value>(text).unwrap());
+        for upstream in upstreams.iter().flat_map(|u| u.as_array().unwrap().clone()) {
+            let name = upstream["name"].as_str().unwrap().to_owned();
+            config["mcpServers"][name] = upstream;
+        }
+        config
     }
 }
 
+/// An ACP `mcpServers` list with the servers the cmux server runs behind its
+/// code mode (`CMUX_MCP_UPSTREAMS`) listed after it, in the same shape.
+fn flat(servers: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    for server in servers.as_array().expect("mcpServers is a list") {
+        out.push(server.clone());
+        let env = server["env"].as_array().cloned().unwrap_or_default();
+        let Some(upstreams) = env.iter().find(|e| e["name"] == "CMUX_MCP_UPSTREAMS") else {
+            continue;
+        };
+        let upstreams: Value = serde_json::from_str(upstreams["value"].as_str().unwrap()).unwrap();
+        for upstream in upstreams.as_array().unwrap() {
+            let env: Vec<Value> = upstream["env"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| json!({"name": k, "value": v}))
+                .collect();
+            out.push(json!({"name": upstream["name"], "command": upstream["command"],
+                "args": upstream["args"], "env": env}));
+        }
+    }
+    out
+}
+
 fn names(servers: &Value) -> Vec<String> {
-    servers
-        .as_array()
-        .expect("mcpServers is a list")
-        .iter()
-        .filter_map(|s| s["name"].as_str().map(str::to_owned))
-        .collect()
+    flat(servers).iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect()
 }
 
 /// `CMUX_CUA_DISPLAY` of the `cmux-cua` server in an ACP `mcpServers` list
 /// (None: the server has no such key). Panics without a `cmux-cua` server.
 fn display(servers: &Value) -> Option<String> {
-    let cua = servers
-        .as_array()
-        .and_then(|list| list.iter().find(|s| s["name"] == "cmux-cua"))
+    let list = flat(servers);
+    let cua = list
+        .iter()
+        .find(|s| s["name"] == "cmux-cua")
         .unwrap_or_else(|| panic!("no cmux-cua server: {servers}"));
     cua["env"]
         .as_array()

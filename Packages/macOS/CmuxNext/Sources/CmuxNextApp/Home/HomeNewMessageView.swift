@@ -1,5 +1,7 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -17,8 +19,6 @@ import CmuxNextHomeEngine
 @MainActor
 final class HomeNewMessageView: NSView {
     let field = HomeRecipientField()
-    /// One click adds a Chief (plans/cmux-next/chief-group-chats-DESIGN.md).
-    let chiefs = HomeChiefStrip()
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -28,6 +28,7 @@ final class HomeNewMessageView: NSView {
     /// The blank page's message box, over a store that only knows the draft.
     private(set) var composer: HomeNativeTranscriptView?
     private var composerStore: HomeStore?
+    private var spellCheckingWatch: Task<Void, Never>?
     private weak var services: AppServices?
     /// The first send made this conversation (the Home page shows it).
     var onSent: (ConversationID) -> Void = { _ in }
@@ -43,7 +44,6 @@ final class HomeNewMessageView: NSView {
         content.layer?.masksToBounds = true
         addSubview(content)
         addSubview(field)
-        addSubview(chiefs)
         notice.font = Typography.caption
         notice.themeColor = { Palette.danger }
         notice.isHidden = true
@@ -52,19 +52,38 @@ final class HomeNewMessageView: NSView {
         addSubview(field.suggestions)
         let home = services.home
         field.contacts = { [weak home] in home?.contacts() ?? [] }
+        // Before anyone is chosen the list under To: offers the Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md).
+        field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
+        field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
+        // The list's New Chief and Invite rows run the same actions as the Home menu and the palette.
+        field.onNewChief = { [weak services] in _ = services?.registry.perform("home.newChief", invocation: ActionInvocation(origin: .user)) }
+        field.onInvite = { [weak services] in _ = services?.registry.perform("home.invite", invocation: ActionInvocation(origin: .user)) }
+        // A typed email address offers Invite to Team under it: the action's confirmation dialog, prefilled.
+        field.inviteTeam = { [weak services] in
+            guard let cloud = services?.cloud, cloud.isSignedIn else { return nil }
+            return cloud.auth.activeTeam.team?.displayName
+        }
+        field.onInviteToTeam = { [weak services] address in
+            _ = services?.registry.perform("home.inviteToTeam",
+                                           invocation: ActionInvocation(arguments: ["email": .string(address.description)], origin: .user))
+        }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
-        chiefs.onChoose = { [weak self] chief in self?.field.choose(.contact(chief)) }
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in
             guard let self, isEmpty else { return }
             onEscape()
         }
         showComposer(carrying: "")
-        refreshChiefs()
+        spellCheckingWatch = Task { [weak self, weak services] in
+            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
+                self?.composer?.composerSpellCheckingEnabled = enabled
+            }
+        }
+        field.refreshSuggestions()
         // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
         Task { [weak self] in
             await home.directory.refresh()
-            self?.refreshChiefs()
+            self?.field.refreshSuggestions()
         }
     }
 
@@ -74,9 +93,18 @@ final class HomeNewMessageView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181). This view owns no
+    // Sendable handle; its composer's own HomeStore is main-actor and only stop() ends its connection, resend and
+    // prune tasks and flushes its cache, so the stops run on the main actor. A guard that returned off main
+    // skipped them, and the store ran on.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { stop() }
+        let composer = composer, composerStore = composerStore
+        spellCheckingWatch?.cancel()
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
+            composer?.stop()
+            composerStore?.stop()
+        }
     }
 
     /// Nothing chosen, nothing typed in To:, and an empty message box:
@@ -128,7 +156,6 @@ final class HomeNewMessageView: NSView {
     /// one, else the blank page; the typed text moves with the message box.
     private func recipientsChanged() {
         say(nil)
-        refreshChiefs()
         guard let services else { return }
         let home = services.home
         let match = field.draft.existingConversation(in: home.homeStore.rows, me: home.homeStore.me?.id)
@@ -141,13 +168,6 @@ final class HomeNewMessageView: NSView {
             showComposer(carrying: text)
         }
         needsLayout = true
-    }
-
-    /// The Chiefs strip offers the Chiefs not chosen yet.
-    private func refreshChiefs() {
-        let shown = chiefs.isHidden
-        chiefs.show(field.draft.chiefShortcuts(contacts: services?.home.contacts() ?? []))
-        if shown != chiefs.isHidden { needsLayout = true }
     }
 
     private func showConversation(_ id: ConversationID, carrying text: String) {
@@ -180,7 +200,9 @@ final class HomeNewMessageView: NSView {
         let store = HomeStore(source: source)
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
-        let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id)
+        let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
+                                            openPanel: services.openPanel)
+        view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")
@@ -240,10 +262,6 @@ final class HomeNewMessageView: NSView {
         let fieldHeight = field.height(forWidth: width)
         field.frame = NSRect(x: 0, y: 0, width: width, height: fieldHeight)
         var top = fieldHeight
-        if !chiefs.isHidden {
-            chiefs.frame = NSRect(x: 0, y: top, width: width, height: HomeChiefStrip.height)
-            top += HomeChiefStrip.height
-        }
         if !notice.isHidden {
             let height = ceil(notice.size(forWidth: width - 28).height)
             notice.frame = NSRect(x: 14, y: top + 6, width: width - 28, height: height)
@@ -255,8 +273,10 @@ final class HomeNewMessageView: NSView {
         let inner = NSRect(x: 0, y: -header, width: width, height: content.bounds.height + header)
         for view in [host as NSView?, composer as NSView?].compactMap({ $0 }) where view.frame != inner { view.frame = inner }
         let suggestions = field.suggestions
-        let height = min(suggestions.preferredHeight, max(0, bounds.height - fieldHeight - 20))
-        suggestions.frame = NSRect(x: 10, y: fieldHeight + 2, width: max(0, width - 20), height: height)
+        // Under the refusal line when it shows, so the Chiefs listed before anyone is chosen never hide it.
+        let listTop = notice.isHidden ? fieldHeight + 2 : notice.frame.maxY + 6
+        let height = min(suggestions.preferredHeight, max(0, bounds.height - listTop - 18))
+        suggestions.frame = NSRect(x: 10, y: listTop, width: max(0, width - 20), height: height)
     }
 }
 

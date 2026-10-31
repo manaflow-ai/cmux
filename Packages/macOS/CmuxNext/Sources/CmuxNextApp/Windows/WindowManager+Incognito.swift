@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 
 // Incognito windows (user decision 2026-09-30): a whole window whose
@@ -12,25 +13,32 @@ extension WindowManager {
     /// Opens a new incognito window whose workspace holds one browser tab on
     /// `url` (a blank page when nil). Returns the window id at once; the
     /// window opens when the daemon reports the workspace.
+    /// `space`: an incognito space (spaces-overhaul-DESIGN.md rule 2): the window shows it, its workspace is
+    /// pinned to it, and the space is deleted once the window is gone (`endIncognitoSpacesIfUnused`).
     @discardableResult
-    func newIncognitoWindow(url: URL? = nil) -> String {
+    func newIncognitoWindow(url: URL? = nil, space: ProfileID? = nil) -> String {
         let windowID = UUID().uuidString.lowercased()
         registry.apply { registry in
             registry.markIncognito(windowID)
             return WindowRegistry.Changes()
         }
+        if let space {
+            incognitoSpaces[windowID] = space
+            state(for: windowID).enterProfile(space)
+            recordIncognitoWorkspaces() // a crash from here on still deletes the space at the next launch
+        }
         // The session begins now, so the window's first page is incognito.
         _ = incognitoProfile()
         let daemon = services.daemon
         let browserTabs = services.cache.browserTabs
-        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
+        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil, url: url) {
             choice
         } else {
             BrowserEngineChoice(engine: .webkit)
         }
         let address = url?.absoluteString ?? "about:blank"
         if EphemeralWorkspaces.localDaemonServes(self) {
-            EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice)
+            EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice, space: space)
             return windowID
         }
         // Claimed before anything else runs: the pending claim keeps the
@@ -44,7 +52,8 @@ extension WindowManager {
             }
             do {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
-                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                    if let space { try await pinToIncognitoSpace(key, space, on: daemon) }
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory(), on: connection)
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
@@ -63,7 +72,7 @@ extension WindowManager {
     /// The incognito session's browser profile, begun on first use.
     func incognitoProfile() -> BrowserProfileID {
         if let profile = incognitoSession { return profile }
-        let profile = OffTheRecordProfiles.shared.begin()
+        let profile = services.browserStores.offTheRecord.begin()
         incognitoSession = profile
         return profile
     }
@@ -112,10 +121,29 @@ extension WindowManager {
         for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
         // The daemon closes ephemeral workspaces itself; the ledger keeps
         // only incognito workspaces it does not know as such.
-        incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) })
+        incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
+    }
+
+    /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows
+    /// that space, lists it.
+    func pinToIncognitoSpace(_ key: WorkspaceKey, _ space: ProfileID, on daemon: DaemonService) async throws {
+        guard let session = daemon.store.registryID, let home = services.machines.local.connection else { return }
+        try await home.pinWorkspace(session: session, key: key, to: space)
+    }
+
+    /// Deletes each incognito space whose window is gone (closed, or never opened): its workspaces close with
+    /// the space, as Delete Space closes the workspaces only that space shows. Nothing of it is kept.
+    func endIncognitoSpacesIfUnused() {
+        let value = registry.value
+        let open = Set(value.windows.filter { $0.isOpen }.map(\.id)).union(pendingClaims.values).union(pendingEphemeralWindows)
+        for (window, space) in incognitoSpaces where !open.contains(window) {
+            incognitoSpaces[window] = nil
+            services.machines.local.send("delete-profile") { _ = try await $0.deleteProfile(space, moveTo: nil) }
+        }
     }
 
     func endIncognitoSessionIfUnused() {
+        endIncognitoSpacesIfUnused()
         guard let profile = incognitoSession else { return }
         let value = registry.value
         let open = value.windows.contains { value.isIncognito($0.id) }
@@ -123,12 +151,17 @@ extension WindowManager {
         guard !open, !pending else { return }
         incognitoSession = nil
         incognitoHistoryReset?()
-        OffTheRecordProfiles.shared.end(profile)
+        services.browserStores.offTheRecord.end(profile)
     }
 
     /// Quit: incognito windows are never restored, so their workspaces
     /// close now (on the daemons), before the window state is saved.
     func closeIncognitoWindowsForTermination() async {
+        // Incognito spaces go with their windows: none is restored.
+        if let home = services.machines.local.connection {
+            for space in Set(incognitoSpaces.values) { _ = try? await home.deleteProfile(space, moveTo: nil) }
+        }
+        incognitoSpaces = [:]
         let value = registry.value
         let ids = value.windows.filter { value.isIncognito($0.id) }.flatMap(\.workspaceIDs)
         guard !ids.isEmpty else { return }

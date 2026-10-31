@@ -43,7 +43,7 @@ private extension SidebarRow {
     /// `SidebarItemOrder.revealsTop` counts before a selection (top items do not).
     var isWorkspaceStop: Bool {
         switch key {
-        case .workspace, .tab: true
+        case .workspace: true
         case .group: isCollapsed
         default: false
         }
@@ -54,7 +54,7 @@ private extension SidebarRowKey {
     /// A row that only titles the rows below it.
     var isRevealHeader: Bool {
         switch self {
-        case .section, .group, .folder: true
+        case .section, .group, .folder, .status: true
         default: false
         }
     }
@@ -62,7 +62,7 @@ private extension SidebarRowKey {
     /// A row the selection can stand on (a block holds selectable items).
     var isRevealStop: Bool {
         switch self {
-        case .workspace, .item, .tab, .block: true
+        case .workspace, .item, .block: true
         default: false
         }
     }
@@ -76,8 +76,8 @@ extension NSScrollView {
     func scrollContent(toY y: CGFloat, animated: Bool, moved: @escaping @MainActor () -> Void) {
         let clip = contentView
         let origin = NSPoint(x: clip.bounds.minX, y: y)
-        if animated, Motion.animatesMovement {
-            Motion.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
+        if animated, Motion.sidebar.animatesMovement {
+            Motion.sidebar.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
                 self?.reflectScrolledClipView(clip)
                 moved()
             })

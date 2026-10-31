@@ -3,6 +3,10 @@
 
 #import <AppKit/AppKit.h>
 
+#include <cstring>
+#include <string>
+
+#include "devtools_message_id.h"
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 #include "shim_internal.h"
@@ -22,7 +26,7 @@ extern "C" {
 
 int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
                             const char* profile_cache_path) {
-  if (!parent_view) {
+  if (!parent_view || stopping()) {
     return 0;
   }
   CefWindowInfo info;
@@ -35,10 +39,12 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
 }
 
 int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
+  if (stopping()) return 0;
   return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
 }
 
 int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index) {
+  if (stopping()) return 0;
   return fork_api().tab_duplicate ? fork_api().tab_duplicate(browser_id, window_browser_id, index) : 0;
 }
 
@@ -69,6 +75,10 @@ void cmux_shim_go_forward(int browser_id) {
 
 void cmux_shim_reload(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->Reload();
+}
+
+void cmux_shim_reload_ignore_cache(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->ReloadIgnoreCache();
 }
 
 int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
@@ -133,8 +143,17 @@ void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
   host().focus_request = handler;
 }
 
+void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler) {
+  host().unhandled_key = handler;
+}
+
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
+}
+
+void cmux_shim_set_accessibility(int browser_id, int enabled) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
+    host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
 int cmux_shim_print(int browser_id) {
@@ -160,26 +179,44 @@ void cmux_shim_stop_finding(int browser_id, int clear_selection) {
 void cmux_shim_close(int browser_id) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
     MarkHostClose(browser_id);
+    // A Chrome-style close still runs beforeunload (TabStripModel): the host
+    // close never asks, so a question already showing is answered Leave, and
+    // one the page asks during the close too (OnBeforeUnloadDialog).
+    AnswerBeforeUnload(browser_id, true);
     host->CloseBrowser(true);
   }
 }
 
+int cmux_shim_try_close(int browser_id) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 1;
+  // False: beforeunload runs first; the page may ask (BEFORE_UNLOAD_DIALOG)
+  // and BEFORE_CLOSE follows only when the close goes on.
+  if (!host->TryCloseBrowser()) return 0;
+  // Closing now, without a question: the host's own close (DoClose).
+  MarkHostClose(browser_id);
+  return 1;
+}
+
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
-  if (!host || !method) {
+  const size_t params_size = params_json ? std::strlen(params_json) : 0;
+  if (!host || !IsDevToolsMethodName(method) || (params_size > 0 && !IsOneJSONObject(params_json, params_size))) {
     return 0;
   }
-  CefRefPtr<CefDictionaryValue> params;
-  if (params_json && *params_json) {
-    CefRefPtr<CefValue> value = CefParseJSON(params_json, JSON_PARSER_RFC);
-    if (!value || value->GetType() != VTYPE_DICTIONARY) {
-      return 0;
-    }
-    params = value->GetDictionary();
-  }
   // An explicit id below 2^30 (the raw-send range starts there).
-  int id = NextInternalDevToolsId(browser_id);
-  return id ? host->ExecuteDevToolsMethod(id, method, params) : 0;
+  const int id = NextInternalDevToolsId(browser_id);
+  if (!id) return 0;
+  // The message CefBrowserHost::ExecuteDevToolsMethod would make, with the
+  // host's parameters text as it is. ExecuteDevToolsMethod needs them parsed
+  // (CefParseJSON, through UTF-16) into a CefDictionaryValue, which CEF then
+  // writes back to JSON: for an app page's script batch that cost 61-104 ms
+  // of this thread, the app's main thread (hang records v2.2.9 seq 565,
+  // v2.2.10 seq 410). Chromium parses the message once, as for any DevTools
+  // client, and its result still reaches OnDevToolsMethodResult
+  // (ForwardDevToolsMessage passes ids below 2^30 on).
+  const std::string message = DevToolsCallMessage(id, method, params_json, params_size);
+  return host->SendDevToolsMessage(message.data(), message.size()) ? id : 0;
 }
 
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {

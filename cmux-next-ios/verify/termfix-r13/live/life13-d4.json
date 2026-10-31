@@ -1,0 +1,23 @@
+{
+ "t0": 1792479137.635411,
+ "quit_ok": true,
+ "pill_changes": [
+  [
+   0.61,
+   "e2e-t1, ~"
+  ],
+  [
+   1.55,
+   "e2e-t1, Reattaching\u2026"
+  ]
+ ],
+ "proc_changes": [
+  [
+   0.61,
+   0,
+   0
+  ]
+ ],
+ "offline_label_after_quit_s": null,
+ "procs_left": "33894 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/cmux-tui --headless --session cmux-app-cnx-e2e-e6d43df7\n33986 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/cmux-tui --headless --session cmux-chief-aedfdad7 --soc\n34572 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/cmux-agent-screen-detection\n34574 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/cmux-agent-screen-detection\n34587 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/cmux-browser-host serve --provider-secret-fd 3 --superv\n34638 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/optchat-chief host --daemon-socket /var/folders/dy/tzp9\n34643 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/acpmux daemon run\n34644 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/acpmux router serve\n46632 cmux-tui __terminal-host --bootstrap-stdio --owner com.cmuxterm.app.debug.cnx.e2e.e6d43df7:cnx-e2e-e6d43df7@33894\n46655 cmux-tui __terminal-host --bootstrap-stdio --owner com.cmuxterm.app.debug.cnx.e2e.e6d43df7:cnx-e2e-e6d43df7@33894\n82403 cmux-tui __terminal-host --bootstrap-stdio --owner com.cmuxterm.app.debug.cnx.e2e.e6d43df7:cnx-e2e-e6d43df7@33894\n88762 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/acpmux daemon run --ready-fd 3 --person-key-fd 4 --list\n88764 /Users/cmux/cnx-ios-e2e/r13/rig/mac/cmux DEV cnx-e2e-e6d43df7.app/Contents/Resources/bin/acpmux router serve\n"
+}

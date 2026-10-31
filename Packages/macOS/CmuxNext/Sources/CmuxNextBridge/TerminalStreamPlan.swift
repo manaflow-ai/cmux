@@ -4,16 +4,18 @@ public import Foundation
 /// Maps one daemon attach event to what a terminal view does with it.
 ///
 /// The daemon's `resized` carries a full replay (cmux-tui-contract.md 2.5),
-/// but the Ghostty mirror runs the same VT core and has parsed every byte up
-/// to that point, so resizing it in place to the new grid reproduces the
-/// daemon's reflow. The replay is dropped: feeding it would require a fresh
-/// surface (Ghostty has no reset API) for every resize. Only the first replay
-/// of an attachment, and a re-attach after overflow, rebuild the mirror.
+/// already reflowed at the new width. The Ghostty mirror never reflows: its
+/// in-place resize clips rows and keeps their wrap flags (ghostty.h, "a mirror
+/// never reflows"), so a pane that narrows would keep its old wide rows under
+/// new output (manaflow-ai/cmux#12381). A `resized` replay therefore rebuilds
+/// the mirror the same way the first replay of an attachment does: the grid,
+/// then the replay on a fresh surface. Snapshot mode does not get `resized`
+/// replays; its READY restores reflow the grid themselves.
 ///
 /// A replay can end inside an escape sequence (`terminal-pending-sequence-v1`):
 /// its unfinished bytes follow the replay as output, so the next live chunk
-/// completes the sequence. A `resized` replay's pending bytes are dropped with
-/// it: the mirror already parsed them from the live stream.
+/// completes the sequence. This applies to a `resized` replay too: the fresh
+/// surface has not parsed them.
 ///
 /// The replay omits DECSCUSR: the cursor shape it reports is restored before
 /// the pending bytes, unless it is the user's own default
@@ -40,11 +42,9 @@ public nonisolated enum TerminalStreamPlan {
 
     public static func steps(for event: TerminalChannelEvent, cursorDefault: TerminalCursorDefault = .ghostty) -> [Step] {
         switch event {
-        case .replay(let replay):
+        case .replay(let replay), .resized(let replay):
             [.grid(columns: replay.cols, rows: replay.rows), .replay(replay)]
                 + tail(replay, cursorDefault: cursorDefault)
-        case .resized(let replay):
-            [.grid(columns: replay.cols, rows: replay.rows)]
         case .output(let data, _):
             [.output(data)]
         case .closed, .colorsChanged, .scrollChanged:

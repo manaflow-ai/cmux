@@ -33,8 +33,19 @@ use crate::workspace_registry::personal_store::{read_groups, read_workspaces};
 
 /// A random item id (`itm_<uuid>`).
 pub(crate) fn mint_item_id() -> ItemId {
-    let uuid = crate::workspace_registry::try_new_uuid_v4().unwrap_or_default();
-    format!("itm_{}", uuid.replace('-', ""))
+    // An empty fallback made every item `itm_` (one id for all of them):
+    // a failed random source gets a process-unique id instead.
+    match crate::workspace_registry::try_new_uuid_v4() {
+        Ok(uuid) => format!("itm_{}", uuid.replace('-', "")),
+        Err(_) => {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            format!("itm_{nanos:024x}{:08x}", u32::try_from(n & 0xffff_ffff).unwrap_or(0))
+        }
+    }
 }
 
 struct LegacyState {

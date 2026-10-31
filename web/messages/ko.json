@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "필수: 이 머신은 팀과 공유됩니다" },
   "agentHarness": {
     "title": "감지된 하네스 구성",
     "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 요청이 지연되었습니다",
+      "message": "Cloud VM 할당을 일시적으로 사용할 수 없습니다.",
+      "action": "1분 후 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "스냅샷 요청에 재시도 키가 필요합니다",
+      "message": "Cloud VM 스냅샷에는 멱등성 키가 필요합니다.",
+      "action": "128자 이하의 고정된 Idempotency-Key로 다시 시도하세요."
+    },
+    "snapshotInProgress": {
+      "title": "스냅샷이 아직 진행 중입니다",
+      "message": "이 Cloud VM에서 이 멱등성 키를 사용하는 스냅샷이 아직 실행 중입니다.",
+      "action": "첫 번째 스냅샷이 완료될 때까지 기다린 다음 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "스냅샷 재시도 키가 이미 사용되었습니다",
+      "message": "이 멱등성 키는 이 Cloud VM의 다른 스냅샷 요청에 이미 사용되었습니다.",
+      "action": "다른 이름의 스냅샷에는 새 멱등성 키를 사용하세요."
+    },
+    "snapshotQuota": {
+      "title": "스냅샷 한도에 도달했습니다",
+      "message": "이 Cloud VM이 스냅샷 한도에 도달했습니다.",
+      "action": "기존 스냅샷을 삭제한 다음 같은 멱등성 키로 다시 시도하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
@@ -28,7 +54,7 @@
     "recreateRequired": {
       "title": "이 머신을 다시 만드세요",
       "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
-      "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
+      "action": "새 머신을 만드세요. `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`로 SCP 엔드포인트를 준비한 다음, 이 머신을 삭제하기 전에 SCP로 파일을 복사하세요."
     },
     "guestUnresponsive": {
       "title": "머신이 응답하지 않음",
@@ -38,7 +64,7 @@
     "inProgress": {
       "title": "아직 진행 중",
       "message": "클라우드 제공업체가 아직 이 변경을 완료하지 않았습니다. 이후에 완료될 수 있습니다.",
-      "action": "다시 시도하기 전에 cmux vm ls 또는 머신 목록에서 머신 상태를 확인하세요."
+      "action": "다시 시도하기 전에 cmux cloud list-machines 또는 머신 목록에서 머신 상태를 확인하세요."
     },
     "providerTimeout": {
       "title": "클라우드 제공업체 응답 지연",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "머신이 사용 중임",
       "message": "이 머신이 시작 중이거나 일시 정지 중이거나 실행 중이 아니어서 지금은 이 작업을 할 수 없습니다.",
-      "action": "잠시 후 다시 시도하세요. cmux vm ls로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
+      "action": "잠시 후 다시 시도하세요. cmux cloud list-machines로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
     },
     "networkRuleCapacity": {
       "title": "네트워크 규칙 한도 도달",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
         "restore": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
-        "fork": "다시 시도하지 마세요. `cmux vm new`로 새 VM을 만드세요.",
-        "openPort": "다시 시도하지 마세요. 머신 내부에서 `cmux vm exec`로 서비스에 접속하거나 포트를 열 수 있는 머신 종류를 사용하세요.",
-        "default": "다시 시도하지 마세요. `cmux vm ls`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
+        "fork": "다시 시도하지 마세요. `cmux cloud new-machine`로 새 VM을 만드세요.",
+        "openPort": "다시 시도하지 마세요. 머신 내부에서 `cmux cloud exec --target machine:<id> --command <command>`로 서비스에 접속하거나 포트를 열 수 있는 머신 종류를 사용하세요.",
+        "default": "다시 시도하지 마세요. `cmux cloud list-machines`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro 필요",
-      "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
-      "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
+      "title": "cmux {plan} 필요",
+      "message": "Cloud VM을 사용하려면 cmux {plan} 플랜이 필요합니다.",
+      "action": "{upgradeUrl}에서 cmux {plan}로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     },
     "displayName": {
       "title": "잘못된 머신 이름",
@@ -94,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "원본 머신의 RAM 크기를 확인할 수 없습니다.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "현재 이 머신 크기를 사용할 수 없습니다. {max} GiB 이하를 선택하세요.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
-      "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "savedMessage": "Plus: 일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
+      "activeMessage": "Plus: Cloud VM 1대",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "hoursMessage": "Plus: 월간 시간 제한 없음",
+      "hoursAction": "https://cmux.com/pricing",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} 컴퓨팅 한도를 모두 사용했습니다",
       "computeMessage": "{plan} 플랜이 이번 청구 기간의 {included} 컴퓨팅 시간을 모두 사용했습니다. 1 컴퓨팅 시간은 2 GB 메모리의 vCPU 1개를 1시간 실행한 양입니다. 머신은 {resetDate}부터 다시 시작할 수 있습니다.",
       "computeAction": "일시 중지된 머신의 파일은 유지됩니다. {resetDate} 전에 더 많은 컴퓨팅이 필요하면 지원팀에 문의하세요.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} 디스크 한도를 모두 사용했습니다",
       "storageMessage": "{plan} 플랜에는 저장된 모든 머신을 합쳐 {included} GB의 디스크가 포함됩니다. 저장된 머신이 {used} GB를 사용 중이며 이 요청에는 {requested} GB가 필요합니다.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM 리소스가 부족합니다",
@@ -132,7 +158,7 @@
       "action": "VM을 일시 중지하거나 삭제하세요."
     },
     "activeLimit": {
-      "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
+      "counted": "현재 포함: {machines}. 일시 중지된 머신도 한도에 포함됩니다.",
       "provisioning": "{name} (프로비저닝 중)",
       "separator": ", "
     }
@@ -531,7 +557,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +569,10 @@
             "로컬 세션 기록"
           ],
           "go": [
-            "실행 중인 Cloud VM 1대",
-            "매월 40 VM 시간",
-            "저장된 VM 2대"
+            "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB 디스크",
+            "커뮤니티 지원",
+            "월간 시간 제한 없음"
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
@@ -610,6 +637,12 @@
         "title": "App Store를 통해 결제됨",
         "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
         "manage": "App Store에서 관리"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus 요금제는 {date}에 갱신됩니다.",
+        "pendingBody": "Plus 요금제는 {date}에 종료됩니다.",
+        "monthlyPrice": "${amount}/월"
       }
     },
     "mobileDevices": {
@@ -944,7 +977,7 @@
       },
       "plan": {
         "free": "무료",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2936,9 +2969,9 @@
       "limitsTitle": "플랜 한도",
       "limitsDesc": "활성 머신은 하나의 vCPU 및 메모리 풀을 공유합니다. 큰 머신 한 대를 실행하거나 작은 머신 여러 대를 실행할 수 있습니다. 일시 중지된 머신은 풀을 사용하지 않습니다. 디스크는 머신마다 따로 정해지며 풀에 포함되지 않습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
-      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
+      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
+      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
       "limitsPoolFull": "새로 만들거나, 재개하거나, 크기를 늘리거나, 포크한 머신이 풀을 넘게 되면 cmux는 요청을 거부하고 풀 사용량을 보여 줍니다. 머신을 일시 중지하거나 삭제해 리소스를 확보하거나 Max로 업그레이드하세요.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
       "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
@@ -2948,7 +2981,7 @@
       "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
       "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Go는 16 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Plus는 128 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -5228,7 +5261,18 @@
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus 이용하기",
+      "featuresLead": "포함 사항:",
+      "features": [
+        "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "커뮤니티 지원",
+        "월간 시간 제한 없음"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

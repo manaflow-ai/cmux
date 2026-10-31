@@ -23,6 +23,15 @@ pub struct HostLock {
     _file: File,
 }
 
+impl Drop for HostLock {
+    fn drop(&mut self) {
+        // A concurrent fork can inherit this open file description. Closing
+        // our descriptor alone then leaves the flock held until the child
+        // closes its copy. Explicitly unlock when the host guard drops.
+        let _ = self._file.unlock();
+    }
+}
+
 #[derive(Debug)]
 pub enum LockError {
     /// Another open file holds the flock: a host already runs for this home.
@@ -127,6 +136,19 @@ pub fn mark_stopping(lock: &Path) {
 /// Clears the mark, at a host's start.
 pub fn clear_stopping(lock: &Path) {
     let _ = std::fs::remove_file(stopping_file(lock));
+}
+
+/// The file next to the host lock `lock` that names the host (its pid) that
+/// takes SIGUSR1 as "hand off when idle" (an update: the app waits for the
+/// Chief's turn to end before it hands acpmux off). An older host has no
+/// such file, and SIGUSR1 would end it at once, so the app does not send it.
+pub fn handoff_file(lock: &Path) -> std::path::PathBuf {
+    lock.with_file_name("host.handoff")
+}
+
+/// Says that this host (holding `lock`) takes SIGUSR1 as a handoff request.
+pub fn mark_handoff_when_idle(lock: &Path) {
+    let _ = std::fs::write(handoff_file(lock), format!("{}\n", std::process::id()));
 }
 
 /// Whether a host runs on `lock` and is not stopping.

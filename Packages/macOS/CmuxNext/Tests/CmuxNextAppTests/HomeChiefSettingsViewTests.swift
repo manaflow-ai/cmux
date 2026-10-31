@@ -21,7 +21,7 @@ import Testing
         // The model shows by the name acpmux offers, and acpmux's own "default" is not an item.
         #expect(titles.defaultModel == Self.named("Opus 5.5"))
         #expect(titles.models.map(\.value) == ["claude-opus-5-5"])
-        #expect(titles.defaultEffort == Self.named("high"))
+        #expect(titles.defaultEffort == Self.named(HomeEngineStrings.effortTitle("high")))
     }
 
     /// The effective engine includes the owner's choice, so a chosen field's
@@ -51,6 +51,24 @@ import Testing
         #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} claude")
     }
 
+    /// The popover is the quick version (Leo 2026-10-20): its All Chief Settings link opens the
+    /// Settings page with every Chief setting, whichever brain the card shows.
+    @Test func allChiefSettingsOpensTheSettingsPage() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var opened = 0
+        view.onAllSettings = { opened += 1 }
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.allSettings" })
+        #expect(!link.isHidden)
+        #expect(link.accessibilityLabel() == HomeEngineStrings.allChiefSettings)
+        link.performClick(nil)
+        #expect(opened == 1)
+    }
+
+    private static func subviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { subviews(of: $0) }
+    }
+
     @Test func diagnosticsStartClosedAndTheNameIsTheOnlyField() throws {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         #expect(!view.showsDiagnostics)
@@ -65,16 +83,34 @@ import Testing
         #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset)) < 1)
     }
 
-    @Test func leavingAnUnchangedNameRenamesNothing() {
+    @Test func leavingAnUnchangedNameRenamesNothing() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var renamed: [String] = []
-        view.onRename = { renamed.append($0) }
+        view.onRename = { renamed.append($0); return nil }
         view.setName("Chief")
-        view.renamed()
+        #expect(view.commitName() == nil)
         view.nameField.stringValue = "  Ada  "
-        view.renamed()
-        view.renamed()
+        await view.commitName()?.value
+        #expect(view.commitName() == nil)
         #expect(renamed == ["Ada"])
+    }
+
+    /// A Chief always has a name: clearing the field and leaving it renames nothing and shows
+    /// the name again, rather than an empty field over a Chief that kept its name.
+    @Test func clearingTheNameShowsItAgain() async {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var renamed: [String] = []
+        view.onRename = { renamed.append($0); return nil }
+        view.setName("Chief")
+        view.nameField.stringValue = "   "
+        view.renamed()
+        #expect(renamed.isEmpty)
+        #expect(view.nameField.stringValue == "Chief")
+        // A name with spaces around it is saved and shown trimmed.
+        view.nameField.stringValue = "  Ada  "
+        await view.commitName()?.value
+        #expect(renamed == ["Ada"])
+        #expect(view.nameField.stringValue == "Ada")
     }
 
     @Test func appearanceRowsGrowTheCard() {

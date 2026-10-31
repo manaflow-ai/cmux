@@ -2,6 +2,7 @@ import Foundation
 
 /// Cheap, exact prefilters for per-message text checks that run over every
 /// loaded message when the transcript rebuilds its rows.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTextScan {
     /// Longest RGI emoji sequences (families with skin tones, tag flags) are
     /// under 40 UTF-8 bytes; three of them fit comfortably in this budget.

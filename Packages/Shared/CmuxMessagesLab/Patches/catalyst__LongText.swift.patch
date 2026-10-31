@@ -9,7 +9,37 @@
          let a = NSMutableAttributedString(string: string as String,
                                            attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
          if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
-@@ -891,15 +891,34 @@
+@@ -391,7 +391,8 @@
+     let markdown: Bool
+     /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
+     /// its tiles near the end are drawn off main, then both reach the screen in one publish.
+-    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
++    /// cmux: `box`, the asking view's palette (PaletteScope), which the prerendered tiles draw in.
++    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int; var box: PaletteBox? }
+     var tileHint: TileHint? { get { lock.lock(); defer { lock.unlock() }; return hint } set { lock.lock(); hint = newValue; lock.unlock() } }
+     private var hint: TileHint?
+     private var pendingTiles: [(TileCache.Key, CGImage)] = []
+@@ -542,7 +543,9 @@
+                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
+                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
+                         // a tile that could not be allocated is not prerendered.
+-                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
++                        if let img = PaletteScope.with(h.box, { TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) }) {
++                            tiles.append((k, img))
++                        }
+                     }
+                     line += c
+                 }
+@@ -618,7 +621,7 @@
+         pending.removeAll()
+         // Tiles drawn with the measurement: in the cache before the new height is laid out.
+         // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
+-        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
++        for (k, img) in pendingTiles where Fixture.generationIsLive(k.palette) { TileCache.shared.put(k, img) } // cmux: any view's palette
+         pendingTiles.removeAll()
+         return changed
+     }
+@@ -891,15 +894,34 @@
              guard create else { return nil }
              // Streaming: the same text with more at the end keeps every block but the last
              // (a plain stream that turns into markdown is indexed again from its start).
@@ -49,3 +79,15 @@
                      let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                      LongTextStats.streamExtends += 1
                      let old = layoutsOf(prev)
+@@ -982,6 +1004,11 @@
+ /// fixed (80 lines and the band), so measurement never changes it.
+ enum LongTextFold {
+     static let headLines = 40, tailLines = 40
++    /// cmux: the folded head and tail for `total` measured lines, valid for any total. The fold
++    /// is decided from the scan's estimate and the measured total can be smaller (fewer than
++    /// `headLines`): `tailFirst..<total` then had lowerBound > upperBound and trapped.
++    static func head(_ total: Int) -> Range<Int> { 0..<min(max(0, total), headLines) }
++    static func tailFirst(_ total: Int) -> Int { min(max(0, total), max(headLines, total - tailLines)) }
+     /// 3 screens (the 1041 pt window).
+     static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
+     static var bandHeight: CGFloat { 2 * Fixture.lineHeight }

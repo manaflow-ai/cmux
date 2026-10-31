@@ -72,6 +72,7 @@ use crate::resource::{
 use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceId, SurfaceKind};
+use cmux_json::JsonSet as _;
 
 /// Advertised by `identify`: `workspace.open_url`.
 pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";
@@ -79,9 +80,6 @@ const OPERATION: &str = "workspace.open_url";
 const MAX_URL_BYTES: usize = 8192;
 /// Width of the column a link opens right of a lone dock.
 const NEW_COLUMN_WIDTH: f32 = crate::mux::LONE_DOCK_NEIGHBOR_WIDTH;
-/// The engine of a frontend browser tab the daemon makes (the app's
-/// default; the app owns the engine choice of the tabs it makes itself).
-const FRONTEND_ENGINE: &str = "webkit";
 
 pub(super) fn dispatch(
     mux: &Arc<Mux>,
@@ -384,7 +382,7 @@ fn created_before(mux: &Arc<Mux>, steps: &StepKeys) -> Result<Option<Value>, Res
         return Ok(None);
     }
     let mut value = resolution["created_path"].clone();
-    value["reused"] = json!(false);
+    value.set("reused", json!(false));
     Ok(Some(value))
 }
 
@@ -462,7 +460,7 @@ impl Call<'_> {
             Some(&steps.create),
         )?;
         let mut value = created["value"].clone();
-        value["reused"] = json!(false);
+        value.set("reused", json!(false));
         Ok(value)
     }
 
@@ -508,7 +506,10 @@ impl Call<'_> {
 
     fn frontend_record(&self) -> FrontendBrowserRecord {
         FrontendBrowserRecord {
-            engine: FRONTEND_ENGINE.to_string(),
+            // The person's `browser.siteEngines` rule for the URL, else
+            // `browser.defaultEngine` (Chromium unless set to WebKit), as for a
+            // tab the person opens.
+            engine: crate::browser_profile_ops::default_engine_for(self.mux, self.url).to_string(),
             url: self.url.to_string(),
             title: None,
             favicon_url: None,
@@ -555,7 +556,7 @@ impl Call<'_> {
         };
         if !frontend {
             let mut value = commit(fields).map_err(resource_operation_error)?;
-            value["reused"] = json!(false);
+            value.set("reused", json!(false));
             return Ok(value);
         }
         let fingerprint = json!({

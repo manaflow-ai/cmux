@@ -8,7 +8,7 @@ import Foundation
 public struct UpdateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
     public static let command = "update-bookmark"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.bookmarks
+    public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var title: String?
     public var url: String?
@@ -50,7 +50,7 @@ public struct UpdateBookmarkRequest: DaemonRequest {
 public struct MoveBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
     public static let command = "move-bookmark"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.bookmarks
+    public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var parent: String
     public var index: Int
@@ -77,7 +77,7 @@ public struct MoveBookmarkRequest: DaemonRequest {
 public struct DeleteBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkDeletion
     public static let command = "delete-bookmark"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.bookmarks
+    public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var mutation: MutationIdentity?
     public init(bookmark: String, mutation: MutationIdentity?) {

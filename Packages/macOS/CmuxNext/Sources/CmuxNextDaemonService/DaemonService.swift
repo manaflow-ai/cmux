@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 public import Observation
 public import os
@@ -26,6 +26,9 @@ public typealias DaemonCommandBody = @Sendable (isolated DaemonConnection) async
 public final class DaemonService {
     /// `local`, or the Cloud machine id (`vm-…`).
     public let machineID: String
+    /// Its connections echo `placement-shift-v1` (this build orders sidebar rows from the
+    /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
+    let echoesPlacementShift: Bool
     public let store = DaemonStore()
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
@@ -49,16 +52,25 @@ public final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// Parked tabs whose `restart-tab` is in flight (`wakeParkedTabs`).
+    @ObservationIgnored var wakingParkedTabs: Set<SurfaceID> = []
     /// Which kept tabs this launch restarts (`restartsKeptTab`), observed by the tab cells.
     public internal(set) var keptTabRestarts: KeptTabRestarts = .none
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
-    @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
+    /// The daemon's event batches, on the frame class (every frame, whole, unbudgeted): a batch holds
+    /// the echoes of the person's own actions, and most of them have no intent (close other tabs, close
+    /// a workspace, duplicate, move to a new window, reopen), so the echo is the first time the change
+    /// shows. Under a budgeted class it waited while a key was pending or other visible work spent the
+    /// frame, and the backlog grew without bound under steady churn (review 2 of pl-main-bc).
+    @ObservationIgnored let drainScheduler: FrameBatcher
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
+    @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
@@ -66,8 +78,16 @@ public final class DaemonService {
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
 
-    public init(machineID: String = "local") {
+    /// - Parameters:
+    ///   - machineID: `local`, or the remote machine's id.
+    ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
+    ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
+    ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
+    ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
+    public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
         self.machineID = machineID
+        self.echoesPlacementShift = echoesPlacementShift
+        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -110,6 +130,14 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
+    /// Starts a fresh daemon connection attempt. This is deliberately synchronous: callers
+    /// stamp their transport attempt and clear its failure before waking the asynchronous loop.
+    public func beginAttempt() {
+        startup = .connecting
+        lastStartupError = nil
+        armStartupDeadline()
+    }
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored public private(set) var endpointProvider: DaemonConnection.EndpointProvider?
     /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
@@ -152,13 +180,15 @@ public final class DaemonService {
         if let socket = launcher.configuration.rememberedSocket {
             retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
         }
-        pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
+        pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
-        let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
-                                                    resolvesShellIntegration: resolvesShellIntegration,
-                                                    installKey: launcher.configuration.installKey, retryWake: retryWake)
+        // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
+        // the bundled build like one of another build; only a failed handoff shows the refusal.
+        let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -200,16 +230,24 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        runTask = Task { [weak self, scheduler, logger] in
+        runTask = Task { [weak self, drainScheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
+            let onFailure: @Sendable (DaemonError) async -> Void = { error in
+                // An incompatible owner is exiting for a handoff to the bundled build: as after a
+                // version handoff (below), no failure shows and the deadline covers the successor.
+                guard error != .incompatibleOwnerHandedOff else {
+                    await weakSelf?.noteIncompatibleOwnerHandoff()
+                    return
+                }
+                await weakSelf?.noteStartupFailure(error)
+            }
             var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
-                await exiting.close()
+                await exiting.closeAndWait()
                 // The first connect was in time; the deadline now covers
                 // the successor's start.
                 self?.armStartupDeadline()
@@ -221,15 +259,16 @@ public final class DaemonService {
             }
             guard let (connection, identity) = connected else { return }
             guard let self, !Task.isCancelled else {
-                await connection.close()
+                await connection.closeAndWait()
                 return
             }
+            await connection.observePaneNotReady(self.paneNotReadyReporter)
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
             // task-owner: one hop to read the endpoint; the store run below owns the connection
             Task { await self.rememberSocket(identity, connection: connection) }
-            await store.run(connection: connection, scheduler: scheduler)
+            await store.run(connection: connection, scheduler: drainScheduler)
         }
     }
 
@@ -264,14 +303,15 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
         let clock = startupClock
-        runTask = Task { [weak self, scheduler, logger] in
+        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
+        configuration.echoesPlacementShift = echoesPlacementShift
+        runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
-                                                                                    sessionEvents: true)) {
+                    DaemonConnection(configuration: configuration) {
                         DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
@@ -282,7 +322,7 @@ public final class DaemonService {
                     await weakSelf?.noteStartupFailure(error)
                 }
                 if Task.isCancelled {
-                    await connected?.0.close()
+                    await connected?.0.closeAndWait()
                     return
                 }
                 guard let (connection, identity) = connected else {
@@ -291,7 +331,7 @@ public final class DaemonService {
                     continue
                 }
                 guard let self, !Task.isCancelled else {
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 do {
@@ -303,13 +343,14 @@ public final class DaemonService {
                     let show = !Task.isCancelled
                     self.shutdownConnection()
                     if show { store.markFailed(String(describing: error)) }
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
+                await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-                await store.run(connection: connection, scheduler: scheduler)
-                await connection.close()
+                await store.run(connection: connection, scheduler: drainScheduler)
+                await connection.closeAndWait()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
@@ -319,6 +360,18 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         self.connection = connection
+        let recovery = recovery
+        connection.observeAnswering { [weak connection] answering in
+            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
+            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
+            // ask that still holds probes the owner once more.
+            Task { @MainActor in
+                guard let connection else { return }
+                let now = connection.daemonAnswering
+                if now == answering || now { recovery.noteDaemonAnswering(now) }
+            }
+        }
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
@@ -340,6 +393,20 @@ public final class DaemonService {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
+    }
+
+    /// The handshake handed an incompatible owner off to the bundled build
+    /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
+    /// The handoff can come after the first deadline already showed a failure, so the
+    /// successor gets a fresh `.connecting` window and the old failure is dropped.
+    func noteIncompatibleOwnerHandoff() {
+        Self.launchMark("daemon_version_handoff")
+        logger.info("cmux-tui daemon handoff: the running owner is incompatible; starting the bundled build")
+        if startup != .connected {
+            startup = .connecting
+            lastStartupError = nil
+        }
+        armStartupDeadline()
     }
 
     private func armStartupDeadline() {
@@ -425,7 +492,7 @@ public final class DaemonService {
         await failure(label, ticket: openTicket(label), body)
     }
 
-    private func failure(_ label: String, ticket: CommandTicket?,
+    func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
@@ -439,15 +506,58 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return ActionWorkFailure(label, error)
+            return workFailure(label, error)
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
+    /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+
+    /// What each connection calls when it refuses a request that names a pane still opening, from any sender
+    /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
+    /// action caused), once.
+    /// The service stays on the main actor: the hook carries only a main-actor closure (Sendable because it runs
+    /// there), never the service itself.
+    var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
+        let batcher = drainScheduler
+        let show: @MainActor @Sendable (PaneNotReady) -> Void = { [weak self] notReady in self?.showPaneNotReady(notReady) }
+        return { notReady in batcher.scheduleFrame { show(notReady) } }
+    }
+
+    private func showPaneNotReady(_ notReady: PaneNotReady) {
+        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
+    }
+
+    /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
+    @ObservationIgnored public var paneNotReadyText: (() -> String)?
+
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
+    public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        var failure = ActionWorkFailure(label, error)
+        if error is PaneNotReady, let text = paneNotReadyText?() { failure.message = text }
+        return failure
+    }
+
+    /// Teardown that must finish before the caller removes a test session's state or reaps its owner.
+    public func shutdownConnectionAndWait() async {
+        let startup = runTask
+        let connected = detachConnection()
+        await connected?.closeAndWait()
+        await startup?.value
+    }
 
     public func shutdownConnection() {
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
+        if let connection = detachConnection() { Task { await connection.close() } }
+    }
+
+    private func detachConnection() -> DaemonConnection? {
+        // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
+        recovery.detach()
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
         pathMonitor?.cancel()
@@ -458,8 +568,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
-        // task-owner: teardown hop; close() is idempotent and finishes the store pump
-        if let connection { Task { await connection.close() } }
+        let connected = connection
         connection = nil
+        return connected
     }
 }

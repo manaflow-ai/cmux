@@ -10,7 +10,7 @@ import CmuxNextPages
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
-        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
+        registry.bind("newBrowserWorkspace", requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         WorkspaceBulkClose.bind(into: registry, context: context)
@@ -34,9 +34,6 @@ enum WorkspaceHandlers {
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
         LayoutTemplateHandlers.bind(into: registry, context: context)
-        for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
-        }
     }
 
     /// Open All Workspace PR Links: each web link of the workspace's status
@@ -64,10 +61,11 @@ enum WorkspaceHandlers {
     /// address bar) instead of the active one, `window` in that open
     /// window; `room` pins it to that space first (Open Link in New Space).
     /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
+    /// `daemon` holds it (default: the active window's machine).
     static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
-                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil, daemon chosen: DaemonService? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        let daemon = services.activeDaemon
+        let daemon = chosen ?? services.activeDaemon
         let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
@@ -94,7 +92,7 @@ enum WorkspaceHandlers {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
                 }
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
-                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: cwd ?? NSHomeDirectory(), on: connection)
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
@@ -124,7 +122,7 @@ enum WorkspaceHandlers {
 
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
+        try context.require(DaemonCapability.frontendBrowserTabs.rawValue)
         newBrowserWorkspace(services: context.services, url: nil)
     }
 
@@ -132,7 +130,7 @@ enum WorkspaceHandlers {
     /// and the daemon serves browser tabs, else where the link rule sends it (Find Work's rows).
     static func openInNewWorkspace(_ url: URL, services: AppServices) {
         guard LinkRouter.shared.target(for: url) == .cmuxBrowser,
-              services.activeDaemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
+              services.activeDaemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) else {
             LinkRouter.shared.open(url)
             return
         }
@@ -159,11 +157,19 @@ enum WorkspaceHandlers {
 
     // MARK: Navigation
 
+    /// Next or previous workspace among the members of the target's group, as the sidebar shows
+    /// the group (the group Close Other Workspaces in Group reads). A navigation with nowhere to
+    /// go (R136: no group, or alone in it) is refused quietly: callers get the reason.
     private static func selectInGroup(_ context: AppActionContext, _ invocation: ActionInvocation, offset: Int) throws {
         let current = try context.workspace(invocation).model
         guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        let peers = context.sidebarOrder.filter { $0.group == current.group }
-        guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
-        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
+        guard let group = try WorkspaceVerbHandlers.group(of: current, context) else {
+            throw ActionFailure.noTarget(RefusalStrings.workspaceNotInGroup)
+        }
+        let peers = group.workspaces.map(\.id.rawValue)
+        guard let index = peers.firstIndex(of: current.id), peers.count > 1 else {
+            throw ActionFailure.noTarget(RefusalStrings.noOtherWorkspaceInGroup)
+        }
+        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count], in: state)
     }
 }

@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- View-only bench viewer for cmux-screen-host (cloud browser check, cloud-browser-DESIGN.md).
+     Query: signal, room, secret. Joins the room as "viewer", offers recvonly video plus the
+     host's input/pointer channels, and records connect-to-first-frame and the frame rate.
+     Result JSON goes to document.title as "RESULT:{...}". -->
+<html><body><video id="v" autoplay muted playsinline></video>
+<script>
+const q = new URLSearchParams(location.search);
+const signal = q.get('signal'), room = q.get('room'), secret = q.get('secret');
+const seconds = Number(q.get('seconds') || 20);
+const t0 = performance.now();
+const out = { phases: {} };
+const mark = (k) => { out.phases[k] = Math.round(performance.now() - t0); };
+const done = (extra) => { Object.assign(out, extra); document.title = 'RESULT:' + JSON.stringify(out); };
+(async () => {
+  const base = signal.replace(/\/$/, '') + '/v1/rooms/' + room;
+  // The room's /ice answers without CORS headers, so a page cannot read it; the viewer
+  // runs on the host's machine here, so host candidates are enough.
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  pc.createDataChannel('input', { ordered: true });
+  pc.createDataChannel('pointer', { ordered: false, maxRetransmits: 0 });
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  const ws = new WebSocket(base.replace(/^https/, 'wss') + '/ws?role=viewer&secret=' + encodeURIComponent(secret));
+  const send = (m) => ws.send(JSON.stringify(m));
+  pc.onicecandidate = (e) => { if (e.candidate) send({ type: 'candidate', candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex }); };
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'connected') mark('connected'); };
+  ws.onmessage = async (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'answer') { await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); mark('answer'); }
+    else if (m.type === 'candidate' && m.candidate) { try { await pc.addIceCandidate({ candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex }); } catch (_) {} }
+  };
+  ws.onopen = async () => {
+    mark('ws');
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    send({ type: 'offer', sdp: offer.sdp });
+  };
+  const v = document.getElementById('v');
+  pc.ontrack = (e) => {
+    v.srcObject = e.streams[0] || new MediaStream([e.track]);
+    let frames = 0, first = null;
+    const tick = (now, meta) => {
+      if (first === null) { first = now; mark('first_frame'); out.size = meta.width + 'x' + meta.height; setTimeout(finish, seconds * 1000); }
+      frames++;
+      v.requestVideoFrameCallback(tick);
+    };
+    v.requestVideoFrameCallback(tick);
+    const finish = async () => {
+      const span = (performance.now() - t0 - out.phases.first_frame) / 1000;
+      let inbound = {};
+      (await pc.getStats()).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') inbound = r; });
+      done({ seconds: Math.round(span * 10) / 10, presented_fps: Math.round(frames / span * 10) / 10,
+             decoded: inbound.framesDecoded, decoder_fps: inbound.framesPerSecond, kbps: Math.round((inbound.bytesReceived || 0) * 8 / span / 1000),
+             jitter_buffer_ms: inbound.jitterBufferEmittedCount ? Math.round(inbound.jitterBufferDelay / inbound.jitterBufferEmittedCount * 1000) : null,
+             decoder: inbound.decoderImplementation });
+    };
+  };
+  setTimeout(() => { if (!document.title.startsWith('RESULT:')) done({ error: 'timeout', state: pc.connectionState }); }, (seconds + 40) * 1000);
+})().catch((e) => done({ error: String(e) }));
+</script></body></html>

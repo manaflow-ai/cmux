@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -53,6 +54,80 @@ struct AgentPanePostedClickTests {
         // The person's own click (the HID system's events carry source pid 0).
         view.judge(try Self.click(in: window, source: 0), eventWindow: window)
         #expect(gestures.consume(), "the person's click did not count as a gesture")
+    }
+
+    /// A screenshot/file interaction can leave Chromium's child window temporarily not key while
+    /// the pane still receives the person's Return. The send must keep its person proof in that
+    /// transition; otherwise an attached prompt is refused as “Not sent”.
+    @Test func aReturnFromChromiumStillCountsWhileHeldOrItsChildWindowIsNotKey() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let hosting = FakeChromiumHosting()
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+                                              pageHost: true, testRoot: true, chromium: hosting))
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+        paneWindow.isReleasedWhenClosed = false
+        paneWindow.contentView = view
+        defer { view.close(); paneWindow.close() }
+        view.layoutSubtreeIfNeeded()
+
+        let deadline = Date().addingTimeInterval(5)
+        while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(view.debugShowsChromium)
+        let chromiumView = try #require(view.chromiumPage?.contentView)
+        let childWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                   backing: .buffered, defer: false)
+        childWindow.isReleasedWhenClosed = false
+        paneWindow.addChildWindow(childWindow, ordered: .above)
+        defer { childWindow.close() }
+        chromiumView.removeFromSuperview()
+        childWindow.contentView = chromiumView
+        chromiumView.frame = childWindow.contentView?.bounds ?? .zero
+
+        #expect(!childWindow.isKeyWindow)
+        let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let keyDown = try #require(NSEvent(cgEvent: event))
+        let gestures = view.model.transport.gestures
+        view.judge(keyDown, eventWindow: childWindow)
+        #expect(gestures.consume(), "the person's Return after an attachment was rejected while Chromium was not key")
+        // Consuming the ordinary grant is a separate use of this physical key. It revokes the
+        // question proof, so the same event cannot authorize both paths.
+        #expect(gestures.questionReturnWitness == nil)
+
+        // A second physical Return exercises the isolated question proof independently.
+        let questionEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        questionEvent.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let questionKeyDown = try #require(NSEvent(cgEvent: questionEvent))
+        view.judge(questionKeyDown, eventWindow: childWindow)
+        let witness = try #require(gestures.questionReturnWitness)
+        #expect(gestures.isAvailable, "the question Return also has its ordinary grant credit")
+        // A held Return can repeat while the isolated DOM proof is still crossing the bridge.
+        // It must neither revoke that original witness nor mint another one.
+        questionEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        let repeated = try #require(NSEvent(cgEvent: questionEvent))
+        try #require(repeated.isARepeat)
+        view.judge(repeated, eventWindow: childWindow)
+        #expect(gestures.questionReturnWitness == witness)
+        #expect(gestures.isAvailable, "a held Return repeat neither mints nor consumes generic credit")
+        #expect(gestures.consumeQuestionReturn(witness))
+        #expect(!gestures.consume(), "consuming the question proof must revoke its generic grant")
+        #expect(!gestures.consumeQuestionReturn(witness))
+
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let next = try #require(gestures.questionReturnWitness)
+        // The numeric keypad's Enter is a distinct native key (76), but it is still Return
+        // for the isolated question-key listener.
+        event.setIntegerValueField(.keyboardEventKeycode, value: 76)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let keypad = try #require(gestures.questionReturnWitness)
+        #expect(!gestures.consumeQuestionReturn(next), "keypad Enter revived the previous Return proof")
+        #expect(gestures.consumeQuestionReturn(keypad), "keypad Enter did not mint a Return proof")
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        #expect(!gestures.consumeQuestionReturn(keypad), "new posted page input left the keypad proof usable")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's

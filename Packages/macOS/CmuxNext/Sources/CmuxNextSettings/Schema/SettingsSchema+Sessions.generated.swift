@@ -5,6 +5,15 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
+    public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
+    public nonisolated static let resumeAgentsDefault = true
+    /// `sessions.allowFullAccess`: Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).
+    public nonisolated static let allowFullAccessPath = ["sessions", "allowFullAccess"]
+    public nonisolated static let allowFullAccessDefault = true
+    /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.
+    public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
+    public nonisolated static let promptSuggestionsDefault = true
 }
 
 extension SessionSettings {
@@ -41,6 +50,36 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.resumeAgentsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.resumeAgents", "Resume Agents After Restart"),
+                help: SettingsText.keyed("settings.sessions.resumeAgents.help", "Terminal agents reopen their session after a crash or restart."),
+                kind: .toggle,
+                default: .bool(SessionSettings.resumeAgentsDefault),
+                keywords: ["resume", "restore", "restart", "reboot", "crash", "claude", "codex", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.allowFullAccessPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Off, cmux won't switch an agent into a mode that skips approvals."),
+                kind: .toggle,
+                default: .bool(SessionSettings.allowFullAccessDefault),
+                keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
+            ),
+            SettingDescriptor(
+                SessionSettings.promptSuggestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.promptSuggestions", "Suggest Follow-Up Tasks"),
+                help: SettingsText.keyed("settings.sessions.promptSuggestions.help", "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."),
+                kind: .toggle,
+                default: .bool(SessionSettings.promptSuggestionsDefault),
+                keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
             ),
         ]
     }

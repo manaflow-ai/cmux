@@ -119,7 +119,8 @@ must work with no page.
   the coderouter lead exposes them in the catalog), then "Search the web for ..." (the browser's
   search engine through the existing resolver), then matching open tabs, workspaces, history. Search
   mode puts the search row first and the agents after it.
-- Tab toggles Search | Ask (Shift-Tab too); the toggle at the field's right shows the mode; Up/Down
+- No mode toggle (Leo, 2026-10-20, #22816): the first row is what the text reads as (an address
+  opens, a question or an instruction asks the agent, other text searches); Tab and Up/Down
   move the highlight; Enter picks the highlighted row; Escape clears the field, then closes the
   dropdown.
 - Picking an agent row starts the ACP chat in place with that prompt (the existing becomes-chat
@@ -211,6 +212,11 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   search). An address still opens first, `!` is still a terminal, and the mode is not remembered.
   The thumb moves by transform on its own layer before the rows render, so it stays smooth under
   CPU load.
+- Switch removed (Leo, 2026-10-20: "no mode toggle: type and press Return", #22816): one pure
+  classifier (`omniboxAction`, webviews) picks open, ask or search, and its pick is the first row,
+  so Down picks the other action for a miss. Tab steps the rows and leaves the field from the
+  last one; with no agent installed a question searches. The `tabs.newTabWidgets.modeSwitch`
+  widget is retired (#22883).
 - cx-e2aa (Lawrence, 2026-10-09): the project picker and the agent's model/effort/speed chip sit on
   top of the page (the composer's `ProjectChooser` and chips, one implementation with the Start
   Agent launcher); Enter on a prompt asks the agent on the chip in the picked project. The rows

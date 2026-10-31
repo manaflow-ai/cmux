@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The hover card state machine (plans/cmux-next/hovercards.md). One per
 /// app: there is one phase, so at most one card is pending or shown.
@@ -48,6 +49,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     public var aimWindow: Duration
     /// The pointer rests on the shown card (the coordinator says so before each deadline).
     public private(set) var pointerOnCard = false
+    /// A card its owner shows has the one card window (`HoverCardEvent.owned`).
+    public private(set) var ownedCardShown = false
     /// The last deadline found the pointer on the card: when it leaves, the full grace starts then.
     private var wasOnCard = false
     /// How long a target with no delay waits when it arrives under a still
@@ -157,6 +160,15 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             if lastHit?.id == id { lastHit = nil }
             guard activeTarget?.id == id else { return [] }
             return end() + resume()
+        case .owned(let shown):
+            ownedCardShown = shown
+            guard shown else { return [] }
+            // The owner's card takes the window: no card of a target is pending or shown, and
+            // nothing hides (the window morphs to the owner's content).
+            quiet = false
+            let hadTimer = armedToken != nil
+            phase = .idle
+            return hadTimer ? [.cancelTimer] : []
         case .pin(let target):
             // No card during a drag or scroll, pinned or not.
             guard suppressions.isEmpty else { return [] }
@@ -189,6 +201,11 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         switch phase {
         case .idle:
             guard let target else { return [] }
+            // The owner's card shows: the next target takes the one card at once (it morphs).
+            if ownedCardShown {
+                phase = .shown(target)
+                return [.show(target, sliding: true)]
+            }
             return arm(target, moved: moved)
         case .pending(let pending, _):
             guard let target else { return end() }

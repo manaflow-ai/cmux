@@ -13,9 +13,10 @@
     "manual flake hunt, non-urgent background work) is cost policy and is not",
     "expressed here."
   ],
-
   "capabilities": {
     "linux": "x86_64 Linux; the default for every non-macOS job",
+    "linux_16": "x86_64 Linux, 16 vCPU: CPU-bound jobs (compiles, linters, large test suites)",
+    "linux_32": "x86_64 Linux, 32 vCPU: the largest parallel builds and test shards",
     "linux_arm64": "aarch64 Linux; native ARM64 package entrypoint verification",
     "macos_15": "macOS 15 image, and therefore the macOS 15 default SDK",
     "macos_15_gui": "macOS 15 with a foreground Aqua login session (XCUITest, virtual display)",
@@ -24,10 +25,11 @@
     "macos_26_ios": "macOS 26 with installed iOS runtimes and a working simctl",
     "macos_26_large": "macOS 26 on the large SKU: 12 vCPU, 48 GB RAM, 250 GB disk"
   },
-
   "fleets": {
     "blacksmith": {
       "linux": "blacksmith-4vcpu-ubuntu-2404",
+      "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+      "linux_32": "blacksmith-32vcpu-ubuntu-2404",
       "linux_arm64": "blacksmith-4vcpu-ubuntu-2404-arm",
       "macos_15": "blacksmith-6vcpu-macos-15",
       "macos_15_gui": "blacksmith-6vcpu-macos-15",
@@ -38,6 +40,8 @@
     },
     "hosted": {
       "linux": "ubuntu-24.04",
+      "linux_16": "ubuntu-24.04",
+      "linux_32": "ubuntu-24.04",
       "linux_arm64": "ubuntu-24.04-arm",
       "macos_15": "macos-15",
       "macos_15_gui": "macos-15",
@@ -47,10 +51,354 @@
       "macos_26_large": "macos-26"
     }
   },
-
   "owners": {
     "manaflow-ai": "blacksmith"
   },
-
-  "default_fleet": "hosted"
+  "default_fleet": "hosted",
+  "job_classes": {
+    "$comment": [
+      "What kind of work a job does, and whether that work needs macOS.",
+      "scripts/ci/runner_routing_table.py fails a macOS job with no macos_jobs entry,",
+      "and a macOS job whose class needs linux (unless it is an existing job with a",
+      "linux_followup). See docs/ci-runner-capability-map.md."
+    ],
+    "apple-app-build": {
+      "needs": "macos",
+      "description": "Builds the macOS app, an Apple framework or an xcframework with Xcode or SwiftPM against AppKit, SwiftUI or WebKit, or seeds those builds' caches."
+    },
+    "apple-swift-tests": {
+      "needs": "macos",
+      "description": "Swift tests of packages that import Darwin, Foundation networking, CryptoKit, Security, AppKit or another Apple-only framework."
+    },
+    "apple-gui": {
+      "needs": "macos",
+      "description": "Needs a macOS login session or window server: UI tests, app-host tests, captures, tours, frame benchmarks."
+    },
+    "apple-ios": {
+      "needs": "macos",
+      "description": "iOS builds, simulators and App Store Connect tooling."
+    },
+    "apple-signing-release": {
+      "needs": "macos",
+      "description": "Signs, notarizes, staples, verifies or publishes Apple release artifacts with codesign, notarytool or the keychain."
+    },
+    "macos-runtime-tests": {
+      "needs": "macos",
+      "description": "Tests how code behaves on macOS itself: PTYs, launchd, the system keychain, the network stack, an Intel run-time check, a built binary launched on macOS."
+    },
+    "rust-darwin-release-build": {
+      "needs": "macos",
+      "description": "Release builds of the Rust macOS targets that link against the real Apple SDK and package npm and PyPI. Compile-only checks of those targets are rust-darwin-compile."
+    },
+    "rust-darwin-compile": {
+      "needs": "linux",
+      "description": "Compiles the Rust macOS targets without running them; scripts/ci/macos-cross.sh does this on Linux (darwin_builder: linux)."
+    },
+    "cpp-unit-tests": {
+      "needs": "linux",
+      "description": "Compiles and runs C or C++ unit tests that use only the standard library; clang++ on Linux runs them."
+    },
+    "shell-parse": {
+      "needs": "linux",
+      "description": "Parses or lints shell scripts, including with a specific bash version, which can be built on Linux."
+    },
+    "portable-swift-packages": {
+      "needs": "linux",
+      "description": "Swift packages that build without Apple-only frameworks; swift test runs them on Linux."
+    },
+    "web-and-tooling": {
+      "needs": "linux",
+      "description": "TypeScript, JavaScript, Python or Rust tests, linters, formatters and generators that do not call Apple tools."
+    },
+    "portable-checks": {
+      "needs": "any",
+      "description": "Static checks and stdlib Python, bash and bun tests that run the same on Linux and macOS: fleet Linux first, then a free owned mini with no nightly job waiting, Blacksmith Linux last (scripts/ci/portable_job_placement.py)."
+    }
+  },
+  "macos_jobs": {
+    "$comment": [
+      "Every job whose runs-on can route to macOS, as <workflow file>#<job id> -> job class.",
+      "A new macOS job adds its line here and takes its owned-pool label from placement.",
+      "linux_followup marks an existing job that should move to Linux; placement_followup an existing",
+      "job that reads the side-lane label variable directly; picker_followup an existing job whose runs-on",
+      "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
+      "lists only shrink."
+    ],
+    "agent-brands.yml#swift-test": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "app-ffi-release.yml#build": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "auth-refresh-tests.yml#auth-refresh-tests": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "auto-resume-nightly-notarization.yml#generate-deltas": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "auto-resume-nightly-notarization.yml#staple-outer": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "auto-resume-nightly-notarization.yml#staple-stapled": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "auto-resume-nightly-notarization.yml#verify-stapled": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "auto-resume-nightly-notarization.yml#wait-and-staple": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "build-ghosttykit.yml#build-ghosttykit": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "ci-macos.yml#cli-product-tests": "apple-gui",
+    "ci-macos.yml#macos-compile-admission": "apple-app-build",
+    "ci-macos.yml#release-build": "apple-app-build",
+    "ci-macos.yml#swift-package-tests": "apple-swift-tests",
+    "ci.yml#dogfood-build": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-mobile-ffi.yml#apple": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-base-autofix.yml#action-exports": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-batch.yml#build": {
+      "class": "apple-app-build",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "cmux-next-batch.yml#regen": {
+      "class": "apple-app-build",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "cmux-next-car-guards.yml#mac": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-cua-helper-identity.yml#helper-identity": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-daemon-macos-shadow.yml#cmux-next-daemon-macos-shadow": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-dev-daily.yml#sign": "apple-signing-release",
+    "cmux-next-dev-daily.yml#sign-blacksmith": "apple-signing-release",
+    "cmux-next-dev-daily.yml#verify": "apple-signing-release",
+    "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
+    "cmux-next-frame-pacing.yml#bench": "apple-gui",
+    "cmux-next-guards.yml#ci-guard-group": "portable-checks",
+    "cmux-next-guards.yml#tooling-tests": "portable-checks",
+    "cmux-next-ios-kit.yml#kit-tests": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label; #28145 takes it from ios_runner_pool.py and removes this followup"
+    },
+    "cmux-next-media.yml#tour": "apple-gui",
+    "cmux-next-perf-bench.yml#bench": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-perf-budgets.yml#blacksmith-mac": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on compares inputs.runner_class but always names a Blacksmith label; a measurement pinned to one hardware class needs a picker over that class's pools"
+    },
+    "cmux-next-perf-budgets.yml#measure": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-pr-autofix.yml#action-exports": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-shell-integration.yml#zsh-head-watch": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-source-archive.yml#archive": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-terminal.yml#rust-terminal": {
+      "class": "macos-runtime-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "cmux-next-terminal.yml#swift-terminal": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "cmux-next-tip-test-compile.yml#compile": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next.yml#app-compile-fleet": "apple-app-build",
+    "cmux-next.yml#checks": "portable-checks",
+    "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
+    "cmux-next.yml#daemon-test": "apple-swift-tests",
+    "cmux-next.yml#dev-landing-compile": "apple-app-build",
+    "cmux-next.yml#fast-tier": "apple-app-build",
+    "cmux-next.yml#generated-files": "apple-app-build",
+    "cmux-next.yml#release-compile": "apple-app-build",
+    "cmux-next.yml#release-compile-fast": "apple-app-build",
+    "cmux-next.yml#swift-canary": "apple-app-build",
+    "cmux-next.yml#swift-canary-fleet": "apple-app-build",
+    "cmux-next.yml#swift-test": "apple-swift-tests",
+    "cmux-terminal-client-xcframework.yml#build": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-tui-build-package.yml#build": "rust-darwin-release-build",
+    "cmux-tui.yml#macos": {
+      "class": "macos-runtime-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "cmux-vnc.yml#swift-test": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "coderouter-release.yml#build": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "dogfood-artifact-publish.yml#capture": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "ios-app-store.yml#upload-and-validate": {
+      "class": "apple-ios",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "ios-appstore-upload.yml#upload": {
+      "class": "apple-ios",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "ios-e2e.yml#mac-ios-e2e": {
+      "class": "apple-ios",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "ios-internal-nightly.yml#archive": "apple-ios",
+    "ios-internal-nightly.yml#upload": {
+      "class": "apple-ios",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "ios-screenshots.yml#screenshots": "apple-ios",
+    "ios-streamed-validate.yml#validate": {
+      "class": "apple-ios",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "ios-testflight.yml#upload": {
+      "class": "apple-ios",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "iroh-release-gate.yml#tailscale-version-skew": "macos-runtime-tests",
+    "iroh-v2.yml#client": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "macos-cross-parity.yml#runtime-x86_64": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "main-compile-probe.yml#compile": "apple-app-build",
+    "nightly-next-canary.yml#canary": {
+      "class": "macos-runtime-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly on attempt 1 (#26688); take the label from a placement job like pick-train-runner"
+    },
+    "nightly-next-launch-smoke.yml#smoke": "apple-gui",
+    "nightly-next-train.yml#build": "apple-app-build",
+    "nightly.yml#build-nightly-app": "apple-app-build",
+    "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
+    "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
+    "nightly.yml#generate-nightly-deltas": "apple-signing-release",
+    "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
+    "nightly.yml#refresh-compilation-cache": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "nightly.yml#refresh-test-compilation-cache": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
+    "nightly.yml#signer-dmg-image": "apple-signing-release",
+    "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
+    "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
+    "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
+    "nightly.yml#verify-signed-nightly": "apple-signing-release",
+    "nightly.yml#visual-gate-nightly": "apple-gui",
+    "relay-publish-npm.yml#smoke": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "relay-tls.yml#diagnostic-presentation": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "relay-tls.yml#system-keychain": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "release.yml#build-ghostty-cli-helper": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "release.yml#build-sign-notarize": "apple-signing-release",
+    "release.yml#build-sign-notarize-blacksmith": "apple-signing-release",
+    "reload-build.yml#build": "apple-app-build",
+    "remote-daemon.yml#remote-daemon-macos-tests": "macos-runtime-tests",
+    "repair-v0-64-25-helper-rpaths.yml#repair": "apple-signing-release",
+    "repair-v0-64-25-helper-rpaths.yml#repair-blacksmith": "apple-signing-release",
+    "repair-v0-64-25-helper-rpaths.yml#verify-shipped": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "resume-nightly-notarization.yml#resume": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "resume-nightly-notarization.yml#verify-stapled": {
+      "class": "apple-signing-release",
+      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
+    },
+    "seed-derived-data.yml#seed": "apple-app-build",
+    "seed-swiftpm-manifests.yml#seed": {
+      "class": "apple-app-build",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "signing-keychain-macos.yml#real-import": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "terminal-hang-diagnostics.yml#phase-attribution": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "test-feed-reply-providers.yml#full-text": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "test-feed-reply-providers.yml#verify": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "test-ios.yml#ios-simulator-build": "apple-ios",
+    "test-ios.yml#mobile-core-package": "apple-ios"
+  }
 }

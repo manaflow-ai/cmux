@@ -22,27 +22,17 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
-    /// `RestrictToManagedTeam` with `ManagedTeam` (enterprise P17-3): the
-    /// only team this device may use, or nil. The account's other teams are
-    /// neither listed nor selectable, and without that team there is none.
-    public var managedTeamID: String?
-    public var teams: [CMUXAuthTeam] { Self.allowedTeams(coordinator.availableTeams, managed: managedTeamID) }
-    public var teamID: String? {
-        Self.allowedTeamID(resolved: coordinator.resolvedTeamID, available: coordinator.availableTeams.map(\.id), managed: managedTeamID)
+    /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
+    @ObservationIgnored public let activeTeam: ActiveTeam
+    /// The device's managed team (``ActiveTeam/managedTeamID``).
+    public var managedTeamID: String? {
+        get { activeTeam.managedTeamID }
+        set { activeTeam.managedTeamID = newValue }
     }
-
-    /// The account's teams this device may use.
-    nonisolated static func allowedTeams(_ teams: [CMUXAuthTeam], managed: String?) -> [CMUXAuthTeam] {
-        guard let managed else { return teams }
-        return teams.filter { $0.id == managed }
-    }
-
-    /// The team API calls use: the resolved one, or only the managed one
-    /// (when the account belongs to it) while the device is restricted.
-    nonisolated static func allowedTeamID(resolved: String?, available: [String], managed: String?) -> String? {
-        guard let managed else { return resolved }
-        return available.contains(managed) ? managed : nil
-    }
+    /// The account's teams this device may use (``ActiveTeam/teams``).
+    public var teams: [CMUXAuthTeam] { activeTeam.teams }
+    /// The team API calls use (``ActiveTeam/id``).
+    public var teamID: String? { activeTeam.id }
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -87,7 +77,15 @@ public final class CloudAuth {
         )
         let client = StackAuthClient(config: config, tokenStore: .custom(tokenStore),
                                      baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
-        let devAuth = configuration.isDebugBuild && !configuration.isProductionAuth
+        // A debug build signs in from its dogfood credentials against the development project.
+        // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
+        // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
+        // a hidden rig build signs a production test account in for end-to-end checks
+        // (cmux-next-ios/verify). A release build never reads either.
+        // The variable is read from the process environment, so pass it per launch with
+        // `open --env`; an exported one would replace a production session signed in by browser.
+        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
@@ -110,6 +108,7 @@ public final class CloudAuth {
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
                                       includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession)
         )
+        activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
         let coordinator = coordinator
         browserSignIn = HostBrowserSignInFlow(
@@ -119,12 +118,9 @@ public final class CloudAuth {
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-                NSWorkspace.shared.openInBackground(url)
-                return true
-            }
+            // Every open here follows the person's Sign In, so the browser comes to the front:
+            // opened behind cmux, the click looked dead (2026-10-31). The open never blocks (cx-050n).
+            openExternalURL: { url in NSWorkspace.shared.openInForeground(url) }
         )
     }
 
@@ -139,21 +135,37 @@ public final class CloudAuth {
         return (pair.accessToken, pair.refreshToken)
     }
 
+    /// Where a sign-in opens; the App reads its Debug Settings tunable here.
+    @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
+
     /// Hosted browser sign-in; returns whether the app ended signed in.
+    /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
+    /// comes through here, so they all open the same window.
     @discardableResult
-    public func signIn() async -> Bool {
-        await browserSignIn.beginSignIn().value
+    public func signIn(selectAccount: Bool = false) async -> Bool {
+        await beginSignIn(selectAccount: selectAccount).value
     }
+
+    /// Starts a sign-in without waiting for it. `selectAccount` (Switch
+    /// Account) asks the hosted page which account to use.
+    @discardableResult
+    public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
+        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
+        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+    }
+
+    /// Opens the sign-in in progress in the default browser (the person's
+    /// way on when the popup shows nothing); false when none is in progress.
+    @discardableResult
+    public func continueSignInInBrowser() -> Bool {
+        guard let url = browserSignIn.activeAttemptSignInURL else { return false }
+        return NSWorkspace.shared.openInForeground(url)
+    }
+
+    /// Ends the sign-in in progress.
+    public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
     public func signOut() async { await browserSignIn.signOut() }
-
-    /// Selects `id`; refused (false) when the device is restricted to another team.
-    @discardableResult
-    public func selectTeam(_ id: String) -> Bool {
-        guard managedTeamID == nil || id == managedTeamID else { return false }
-        coordinator.selectedTeamID = id
-        return true
-    }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form
     /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL

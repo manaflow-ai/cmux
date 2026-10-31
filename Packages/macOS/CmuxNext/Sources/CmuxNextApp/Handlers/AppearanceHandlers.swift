@@ -36,6 +36,7 @@ enum AppearanceHandlers {
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
         AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
+        MotionCategoriesSetting.bindActions(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
@@ -61,6 +62,7 @@ enum AppearanceHandlers {
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
+        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
@@ -127,9 +129,7 @@ enum AppearanceHandlers {
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
-        // Tab bars at the bottom keep the standard title bar (R109,
-        // `ChromePlacementSetting.effectiveTitlebar`); the choice is saved.
-        context.design.titlebar = context.design.tabBarPosition == .bottom ? .standard : style
+        context.design.titlebar = style
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)

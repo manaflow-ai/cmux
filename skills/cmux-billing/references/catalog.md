@@ -8,7 +8,7 @@ Lookup detail for [../SKILL.md](../SKILL.md). Prices live in
 
 | Lookup key | Price | Notes |
 | --- | --- | --- |
-| `cmux-go-monthly-10` | $10/mo | monthly only; gated per user by `isGoPlanEnabled` |
+| `cmux-starter-monthly-15` | $15/mo | cmux Plus, internal plan id `go`; monthly only; offered to every web visitor (`isWebPlusPlanEnabled`); App Store Go keeps `isGoPlanEnabled` |
 | `cmux-pro-monthly-50` | $50/mo | |
 | `cmux-pro-yearly-480` | $480/yr | $40/mo equivalent, 20% off |
 | `cmux-max-monthly-200` | $200/mo | |
@@ -58,7 +58,7 @@ subscription goes. The portal route uses the same function for old
 
 Stripe amounts are immutable, so a price change mints a new lookup key carrying
 the amount and adds the old key to `LEGACY_PRICE_LOOKUP_KEYS`. Grandfathered
-Prices (`cmux-pro-monthly` $30, `cmux-pro-yearly` $240, `cmux-pro-yearly-288`
+Prices (`cmux-go-monthly-10` $10 Go, `cmux-starter-monthly-20` $20, `cmux-pro-monthly` $30, `cmux-pro-yearly` $240, `cmux-pro-yearly-288`
 $288, `cmux-team-monthly` $35, `cmux-team-yearly-336` $336,
 `cmux-team-yearly-576` $576) stay active for the subscriptions on them, and
 `/dashboard/billing` prices every row from its own Stripe amount.
@@ -85,6 +85,13 @@ production key never has to list portal configurations. Staging webhook endpoint
 `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets
 are already in the `cmux-staging` Vercel project.
 
+Team billing uses a separate portal configuration pinned by
+`STRIPE_TEAM_PORTAL_CONFIGURATION_ID`. Its subscription-update feature is
+disabled, while cancellation, invoice history, and payment-method updates stay
+enabled. `web/scripts/stripe/provision-catalog.sh <test|live>` creates or updates
+that configuration and prints the id to set in the corresponding Vercel
+environments.
+
 ## Cloud VM allowance
 
 The paid allowance lives in `web/services/vms/machineSpec.ts` and
@@ -92,7 +99,7 @@ The paid allowance lives in `web/services/vms/machineSpec.ts` and
 
 | Plan | Active VMs | Shared pool | Disk per VM | Largest VM |
 | --- | --- | --- | --- | --- |
-| Go | 1 | one 2 vCPU / 4 GB VM | 16 GB | 2 vCPU / 4 GB |
+| Plus (`go`) | 1 saved VM total, paused included | none (one machine) | 128 GB | 8 vCPU / 16 GB (Pro sizes), no monthly hour cap |
 | Pro, Founder's Edition | 5 | 20 vCPU / 40 GB RAM | 128 GB | 8 vCPU / 16 GB (`lg`) |
 | Team | 5 per paid seat | 20 vCPU / 40 GB RAM per paid seat, one pool for the team | 128 GB | 8 vCPU / 16 GB (`lg`) |
 | Max | 5 | 80 vCPU / 160 GB RAM | 256 GB | 32 vCPU / 64 GB (`2xl`) |

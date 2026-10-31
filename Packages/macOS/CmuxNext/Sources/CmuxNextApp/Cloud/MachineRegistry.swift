@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -15,9 +16,22 @@ import Observation
 final class MachineRegistry {
     static let localID = "local"
 
+    /// Whether `machineID` names a Cloud machine. A machine that is not in the registry has no typed
+    /// kind here, so the id decides: SSH machines are `ssh-…` (`SSHHost.machineID`), paired servers
+    /// `server-…` (`ServerReach.machineID`), this Mac `local`; every other id is a Cloud machine.
+    static func isCloudMachineID(_ machineID: String) -> Bool {
+        machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
+    }
+
+    /// The id prefixes of machines that are not Cloud machines (`SSHHost.machineID`, `ServerReach.machineID`).
+    private static let nonCloudIDPrefixes = ["ssh-", "server-"]
+
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
+    /// The account's Cloud machine cap from the last `/api/vm` list (nil
+    /// before one, or when the list carried none). Never inferred from `cloud`.
+    var cloudLimits: CloudMachineLimits?
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
     /// Paired servers whose Chief brain session the app shows (`ServerReachService`).
@@ -80,9 +94,26 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
+    /// The machine name on the tabs of `machineID`'s tree: nil for a tree that runs on this
+    /// Mac (2026-10-20: every Chief subagent tab wore "Chief"). The Chief owner daemon and a
+    /// server that is this Mac are reached at a Unix socket here; their tabs run on this Mac.
+    func tabBadge(_ machineID: String) -> String? {
+        if let server = server(machineID), case .unix = server.reach.route { return nil }
+        return machineBadge(machineID)
+    }
+
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
+    }
+
+    /// The name a tab's machine badge takes its color from (`TabItem.machineName`): the sidebar
+    /// name of `machineID` when `badge` is that machine's short name (an SSH host's badge shows
+    /// its destination, the sidebar its label), so the tab wears its rows' MachineColor. Nil for
+    /// any other badge (a "this Mac" chip) or a machine not known here: the badge's own text.
+    func tabColorName(_ machineID: String?, badge: String?) -> String? {
+        guard let machineID, let badge, badge == machineBadge(machineID) else { return nil }
+        return machineName(machineID)
     }
 
     /// What `daemon` can do for the app. A remote daemon never needs the
@@ -95,9 +126,9 @@ final class MachineRegistry {
     /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
-        var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
-        notNeeded.insert(DaemonCapabilities.shared.terminalReaperActive)
-        if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
+        var notNeeded = Set(DaemonCapability.homeOnly)
+        notNeeded.insert(DaemonCapability.terminalReaperActive.rawValue)
+        if local.supports(DaemonCapability.profiles.rawValue) { notNeeded.formUnion(DaemonCapability.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
 

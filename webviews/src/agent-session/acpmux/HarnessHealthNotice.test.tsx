@@ -1,16 +1,18 @@
 // Agent CLI health in a chat (cx-ny85): a chat whose agent CLI is signed out says so with a Log In
-// that runs the agent's login in a terminal tab; an outdated one updates in place through the host
-// (`harness.update`, cx-1mbnu), then offers Restart Chat (`harness.restart`); Not Now for this chat
-// and Skip This Version for good. An update that needs sudo, an up-to-date or unknown one shows
+// that runs the agent's login in a terminal tab; an outdated one draws no line, it hands the model
+// chip its offer (hq#2569 #12): Update runs in place through the host (`harness.update`,
+// cx-1mbnu), then the line offers Restart Chat (`harness.restart`); Skip This Version for good. An update that needs sudo, an up-to-date or unknown one shows
 // nothing (Settings > Agents has the details).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer } from "./HarnessHealthNotice";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
+/// What the notice hands the model chip: the update on offer, if any.
+let offer: UpdateOffer | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
@@ -43,6 +45,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  offer = undefined;
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -86,6 +89,7 @@ async function render(
         cwd="/work"
         open={(params) => opened.push(params)}
         native={native}
+        onOffer={(next) => (offer = next)}
         {...extra}
       />,
     );
@@ -103,6 +107,13 @@ async function answer(call: Call | undefined, value: unknown, failed = false) {
 
 const notice = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-harness-notice]");
 async function press(container: HTMLElement, action: string) {
+  // The offer's Update and Skip This Version live on the model chip.
+  if (action === "update" || action === "skip") {
+    expect(offer).toBeDefined();
+    const chosen = offer!;
+    await act(async () => (action === "update" ? chosen.update() : chosen.skip()));
+    return;
+  }
   await act(async () => container.querySelector<HTMLButtonElement>(`[data-notice-action="${action}"]`)!.click());
 }
 
@@ -129,19 +140,31 @@ test("a signed-out agent CLI says so, and Log In runs its login in a terminal ta
   expect(notice(container)).toBeNull();
 });
 
-test("an outdated agent CLI offers its own update; Skip This Version stays skipped until a newer one", async () => {
+test("an expired sign-in says so, and Log In runs its login like a signed-out one", async () => {
+  const container = installDom();
+  const opened = await render(container, { ...signedOut, auth: "expired" });
+  expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
+  expect(text(container)).toContain("Your sign-in expired.");
+  await press(container, "login");
+  expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
+});
+
+test("an outdated agent CLI draws no line: the model chip offers its update; Skip This Version stays skipped until a newer one", async () => {
   const container = installDom();
   await render(container, outdated);
-  expect(notice(container)?.dataset.harnessNotice).toBe("outdated");
-  await press(container, "skip");
   expect(notice(container)).toBeNull();
-  // Another chat, same version: still skipped. A newer version asks again.
+  expect(offer).toMatchObject({ harness: "codex", agent: "Codex", version: "0.3.1", latest: "0.4.0" });
+  await press(container, "skip");
+  expect(offer).toBeUndefined();
+  expect(notice(container)).toBeNull();
+  // Another chat, same version: still skipped. A newer version offers again.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, outdated);
-  expect(notice(container)).toBeNull();
+  expect(offer).toBeUndefined();
   await render(container, { ...outdated, latest: "0.5.0" });
-  expect(notice(container)?.dataset.harnessNotice).toBe("outdated");
+  expect(offer?.latest).toBe("0.5.0");
+  expect(notice(container)).toBeNull();
 });
 
 test("nothing shows for an update that needs sudo, a current CLI, or sign-in the daemon cannot tell", async () => {
@@ -159,6 +182,7 @@ test("nothing shows for an update that needs sudo, a current CLI, or sign-in the
   expect(notice(container)).toBeNull();
   await render(container, undefined);
   expect(notice(container)).toBeNull();
+  expect(offer).toBeUndefined();
 });
 
 test("a chat that switched agent never shows the previous agent's notice", async () => {
@@ -179,9 +203,8 @@ test("Update runs the host's updater for this agent and says so while it works, 
   ]);
   expect(opened).toEqual([]);
   expect(text(container)).toContain("Updating Codex…");
-  // Every button waits for it: Not Now would lose the Restart Chat the update ends with.
-  expect(button(container, "update")?.disabled ?? true).toBe(true);
-  expect(button(container, "skip")?.disabled ?? true).toBe(true);
+  // Started, it is no longer an offer; Not Now waits, or it would lose the Restart Chat.
+  expect(offer).toBeUndefined();
   expect(button(container, "dismiss")?.disabled).toBe(true);
 });
 

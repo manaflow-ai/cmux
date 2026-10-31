@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "مطلوب: هذه الآلة مشتركة مع الفريق" },
   "agentHarness": {
     "title": "تم اكتشاف إعداد harness",
     "selectionNotice": "لا يؤدي اختيار موفر إلى تشغيل هذه الـ harness أو تفعيلها.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "التخطيط وTDD والوكلاء الفرعيون والمراجعة"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "تأخر طلب Cloud VM",
+      "message": "تخصيص Cloud VM غير متاح مؤقتًا.",
+      "action": "انتظر دقيقة، ثم أعد المحاولة باستخدام مفتاح عدم التكرار نفسه."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "يتطلب طلب اللقطة مفتاحًا لإعادة المحاولة",
+      "message": "تتطلب لقطات Cloud VM مفتاح عدم تكرار.",
+      "action": "أعد المحاولة باستخدام Idempotency-Key ثابت لا يتجاوز 128 محرفًا."
+    },
+    "snapshotInProgress": {
+      "title": "لا تزال اللقطة قيد التنفيذ",
+      "message": "لا تزال لقطة بمفتاح عدم التكرار هذا قيد التنفيذ لهذا الجهاز السحابي.",
+      "action": "انتظر حتى تكتمل اللقطة الأولى، ثم أعد المحاولة بمفتاح عدم التكرار نفسه."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "مفتاح إعادة محاولة اللقطة مستخدم بالفعل",
+      "message": "استُخدم مفتاح عدم التكرار هذا بالفعل لطلب لقطة آخر على هذا الجهاز السحابي.",
+      "action": "استخدم مفتاح عدم تكرار جديدًا للقطة ذات اسم مختلف."
+    },
+    "snapshotQuota": {
+      "title": "تم بلوغ حد اللقطات",
+      "message": "بلغ هذا الـ Cloud VM حد اللقطات.",
+      "action": "احذف لقطة موجودة، ثم أعد المحاولة باستخدام مفتاح عدم التكرار نفسه."
+    },
     "guestInstall": {
       "title": "لم يكتمل إعداد Cloud VM",
       "reason": "لم يكتمل إعداد الضيف لـ Cloud VM.",
@@ -28,7 +54,7 @@
     "recreateRequired": {
       "title": "أعد إنشاء هذا الجهاز",
       "message": "أُنشئ هذا الجهاز قبل تحديث Cloud ولا يمكن الاتصال به.",
-      "action": "أنشئ جهازًا جديدًا، وانسخ ملفاتك باستخدام cmux vm pull و cmux vm push، ثم احذف هذا الجهاز."
+      "action": "أنشئ جهازًا جديدًا. جهّز نقطة اتصال SCP باستخدام `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`، ثم انسخ ملفاتك عبر SCP قبل حذف هذا الجهاز."
     },
     "guestUnresponsive": {
       "title": "الجهاز لا يستجيب",
@@ -38,7 +64,7 @@
     "inProgress": {
       "title": "لا يزال قيد التنفيذ",
       "message": "لم يُكمل مزوّد السحابة هذا التغيير بعد. قد يكتمل لاحقًا.",
-      "action": "تحقّق من حالة الجهاز باستخدام cmux vm ls أو في قائمة الأجهزة قبل المحاولة مرة أخرى."
+      "action": "تحقّق من حالة الجهاز باستخدام cmux cloud list-machines أو في قائمة الأجهزة قبل المحاولة مرة أخرى."
     },
     "providerTimeout": {
       "title": "مزوّد السحابة بطيء",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "الجهاز مشغول",
       "message": "هذا الجهاز قيد بدء التشغيل أو الإيقاف المؤقت أو لا يعمل، لذا لا يمكنه تنفيذ ذلك الآن.",
-      "action": "انتظر لحظة ثم حاول مرة أخرى. تحقّق من حالة الجهاز باستخدام cmux vm ls، واستأنفه أولًا إذا كان متوقفًا مؤقتًا."
+      "action": "انتظر لحظة ثم حاول مرة أخرى. تحقّق من حالة الجهاز باستخدام cmux cloud list-machines، واستأنفه أولًا إذا كان متوقفًا مؤقتًا."
     },
     "networkRuleCapacity": {
       "title": "بلغت قواعد الشبكة الحد الأقصى",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "restore": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
-        "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
-        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux vm exec`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
-        "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
+        "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux cloud new-machine`.",
+        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux cloud exec --target machine:<id> --command <command>`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
+        "default": "لا تعاود المحاولة. شغّل `cmux cloud list-machines` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
     },
     "requiresPro": {
-      "title": "يتطلب cmux Pro",
-      "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
-      "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+      "title": "يتطلب cmux {plan}",
+      "message": "تتطلب أجهزة Cloud VM خطة cmux {plan}.",
+      "action": "قم بالترقية إلى cmux {plan} عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     },
     "displayName": {
       "title": "اسم الجهاز غير صالح",
@@ -94,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
-      "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "savedMessage": "Plus: جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
+      "activeMessage": "Plus: جهاز افتراضي واحد في Cloud",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "hoursMessage": "Plus: بلا حد شهري لساعات التشغيل",
+      "hoursAction": "https://cmux.com/pricing",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "تم استهلاك حصة الحوسبة في {plan}",
       "computeMessage": "استهلكت خطة {plan} ساعات الحوسبة البالغة {included} لفترة الفوترة هذه. ساعة الحوسبة هي 1 vCPU مع 2 GB من الذاكرة لمدة ساعة واحدة. يمكن تشغيل أجهزتك مرة أخرى في {resetDate}.",
       "computeAction": "تحتفظ الأجهزة المتوقفة مؤقتًا بملفاتها. تواصل مع الدعم إذا احتجت إلى حوسبة إضافية قبل {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "تم استهلاك حصة القرص في {plan}",
       "storageMessage": "تتضمن خطة {plan} مساحة قرص إجمالية قدرها {included} GB لكل الأجهزة المحفوظة. تستخدم الأجهزة المحفوظة {used} GB، ويحتاج هذا الطلب إلى {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "لا تكفي موارد Cloud VM",
@@ -132,7 +158,7 @@
       "action": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه."
     },
     "activeLimit": {
-      "counted": "المحتسبة الآن: {machines}. لا تُحتسب الأجهزة المتوقفة مؤقتًا.",
+      "counted": "الأجهزة المحتسبة الآن: {machines}. تُحتسب الأجهزة المتوقفة مؤقتًا ضمن الحد.",
       "provisioning": "{name} (قيد التجهيز)",
       "separator": "، "
     }
@@ -531,7 +557,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +569,10 @@
             "سجل الجلسات المحلي"
           ],
           "go": [
-            "جهاز Cloud VM نشط واحد",
-            "40 ساعة VM شهريًا",
-            "جهازا VM محفوظان"
+            "جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
+            "2–8 vCPU · 4–16 GiB ذاكرة · 16–128 GiB قرص",
+            "دعم المجتمع",
+            "بلا حد شهري لساعات التشغيل"
           ],
           "pro": [
             "وكلاء سحابيون على Cloud VMs",
@@ -610,6 +637,12 @@
         "title": "تتم الفوترة عبر App Store",
         "body": "تم شراء خطتك في تطبيق cmux على iPhone وتتولى Apple فوترتها. يمكنك تغييرها أو إلغاؤها من اشتراكات App Store.",
         "manage": "الإدارة في App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "تتجدد خطة Plus في {date}.",
+        "pendingBody": "تنتهي خطة Plus في {date}.",
+        "monthlyPrice": "${amount}/شهر"
       }
     },
     "mobileDevices": {
@@ -944,7 +977,7 @@
       },
       "plan": {
         "free": "مجاني",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2936,9 +2969,9 @@
       "limitsTitle": "حدود الخطة",
       "limitsDesc": "تتشارك أجهزتك النشطة مجمعاً واحداً من vCPU والذاكرة. شغّل جهازاً كبيراً واحداً أو عدة أجهزة صغيرة. لا تستخدم الأجهزة المتوقفة مؤقتاً المجمع. يُحدَّد القرص لكل جهاز على حدة ولا يدخل في المجمع.",
       "limitsFree": "لا تستطيع الحسابات المجانية إنشاء أجهزة.",
-      "limitsPaid": "يمكن لحسابات Pro وFounder's Edition امتلاك ما يصل إلى 5 أجهزة نشطة تتشارك 20 vCPU و40 GB من الذاكرة. يكون الجهاز نشطاً ما دام قيد التشغيل أو البدء.",
-      "limitsTeam": "يمكن لحسابات الفرق امتلاك ما يصل إلى 5 أجهزة نشطة لكل مقعد مدفوع. يضيف كل مقعد مدفوع 20 vCPU و40 GB من الذاكرة إلى مجمع الفريق.",
-      "limitsMax": "يمكن لحسابات Max امتلاك ما يصل إلى 5 أجهزة نشطة تتشارك 80 vCPU و160 GB من الذاكرة. يمكن لجهاز Max واحد استخدام ما يصل إلى 64 GB و32 vCPU، بما في ذلك أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU؛ بينما يتوقف Pro وTeam عند 16 GB و8 vCPU.",
+      "limitsPaid": "يمكن لحسابات Pro وFounder's Edition امتلاك ما يصل إلى 5 أجهزة، بما فيها الأجهزة المتوقفة مؤقتاً، تتشارك 20 vCPU و40 GB من الذاكرة.",
+      "limitsTeam": "يمكن لحسابات الفرق امتلاك ما يصل إلى 5 أجهزة، بما فيها الأجهزة المتوقفة مؤقتاً، لكل مقعد مدفوع. يضيف كل مقعد مدفوع 20 vCPU و40 GB من الذاكرة إلى مجمع الفريق.",
+      "limitsMax": "يمكن لحسابات Max امتلاك ما يصل إلى 5 أجهزة، بما فيها الأجهزة المتوقفة مؤقتاً، تتشارك 80 vCPU و160 GB من الذاكرة. يمكن لجهاز Max واحد استخدام ما يصل إلى 64 GB و32 vCPU، بما في ذلك أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU؛ بينما يتوقف Pro وTeam عند 16 GB و8 vCPU.",
       "limitsPoolFull": "إذا كان جهاز جديد أو مستأنف أو مكبَّر أو منسوخ عبر fork سيتجاوز المجمع، يرفض cmux الطلب ويعرض مقدار المستخدم من المجمع. أوقف جهازاً مؤقتاً أو احذفه لتحرير الموارد، أو قم بالترقية إلى Max.",
       "limitsPricing": "راجع صفحة الأسعار لمعرفة الأسعار الحالية. لا يوجد قياس للاستهلاك ولا فوترة للاستخدام الزائد.",
       "agentUpdatesTitle": "إبقاء وكلاء البرمجة محدَّثين",
@@ -2948,7 +2981,7 @@
       "agentUpdatesToggle": "تفعّل ورقة جهاز جديد هذا الإعداد افتراضيًا. لتغييره لجهاز موجود، انقر بزر الماوس الأيمن على الجهاز واختر إبقاء الوكلاء محدَّثين، أو شغّل cmux vm agent-updates. يحتفظ cmux vm new بإصدارات الصورة ما لم تمرّر --agent-updates latest. عند إيقاف التحديثات تبقى الإصدارات المثبتة كما هي.",
       "agentUpdatesNetwork": "تستخدم التحديثات فقط github.com, api.github.com, objects.githubusercontent.com وrelease-assets.githubusercontent.com. يسمح cmux بهذه المضيفات في كل أوضاع الشبكة، بما في ذلك قائمة السماح وبلا إنترنت، لذلك لا تمنع سياسة الشبكة التحديثات أبدًا.",
       "resizeTitle": "تغيير الحجم",
-      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وGo محدود بـ16 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
+      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وPlus محدود بـ128 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
       "pauseTitle": "الإيقاف المؤقت والاستئناف",
       "pauseDesc": "يوقف cmux vm pause موارد الحوسبة للجهاز. يبقى القرص ومساحات العمل وسجل الطرفية. تتوقف العمليات العاملة. يعيد cmux vm resume تشغيل الجهاز. كما أن فتح جهاز متوقف مؤقتاً أو تشغيل أمر عليه يبدأ تشغيله أيضاً.",
       "pauseIdle": "لا تتوقف الأجهزة مؤقتاً من تلقاء نفسها عندما تكون خاملة. يستمر الجهاز في العمل حتى توقفه مؤقتاً أو تحذفه.",
@@ -5228,7 +5261,18 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "اختر Plus",
+      "featuresLead": "يشمل:",
+      "features": [
+        "جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "دعم المجتمع",
+        "بلا حد شهري لساعات التشغيل"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

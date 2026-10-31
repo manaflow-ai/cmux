@@ -36,8 +36,12 @@ pub struct Trace {
 
 struct Inner {
     dir: PathBuf,
-    full: bool,
+    /// Whole texts are traced; switched at once by `set_full` (`trace.full`).
+    full: std::sync::atomic::AtomicBool,
     write: Mutex<()>,
+    /// The usage ledger beside the trace (`../usage`, usage.rs), fed the
+    /// same events; None when its directory cannot be made.
+    ledger: Option<crate::usage::Ledger>,
 }
 
 impl std::fmt::Debug for Trace {
@@ -67,11 +71,15 @@ impl Trace {
             .mode(0o700)
             .create(dir)?;
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        let ledger = dir
+            .parent()
+            .and_then(|root| crate::usage::Ledger::open(&crate::usage::dir(root)).ok());
         Ok(Trace {
             inner: Some(Arc::new(Inner {
                 dir: dir.to_owned(),
-                full,
+                full: std::sync::atomic::AtomicBool::new(full),
                 write: Mutex::new(()),
+                ledger,
             })),
         })
     }
@@ -80,9 +88,18 @@ impl Trace {
         self.inner.is_some()
     }
 
-    /// Whether whole texts are traced (`OPTCHAT_TRACE_FULL=1`).
+    /// Whether whole texts are traced (`OPTCHAT_TRACE_FULL=1`, `trace.full`).
     pub fn full(&self) -> bool {
-        self.inner.as_ref().is_some_and(|i| i.full)
+        self.inner
+            .as_ref()
+            .is_some_and(|i| i.full.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Turns whole texts on or off for every clone of this trace, from the next event.
+    pub fn set_full(&self, on: bool) {
+        if let Some(inner) = &self.inner {
+            inner.full.store(on, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// A text as the trace keeps it: size, hash and prefix (and the whole
@@ -120,20 +137,26 @@ impl Trace {
             line.extend(map);
         }
         let file = inner.dir.join(format!("{}.jsonl", now.format("%Y-%m-%d")));
-        let mut bytes = Value::Object(line).to_string().into_bytes();
+        let event = Value::Object(line);
+        let mut bytes = event.to_string().into_bytes();
         bytes.push(b'\n');
-        let _guard = inner
-            .write
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let opened = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(&file);
-        if let Ok(mut f) = opened {
-            // One write per line: O_APPEND keeps lines whole.
-            let _ = f.write_all(&bytes);
+        {
+            let _guard = inner
+                .write
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let opened = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .open(&file);
+            if let Ok(mut f) = opened {
+                // One write per line: O_APPEND keeps lines whole.
+                let _ = f.write_all(&bytes);
+            }
+        }
+        if let Some(ledger) = &inner.ledger {
+            ledger.observe(&event);
         }
     }
 }

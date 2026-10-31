@@ -151,8 +151,28 @@ def _retryable_api_error(status: int, message: str) -> bool:
     )
 
 
+# GH_APP_TOKEN (the release App, a separate actor) first when the job minted one; a refusal of it
+# (401, 403, 429) switches to github.token for the rest of the run.
+_app_token = [os.environ.get("GH_APP_TOKEN") or ""]
+
+
 def github_api_json(method: str, path: str) -> dict:
     token = github_token()
+    if token and _app_token[0] and _app_token[0] != token:
+        try:
+            return _github_api_json(method, path, _app_token[0], attempts=1)
+        except GitHubAPIError as exc:
+            if exc.status in (401, 403, 429):
+                print(f"GitHub refused the release App token (HTTP {exc.status}); using github.token from here on",
+                      file=sys.stderr, flush=True)
+                _app_token[0] = ""
+            elif exc.status and exc.status < 500:
+                raise
+            # A transport error or 5xx: this call goes through github.token's retries.
+    return _github_api_json(method, path, token)
+
+
+def _github_api_json(method: str, path: str, token: str | None, *, attempts: int | None = None) -> dict:
     if token:
         request = urllib.request.Request(
             github_api_url(path),
@@ -164,7 +184,7 @@ def github_api_json(method: str, path: str) -> dict:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        attempts = max(int(_retry_setting(
+        attempts = attempts or max(int(_retry_setting(
             "CMUX_NIGHTLY_GITHUB_API_MAX_ATTEMPTS", 4, integer=True
         )), 1)
         base_delay = _retry_setting("CMUX_NIGHTLY_GITHUB_API_RETRY_DELAY_SECONDS", 2.0)
@@ -271,6 +291,11 @@ def check_source_archive_retention(
             )
 
 
+# The newest builds no rule deletes: the newest and the one a feed rollback serves
+# (nightly-next-rollback.yml checks that the build it falls back to is downloadable).
+ROLLBACK_FLOOR = 2
+
+
 def partition_assets(
     assets: list[ReleaseAsset], keep_builds: int, total_assets: int, max_assets: int
 ) -> tuple[list[ReleaseAsset], list[int]]:
@@ -284,7 +309,7 @@ def partition_assets(
         to_delete.extend(sorted(assets_by_build[build], key=deletion_order))
 
     assets_after_prune = total_assets - len(to_delete)
-    for build in reversed(ordered_builds[:keep_builds]):
+    for build in reversed(ordered_builds[ROLLBACK_FLOOR:keep_builds]):
         if assets_after_prune <= max_assets:
             break
         build_assets = sorted(assets_by_build[build], key=deletion_order)
@@ -294,7 +319,7 @@ def partition_assets(
     if assets_after_prune > max_assets:
         raise RuntimeError(
             f"Cannot reduce release from {total_assets} to {max_assets} assets "
-            f"without deleting the newest immutable build"
+            f"without deleting the newest {ROLLBACK_FLOOR} immutable builds"
         )
 
     check_source_archive_retention(assets, to_delete)
@@ -323,8 +348,9 @@ def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -
 
 def main() -> int:
     args = parse_args()
-    if args.keep_builds < 1:
-        print("--keep-builds must be at least 1", file=sys.stderr)
+    if args.keep_builds < ROLLBACK_FLOOR:
+        print(f"--keep-builds must be at least {ROLLBACK_FLOOR} (the newest build and the one a rollback serves)",
+              file=sys.stderr)
         return 2
     if args.max_assets < 1:
         print("--max-assets must be at least 1", file=sys.stderr)

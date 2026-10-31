@@ -38,6 +38,7 @@ import Testing
         let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("air-blue"), name: "air-blue", kind: .ssh, status: .offline)
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace(), machine: machine, now: Date()))
+        card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("air-blue"))
         #expect(card.lines.contains(CmuxNextSidebar.Strings.statusOffline))
         #expect(Self.rows(in: card).count >= 3)
@@ -59,6 +60,14 @@ import Testing
         let lines = TabHoverCardLines.make(blank, report: nil, now: Date())
         #expect(lines.title == CmuxNextTabs.Strings.untitled)
         #expect(lines.place == nil)
+    }
+
+    @Test func aTerminalTitledByItsFolderSaysTheFolderOnce() {
+        var shell = TabItem(id: TabID("home"), title: "~", subtitle: "~")
+        shell.hover = TabHoverFacts(kind: .terminal)
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == nil)
+        shell.title = "cargo build"
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == "~")
     }
 
     @Test func aTerminalSaysHowItsLastCommandEnded() {
@@ -85,8 +94,10 @@ import Testing
     @Test(arguments: [true, false])
     func theGalleryShowsEveryKind(tabs: Bool) {
         let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
-        #expect(cards.count == 5)
-        #expect(Set(cards.map(\.name)).count == 5)
+        // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21).
+        let count = tabs ? 5 : 10
+        #expect(cards.count == count)
+        #expect(Set(cards.map(\.name)).count == count)
     }
 
     private static func rows(in view: NSView) -> [HoverCardRowView] {

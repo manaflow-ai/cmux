@@ -36,6 +36,10 @@ pub struct KeptTabRecord {
     pub name: Option<String>,
     /// The terminal's last title (OSC 0/2) when the record was written.
     pub title: Option<String>,
+    /// A frontend starts it when its workspace is first shown, not when it
+    /// connects (`relaunch.on_show`): a parked tab (`park-tabs`), and a kept
+    /// tab of End Sessions, Keep Layout whose terminal ran no agent.
+    pub on_show: bool,
 }
 
 /// One tab to record as kept (public tab id, shell directory, last title).
@@ -44,6 +48,9 @@ pub(crate) struct KeptTab {
     pub tab_id: String,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    /// Started on its workspace's first show, not at connect (see
+    /// [`KeptTabRecord::on_show`]).
+    pub on_show: bool,
 }
 
 /// Longest accepted directory, in bytes.
@@ -56,19 +63,24 @@ pub(crate) fn create_kept_tab_schema(transaction: &Transaction<'_>) -> anyhow::R
         "CREATE TABLE IF NOT EXISTS kept_tabs (
            tab_id TEXT PRIMARY KEY NOT NULL,
            cwd TEXT,
-           title TEXT
+           title TEXT,
+           on_show INTEGER NOT NULL DEFAULT 0
          );",
     )?;
     // Additive: a table an older build created has no title column. Older
     // builds name their columns, so they keep reading and writing it.
-    let has_title = transaction
+    let columns = transaction
         .prepare("PRAGMA table_info(kept_tabs)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .any(|column| column == "title");
-    if !has_title {
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "title") {
         transaction.execute_batch("ALTER TABLE kept_tabs ADD COLUMN title TEXT;")?;
+    }
+    // Additive as `title` (`tab-park-v1`); an older build leaves it 0.
+    if !columns.iter().any(|column| column == "on_show") {
+        transaction.execute_batch(
+            "ALTER TABLE kept_tabs ADD COLUMN on_show INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
     Ok(())
 }
@@ -78,25 +90,36 @@ pub(crate) fn read_kept_tabs(
     connection: &Connection,
 ) -> anyhow::Result<HashMap<String, KeptTabRecord>> {
     let mut statement = connection.prepare(
-        "SELECT k.tab_id, k.cwd, t.name, k.title FROM kept_tabs AS k
+        "SELECT k.tab_id, k.cwd, t.name, k.title, k.on_show FROM kept_tabs AS k
          JOIN resource_tabs AS t ON t.public_id = k.tab_id
          WHERE t.deleted_revision IS NULL",
     )?;
     let rows = statement.query_map([], |row| {
-        let record = KeptTabRecord { cwd: row.get(1)?, name: row.get(2)?, title: row.get(3)? };
+        let record = KeptTabRecord {
+            cwd: row.get(1)?,
+            name: row.get(2)?,
+            title: row.get(3)?,
+            on_show: row.get::<_, i64>(4)? != 0,
+        };
         Ok((row.get::<_, String>(0)?, record))
     })?;
     Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
 }
 
-/// The `extra.relaunch` of one tab: `{cwd}` for a kept tab, else null.
+/// The `extra.relaunch` of one tab: `{cwd}` for a kept tab (with
+/// `on_show: true` for a parked one), else null.
 pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::Result<Value> {
-    let cwd = connection
-        .query_row("SELECT cwd FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
-            row.get::<_, Option<String>>(0)
+    let row = connection
+        .query_row("SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
+            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
         })
         .optional()?;
-    Ok(cwd.map_or(Value::Null, |cwd| json!({"cwd": cwd})))
+    Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
+}
+
+/// `{cwd}`, with `on_show: true` for a tab parked by `park-tabs`.
+pub(crate) fn relaunch_json(cwd: Option<&str>, on_show: bool) -> Value {
+    if on_show { json!({"cwd": cwd, "on_show": true}) } else { json!({"cwd": cwd}) }
 }
 
 /// Validate kept rows before a commit.
@@ -136,11 +159,11 @@ pub(crate) fn write_kept_tabs(
          )",
         [],
     )?;
-    for KeptTab { tab_id, cwd, title } in tabs {
+    for KeptTab { tab_id, cwd, title, on_show } in tabs {
         transaction.execute(
-            "INSERT INTO kept_tabs(tab_id, cwd, title) VALUES(?1, ?2, ?3)
-             ON CONFLICT(tab_id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title",
-            params![tab_id, cwd, title],
+            "INSERT INTO kept_tabs(tab_id, cwd, title, on_show) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(tab_id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, on_show = excluded.on_show",
+            params![tab_id, cwd, title, i64::from(*on_show)],
         )?;
     }
     if !tabs.is_empty() {
@@ -194,12 +217,18 @@ impl WorkspaceRegistry {
     /// the registry lock, `terminal_respawn/manual.rs`).
     pub(crate) fn kept_tabs_of(&self, tab_ids: &[String]) -> anyhow::Result<Vec<KeptTab>> {
         let db = self.connection.get();
-        let mut statement = db.prepare("SELECT cwd, title FROM kept_tabs WHERE tab_id = ?1")?;
+        let mut statement =
+            db.prepare("SELECT cwd, title, on_show FROM kept_tabs WHERE tab_id = ?1")?;
         let mut rows = Vec::new();
         for tab_id in tab_ids {
             let row = statement
                 .query_row([tab_id], |row| {
-                    Ok(KeptTab { tab_id: tab_id.clone(), cwd: row.get(0)?, title: row.get(1)? })
+                    Ok(KeptTab {
+                        tab_id: tab_id.clone(),
+                        cwd: row.get(0)?,
+                        title: row.get(1)?,
+                        on_show: row.get::<_, i64>(2)? != 0,
+                    })
                 })
                 .optional()?;
             rows.extend(row);

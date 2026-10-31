@@ -101,7 +101,11 @@ function writeFixtures(dir, task, session, work) {
   // MCP: code mode against this session, with a tee of the requests.
   const mcp = join(dir, "mcp.sh");
   writeFileSync(mcp, `#!/bin/bash\ntee -a ${JSON.stringify(join(dir, "mcp.jsonl"))} | ${JSON.stringify(REAL_CLI)} mcp serve\n`);
-  for (const f of [shim, stub, mcp]) chmodSync(f, 0o755);
+  // MCP with every tool listed (the "mcp-all" surface), tee'd to the same log.
+  const mcpAll = join(dir, "mcp-all.sh");
+  writeFileSync(mcpAll, `#!/bin/bash\ntee -a ${JSON.stringify(join(dir, "mcp.jsonl"))} | ${JSON.stringify(REAL_CLI)} mcp serve --all-tools\n`);
+  writeFileSync(join(dir, "mcp-all.json"), JSON.stringify({ mcpServers: { cmux: { command: mcpAll, args: [] } } }));
+  for (const f of [shim, stub, mcp, mcpAll]) chmodSync(f, 0o755);
   writeFileSync(join(dir, "mcp-empty.json"), JSON.stringify({ mcpServers: {} }));
   writeFileSync(join(dir, "mcp.json"), JSON.stringify({ mcpServers: { cmux: { command: mcp, args: [] } } }));
   writeFileSync(join(dir, "opencode-mcp.json"), JSON.stringify({ mcp: { cmux: { type: "local", command: [mcp], enabled: true } } }));

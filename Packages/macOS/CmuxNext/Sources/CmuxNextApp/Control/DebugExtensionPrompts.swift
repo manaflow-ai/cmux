@@ -1,7 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.extensions.prompt`: extension install and permission prompts on
 /// screen (Web Store "Add to Chrome", `chrome.permissions.request`).
 /// `{}` lists them; `{id, answer: "accept" | "cancel"}` answers one as its

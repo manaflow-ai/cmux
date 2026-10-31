@@ -306,11 +306,7 @@ impl TerminalNotification {
 }
 
 fn shown_text(bytes: &[u8], limit: usize) -> String {
-    String::from_utf8_lossy(bytes)
-        .chars()
-        .filter(|character| !character.is_control())
-        .take(limit)
-        .collect()
+    crate::program_status::shown_text(&String::from_utf8_lossy(bytes), limit)
 }
 
 /// Kitty OSC 99 text accumulated across `d=0` chunks.
@@ -665,7 +661,8 @@ impl TerminalMetadata {
         }
     }
 
-    /// Whether the command fact changed since the last call (marks it taken).
+    /// Whether the command, prompt or last-output fact changed since the last
+    /// call (marks it taken).
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
     }
@@ -985,6 +982,22 @@ mod tests {
         let taken = notes(&mut metadata);
         assert_eq!(taken.len(), MAX_PENDING_NOTIFICATIONS);
         assert_eq!(taken.last().unwrap().0, format!("n{}", MAX_PENDING_NOTIFICATIONS + 4));
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_invisible_formatting_is_removed() {
+        let hidden = "\u{202e}\u{2066}\u{200b}\u{00ad}\u{feff}\u{1bca0}\u{e0020}";
+        let mut metadata = TerminalMetadata::default();
+
+        metadata.observe_output(format!("\x1b]9;Build{hidden} finished\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Build finished".into(), String::new())]);
+
+        metadata
+            .observe_output(format!("\x1b]777;notify;Deploy{hidden};Done{hidden}\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Deploy".into(), "Done".into())]);
+
+        metadata.observe_output(format!("\x1b]99;;Kitty{hidden}\x1b\\").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Kitty".into(), String::new())]);
     }
 
     #[test]

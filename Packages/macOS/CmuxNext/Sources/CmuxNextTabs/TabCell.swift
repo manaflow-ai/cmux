@@ -32,13 +32,26 @@ final class TabCell {
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
-    /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
+    /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
+    /// gone: a pane's active tab always looks active), so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
     var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
-    /// The selected (or lifted) tab's fill shows.
-    var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
+    /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
+    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
+    /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
+    /// came while hidden runs when the strip shows again.
+    var isStripShown = true {
+        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+    }
+    /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
+    var owesIndicatorResync = false
+    /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
+    /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
+    var fillsSelection: Bool { isSelected || isLifted }
+    /// The share of the selected fill's alpha a background window's active tab keeps.
+    static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     /// A closing tab keeps the content it showed when the close began
@@ -105,7 +118,7 @@ final class TabCell {
     let separatorLayer = TabCell.makeSeparatorLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
-    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
+    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer, gate: Motion.tabs)
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
@@ -222,7 +235,7 @@ final class TabCell {
         let direct = directTitle
         directTitle = nil
         guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
-        let seconds = Motion.duration(.crossfade)
+        let seconds = Motion.tabs.duration(.crossfade)
         guard seconds > 0 else { return }
         let transition = Motion.crossfadeAction
         transition.duration = seconds
@@ -263,7 +276,7 @@ final class TabCell {
         let elevation = PopupStyle.elevation2
         backgroundLayer.shadowRadius = elevation.layerRadius
         backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
-        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
+        Motion.tabs.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
@@ -276,27 +289,29 @@ final class TabCell {
     func updateColors(animated: Bool, showing: Bool? = nil) {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 {
+        if (token.map(Motion.tabs.duration) ?? 0) == 0 {
             for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
-        Motion.transaction(token) { applyColors() }
+        Motion.tabs.transaction(token) { applyColors() }
     }
 
     private func applyColors() {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
             let multi = isMultiSelected && !isSelected
-            let fill: NSColor? = fillsSelection ? Palette.selectionFill : multi ? Palette.secondarySelectionFill : (isHovered ? Palette.hoverFill : nil)
+            let selection = isWindowMain || isLifted ? Palette.selectionFill
+                : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
+            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            if isLifted {
-                // A lifted tab reads as solid so it does not show tabs sliding under it.
-                backgroundLayer.backgroundColor = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary)?.cgColor
+            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
+                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
-            machineLayer?.foregroundColor = Palette.textTertiary.cgColor
+            machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
@@ -443,7 +458,7 @@ final class TabCell {
                 closeGlyphLayer.opacity = 1
             } else if appearing, animatesCloseChange {
                 for layer in [closeBackgroundLayer, closeGlyphLayer] as [CALayer] {
-                    Motion.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
+                    Motion.tabs.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
                 }
             }
         } else if onPath {

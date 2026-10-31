@@ -22,7 +22,9 @@
 //     own palette (F1, the context menu's Command Palette) is replaced by it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save`, `find`, `findNext`,
 //     `findPrevious`, `useSelectionForFind`, `hideFind`, `zoomIn`, `zoomOut`, `zoomReset`, and
-//     `editorAction` with `text` a Monaco action id from `EDITOR_ACTIONS` (keys.ts).
+//     `editorAction` with `text` a Monaco action id from `EDITOR_ACTIONS` (keys.ts), and `reveal` with
+//     `text` "line:column" (1-based): the cursor goes there and the line is centered (a Find result
+//     opened in a tab that already shows its file; a new tab gets the config's `reveal` instead).
 // The text is the file's bytes decoded as UTF-8 with nothing removed: a BOM stays as U+FEFF and line
 // endings stay as they are, so writing the saved `text` as UTF-8 reproduces the file byte for byte.
 import type { DiffViewerAppearance } from "../../appearance";
@@ -38,6 +40,9 @@ export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
  * dispatcher lets the next key reach the editor until `pending` is false (or 5 s pass). */
 export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
+/** Host to page: the selection's text and lines, `{text, startLine, endLine}`, or null with nothing
+ * selected (a viewer comment, viewer-comments-DESIGN.md). */
+export const EDITOR_SELECTION_OP = "cmux.editor.selection";
 /** Page to host: `{action: "commandPalette"}` runs the app's native command palette (Monaco's F1 and
  * its context menu's Command Palette). The editor descriptor admits only that action. */
 export const APP_ACTION_RUN_OP = "cmux.app.action.run";
@@ -73,6 +78,9 @@ export interface EditorFile {
 export interface EditorConfig extends EditorFile {
   /** A recovered crash draft of this file: the page loads it as an unsaved edit (once). */
   recoveredText?: string;
+  /** Where the cursor goes once the file is loaded (a Find result), 1-based; the column counts UTF-16
+   * code units. Sent once: a later config of the same tab starts at the top. */
+  reveal?: { line: number; column: number };
   /** The terminal appearance, as the diff viewer gets it (code font, palette, colors). */
   appearance?: DiffViewerAppearance;
   /** The `editor` settings section (settings.ts `EditorSettings`), unparsed. */

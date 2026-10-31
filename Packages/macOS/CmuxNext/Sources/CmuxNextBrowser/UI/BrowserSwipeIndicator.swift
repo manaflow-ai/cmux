@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The pill at a page's edge during a Back or Forward swipe: an arrow on the theme accent that
 /// slides in from the left edge (Back) or the right edge (Forward) as the fingers move, and is
@@ -114,9 +115,10 @@ final class BrowserSwipeIndicatorView: NSView {
         }
     }
 
+    /// Chrome's toolbar Back or Forward arrow, a template tinted `onAccent`. Its path spans about
+    /// 60% of the icon box, so 22 and 24 pt draw it about as large as the 14 and 16 pt SF arrows did.
     private func updateArrow() {
-        let name = direction == .back ? "arrow.left" : "arrow.right"
-        let config = NSImage.SymbolConfiguration(pointSize: isArmed ? 16 : 14, weight: .semibold)
-        arrow.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        let name: IconName = direction == .back ? .browserToolbarBack : .browserToolbarForward
+        arrow.image = NSImage.icon(name, size: isArmed ? 24 : 22)
     }
 }

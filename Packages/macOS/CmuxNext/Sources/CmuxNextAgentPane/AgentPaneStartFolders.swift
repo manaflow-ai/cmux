@@ -12,6 +12,8 @@ public final class AgentPaneStartFolders {
     public var resolve: (@MainActor (_ proposed: String?) async -> AgentPaneStartFolder?)?
     /// The store's last answer for this pane's new chat.
     public internal(set) var answer: AgentPaneStartFolder?
+    /// The App's saved environments a New Tab page starts a chat with (`environment.*`).
+    public var environments: (any AgentPaneEnvironmentStoring)?
 
     public init() {}
 
@@ -54,16 +56,19 @@ public final class AgentPaneStartFolders {
     }
 
     /// `workspace.useFolder` (cx-nn3e): a folder the user picked for a chat, before any chat starts
-    /// there. A project folder is used at once (`ok`; a folder outside every root still passes the
-    /// relay on the user's click). The home folder is asked about first (`confirm`, reason `home`):
-    /// an agent there can read all of it, and macOS asks for Photos, Documents and more. The
-    /// answer (`confirm`) spends its click's gesture and makes the home folder a root, so the chat
-    /// starts there at once. `/` and the folders above the home folder are refused (reason `root`).
+    /// there. A project folder is used at once (`ok`), and the person's click makes a folder outside
+    /// every root a root (``grantPicked(_:transport:)``). The home folder is asked about first
+    /// (`confirm`, reason `home`): an agent there can read all of it, and macOS asks for Photos,
+    /// Documents and more. The answer (`confirm`) spends its click's gesture and makes the home
+    /// folder a root, so the chat starts there at once. `/` and the folders above the home folder are refused (reason `root`).
     func use(_ path: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
         let homeFolder = transport.homeFolder
         // The store's rules when the daemon has them (cx-9aps): it names the folder or why not.
         if let resolve, let answer = await resolve(path) {
-            if answer.kind == .seed, let cwd = answer.cwd { return AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
+            if answer.kind == .seed, let cwd = answer.cwd {
+                await Self.grantPicked(cwd, transport: transport)
+                return AgentPaneReply.success(["status": "ok", "cwd": cwd])
+            }
             // An agent-home folder picked itself (cx-djoj7): the store names it as the chat's.
             if answer.kind == .agentHome, answer.skipped == nil, let home = answer.agentHome {
                 return AgentPaneReply.success(["status": "ok", "cwd": home])
@@ -76,7 +81,7 @@ public final class AgentPaneStartFolders {
                     (AcpmuxPathPolicy.canonical(path), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
                 }.value
                 guard let home, picked == home else { return AgentPaneModel.transportFailure(.pathInvalid) }
-                return Self.answerHome(home, confirm: confirm, transport: transport)
+                return await Self.answerHome(home, confirm: confirm, transport: transport)
             case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
             case .agentHome: return AgentPaneReply.success(["status": "ok", "cwd": answer.agentHome ?? path])
             case .missing, nil: return AgentPaneModel.transportFailure(.pathInvalid)
@@ -88,9 +93,12 @@ public final class AgentPaneStartFolders {
              homeFolder.flatMap(AcpmuxPathPolicy.canonical))
         }.value
         guard let folder = canonical else { return AgentPaneModel.transportFailure(.pathInvalid) }
-        guard AgentHome.isHomeOrAbove(folder, home: home) else { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
+        guard AgentHome.isHomeOrAbove(folder, home: home) else {
+            await Self.grantPicked(folder, transport: transport)
+            return AgentPaneReply.success(["status": "ok", "cwd": folder])
+        }
         guard let home, folder == home else { return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": folder]) }
-        return Self.answerHome(home, confirm: confirm, transport: transport)
+        return await Self.answerHome(home, confirm: confirm, transport: transport)
     }
 
     /// A new chat on another machine (cx-1bhjj): that machine's store decides its folder by the
@@ -122,13 +130,25 @@ public final class AgentPaneStartFolders {
         }
     }
 
+    /// A project folder the person picked (hq#2569 item 1): their click on it makes it a root of
+    /// this pane, so the chat's start there passes the relay. The gesture it spends (often the
+    /// Send's own) goes on to the chat's first prompt (``AgentPaneTransport/grantPicked(_:)``). A
+    /// pick with no gesture behind it (page script) grants nothing, and a folder that is already a
+    /// root spends nothing.
+    private static func grantPicked(_ path: String, transport: AgentPaneTransport) async {
+        // The store's spelling is not always the canonical one the relay compares (a symlink).
+        guard let folder = await Task.detached(operation: { AcpmuxPathPolicy.canonical(path) }).value,
+              transport.gestures.consume() else { return }
+        await transport.grantPicked(folder)
+    }
+
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a
     /// root of this pane, so the chat starts there at once.
-    private static func answerHome(_ home: String, confirm: Bool, transport: AgentPaneTransport) -> [String: Any] {
+    private static func answerHome(_ home: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
         if transport.addedRoots.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
         guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
         guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        transport.grant(home)
+        await transport.grantPicked(home, trust: false)
         return AgentPaneReply.success(["status": "ok", "cwd": home])
     }
 }

@@ -20,7 +20,6 @@ extension PageInfoPages {
         let manage = PageInfoRowView(symbol: "tray.full", title: PageInfoStrings.manageSiteData,
                                      subtitle: counts.joined(separator: " · "), accessory: .externalLink,
                                      identifier: "pageInfo.manageSiteData")
-        manage.themedToolTip = PageInfoStrings.manageSiteDataTooltip
         manage.onActivate = { send(.manageSiteData) }
         views.append(manage)
         return stack(views)

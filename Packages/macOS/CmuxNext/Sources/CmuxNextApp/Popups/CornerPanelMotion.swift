@@ -20,7 +20,7 @@ final class CornerPanelMotion {
         panel.ignoresMouseEvents = false
         if !reopening { panel.alphaValue = 0 }
         panel.orderFront(nil)
-        panel.openPopup(pivot: Self.pivot(of: panel))
+        panel.openPopup(pivot: Self.pivot(of: panel), entrance: true)
         // A reopen continues the close's scale, whose pivot was for the frame before.
         if reopening { resized(panel) }
     }
@@ -30,7 +30,7 @@ final class CornerPanelMotion {
     func resized(_ panel: NSWindow) {
         guard !isClosing, let layer = panel.contentView?.layer, layer.animation(forKey: "sublayerTransform") != nil,
               let shown = layer.presentation()?.sublayerTransform else { return }
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
+        Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
                    from: NSValue(caTransform3D: Motion.scale(shown.m11, about: Self.pivot(of: panel), in: layer)))
     }
 

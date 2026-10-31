@@ -56,12 +56,8 @@ extension BrowserFileImport {
                                                            targetProfileID: profile),
                                 kinds: [.history])
         batch.history = read.entries
-        let cache = services.cache
-        let destination = AppImportDestination(store: services.onboarding.importStore) { id in
-            cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
-        }
         do {
-            try await destination.commit(batch)
+            try await SavingImportDestination.app(services).commit(batch)
         } catch {
             return [BrowserFileImportStrings.unreadable(url.lastPathComponent)]
         }

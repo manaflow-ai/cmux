@@ -1,11 +1,13 @@
 @testable import CmuxNextApp
+import CmuxNextFloating
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Foundation
 import Testing
 
-/// A Chief with no avatar of its own shows 🫡 (the saluting face, drawn as
-/// text, so it is sharp at every size). A Chief that sets its own avatar keeps it.
+/// A Chief with no avatar of its own wears its iMessage-style monogram (Lawrence 2026-10-30: "CH
+/// for chief? like in imessage. no profile pic by default"), never the pet character. A Chief that
+/// sets its own avatar, or wears an upload, keeps it.
 @Suite struct ChiefDefaultAvatarTests {
     static func home() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-default-\(UUID().uuidString)", isDirectory: true)
@@ -13,11 +15,32 @@ import Testing
         return url
     }
 
-    @Test func aNewChiefsTileShowsTheSalute() throws {
+    @Test func aNewChiefsTileIsItsMonogram() throws {
         let files = HomeChiefFiles(muxHome: try Self.home())
-        // A new Chief has no profile, so the tile falls back to the default.
+        // A new Chief has no profile, so the tile falls back to the default: the CH monogram.
         #expect(files.tileAvatar() == nil)
-        #expect(HomeHostView.defaultTileAvatar == .text("🫡"))
+        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("CH"))
+        let upload = URL(fileURLWithPath: "/tmp/upload.png")
+        #expect(HomeHostView.defaultTileAvatar(picture: upload) == .picture(upload), "a worn upload still shows")
+    }
+
+    @Test func eachCharacterStillHasAPetPicture() throws {
+        for mascot in ChiefPetMascot.allCases {
+            let url = try #require(mascot.avatarURL, "\(mascot.rawValue) has an avatar picture")
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    @Test func theHeaderHasNoPictureWithoutAnAvatar() async throws {
+        let bare = HomeChiefFiles(muxHome: try Self.home())
+        let shown = await HomeChiefAvatars.headerAvatar(files: bare, fallback: nil)
+        #expect(shown.text == nil)
+        #expect(shown.picture == nil)
+        let own = HomeChiefFiles(muxHome: try Self.home())
+        own.writeAvatar("AB")
+        let kept = await HomeChiefAvatars.headerAvatar(files: own, fallback: nil)
+        #expect(kept.text == "AB")
+        #expect(kept.picture == nil)
     }
 
     @Test func aChiefsOwnAvatarIsNotReplaced() throws {
@@ -30,14 +53,11 @@ import Testing
     }
 }
 
-/// The header draws the Chief's own picture or text, else 🫡.
+/// A Chief with no avatar of its own draws its monogram: the default Chief's is CH.
 @Suite struct ChiefDefaultHeaderAvatarTests {
-    @Test func theHeaderSalutesOnlyWithoutAnAvatar() {
-        #expect(HomeChiefAvatar.headerText(nil, hasPicture: false) == "🫡")
-        #expect(HomeChiefAvatar.headerText(nil, hasPicture: true) == nil)
-        #expect(HomeChiefAvatar.headerText("AB", hasPicture: false) == "AB")
-        #expect(HomeChiefAvatar.resolved(nil) == .text("🫡"))
+    @Test func theDefaultChiefIsCH() {
+        #expect(HomeChiefAvatar.resolved(nil) == .text("CH"))
         #expect(HomeChiefAvatar.resolved(.text("🐙")) == .text("🐙"))
-        #expect(!HomeChiefAvatar.chiefDefault.isMonogram, "🫡 draws as an emoji, not a monogram")
+        #expect(HomeChiefAvatar.chiefDefault.isMonogram, "CH draws as a monogram")
     }
 }

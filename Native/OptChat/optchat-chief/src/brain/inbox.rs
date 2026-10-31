@@ -46,6 +46,7 @@ impl Brain {
                         self.state.logged_seq = cursor;
                         // Side conversations' replies stay.
                         self.state.outbox.retain(|e| e.conversation != old);
+                        self.state.awaiting.clear();
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -54,6 +55,7 @@ impl Brain {
                 self.prune_floors();
                 self.post_notices();
                 self.flush_outbox();
+                self.flush_pending_reports();
                 // Typing is the daemon's ephemeral state: a daemon that
                 // restarted while a main turn runs has forgotten it, and a
                 // client that watches for the turn would never see it (E21).
@@ -111,8 +113,8 @@ impl Brain {
     /// Spec 5a.2: an edit or a retraction of a message the log holds is
     /// logged as a note that names its line (`edit of <id>: <text>`,
     /// `retracted <id>`), so the next turn's delta carries it and the next
-    /// re-render folds it in. A reaction or another update logs nothing, nor
-    /// does a change of the Chief's own messages. A message still queued
+    /// re-render folds it in. A reaction on the Chief's own messages goes to
+    /// `on_chief_reactions` (reaction_wake.rs); another update logs nothing. A message still queued
     /// takes the edited text, or leaves the queue when retracted. The note's key
     /// names the change, so a replayed update is logged once.
     fn on_message_updated(&mut self, message: &Message) {
@@ -120,6 +122,7 @@ impl Brain {
             return;
         };
         if message.author == self.settings.membership.participant {
+            self.on_chief_reactions(&main, message);
             return;
         }
         let key = format!("{main}#{}", message.seq);
@@ -128,7 +131,10 @@ impl Brain {
             return;
         };
         let (text, change) = match (&message.retracted_at, &message.edited_at) {
-            (Some(_), _) => (optchat_core::retracted(target), "retracted".to_owned()),
+            (Some(_), _) => {
+                self.reply_not_needed(std::slice::from_ref(&message.id));
+                (optchat_core::retracted(target), "retracted".to_owned())
+            }
             (None, Some(at)) => (
                 optchat_core::edit_of(target, &message_text(message)),
                 format!("edited@{at}"),
@@ -146,6 +152,43 @@ impl Brain {
         }
     }
 
+    /// A tapback or emoji someone else put on one of the Chief's own messages
+    /// (a416: the user's reactions reach the Chief), when reactions cannot
+    /// wake it (reaction_wake.rs), is logged as a quiet note, `reaction
+    /// <glyph> [<tapback>] from <name> on your message: <its first line>`,
+    /// which the next turn's delta carries. The note's key names the message,
+    /// author, part and reaction, so a replayed update logs it once. The
+    /// Chief's own reactions and removed ones log nothing.
+    pub(super) fn note_reactions(&mut self, main: &str, message: &Message) {
+        if message.retracted_at.is_some() {
+            return;
+        }
+        let me = self.settings.membership.participant.clone();
+        // (key, text): a note borrows its text, so the texts outlive the entries.
+        let notes: Vec<(String, String)> = message
+            .reactions
+            .iter()
+            .filter(|r| r.author != me)
+            .map(|r| self.reaction_line(main, message, r))
+            .collect();
+        let entries: Vec<optchat_host::NewMessage> = notes
+            .iter()
+            .map(|(key, text)| optchat_host::NewMessage {
+                key: Some(key.clone()),
+                ..optchat_host::NewMessage::new(optchat_core::Kind::Note, text)
+            })
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        if let Err(e) = self.chat.append_with(&entries, |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the reactions on message {} failed: {e}",
+                message.seq
+            ));
+        }
+    }
+
     /// The queued item of main-conversation message `message` (not logged
     /// yet) takes its edit, or leaves the queue when it was retracted.
     fn update_queued(&mut self, message: &Message) {
@@ -156,6 +199,7 @@ impl Brain {
         };
         if message.retracted_at.is_some() {
             self.queue.retain(|q| !is_it(q));
+            self.reply_not_needed(std::slice::from_ref(&message.id));
             if !self.queued_messages_of(None) {
                 self.state.logged_seq = self.handled;
                 self.save();
@@ -245,6 +289,12 @@ impl Brain {
         }
         self.handled = message.seq;
         self.note_main_message(&message);
+        // A reply's parent first, so the log holds what the reply points at.
+        self.note_reply_parent(&message);
+        if message.author == self.settings.membership.participant {
+            // a455: the Chief learns of a bubble posted in its name that it did not write.
+            self.note_host_post(&message);
+        }
         let Some(summary) = self.summary.as_ref() else {
             return;
         };
@@ -261,59 +311,43 @@ impl Brain {
                 |id| self.mux_messages.contains(id),
             )
         {
-            // An answer to a pending approval of the running turn: it
-            // answers, is logged, and is not a new message (it neither
-            // queues nor interrupts the turn).
-            match crate::approval::Answer::parse(&text) {
-                Some(answer)
-                    if self.settings.membership.is_owner_message(summary, &message)
-                        && self.has_approval(None) =>
-                {
-                    self.answer_approval(answer, &message, None);
-                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
-                        (self.log)(&format!("logging an approval failed: {e}"));
-                    }
+            let remote = message
+                .origin
+                .as_ref()
+                .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+            // The turn sees the images; the log keeps their references.
+            let images = match self.daemon.as_mut() {
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
+                _ => Vec::new(),
+            };
+            // The turn opens other files from this Mac; the line names where.
+            let files = match self.daemon.as_mut() {
+                Some(daemon) if has_files => {
+                    let root = self.file.attachments_dir();
+                    super::files::read_files(daemon.as_mut(), &message, &root)
                 }
-                _ => {
-                    let remote = message
-                        .origin
-                        .as_ref()
-                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
-                    // The turn sees the images; the log keeps their references.
-                    let images = match self.daemon.as_mut() {
-                        Some(daemon) if has_images => {
-                            super::images::read_images(daemon.as_mut(), &message)
-                        }
-                        _ => Vec::new(),
-                    };
-                    // The turn opens other files from this Mac; the line names where.
-                    let files = match self.daemon.as_mut() {
-                        Some(daemon) if has_files => {
-                            let root = self.file.attachments_dir();
-                            super::files::read_files(daemon.as_mut(), &message, &root)
-                        }
-                        _ => Vec::new(),
-                    };
-                    let logged = super::files::logged_text(
-                        &super::images::logged_text(&text, &images),
-                        &files,
-                    );
-                    self.queue_with_images(
-                        logged,
-                        images,
-                        Source::Message {
-                            seq: message.seq,
-                            id: message.id.clone(),
-                            remote,
-                            requires_approval: !self
-                                .settings
-                                .membership
-                                .is_owner_message(summary, &message),
-                        },
-                    );
-                    return;
-                }
-            }
+                _ => Vec::new(),
+            };
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
+            self.queue_with_images(
+                logged,
+                images,
+                Source::Message {
+                    seq: message.seq,
+                    id: message.id.clone(),
+                    remote,
+                    requires_approval: !self
+                        .settings
+                        .membership
+                        .is_owner_message(summary, &message),
+                },
+            );
+            // A waking message of the Chief conversation is a person's
+            // (other Chiefs wake it only in side conversations): it waits
+            // for a reply (reply_ledger.rs).
+            self.await_reply(&message, &text);
+            return;
         }
         if !self.queued_messages_of(None) {
             self.state.logged_seq = self.handled;

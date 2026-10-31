@@ -7,7 +7,7 @@
 //! cmux status set [KEY] (TEXT | --label T) [--target ws_…|current] [--state S] [--progress 0.4|40%]
 //!                 [--style arc|native|dot|none] [--ttl 30s] [--pid N] [--keep | --owner none]
 //! cmux status clear [KEY] [--target …] [--all]
-//! cmux status list [--target …]
+//! cmux status list [--target … | --all]
 //! cmux status run [--label T] [--target …] [--badge-ttl 8s] -- CMD …
 //! cmux status wait KEY [--target …] [--until settled|cleared|state=S] [--timeout D]
 //! ```
@@ -33,6 +33,7 @@ use super::{GlobalArgs, OutputMode, Surface, UsageError};
 
 mod status_wait;
 mod terminal_wait;
+pub(super) use terminal_wait::duration;
 
 const DEFAULT_BADGE_TTL: &str = "8s";
 /// Flags `set` passes through to `workspace status set` unchanged.
@@ -85,7 +86,8 @@ pub(super) fn drop_caller_terminal_when_routed(
 fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     let (first, rest) = command.split_first()?;
     if super::canonical_scope(first) == "terminal" {
-        return terminal_wait::run(global, rest);
+        return super::terminal_talk::run(global, rest)
+            .or_else(|| terminal_wait::run(global, rest));
     }
     if first != "status" {
         return None;
@@ -163,7 +165,7 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
     let (positional, options, argv) = split_options(words);
     let mut target = Vec::new();
     let mut label = None;
-    let mut badge_ttl = DEFAULT_BADGE_TTL.to_owned();
+    let mut badge_ttl = None;
     let mut passthrough = Vec::new();
     let mut all = false;
     for (name, value) in options {
@@ -175,7 +177,7 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         match name.as_str() {
             "target" => target = vec![value_of(value)?],
             "label" => label = Some(value_of(value)?),
-            "badge-ttl" => badge_ttl = value_of(value)?,
+            "badge-ttl" => badge_ttl = Some(value_of(value)?),
             "all" => all = true,
             "keep" => passthrough.extend(["--owner".to_owned(), "none".to_owned()]),
             flag if SET_FLAGS.contains(&flag) => {
@@ -194,6 +196,22 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         words
     };
     let positional: Vec<&str> = positional.iter().map(String::as_str).collect();
+    // A flag the verb does not read is an error, never silently dropped.
+    let verb = positional.first().copied().unwrap_or("");
+    let refuse = |flag: &str| Err(UsageError::new(format!("status {verb} does not take {flag}")));
+    if all && !matches!(verb, "clear" | "list") {
+        return refuse("--all");
+    }
+    if all && verb == "list" && !target.is_empty() {
+        return Err(UsageError::new("status list --all lists every workspace; drop --target"));
+    }
+    if label.is_some() && !matches!(verb, "set" | "run") {
+        return refuse("--label");
+    }
+    if badge_ttl.is_some() && verb != "run" {
+        return refuse("--badge-ttl");
+    }
+    let badge_ttl = badge_ttl.unwrap_or_else(|| DEFAULT_BADGE_TTL.to_owned());
     match (positional.as_slice(), argv) {
         (["set"], None) | (["set", _], None) | (["set", _, _], None) => {
             let key = positional.get(1).map_or_else(default_key, |key| (*key).to_owned());
@@ -221,7 +239,8 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
             Ok(Status::Send(words(&["clear"], vec![(*key).to_owned()])))
         }
         (["list"], None) if passthrough.is_empty() => {
-            Ok(Status::Send(words(&["list"], Vec::new())))
+            let extra = if all { vec!["--all".to_owned()] } else { Vec::new() };
+            Ok(Status::Send(words(&["list"], extra)))
         }
         (["run"], Some(_)) if !passthrough.is_empty() => {
             Err(UsageError::new("status run takes only --label, --target and --badge-ttl"))
@@ -401,4 +420,55 @@ fn terminating_signal(status: std::process::ExitStatus) -> Option<libc::c_int> {
 fn exit_code(status: std::process::ExitStatus) -> i32 {
     use std::os::unix::process::ExitStatusExt;
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+
+    fn sent(args: &[&str]) -> Vec<String> {
+        match parse(&words(args)) {
+            Ok(Status::Send(words)) => words,
+            other => panic!("{args:?} did not send: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_list_all_lists_every_workspace() {
+        assert_eq!(sent(&["list", "--all"]), words(&["workspace", "status", "list", "--all"]));
+    }
+
+    #[test]
+    fn status_list_all_with_a_target_is_refused() {
+        assert!(parse(&words(&["list", "--all", "--target", "ws_1"])).is_err());
+    }
+
+    #[test]
+    fn status_flags_a_verb_does_not_read_are_refused() {
+        for args in [
+            &["set", "k", "text", "--all"][..],
+            &["run", "--all", "--", "true"],
+            &["list", "--label", "x"],
+            &["clear", "--label", "x"],
+            &["set", "k", "text", "--badge-ttl", "3s"],
+            &["clear", "--badge-ttl", "3s"],
+            &["list", "--badge-ttl", "3s"],
+        ] {
+            assert!(parse(&words(args)).is_err(), "{args:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn status_run_keeps_its_label_and_badge_ttl() {
+        let Ok(Status::Run(run)) =
+            parse(&words(&["run", "--label", "build", "--badge-ttl", "3s", "--", "make"]))
+        else {
+            panic!("run did not parse");
+        };
+        assert_eq!((run.label.as_str(), run.badge_ttl.as_str()), ("build", "3s"));
+    }
 }

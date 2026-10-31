@@ -76,6 +76,7 @@ public struct ConversationMentionDraft: Sendable, Hashable {
 }
 
 /// Platform-independent mention editing shared by the iOS and macOS composers.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationMentionEditing {
     /// Drops mentions outside the text or overlapping an earlier one; sorts.
     public static func normalized(_ mentions: [ConversationMention], textLength: Int) -> [ConversationMention] {

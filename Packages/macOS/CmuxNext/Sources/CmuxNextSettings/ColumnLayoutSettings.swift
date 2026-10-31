@@ -4,7 +4,8 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusPaneOnScroll`. A missing key is the default with no
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`, `layout.scrollAreas`,
+/// `layout.scrollModifier`, `layout.pagesHandleCommandScroll`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -19,17 +20,31 @@ public nonisolated enum ColumnLayoutSettings {
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
     public static let rowsPath = ["layout", "rows"]
-    public static let focusPaneOnScrollPath = ["layout", "focusPaneOnScroll"]
+    public static let focusFollowsMousePath = ["layout", "focusFollowsMouse"]
+    public static let scrollAreasPath = ["layout", "scrollAreas"]
+    public static let scrollModifierPath = ["layout", "scrollModifier"]
+    public static let pagesHandleCommandScrollPath = ["layout", "pagesHandleCommandScroll"]
 
     public static let splitSizingFallback: SplitSizing = .even
-    public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
+    /// `layout.newColumnWidth` defaults to fixed at `layout.defaultColumnWidth` (two thirds): a
+    /// new column is never full width just because the column beside it is (Lawrence 2026-10-28).
+    public static let newColumnWidthFallback: NewColumnWidthMode = .fixed
     public static let dockEdgeFallback: DockDefaultEdge = .nearest
     public static let dockModeFallback: DockDefaultMode = .docked
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
     /// `layout.rows` defaults on for dogfood (rows.md O1).
     public static let rowsFallback = true
-    /// `layout.focusPaneOnScroll` defaults on: a scroll over a pane focuses it.
-    public static let focusPaneOnScrollFallback = true
+    /// `layout.focusFollowsMouse` defaults off: hovering or scrolling a pane leaves
+    /// keyboard focus where it is, so typing is never pulled into another pane.
+    public static let focusFollowsMouseFallback = false
+    /// `layout.scrollAreas` defaults off until dogfood (scroll-areas-DESIGN.md, open question 1).
+    public static let scrollAreasFallback = false
+    /// `layout.scrollModifier` defaults to Command: Command + scroll moves the layout, a plain
+    /// scroll goes to the pane under the pointer (Lawrence 2026-10-24).
+    public static let scrollModifierFallback: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll` defaults on: Figma and Excalidraw keep their Command +
+    /// scroll zoom, every other page lets it pan the columns (Lawrence 2026-10-28).
+    public static let pagesHandleCommandScrollFallback = true
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
@@ -93,6 +108,7 @@ public nonisolated enum ColumnLayoutSettings {
             snapshot.dockColumnMode = choice(root, modePath, fallback: dockModeFallback, diagnostics: &diagnostics)
         }
         snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
+        snapshot.layoutScrollModifier = choice(root, scrollModifierPath, fallback: scrollModifierFallback, diagnostics: &diagnostics)
         let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)
         let height = number(root, minimumPaneHeightPath, fallback: minimumPaneHeightFallback, range: minimumPaneHeightRange,
                             diagnostics: &diagnostics)
@@ -107,15 +123,36 @@ public nonisolated enum ColumnLayoutSettings {
         } else {
             snapshot.layoutRows = rowsFallback
         }
-        if let value = root.value(at: focusPaneOnScrollPath) {
+        if let value = root.value(at: focusFollowsMousePath) {
             if let on = value.boolValue {
-                snapshot.focusPaneOnScroll = on
+                snapshot.focusFollowsMouse = on
             } else {
-                snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusPaneOnScroll", message: "expected true or false"))
+                snapshot.focusFollowsMouse = focusFollowsMouseFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusFollowsMouse", message: "expected true or false"))
             }
         } else {
-            snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
+            snapshot.focusFollowsMouse = focusFollowsMouseFallback
+        }
+        if let value = root.value(at: scrollAreasPath) {
+            if let on = value.boolValue {
+                snapshot.layoutScrollAreas = on
+            } else {
+                snapshot.layoutScrollAreas = scrollAreasFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.scrollAreas", message: "expected true or false"))
+            }
+        } else {
+            snapshot.layoutScrollAreas = scrollAreasFallback
+        }
+        if let value = root.value(at: pagesHandleCommandScrollPath) {
+            if let on = value.boolValue {
+                snapshot.pagesHandleCommandScroll = on
+            } else {
+                snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.pagesHandleCommandScroll",
+                                                      message: "expected true or false"))
+            }
+        } else {
+            snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
         }
         snapshot.diagnostics += diagnostics
     }

@@ -17,6 +17,44 @@ for (let index = 1; index <= 28; index += 1) {
   };
 }
 
+// Hello Deploy (install = deploy + pin): its listing names where it runs, and once installed its
+// row shows the running instance. The machine is a sample name, never a fleet host.
+const deployed = structuredClone(base);
+deployed.details["manaflow-ai/hello-deploy"] = {
+  ...structuredClone(template),
+  id: "manaflow-ai/hello-deploy",
+  name: "Hello Deploy",
+  description:
+    "Install = deploy + pin: runs a small web server on your cmux Cloud machine or on a machine you host yourself, and opens it as a pane in your workspace.",
+  publisher: "manaflow-ai",
+  publisher_verified: false,
+  tier: "unverified",
+  categories: ["developer-tools", "cloud"],
+  icon: { symbol: "server.rack" },
+  latest_version: "1.0.0",
+  versions: [{ version: "1.0.0", engines: "cmux ^2.0" }],
+  scopes: [],
+  deploy: { targets: ["self-hosted", "cloud-vm"], tenancy: ["user"] },
+};
+const deployedInstalled = structuredClone(deployed);
+deployedInstalled.details["manaflow-ai/hello-deploy"]!.installed = true;
+deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
+  id: "manaflow-ai/hello-deploy",
+  name: "Hello Deploy",
+  version: "1.0.0",
+  enabled: true,
+  hidden: false,
+  sandboxed: true,
+  source: "user",
+  tier: "unverified",
+  instance: {
+    id: "inst_sample",
+    target: "self-hosted:ops@build-01.example.com",
+    state: "running",
+    url: "http://127.0.0.1:49153",
+  },
+};
+
 export default appsPageEntry({
   id: "pages.apps",
   title: "App Store",
@@ -26,16 +64,28 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
     "pages/apps/UpdatesView.tsx",
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
+    "pages/apps/items.tsx",
   ],
   variants: {
     list: {
-      note: "The discover grid with first-party, verified and unverified apps.",
+      note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
+      data: base,
+    },
+    "card-compact": {
+      note: "The compact card style (DEV, card=compact): one line of description and the action.",
+      hash: "#/discover?layout=grid&card=compact",
+      data: base,
+    },
+    "card-artwork": {
+      note: "The artwork card style (DEV, card=artwork): the icon leads on a tinted panel.",
+      hash: "#/discover?layout=grid&card=artwork",
       data: base,
     },
     detail: {
@@ -48,6 +98,21 @@ export default appsPageEntry({
       action: "install",
       hash: "#/discover?layout=grid",
       data: base,
+    },
+    "detail-installed": {
+      note: "An installed app's page: screenshots, what it adds, permissions, settings and versions.",
+      hash: "#/discover?layout=split&app=cmux.github-prs",
+      data: base,
+    },
+    "detail-deploy": {
+      note: "A deployed app's listing: Runs on names the kinds of machine its server accepts.",
+      hash: "#/discover?layout=split&app=manaflow-ai/hello-deploy",
+      data: deployed,
+    },
+    "installed-deploy": {
+      note: "Installed with a deployed app: its row says where the instance runs.",
+      hash: "#/installed",
+      data: deployedInstalled,
     },
     loading: {
       note: "The catalog is still loading.",

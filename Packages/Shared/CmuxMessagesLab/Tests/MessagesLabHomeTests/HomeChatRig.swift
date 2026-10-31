@@ -23,7 +23,7 @@ final class HomeChatRig {
     let me: ParticipantID
     let chief: ParticipantID
 
-    init(history: Int = 40, width: CGFloat = 700) async throws {
+    init(history: Int = 40, width: CGFloat = 700, height: CGFloat = 900) async throws {
         // The mock owner's own answer to a send comes after the test ends.
         source = MockHomeSource(options: MockHomeSource.Options(chiefHistory: history, latency: .zero, replyDelay: .seconds(3600)))
         store = HomeStore(source: source)
@@ -34,12 +34,14 @@ final class HomeChatRig {
         guard let me = store.me?.id else { throw RigError.noMe }
         self.me = me
         chief = await source.chief.id
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
-        view.frame = NSRect(x: 0, y: 0, width: width, height: 900)
+        // The order, property and stress tests check the stream bubbles (HomeReplyDisplay.streaming).
+        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
+        view.frame = NSRect(x: 0, y: 0, width: width, height: height)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
+        view.controller.nextFrame = { [frames] f in frames.held.append(f) }
     }
 
     enum RigError: Error { case noMe }
@@ -54,8 +56,18 @@ final class HomeChatRig {
         for _ in 0..<20_000 where !condition() { await Task.yield() }
     }
 
-    /// One store pass and one display frame, as the app runs them.
+    /// Work the view holds for the next display frame (`ChatController.nextFrame`; an offscreen
+    /// window has no display link): it runs at the start of each `frame()`.
+    private final class Frames {
+        var held: [() -> Void] = []
+        func start() { let w = held; held = []; w.forEach { $0() } }
+    }
+    private let frames = Frames()
+
+    /// One display frame and one store pass, as the app runs them: the frame's held work first
+    /// (a stream update held for this frame, HomeStreamPacer), then the store pass.
     func frame() {
+        frames.start()
         view.projection.refresh()
         window.contentView?.layoutSubtreeIfNeeded()
         CATransaction.flush()
@@ -96,6 +108,14 @@ final class HomeChatRig {
     @discardableResult
     func post(_ text: String, key: IdempotencyKey) async -> Bool {
         guard await source.post(text, from: chief, in: Self.conversation, key: key) != nil else { return false }
+        await Self.until { [store] in store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil } }
+        return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
+    }
+
+    /// The Chief posts `parts` under `key` in `threadRoot`'s thread and the store has its echo.
+    @discardableResult
+    func post(_ parts: [MessagePart], key: IdempotencyKey, threadRoot: MessageID? = nil) async -> Bool {
+        guard await source.post(parts, from: chief, in: Self.conversation, key: key, threadRoot: threadRoot) != nil else { return false }
         await Self.until { [store] in store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil } }
         return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
     }

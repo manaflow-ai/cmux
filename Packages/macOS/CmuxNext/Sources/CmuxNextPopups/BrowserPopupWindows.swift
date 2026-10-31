@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The open popup windows: sized `window.open` popups (OAuth, payment) and
 /// extension popup windows, each a `BrowserPopupWindow` of its own, like
@@ -12,6 +12,8 @@ import CmuxNextDesign
 /// its opener), and Escape never closes it.
 public final class BrowserPopupWindows {
     private let contextMenus: BrowserContextMenuBuilder
+    /// The app's ``ActiveLookScope``, for every popup's backdrop.
+    private let activeLook: ActiveLookScope?
     /// The link, image and selection rows for a right-click, by the
     /// opener's tab (`BrowserPageRequests.hitItems`).
     public var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
@@ -20,8 +22,9 @@ public final class BrowserPopupWindows {
     /// tab's omnibar has); nil gives the popup a fresh engine.
     public var suggestionEngine: ((any BrowserTab) -> OmniboxSuggestionEngine?)?
 
-    public init(contextMenus: BrowserContextMenuBuilder = .shared) {
+    public init(contextMenus: BrowserContextMenuBuilder = .shared, activeLook: ActiveLookScope?) {
         self.contextMenus = contextMenus
+        self.activeLook = activeLook
     }
 
     private struct Entry {
@@ -77,7 +80,8 @@ public final class BrowserPopupWindows {
         let frame = BrowserPopupWindowGeometry.frame(for: request, opener: opener.frame, fallbackContent: opener.frame.size,
                                                      visibleFrame: visible, primaryHeight: primaryHeight,
                                                      chromeHeight: BrowserPopupWindow.chromeHeight)
-        let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine())
+        let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine(),
+                                        activeLook: activeLook)
         let id = ObjectIdentifier(page)
         // A popup's own popups keep the cmux window of the first opener.
         let cmuxOpener = (opener as? BrowserPopupWindow).flatMap { entries[ObjectIdentifier($0.page)]?.opener } ?? opener
@@ -126,10 +130,11 @@ public final class BrowserPopupWindows {
             contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode:
+        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode, .protectedMediaUnavailable:
             // A popup has no tab to select, no chrome for notices or an
-            // editable omnibar to take focus, one store, no page shortcuts, and no prompt
-            // bar for a verification code offer.
+            // editable omnibar to take focus, one store, no page shortcuts, no prompt
+            // bar for a verification code offer, and no tab to reopen in WebKit
+            // (its opener's engine holds `window.opener`).
             break
         case .openURL, .adoptTab, .download, .openLocalFile, .webNotification:
             // A download joins the App's list through the opener's tab, a

@@ -2,10 +2,12 @@
    (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FindPill/). Every Cmd-F bar in a page (Find in
    Chat, Find in Diff) is this one capsule, the same size and place as the terminal's and the
    browser's (Lawrence, 2026-10-20; plans/cmux-next/find-pill-gallery.html, variant A). The numbers
-   below are FindPillMetrics'. Glass: the tooltip tint (the popup surface at the least alpha that
-   keeps text 4.5:1 over black and white, so WCAG AA holds over any content) under the tooltip
-   blur, a one-pixel rim and the raised drop. Reduce Transparency: the opaque popup surface
-   (desktop.css swaps both tokens). Reduce Motion: it appears in one frame. */
+   below are FindPillMetrics'. Material: the card material native cards and the native pill draw
+   (CardMaterial: --cmux-card-tint, the popup surface mostly opaque at the least alpha that keeps
+   primary and secondary text 4.5:1 over black and white; Lawrence 2026-10-20: floating cards were
+   "too liquid glassy") under the tooltip blur, the popup's one-pixel rim and the raised drop. A
+   page the host has not themed yet falls back to the tooltip tint. Reduce Transparency: the
+   opaque popup surface (desktop.css swaps both tokens). Reduce Motion: it appears in one frame. */
 :root {
   --find-pill-height: 34px;
   --find-pill-inset: 10px;
@@ -14,6 +16,8 @@
   --find-pill-count-min: 52px;
   --find-pill-padding-start: 12px;
   --find-pill-padding-end: 5px;
+  /* The shared icon set's glyphs in the buttons (Octicons are drawn on a 16px grid). */
+  --find-pill-icon: 16px;
 }
 
 .find-pill {
@@ -24,21 +28,39 @@
   height: var(--find-pill-height);
   padding: 0 var(--find-pill-padding-end) 0 var(--find-pill-padding-start);
   border-radius: calc(var(--find-pill-height) / 2);
-  background: var(--tooltip-tint, var(--surface-popup, Canvas));
+  background: var(--cmux-card-tint, var(--tooltip-tint, var(--surface-popup, Canvas)));
   -webkit-backdrop-filter: var(--tooltip-blur, none);
   backdrop-filter: var(--tooltip-blur, none);
-  box-shadow: var(--ui-popup-shadow);
+  /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
+  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: 1;
   animation: find-pill-in var(--ui-popup-open, 120ms) ease-out;
   pointer-events: auto;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
+/* Reduce Transparency: the opaque popup surface, no blur (desktop.css also swaps the tint tokens). */
+@media (prefers-reduced-transparency: reduce) {
+  .find-pill {
+    background: var(--surface-popup, Canvas);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .find-pill {
+  background: var(--surface-popup, Canvas);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* The pill drops a few points from the top edge it sits under (directional motion, Leo 2026-10-20). */
 @keyframes find-pill-in {
   from {
     opacity: 0;
+    translate: 0 -4px;
   }
 }
 
@@ -85,6 +107,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Nothing matched: the count reads as an answer, in the danger ink. */
 .find-pill__count[data-none] {
@@ -111,7 +134,6 @@
   border-radius: calc(var(--find-pill-button) / 2);
   background: none;
   color: color-mix(in srgb, currentColor 62%, transparent);
-  cursor: default;
 }
 .find-pill__button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 9%, transparent);
@@ -128,8 +150,49 @@
   padding: 0 6px;
   font-size: var(--text-caption);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .find-pill__button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);
-  color: var(--agent-accent, var(--cmux-accent));
+  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent))));
+}
+
+/* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */
+.find-pill--replace {
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  gap: 4px;
+}
+.find-pill__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: calc(var(--find-pill-height) - 10px);
+}
+.find-pill__replace .find-pill__field {
+  flex: 1 1 auto;
+}
+.find-pill__toggle {
+  margin-left: -6px;
+  margin-right: 2px;
+}
+
+/* The shared icon set (icons.tsx `Icon`, `data-icon`): stroke glyphs on its 20px grid, Octicons
+   filled. The diff page styles them in its own sheet; a page without it (the markdown and code
+   editor pages) drew them with no stroke, so the chevrons and the close button were blank. */
+.find-pill__button svg[data-icon] {
+  width: var(--find-pill-icon);
+  height: var(--find-pill-icon);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.find-pill__button svg[data-icon][data-icon-fill] {
+  fill: currentcolor;
+  stroke: none;
 }

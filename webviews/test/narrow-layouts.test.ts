@@ -1,3 +1,6 @@
+// cmux-web-test-timeout: 300
+// Each width is a gallery page load plus a geometry play: the file took about 195 s on an idle
+// Linux box, and the default 120 s killed it on the CI runner after six of its seven tests.
 // Narrow panes (Leo 2026-10-14, "squashed composers"): the agent pane at the widths a split leaves
 // it, 280, 360 and 480 px, and at interface scale 0.8 and 1.25. Each variant of the
 // agent-pane.narrow gallery entry plays its geometry check in Chromium: no sideways page scroll, the
@@ -6,9 +9,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
   const VARIANTS = [
@@ -51,7 +54,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
   let browser: Browser | undefined;
 
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.narrow&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.narrow", { variant })}`;
 
   // Interface scale is WKWebView.pageZoom in the app: the page lays out in width / scale CSS px,
   // media queries included, drawn at scale. (The gallery's own `scale` is CSS zoom, which media
@@ -90,8 +93,8 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.narrow", { browser });
   });
   afterAll(async () => {
     await browser?.close();

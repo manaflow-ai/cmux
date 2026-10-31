@@ -14,16 +14,25 @@ nonisolated public struct RollbackSwap {
         let staged = current.deletingLastPathComponent()
             .appending(path: ".cmux-rollback-\(UUID().uuidString)-\(current.lastPathComponent)", directoryHint: .isDirectory)
         try files.moveItem(at: target.bundle, to: staged)
-        try? files.removeItem(at: target.bundle.deletingLastPathComponent())
+        var keptCurrent = false
         do {
             // 2. Keep the running build, so the user can move forward again.
             try store.keep(bundle: current, build: currentBuild, limit: max(1, limit))
+            keptCurrent = true
             // 3. Atomic swap on the same volume.
             _ = try files.replaceItemAt(current, withItemAt: staged)
         } catch {
-            try? files.removeItem(at: staged)
+            // Put the kept build back where it was (its folder is still there): a failed swap
+            // must not cost the user the only build they can drop back to, nor leave the
+            // running build listed as a rollback target.
+            try? files.moveItem(at: staged, to: target.bundle)
+            if keptCurrent, currentBuild != target.build {
+                try? files.removeItem(at: store.root.appending(path: currentBuild, directoryHint: .isDirectory))
+            }
             throw error
         }
+        // 4. The kept build's folder is empty now; it goes only after the swap succeeded.
+        try? files.removeItem(at: target.bundle.deletingLastPathComponent())
         return current
     }
 

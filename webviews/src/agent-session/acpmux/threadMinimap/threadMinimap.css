@@ -1,71 +1,124 @@
 /* Thread minimap (ThreadMinimap.tsx), as the Codex desktop app's prompt rail; numbers from its 60 Hz
    recordings (minimap-ref SPEC, model.ts). Colors are the theme's tokens: in the dark reference
    theme a resting tick is the muted text at 40% (#3d3d3d on #161616), a current one the text at
-   60%, a hovered or focused one the text. Motion is transform only. */
+   75%, a hovered or focused one the text. Motion is transform, plus the band's opacity glide. */
 .acpmux-minimap {
   position: sticky;
   top: 0;
   z-index: 3;
   height: 0;
+}
+/* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
+.acpmux-minimap,
+.acpmux-minimap__card {
   /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
   --acpmux-minimap-rest: var(--agent-muted);
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring: 160 ms with about 0.8% overshoot. */
+  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
   --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
-:root[data-borders="none"] .acpmux-minimap {
+:root[data-borders="none"] .acpmux-minimap,
+:root[data-borders="none"] .acpmux-minimap__card {
   --acpmux-minimap-rim: transparent;
 }
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
-  animation: acpmux-minimap-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
+  animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
+}
+.acpmux-minimap__strip {
+  position: absolute;
+  left: 0;
+  display: block;
+}
+/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+.acpmux-minimap__rail[data-occluded] {
+  opacity: 0;
+  pointer-events: none;
 }
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;
   }
 }
+/* A list that fits its prompts is no scroll container (`overflow: hidden` still scrolls from script and
+   focus), so the wheel over it scrolls the transcript. One longer than its room scrolls itself
+   (data-rail-scrolls, railWheel.ts): the wheel over it moves only the list, never chaining to the
+   transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
+   the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
+  scrollbar-width: none;
+  /* An ordered list (each prompt's place for assistive tech), with none of a list's own spacing. */
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-minimap__list[data-rail-scrolls] {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
 }
 .acpmux-minimap__list::-webkit-scrollbar {
   display: none;
 }
-/* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
+/* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-minimap-fade, 2.5rem),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    transparent
+  );
 }
 .acpmux-minimap__tick {
   position: relative;
   flex: none;
   display: block;
-  width: 36px;
+  width: 100%;
   height: 10px;
   margin: 0;
   padding: 0;
   border: 0;
   background: none;
   color: var(--acpmux-minimap-rest);
-  cursor: pointer;
+  /* The rail reads like a scrollbar: it remains usable without turning the pointer into a hand. */
+  cursor: default;
   outline: none;
   contain: layout paint;
+}
+.acpmux-minimap__tick:focus-visible {
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+    outline-offset: 2px;
+  }
 }
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
@@ -76,12 +129,60 @@
   opacity: 0.4;
   transform-origin: 0 50%;
   /* Hovering in: the spring (the first line is the fallback for an engine without linear()). */
-  transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1);
-  transition: transform 160ms var(--acpmux-minimap-spring);
+  transition: transform var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1);
+  transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
-  width: 26px;
+  width: min(26px, 100%);
   height: 2px;
+}
+/* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
+   be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
+   and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
+   rail's room (--acpmux-minimap-place, the row's place in the list's view as the tick mounted, over
+   --acpmux-minimap-rows; no per-scroll value the list's rows inherit), so the
+   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
+   ticks and newly appended prompts enter (data-entering); virtualization remounts draw immediately. It
+   stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place
+   and starts at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own
+   check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+.acpmux-minimap__tick {
+  --acpmux-minimap-stagger: clamp(
+    0ms,
+    calc(var(--acpmux-minimap-place, 0) * 72ms / var(--acpmux-minimap-rows, 1)),
+    72ms
+  );
+}
+/* Only while the system allows motion: the media query, not a later override, so turning Reduce
+   Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
+   `data-reduce` is read only at mount, hover and focus). */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__bar {
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
+  }
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__dot {
+    animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
+  }
+}
+@keyframes acpmux-minimap-tick-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+@keyframes acpmux-minimap-dot-in {
+  from {
+    opacity: 0;
+  }
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__bar,
+:root[data-cmux-motion="off"] .acpmux-minimap__dot,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__bar,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__dot,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__dot {
+  animation: none;
 }
 /* The bookmark dot: 2 px round, 2 px past the tick's end; it moves with the tick. */
 .acpmux-minimap__dot {
@@ -91,10 +192,10 @@
   border-radius: 50%;
   opacity: 0;
 }
-/* Leaving the rail: every row eases back to rest in 150 ms. */
+/* Leaving the rail: every row eases back to rest over the same micro step. */
 .acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar,
 .acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__dot {
-  transition-duration: 150ms;
+  transition-duration: var(--cmux-motion-micro);
 }
 /* A scrub switches rows with no transition; so does Reduce Motion. */
 .acpmux-minimap__rail[data-scrubbing] .acpmux-minimap__bar,
@@ -109,21 +210,37 @@
   }
   .acpmux-minimap__bar,
   .acpmux-minimap__dot {
+    animation: none;
     transition: none;
   }
 }
+/* The band moving with the scroll: a row coming on screen brightens, and one leaving dims, over
+   the micro step, so the lit band glides down the rail as a wave instead of flicking row by row
+   (Leo 2026-10-21: "the wave didn't look good enough"). Only when the scroll moves the band: a
+   hovered, scrubbed or Reduce Motion rail, a commit that changes the active row or the hover
+   (`data-snap`: the pointer leaving, a key focusing a tick) and the active row itself switch at
+   once, under the rules above. The full-height map (ScrollMap.tsx) keeps its own look. A transition
+   stops by itself at its end; nothing here runs a timer. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) {
+    transition: color var(--cmux-motion-micro) ease-out;
+  }
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) .acpmux-minimap__bar {
+    transition:
+      transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
+      opacity var(--cmux-motion-micro) ease-out;
+  }
+}
+/* Prompts on screen: the text at 75% (--acpmux-minimap-lit, lit.experiment.ts), a clear step over
+   the resting 40%. They stay lit while the pointer is on the rail, so where the reader is shows
+   beside the fisheye (Codex dims them there; Leo, 2026-10-21, wants the lit band to show, as
+   ChatGPT's rail does). */
 /* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
 .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.6;
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
-  color: var(--acpmux-minimap-rest);
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.4;
+  opacity: var(--acpmux-minimap-lit, 0.75);
 }
 /* The hovered, scrubbed or focused row: the text, at once (no color transition). */
 .acpmux-minimap__tick[data-tone="active"] {
@@ -132,21 +249,26 @@
 .acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* A bookmarked prompt draws its tick and dot at full opacity in its color. */
-.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar,
-.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__dot,
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar {
+/* A bookmarked prompt, as ChatGPT's rail draws one (Leo 2026-10-25: "when I bookmark something, it
+   shouldn't be just at the full brightness ... It should be, like, grayed out"): its tick and dot stay
+   the resting grey, a step brighter than rest (--acpmux-minimap-mark, mark.experiment.ts), never the
+   text at full brightness. On the screen's band it is lit as its neighbours; hovered, scrubbed or
+   focused (data-tone active) its tick and dot turn the text, at once. */
+.acpmux-minimap__tick[data-bookmarked]:not([data-tone="current"]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-mark, 0.7);
+}
+.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__dot {
+  opacity: var(--acpmux-minimap-mark-dot, 0.7);
+}
+.acpmux-minimap__tick[data-bookmarked][data-tone="current"] .acpmux-minimap__dot {
+  opacity: var(--acpmux-minimap-lit, 0.75);
+}
+.acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__bar,
+.acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
-/* No bookmark yet: the hovered row shows a faint dot where a click would set one, a little
-   stronger over the spot itself. */
-.acpmux-minimap__tick[data-tone="active"]:hover:not([data-bookmarked]) .acpmux-minimap__dot {
-  opacity: 0.3;
-}
-.acpmux-minimap__tick[data-tone="active"]:not([data-bookmarked]):has(.acpmux-minimap__dot-hit:hover) .acpmux-minimap__dot {
-  opacity: 0.6;
-}
-/* The dot's hit area: the row's right end past a hovered tick (26 px), so the tick keeps its click. */
+/* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
+   remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
   position: absolute;
   top: 0;
@@ -154,39 +276,65 @@
   width: 9px;
   height: 10px;
 }
+/* Where the card's x and y count from: the rail's origin, as the card draws in the transcript
+   scroller's parent (PreviewCard.tsx). */
+.acpmux-minimap__anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+/* Drawn in the transcript scroller's parent, never inside the scroller: the scroller's edge mask
+   (conversation.css) is a backdrop root, and under it the blur below shows the rows sharp. On the
+   tooltip layer, as the chat's other hover cards, so the composer under it never covers it. */
 .acpmux-minimap__card {
   position: absolute;
   top: 0;
   left: 0;
-  width: 320px;
-  max-width: calc(100vw - 16px);
+  z-index: var(--layer-tooltip);
+  width: fit-content;
+  /* The existing rail origin is at most 52px in; keep another 12px clear at the far edge. */
+  min-width: min(240px, calc(100vw - 64px));
+  max-width: min(360px, calc(100vw - 64px));
+  isolation: isolate;
+  will-change: transform;
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. */
+     none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
+     preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
+     2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
+     (pages/shared/desktop.css). */
   padding: 8px;
   border-radius: 12px;
-  background: var(--acpmux-minimap-card);
+  background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
 .acpmux-minimap__title {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  height: 20px;
+  min-height: 20px;
   font-weight: 500;
 }
 .acpmux-minimap__prompt {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
   flex: none;
@@ -201,7 +349,7 @@
   border-radius: 4px;
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-minimap__bookmark:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -217,19 +365,69 @@
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+  height: auto;
+  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
+  min-height: var(--acpmux-minimap-reply-line-height, 20px);
+}
+.acpmux-minimap__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 5px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.acpmux-minimap__meta-link {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--agent-link, var(--agent-text));
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-minimap__meta-link:hover {
+  text-decoration: underline;
+}
+.acpmux-minimap__failure {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--agent-status-failure, var(--agent-muted));
+  overflow-wrap: anywhere;
+}
+.acpmux-minimap__failure-icon {
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 .acpmux-minimap__reply p {
   margin: 0;
 }
 .acpmux-minimap__reply p + p {
-  margin-top: 4px;
+  margin-top: 0;
 }
 .acpmux-minimap__reply strong {
   font-weight: 600;
+}
+.acpmux-minimap__reply code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+}
+.acpmux-minimap__full-token {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .acpmux-minimap__item {
   padding-left: 14px;
@@ -241,8 +439,119 @@
   width: 10px;
   text-indent: 0;
 }
-/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own fill, a
-   step brighter (#2d2d2d over #1e1e1e in the dark reference theme). */
+/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own glass
+   tint (12% of the text, conversation.css) a step brighter, still over transparent so the bubble
+   stays glass while it flashes (Leo 2026-10-20: never opaque, not even for a moment). */
 .acpmux-row .cv-user__bubble {
-  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-base, var(--agent-page-bg)));
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+/* Reduce Transparency: the bubble is opaque there (--glass-opaque, 12% of the text over the glass
+   surface, conversation.css), and so is every frame of its flash: the same step brighter over the
+   same surface. The animation sets background-color itself, so glass.css's hold on --glass-tint
+   does not reach it. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-row .cv-user__bubble {
+    --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
+  }
+}
+:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
+}
+/* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
+   tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
+   them is the view; it moves by transform on the scroll's frame. */
+.acpmux-scrollmap {
+  cursor: default;
+  touch-action: none;
+}
+.acpmux-scrollmap__view {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 34px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--acpmux-minimap-text) 6%, transparent);
+  pointer-events: none;
+  will-change: transform;
+}
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__view,
+.acpmux-minimap__rail[data-scrubbing] .acpmux-scrollmap__view {
+  background: color-mix(in srgb, var(--acpmux-minimap-text) 9%, transparent);
+}
+.acpmux-scrollmap__mark.acpmux-minimap__tick {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.acpmux-scrollmap__mark[data-kind="user"] .acpmux-minimap__bar {
+  opacity: 0.55;
+}
+.acpmux-scrollmap__mark[data-kind="agent"] {
+  left: 4px;
+  width: 32px;
+  pointer-events: none;
+}
+.acpmux-scrollmap__mark[data-kind="agent"] .acpmux-minimap__bar {
+  top: 4.5px;
+  height: 1px;
+  opacity: 0.35;
+}
+/* Marks under the view bar: where the reader is, brighter than the rest, and still while the
+   pointer is on the rail (unlike the compact rail). The hovered or previewed mark is the text. */
+.acpmux-scrollmap__mark[data-tone="current"],
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] {
+  color: var(--acpmux-minimap-text);
+}
+.acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.8;
+}
+.acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.55;
+}
+.acpmux-scrollmap__mark[data-tone="active"] .acpmux-minimap__bar {
+  opacity: 1;
+}
+/* A bookmarked prompt's tick on the full map: the same grey step as the compact rail's, the text
+   only when hovered or previewed. */
+.acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-mark, 0.7);
+}
+/* The rows the rail does not draw (tickWindow.ts): one block as tall as they are, painted as their
+   resting ticks: the bar's 2 px at 4 px down each 10 px row, at its resting length (model.ts
+   tickLength(0), 0.2308 of the bar's box) in the rest tone at its 40%. A fast wheel or fling can move
+   the list past the drawn rows for a frame before its scroll event draws them (Chromium scrolls on
+   its compositor); that frame shows ticks at rest, not a blank strip (Leo, 2026-10-31: "if i scroll
+   too fast in the left scroll rail it can flicker and disapper at the edges"). A lit or bookmarked
+   row among them shows at rest for that frame. It is a static background: no animation, no timer. */
+.acpmux-minimap__gap {
+  flex: none;
+  background: linear-gradient(
+      to bottom,
+      transparent 4px,
+      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) 4px 6px,
+      transparent 6px
+    )
+    0 0 / calc(min(26px, 100%) * 0.2308) 10px repeat-y;
+}
+/* A tick's list item (its place among every prompt for assistive tech): a plain block around its
+   tick, so it takes the tick's 10 px and the list's rows stay where they were. */
+.acpmux-minimap__entry {
+  flex: none;
+  display: block;
+}
+/* On the right edge (railSide.ts: Settings > Agent Chat > Prompt Rail Side, or the rail's right-click
+   menu) the rail is the left one mirrored (design/session-rail.md): its narrow-pane hover strip sits at
+   the pane's right edge, and its ticks start at that edge and grow toward the text. The compact rail
+   mirrors its list (the rail itself keeps its box and data attributes); the full-height map mirrors
+   whole. Only x flips: rows and the pointer's y are as on the left. */
+.acpmux-minimap__strip[data-side="right"] {
+  left: auto;
+  right: 0;
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
+.acpmux-scrollmap[data-side="right"] {
+  transform: scaleX(-1);
 }

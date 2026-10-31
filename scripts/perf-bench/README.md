@@ -28,6 +28,11 @@ cmux-ci run --class exclusive --measurement --label measure \
   `baseline/<chip>-macos<major>.json` by more than 15 % and the unit's floor
   (5 ms, 15 MB, 2 mW, 0.1 %, 2 wakeups/s). The nightly job
   (`.github/workflows/cmux-next-perf-bench.yml`) runs it.
+- The gate also fails with `PERF-BENCH-GATE INCOMPLETE` when an expected row or
+  browser cell is missing. The checked-in baseline defines expected rows, so a
+  newly emitted row becomes expected after it is recorded in a baseline. An
+  intentional unsupported surface may be listed as `"row|browser"` in an
+  `unsupported` array in either JSON document.
 
 Quick iteration for one area (about 10 minutes):
 `--arg=rounds=1 --arg=launches=1 --arg=idle=20 --arg=active=15 --arg=browsers=cmux-chromium,helium`.
@@ -35,6 +40,40 @@ Quick iteration for one area (about 10 minutes):
 Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out /tmp/xb
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
+
+## Resource budget (`cmux-budget`)
+
+The idle cost of cmux NEXT with hidden work, against fixed budgets (`budgets.json`), rather than
+against other browsers. `budget.py` runs it as the browser `cmux-budget`, with xbench's isolated
+launch and counters: launch, idle on Home (CPU, wakeups, footprint), then one workspace with 5 more
+terminals and, per engine, one Chromium or WebKit tab of the local idle page plus 5 more, each
+hidden behind the first terminal. Rows: footprint per hidden terminal, the first hidden tab of each
+engine (its engine processes come with it), each further hidden tab, the whole app; then CPU % and
+wakeups/s over the whole process tree (app, CEF and WebKit helpers, cmux-tui, acpmux, terminal hosts)
+with the window in view and with the app hidden. The final sample in `results.json` keeps every
+process (pid, kind, command, footprint, RSS, CPU %, wakeups/s), so a PR can quote before and after
+per process from the same measurement.
+
+```sh
+cmux-ci run --class exclusive --measurement --label bench --target-worker cmux20-bench \
+  --script scripts/measure/perf-bench.sh --ref <40-char sha> --artifact artifacts/perf-bench/results.json \
+  --arg=browsers=cmux-budget --arg=launches=0 --arg=rounds=1 --arg=tabswitch=off --arg=palette=off
+```
+
+About 10 minutes per round after the Release build. The log prints one `PERF-BUDGET` line per
+budget and BENCH.md gets a "Resource budget" table. A budget with `"enforce": false` is advisory
+(reported, never fails); `xbench.py report` exits 1 when an enforced one is broken or not fully measured (missing, a session error, or fewer samples than rounds).
+Budgets start advisory where the base breaks them; tighten the limit and enforce it once the base
+holds it. The scenario's sizes and settle times are in `budgets.json`; the idle windows follow
+`--arg=idle=` (60 s). `xbench.py gate` skips the `budget-*` rows: budgets.json gates them. The
+nightly runs it with the other browsers (about 11 minutes a round on cmux20).
+
+Overhead rows (plans/cmux-next/speed-of-sound-DESIGN.md, floor 0 at idle): disk writes KB/s,
+Mach messages/s, syscalls/s and context switches/s over the idle windows, process and thread
+counts, and a `/usr/bin/sample` call tree of the hidden app's main thread (logged as `hidden main:`
+lines and kept in results.json), so a Release build's idle wakeups get a named owner. The heavy
+scenario, `--arg=budgets=scripts/perf-bench/budgets-heavy.json`, adds 150 workspaces and 20 hidden
+terminals and Chromium tabs, and the `budget-memory-per-workspace` row.
 
 ## Tab switch in a real window
 
@@ -46,6 +85,14 @@ end: OS input event age + intent to the Core Animation commit that shows the tab
 ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
 `tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
 `--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
+
+## Palette open
+
+The same Debug app also runs a182's `scripts/cmux-next/palette-open-stages.py --no-gate`:
+Cmd-Shift-P and Cmd-P key-down to the palette's committed first frame from a terminal, Chromium page
+(and its page window), WebKit page, Markdown and Home. BENCH.md gets a "Palette open" section and the
+gate gets `palette-open-<surface>-<key>` rows (Debug only). `--arg=palette=off` skips it. a182's own
+entry `scripts/measure/palette-open.sh` is allowlisted too.
 
 ## For the tab switch rewrite (a168) and other perf agents
 
@@ -63,14 +110,22 @@ ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
 ## Hosts
 
 The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4pro-*, no console
-login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The owned M4 Pro minis (cmux7s-13s,
-cmuxs-mac-mini*) can open apps, but they are busy CI hosts, so pass `--target-worker` and expect a
-wait. cmux20 (Apple M6, macOS 27.0, user `cmux` logged in at the console, Xcode 26.6) is the planned
-dedicated bench host. It is not a controller worker yet: it needs the controller worker token
-installed (the `mini-ops/gui-worker` LaunchAgent pattern, no sudo). Until then cmux11s is the
-dedicated bench mini (2026-10-20): its glaeda GitHub runner LaunchAgents are disabled
-(`launchctl disable gui/501/com.teamleaderleo.glaeda.cmux-runner*`, log `~/bench-dedicate.log`);
-undo with `launchctl enable` and `launchctl bootstrap gui/501 ~/Library/LaunchAgents/<plist>`.
+login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
+macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
+no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
+`--label bench --target-worker cmux20-bench`; the nightly job does. It has bun and node under
+`~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
+CI hosts; `baseline/apple-m4-pro-macos27.json` came from one (cmuxs-Mac-mini 6, load 3 to 8). The aws-m4pro
+minis start the app but its control socket never appears (a252), so they cannot run xbench.
+
+Baselines: `baseline/apple-m6-macos27.json` and `baseline/apple-m4-pro-macos27.json` (the gate's rows),
+`baseline/BENCH-apple-m6-macos27.md`, `baseline/BENCH-apple-m4-pro-macos27.md`,
+`baseline/tab-switch-apple-m6-macos27.json` (the matrix's full report).
+
+A fleet ref must have a published cmux-tui tree for the Debug build. feat-cmux-next moves faster than
+the publisher; re-run after a trusted feat-cmux-next publication, then wait until
+`files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
+(`pin-cmux-tui.sh key --rev SHA`).
 
 ## Method
 
@@ -113,6 +168,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
 ## Files
 
 - `xbench.py`: run, report (BENCH.md + results.json), gate.
+- `budget.py`, `budgets.json`: the resource budget session and its limits.
 - `pages.py`, `procs.py`, `benchhelper.swift`, `fetch_browsers.py`.
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `../measure/perf-bench.sh`: the fleet entry.

@@ -1,0 +1,46 @@
+import AppKit
+import CmuxNextDesign
+import Testing
+@testable import CmuxNextAgentPane
+
+/// Leo 2026-10-19: at a cold launch or after an update, the New Tab pane first painted the solid
+/// theme color and only then the background image the sidebar already showed. The pane's first
+/// frame is the page's saved image (`AgentPaneLaunchImages`), and that image was flattened over
+/// the theme color although the New Tab page is transparent. A transparent page's image keeps
+/// its clear pixels, so the window's art shows through it in the first frame.
+@MainActor
+struct PageImageBackgroundTests {
+    /// A 4x4 page: clear but for its top-left pixel.
+    private static func page() throws -> NSImage {
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 3, width: 1, height: 1))
+        return NSImage(cgImage: try #require(context.makeImage()), size: NSSize(width: 4, height: 4))
+    }
+
+    private static func alpha(_ image: NSImage, x: Int, y: Int) throws -> CGFloat {
+        let rep = NSBitmapImageRep(cgImage: try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil)))
+        return try #require(rep.colorAt(x: x, y: y)).alphaComponent
+    }
+
+    @Test func theNewTabPageIsNeverBackedByAnOpaqueThemeColor() {
+        let tokens = ThemeTokens.unresolved
+        #expect(AgentPaneTheme.underPageColor(tokens, surface: .newTabPage).alpha < 1)
+        #expect(AgentPaneTheme.pageColor(tokens, surface: .newTabPage).alpha < 1)
+    }
+
+    @Test func aTransparentPageImageKeepsItsClearPixels() throws {
+        let color = AgentPaneTheme.underPageColor(ThemeTokens.unresolved, surface: .newTabPage)
+        let image = PageImageBackground.fill(try Self.page(), color)
+        #expect(try Self.alpha(image, x: 2, y: 2) == 0)
+        #expect(try Self.alpha(image, x: 0, y: 0) == 1)
+    }
+
+    @Test func anOpaquePageImageIsFlattenedOverItsColor() throws {
+        let color = AgentPaneTheme.underPageColor(ThemeTokens.unresolved, surface: .newTabPage).withAlpha(1)
+        let image = PageImageBackground.fill(try Self.page(), color)
+        #expect(try Self.alpha(image, x: 2, y: 2) == 1)
+    }
+}

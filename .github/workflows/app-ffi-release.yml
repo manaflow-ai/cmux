@@ -65,7 +65,14 @@ jobs:
   build:
     name: build xcframework
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
+    # reserved trusted promote runners (trustedRef feat-cmux-next) that already
+    # run cmux-next.yml's Release compile and cmux-tui-artifacts' tests: minis
+    # first, Blacksmith as overflow. On Blacksmith alone the build sat queued on
+    # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
+    # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
+    # variable takes the Blacksmith label as before.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -206,6 +213,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: CCmuxAppFFI.xcframework
+          retention-days: 7
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
 
@@ -325,6 +333,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-cross-parity-app-ffi
+          retention-days: 3
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
 

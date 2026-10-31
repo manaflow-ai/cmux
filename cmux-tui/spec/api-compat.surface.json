@@ -37,6 +37,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/agent_session_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -432,6 +436,37 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:cloud-conversation-presence": {
+      "/account": {
+        "ty": "string"
+      },
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"cloud-conversation-presence\""
+        ]
+      },
+      "/participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/participants/*": {
+        "ty": "object"
+      },
+      "/participants/*/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/participants/*/viewing": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "event:cloud-conversation-resynced": {
@@ -7588,6 +7623,16 @@
         "nullable": true
       }
     },
+    "request:cloud-conversation-presence": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/viewing": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:cloud-conversation-run": {
       "/after_seq": {
         "ty": "uint64",
@@ -7703,6 +7748,10 @@
     },
     "request:cloud-host-replica-status": {},
     "request:cloud-inbox-list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/include_archived": {
         "ty": "boolean"
       },
@@ -7751,23 +7800,26 @@
       }
     },
     "request:cloud-requests-list": {},
+    "request:cloud-selfhost-info": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
-        "ty": "string",
-        "required": true
+        "ty": "string"
       },
       "/api_base_url": {
         "ty": "string",
         "required": true
+      },
+      "/auth": {
+        "ty": "string",
+        "nullable": true
       },
       "/client_version": {
         "ty": "string",
         "nullable": true
       },
       "/expires_at": {
-        "ty": "uint64",
-        "required": true
+        "ty": "uint64"
       }
     },
     "request:cloud-session-status": {},
@@ -8132,6 +8184,13 @@
       }
     },
     "request:conversation-runs": {
+      "/answers": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/answers/*": {
+        "ty": "string"
+      },
       "/before_started_at": {
         "ty": "uint64",
         "nullable": true
@@ -8938,6 +8997,12 @@
       "/subject_key": {
         "ty": "string",
         "required": true
+      }
+    },
+    "request:get-host-size-policy": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:get-size-state": {
@@ -9962,6 +10027,14 @@
       "/shell_args/*": {
         "ty": "string"
       },
+      "/side": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
       "/tab_id": {
         "ty": "string",
         "nullable": true
@@ -10036,6 +10109,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10046,6 +10123,10 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/terminal_id": {
         "ty": "string",
@@ -10242,6 +10323,15 @@
       "/pane": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:park-tabs": {
+      "/surfaces": {
+        "ty": "array",
+        "required": true
+      },
+      "/surfaces/*": {
+        "ty": "json"
       }
     },
     "request:paste-image": {
@@ -10840,11 +10930,26 @@
         "ty": "string",
         "nullable": true
       },
+      "/expect_agent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/expect_agent/session": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expect_foreground": {
         "ty": "string",
         "nullable": true
       },
+      "/flow": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/paste": {
+        "ty": "boolean"
+      },
+      "/submit": {
         "ty": "boolean"
       },
       "/surface": {
@@ -10930,6 +11035,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/remote": {
+        "ty": "boolean",
         "nullable": true
       },
       "/user_id": {
@@ -11046,6 +11155,29 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:set-host-size-policy": {
+      "/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/policy/order": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/policy/order/*": {
+        "ty": "string"
       }
     },
     "request:set-personal-terminal": {
@@ -11592,6 +11724,12 @@
         "required": true
       }
     },
+    "request:terminal-ports": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:terminal-read-range": {
       "/format": {
         "ty": "string",
@@ -11641,6 +11779,20 @@
       },
       "/surfaces/*": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-resume-command": {
+      "/command": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:undo-layout": {
@@ -11740,6 +11892,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/proxy": {
+        "ty": "json",
         "nullable": true
       }
     },
@@ -12425,6 +12581,12 @@
         "required": true
       }
     },
+    "response:cloud-conversation-presence": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:cloud-conversation-run": {
       "/data": {
         "ty": "json",
@@ -12534,6 +12696,12 @@
       }
     },
     "response:cloud-requests-list": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-selfhost-info": {
       "/data": {
         "ty": "json",
         "required": true
@@ -15996,6 +16164,36 @@
         "required": true
       }
     },
+    "response:get-host-size-policy": {
+      "/data/mac_participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/mac_participants/*": {
+        "ty": "string"
+      },
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
+      }
+    },
     "response:get-size-state": {
       "/data/self_participant": {
         "ty": "string",
@@ -16303,6 +16501,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/build_time": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/capabilities": {
         "ty": "array"
       },
@@ -16474,6 +16676,10 @@
         "ty": "object"
       },
       "/data/agents/*/agent": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/agents/*/agent_session_id": {
         "ty": "string",
         "nullable": true
       },
@@ -17899,9 +18105,15 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -17985,6 +18197,12 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:park-tabs": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:paste-image": {
@@ -18822,6 +19040,21 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/hook_queue": {
+        "ty": "object"
+      },
+      "/data/hook_queue/queued_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/reset_dropped_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/undeliverable_events": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
@@ -18977,6 +19210,371 @@
         "required": true
       },
       "/data/journal_writer/terminal_queued": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks": {
+        "ty": "object"
+      },
+      "/data/locks/registry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*": {
+        "ty": "object"
+      },
+      "/data/locks/registry/by_hold_p99/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*": {
+        "ty": "object"
+      },
+      "/data/locks/registry/by_hold_total/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/contended_acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/holder": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/holder/held_for_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/holder/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/last_stall": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/last_stall/blocker": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/last_stall/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/last_stall/waiter": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/sites": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*": {
+        "ty": "object"
+      },
+      "/data/locks/state/by_hold_p99/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*": {
+        "ty": "object"
+      },
+      "/data/locks/state/by_hold_total/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/contended_acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/holder": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/holder/held_for_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/holder/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/last_stall": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/last_stall/blocker": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/last_stall/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/last_stall/waiter": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/sites": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p99": {
         "ty": "uint64",
         "required": true
       },
@@ -19500,6 +20098,29 @@
         "required": true
       }
     },
+    "response:set-host-size-policy": {
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
+      }
+    },
     "response:set-personal-terminal": {
       "/data": {
         "ty": "json",
@@ -19983,6 +20604,42 @@
         "required": true
       }
     },
+    "response:terminal-ports": {
+      "/data/closed": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/closed/*": {
+        "ty": "uint16"
+      },
+      "/data/listeners": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/listeners/*": {
+        "ty": "object"
+      },
+      "/data/listeners/*/bound": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/listeners/*/url": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:terminal-read-range": {
       "/data/surface": {
         "ty": "uint64",
@@ -20076,6 +20733,17 @@
       },
       "/data/terminals/*/truncated": {
         "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-resume-command": {
+      "/data/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },

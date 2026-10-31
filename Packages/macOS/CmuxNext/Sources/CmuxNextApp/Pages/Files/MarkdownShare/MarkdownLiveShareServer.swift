@@ -1,4 +1,6 @@
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 import Network
 
 /// The local live link (plans/cmux-next/markdown-omnibar-DESIGN.md section 4.1): a small HTTP
@@ -29,12 +31,17 @@ final class MarkdownLiveShareServer {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let renderer = MarkdownHTMLRenderer()
     private let clock: any Clock<Duration>
+    /// The blocking-work lanes a page request's file read runs on.
+    private let work: BackgroundWork
 
     /// Largest request head accepted; a longer one is dropped.
     static let headLimit = 16 * 1024
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter work: the app's blocking-work lanes (`AppServices.work`); tests get lanes of their own.
+    init(clock: any Clock<Duration> = ContinuousClock(),
+         work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.live-share")) {
         self.clock = clock
+        self.work = work
     }
 
     /// The live link of `file`: the same link for the same file while the server runs.
@@ -89,10 +96,10 @@ final class MarkdownLiveShareServer {
             let listener: NWListener
             do { listener = try NWListener(using: parameters) } catch { throw Failure.listenerFailed("\(error)") }
             listener.stateUpdateHandler = { [weak self] state in
-                MainActor.assumeIsolated { self?.listenerChanged(state) }
+                MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
             }
             listener.newConnectionHandler = { [weak self] connection in
-                MainActor.assumeIsolated { self?.accept(connection) }
+                MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
             }
             self.listener = listener
             listener.start(queue: .main)
@@ -127,7 +134,7 @@ final class MarkdownLiveShareServer {
         connections[id] = connection
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) }
+            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) } // main-proof: connection.start(queue: .main)
             default: break
             }
         }
@@ -141,8 +148,9 @@ final class MarkdownLiveShareServer {
     }
 
     private func receive(_ connection: NWConnection, head: Data) {
+        // Every connection starts on queue .main (accept), so Network calls this on main.
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { [weak self] data, _, complete, error in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: connection.start(queue: .main) in accept
                 guard let self else { return }
                 var head = head
                 if let data { head.append(data) }
@@ -168,10 +176,16 @@ final class MarkdownLiveShareServer {
         switch route {
         case .page(let token):
             guard let share = shares[token] else { break }
-            let text = (try? String(contentsOf: share.file, encoding: .utf8)) ?? ""
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            let page = renderer.document(text, title: share.name, eventsPath: events)
-            return send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            Task { [weak self, work, file = share.file, name = share.name] in // one off-main read per page request
+                // A browser waits for the page: the read runs on the files lane at userVisible.
+                let text = (try? await work.run(.userVisible, mayBlock: .files) {
+                    (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
+                }) ?? ""
+                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
+                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            }
+            return
         case .events(let token):
             guard shares[token] != nil else { break }
             shares[token]?.streams[ObjectIdentifier(connection)] = connection

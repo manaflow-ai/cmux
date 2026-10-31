@@ -199,8 +199,11 @@ import Testing
         step.detect()
         await Self.until { step.phase == .ready }
         onboarding.next()
+        // Begin Importing is a second click, not the first one repeated (`justStarted`).
+        await Self.until { !step.justStarted }
         onboarding.next()
         await Self.until { services.authorizationReasons.count == 1 }
+        #expect(services.authorizationReasons.count == 1)
         #expect(!onboarding.canGoBack)
         services.answerAuthorizations()
     }
@@ -216,8 +219,10 @@ import Testing
         await Self.until { step.phase == .ready }
 
         onboarding.next()
+        await Self.until { !step.justStarted }
         onboarding.next()
         await Self.until { services.authorizationReasons.count == 1 }
+        #expect(services.authorizationReasons.count == 1, "the Touch ID sheet is up")
         // Skip Importing (or Escape) while the Touch ID sheet is up, then Touch ID succeeds.
         onboarding.skipStep()
         services.answerAuthorizations()

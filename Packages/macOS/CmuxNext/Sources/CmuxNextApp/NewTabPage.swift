@@ -9,7 +9,6 @@ import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
-import os
 
 /// What a new tab page does with the user's choice. The page is an agent
 /// tab (it shows recent acpmux sessions and becomes a chat in place); a
@@ -24,8 +23,9 @@ struct NewTabPageHandler {
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, and the model picked on it, remembered on this Mac.
     var remember: (AgentPaneRememberedPick) -> Void = { _ in }
-    /// The page's style switch picked a template, saved as `tabs.newTabTemplate`.
-    var setTemplate: (String) -> Void = { _ in }
+    /// The page's style switch picked a template (`tabs.newTabTemplate`), or its edit mode removed or
+    /// moved a widget (`tabs.newTabWidgets.*`) or asked to add one.
+    var edit: (AgentPaneNewTabEdit) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -59,19 +59,27 @@ enum NewTabPage {
     /// The bar's suggestions: the open tabs and other workspaces a jump lands somewhere real on
     /// (``places(_:current:excluding:home:)``), the open tabs' folders (the current one first),
     /// and recent pages, newest first.
-    static func omnibar(_ services: AppServices, excluding selectedID: String?) -> AgentPaneOmnibar {
+    static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
-        let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
-            AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
-        }
+        // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
+        let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
         )
+    }
+
+    /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
+    static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
+        BenchSpans.measure("newTab.paletteActions") {
+            services.palette.commandEntries().map {
+                AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, detail: $0.section, keywords: $0.keywords,
+                                        keycaps: $0.keycaps.isEmpty ? nil : $0.keycaps)
+            }
+        }
     }
 
     /// One workspace as the bar reads it.
@@ -98,7 +106,7 @@ enum NewTabPage {
     /// somewhere real on (Leo 2026-10-11: "about:blank Home", a bare "~ ~" folder, each
     /// workspace twice). A New Tab page, a page tab and a blank browser tab are no place; a chat
     /// is one; the home folder is not a project. Another workspace with one place lists once, as
-    /// the workspace (a jump to either shows the same tab), named by that tab.
+    /// that tab: a row that reads as a tab jumps to the tab (Leo 2026-10-19).
     static func places(_ workspaces: [PlaceSource], current: String?, excluding selectedID: String?, home: String,
                        icon: (TabModel) -> String? = { _ in nil })
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
@@ -113,13 +121,10 @@ enum NewTabPage {
                                          workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
                 }
             }
-            guard workspace.id != current else {
-                tabs += rows
-                continue
-            }
-            if rows.count > 1 { tabs += rows }
-            let named = rows.count == 1 ? rows[0].detail ?? rows[0].title : nil
-            let detail = named ?? workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
+            tabs += rows
+            // Another workspace's only place is that tab's row (Switch to tab lands on it), not the workspace's.
+            guard workspace.id != current, rows.count != 1 else { continue }
+            let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
             others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: detail))
         }
         return (tabs, others, folders)
@@ -176,12 +181,12 @@ enum NewTabPage {
     /// `window` is where the page shows (the active one when nil; a panel counts as the window
     /// that owns it): its dots' last pick comes first, then the saved `tabs.newTabTemplate` (cx-l1jv).
     static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil,
-                     pane: PaneController? = nil) -> AgentPaneNewTab {
+                     pane: PaneController? = nil, paletteActions: Bool = true) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
         let machine = NewTabPageMachine(services, selected: selected, pane: pane)
-        var bar = omnibar(services, excluding: selectedID)
+        var bar = omnibar(services, excluding: selectedID, paletteActions: paletteActions)
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(
@@ -194,8 +199,12 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
-            template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac(machine.remoteFolders == nil)
+            template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
+            .warmedOnThisMac(machine.remoteFolders == nil)
+            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -205,9 +214,15 @@ enum NewTabPage {
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac()
+            template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
+            .withWeather(services)
     }
+
+    /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
+    static func showsAllChats(_ services: AppServices) -> Bool { services.settings?.snapshot.sidebarSections.showChats ?? true }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
     static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
@@ -221,10 +236,7 @@ enum NewTabPage {
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
-            setTemplate: { [weak services] template in
-                guard let settings = services?.settings else { return }
-                Task { await saveTemplate(template, settings: settings) }
-            },
+            edit: { [weak services] edit in if let services { self.edit(edit, services: services) } },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
@@ -240,8 +252,8 @@ enum NewTabPage {
                 }.value
             },
             action: { [weak services] id in
-                guard let services else { return }
-                _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+                // As the palette runs its row: an action that needs arguments asks for them there.
+                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
             }
         )
     }
@@ -259,14 +271,17 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick, through the schema as the Settings window writes it. Terminal and
-    /// unknown values are ignored: New Tab never opens a terminal by itself.
-    static func saveTemplate(_ value: String, settings: SettingsController) async {
-        guard let template = NewTabTemplate(rawValue: value), template != .terminal,
-              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                .error("new tab template write failed: \(String(describing: error), privacy: .public)")
+    /// The style switch's pick, the edit mode's ✕ and drag and the dots' quick actions, written as Settings would (a refusal is
+    /// logged; the next New Tab shows what the file says); + opens Settings on the widget rows
+    /// (the widgets are settings, not store items: extensibility-DESIGN.md).
+    static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
+        guard let settings = services.settings else { return }
+        switch edit {
+        case .template(let template): Task { await settings.saveNewTabTemplate(template) }
+        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
+        case .show(let widget): Task { await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) } }
+        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
+        case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
         }
     }
 
@@ -287,10 +302,10 @@ extension PaneController {
         NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
     }
 
-    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field;
-    /// anywhere else a new New Tab page, whose field takes the keyboard (cx-e2aa; Lawrence
-    /// 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L stays the
-    /// terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in
+    /// an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
+    /// (cx-e2aa; Lawrence 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L
+    /// stays the terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
         if case .browser = currentContent {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
@@ -299,6 +314,11 @@ extension PaneController {
         // A Markdown tab has the browser's omnibar row above its page (markdown-omnibar-DESIGN.md).
         if case .page(let view) = currentContent, let bar = view.topBar as? MarkdownOmnibarBar {
             bar.focusLocation()
+            return
+        }
+        // An agent chat: its composer takes the keyboard, not a new New Tab page beside it.
+        if case .agent(let view) = currentContent, view.model.newTab == nil {
+            view.focusComposer()
             return
         }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
@@ -312,6 +332,27 @@ extension AgentPaneNewTab {
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the project of the chat the person last picked and started, if any.
+    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
+        return page
+    }
+
+    /// The page told that `tabs.newTabWidgets.greeting` is set to false (``AgentPaneNewTab/headlineOff``).
+    func turningHeadlineOff(_ widgets: NewTabWidgetSettings?) -> AgentPaneNewTab {
+        var page = self
+        page.headlineOff = widgets?.greetingTurnedOff == true ? true : nil
         return page
     }
 }

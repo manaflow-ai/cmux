@@ -1,4 +1,6 @@
 import CmuxNextAgentPane
+import CmuxNextPages
+import CmuxNextAgentUpdates
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -12,6 +14,7 @@ import Observation
 @MainActor
 @Observable
 final class AgentHarnessCenter {
+    private(set) var updates: AgentCLIUpdateActions?
     /// What Settings draws (`cmux.settings.agents.state`).
     private(set) var pageState: JSONValue = ["status": "loading", "harnesses": .array([])]
 
@@ -27,6 +30,8 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    /// SF Symbol images for Settings' harness icons (`agents.run {action: "symbol"}`).
+    @ObservationIgnored let symbols = HarnessSymbolImages()
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -34,6 +39,7 @@ final class AgentHarnessCenter {
 
     convenience init(services: AppServices) {
         self.init(environment: { [weak services] in services.flatMap(QuitAgents.environment) })
+        updates = AgentCLIUpdateActions(services: services)
     }
 
     /// The backup of the last removal this app made, for Undo and `agent.harness.restore`.
@@ -87,6 +93,16 @@ final class AgentHarnessCenter {
     func restore(backup: String) async throws -> JSONValue {
         let answer = try await manage(.restore, ["backup": backup])
         if removed?["backup"]?.stringValue == backup { removed = nil }
+        await refresh()
+        return answer
+    }
+
+    /// Sets a user profile's icon (`_acpmux/harness/icon`); the list, with each harness's new
+    /// `iconSpec`, follows. A nil change is a request Settings made without a value.
+    @discardableResult
+    func setIcon(id: String, change: AgentHarnessIconChange?) async throws -> JSONValue {
+        guard let change else { throw PageError.invalidParams("give icon, data or clear") }
+        let answer = try await manage(.icon, change.params(id: id))
         await refresh()
         return answer
     }

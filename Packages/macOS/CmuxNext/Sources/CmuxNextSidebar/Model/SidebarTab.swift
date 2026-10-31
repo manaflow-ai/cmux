@@ -1,7 +1,8 @@
+public import CmuxNextDesign
 public import CmuxNextIcons
 import Foundation
 
-/// The kind icon used by an optional sidebar tab row.
+/// What a workspace's tab is (`SidebarTab.kind`).
 public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     case terminal
     case browser
@@ -26,7 +27,7 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     }
 }
 
-/// A tab that can optionally be listed below its workspace.
+/// One of a workspace's tabs, as the sidebar knows it (its row's title, tab count and hover card).
 public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var id: TabID
     public var title: String
@@ -37,14 +38,20 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var brand: String?
     /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
     public var favicon: SidebarFavicon?
+    /// The tab's own merged status (its OSC 7501 records, agent turn, page load): the tab bar's dot.
+    public var state: StatusIndicatorState = .idle
+    /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").
+    public var folder: String?
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
-                favicon: SidebarFavicon? = nil) {
+                favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isUnread = isUnread
         self.brand = brand
         self.favicon = favicon
+        self.folder = folder
+        self.state = state
     }
 }

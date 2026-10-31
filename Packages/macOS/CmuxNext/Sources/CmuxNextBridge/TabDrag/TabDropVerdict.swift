@@ -3,9 +3,6 @@ public import CmuxNextDesign
 /// Why a drop target cannot take the dragged tabs. The zone does not
 /// highlight and the drop springs back (`TabDropPreview.highlights`).
 public nonisolated enum TabDropRefusal: Hashable, Sendable {
-    /// A split of the source pane with every tab it holds, on an owner that
-    /// cannot spawn a replacement tab: nothing would be left to split.
-    case splitEmptiesPane
     /// A new column before the first one: no daemon command expresses it.
     case columnBeforeFirst
     /// A tab group dropped on a dock edge: groups have no dock move yet.
@@ -37,9 +34,9 @@ nonisolated extension TabDragResolver {
         switch kind {
         case .strip(let strip, let index, let group):
             return context.isOwnPlace(strip: strip, index: index, groupID: group) ? .stay : .accept
-        case .newSplit(let pane, _):
-            let empties = pane == context.sourcePaneID && context.emptiesSourcePane && !context.respawnsOnSplit
-            return empties ? .refuse(.splitEmptiesPane) : .accept
+        case .newSplit:
+            // Every tab of the source pane on its own edge splits behind them (`splitsBehind`).
+            return .accept
         case .newColumn(_, let after):
             return after == nil ? .refuse(.columnBeforeFirst) : .accept
         case .newDock:

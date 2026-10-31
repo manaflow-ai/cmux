@@ -11,7 +11,7 @@
 //     no rim, the card's rim whole;
 //   - bump: a few px above the card, the card's fill, one closed hairline ring, the card's rim whole;
 //   - plain: a few px above the card, no fill and no rim, its first ink on the card's content edge
-//     (where the prompt's text starts), the card's rim whole;
+//     (the + glyph's box), the card's rim whole;
 //   - tray: a filled tray tucked under the card's top edge, one inset for the location strip and
 //     the queue, its first ink on the card's content edge, a lighter fill than the card's in a light
 //     theme, the card's rim whole and drawn over the tray.
@@ -20,8 +20,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -36,8 +36,8 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+  const stageURL = (entry: string, variant: string, theme?: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, theme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -46,20 +46,10 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
-    await warm.goto(stageURL("agent-pane.composer-strip", "project"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-strip", { browser, params: { variant: "project" } });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "layout-claude-chips-below" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -72,9 +62,10 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const style = getComputedStyle(top);
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
-    // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queue's number at its box.
+    const lead = box.querySelector(".acpmux-composer-plus .acpmux-icon");
+    // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queued prompt's text at its box.
     const icon = top.querySelector(".acpmux-location-icon");
-    const mark = top.querySelector(".acpmux-queued-mark");
+    const mark = top.querySelector(".acpmux-queued-clamp");
     const ink = icon ? icon.getBoundingClientRect().left + 1.5 : mark!.getBoundingClientRect().left;
     const shadows = style.boxShadow === "none" ? [] : style.boxShadow.split(/,(?![^(]*\))/);
     const cardBox = box.getBoundingClientRect();
@@ -86,7 +77,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       cardMasked: getComputedStyle(box, "::before").content !== "none",
       cardTopRadius:
         parseFloat(getComputedStyle(box).borderTopLeftRadius) + parseFloat(getComputedStyle(box).borderTopRightRadius),
-      contentEdge: field.getBoundingClientRect().left - cardBox.left,
+      // The + glyph's box where + stands beside the prompt (the chat's Claude desktop box, and the
+      // New Tab's since #25125), else the prompt's text column (composerLocation.css).
+      contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
   }
@@ -106,13 +99,14 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    // The strip over the New Tab card is the top-of-page templates' (Threads here): the default
-    // Cards draws it in a row under its pill field, and Default's stage layout in the footer under
-    // the box (new-tab-stage-layout, new-tab-cards-template).
+    // The strip over the New Tab card is the Default template's with Claude's quiet row: Cards
+    // draws it in a row under its pill field, and since #24519 (2026-10-27, one quiet row) every
+    // other template with Claude's plain footer draws it in the quiet row under the box
+    // (NewTabScreen.tsx locationInFooter; new-tab-cards-template, composer-one-row-layout).
     {
       name: "New Tab strip",
       entry: "agent-pane.new-tab",
-      variant: "template-threads",
+      variant: "layout-claude-chips-below",
       card: ".nt-box",
       kind: "strip",
     },
@@ -133,8 +127,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           const drawn = await page.evaluate(measure, surface.card);
           await page.close();
           expect(drawn.kind).toBe(surface.kind);
-          if (style === "default" && surface.card === ".nt-box") {
-            // The New Tab: plain text a few px over the card, nothing drawn, the card's rim whole.
+          if (style === "default" && surface.kind === "strip") {
+            // A new chat's strip, the chat's as the New Tab's (#21133; Leo 2026-10-25): plain text a
+            // few px over the card, nothing drawn, the card's rim whole.
             expect(drawn.gap).toBeGreaterThanOrEqual(2);
             expect(drawn.gap).toBeLessThanOrEqual(8);
             expect(drawn.filled).toBe(false);
@@ -143,12 +138,12 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
             return;
           }
           if (style === "default") {
-            // The card's head (#20391): flush, filled, the card's top corners square under it, and
-            // the card's rim layer drawn. The strip leaves its rim to that layer; a queue draws its
-            // own hairline on its top and sides.
+            // A started chat's queue is the card's head (#20391): flush, filled, the card's top
+            // corners square under it, and the card's rim layer drawn. The queue draws its own
+            // hairline on its top and sides.
             expect(Math.abs(drawn.gap)).toBeLessThanOrEqual(0.5);
             expect(drawn.filled).toBe(true);
-            expect(drawn.shadows.length).toBe(surface.kind === "strip" ? 0 : 3);
+            expect(drawn.shadows.length).toBe(3);
             expect(drawn.cardMasked).toBe(true);
             expect(drawn.cardTopRadius).toBe(0);
             return;
@@ -211,7 +206,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     for (const theme of ["Catppuccin Latte", "Apple System Colors Light", "Catppuccin Mocha"])
       test(`${surface.name}, plain, ${theme}: nothing drawn in the gap above the card`, async () => {
         const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-        await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+        await page.goto(stageURL(surface.entry, surface.variant, theme));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.evaluate(async () => {
           document.documentElement.setAttribute("data-top-strip", "plain");
@@ -229,10 +224,11 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const topBox = top.getBoundingClientRect();
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
-    // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queue's
-    // number is its text, left-aligned.
+    const lead = box.querySelector(".acpmux-composer-plus .acpmux-icon");
+    // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queued
+    // prompt's ink is its text, left-aligned.
     const icon = top.querySelector(".acpmux-location-icon");
-    const mark = top.querySelector(".acpmux-queued-mark");
+    const mark = top.querySelector(".acpmux-queued-clamp");
     let ink: number;
     if (icon) ink = icon.getBoundingClientRect().left + 1.5;
     else {
@@ -251,7 +247,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       fill: getComputedStyle(top).backgroundColor,
       cardFill: getComputedStyle(box).backgroundColor,
       cardMasked: getComputedStyle(box, "::before").content !== "none",
-      contentEdge: field.getBoundingClientRect().left - cardBox.left,
+      // The + glyph's box where + stands beside the prompt (the chat's Claude desktop box, and the
+      // New Tab's since #25125), else the prompt's text column (composerLocation.css).
+      contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
   }
@@ -263,7 +261,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   ];
   async function drawTray(surface: (typeof surfaces)[number], width: number, theme: string) {
     const page = await browser!.newPage({ viewport: { width, height: 560 } });
-    await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+    await page.goto(stageURL(surface.entry, surface.variant, theme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.evaluate(async () => {
       document.documentElement.setAttribute("data-top-strip", "tray");

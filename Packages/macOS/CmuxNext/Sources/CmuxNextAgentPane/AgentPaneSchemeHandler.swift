@@ -14,7 +14,7 @@ import WebKit
 /// Media the host granted the page (``AgentPaneMediaGrants``) is served from
 /// `__media/` in byte ranges, and the chart library from `__lib/vega.js`.
 final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
-    private let root: URL
+    let root: URL
     /// The markdown viewer's bundled libraries (the chart library's files).
     let libraries: URL?
 
@@ -27,10 +27,11 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     var active: Set<ObjectIdentifier> = []
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
-            let headers = AgentPaneRenderFrame.headers(length: data.count)
+            let headers = AgentPaneRenderFrame.headers(length: data.count, artifact: AgentPaneRenderFrame.isArtifact(url))
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
             task.didReceive(response ?? URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count, textEncodingName: "utf-8"))
             task.didReceive(data)
@@ -43,17 +44,27 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, Self.isLibrary(url) {
             return serveLibrary(url: url, task: task)
         }
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
+           let server = WebDevOverride.current.server, let remote = Self.devServerURL(for: url, server: server) {
+            return serveDevServer(remote, server: server, url: url, task: task)
+        }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url,
-              let file = Self.fileURL(for: url, root: root)
+              let file = Self.fileURL(for: url, root: servedRoot)
         else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
+        WebBundleServedViews.shared.add(webView)
+        let root = root, live = servedRoot != root
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
+            // An active web update (WebBundleOverlay) serves its copy of the same file, unless
+            // the web-dev.json overlay already serves this one.
+            let served = live ? root : await WebBundleOverlay.shared.root(for: root)
+            let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
             let data = await Self.read(file)
             guard let self, self.active.remove(id) != nil else { return }
             guard let data else {

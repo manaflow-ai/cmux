@@ -17,15 +17,14 @@ import CmuxNextCompat
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
 /// admits processes started inside this cmux (descended from this app or
 /// from a process running one of `trustedExecutables`, the bundled cmux
-/// binary that hosts every terminal), `automation` admits the same
-/// user, `password` also requires `auth <password>` / `auth.login`, and
-/// `allowAll` admits anyone. The socket file is 0600 except for `allowAll`.
+/// binary that hosts every terminal), and `automation` admits the same user.
+/// The socket file is always 0600.
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
         public var path: String
         public var accessMode: ControlAccessMode
-        /// Verifies a password for `.password` mode. Nil rejects every login.
-        public var passwordVerifier: (@Sendable (String) -> Bool)?
+        /// Tightens and validates an existing parent as cmux's canonical state directory.
+        public var protectStateDirectory: Bool
         /// Process whose descendants `.cmuxOnly` admits (default: this app).
         public var trustedAncestor: pid_t
         /// Executables whose processes' descendants `.cmuxOnly` also admits:
@@ -45,7 +44,7 @@ public final class ControlSocketServer: Sendable {
         public init(
             path: String,
             accessMode: ControlAccessMode,
-            passwordVerifier: (@Sendable (String) -> Bool)? = nil,
+            protectStateDirectory: Bool = false,
             trustedAncestor: pid_t = getpid(),
             trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
@@ -55,7 +54,7 @@ public final class ControlSocketServer: Sendable {
         ) {
             self.path = path
             self.accessMode = accessMode
-            self.passwordVerifier = passwordVerifier
+            self.protectStateDirectory = protectStateDirectory
             self.trustedAncestor = trustedAncestor
             self.trustedExecutables = trustedExecutables
             self.maxLineBytes = maxLineBytes
@@ -136,7 +135,7 @@ public final class ControlSocketServer: Sendable {
         guard configuration.accessMode != .off else { throw StartError.disabled }
         guard !isRunning else { return }
         let path = configuration.path
-        Self.makeStateDirectory(for: path)
+        try Self.makeStateDirectory(for: path, protectExisting: configuration.protectStateDirectory)
         try Self.reclaimStalePath(path)
         let (source, identity) = try makeListener()
         state.withLock {
@@ -148,7 +147,8 @@ public final class ControlSocketServer: Sendable {
         var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
             Self.makeLink(link, to: path)
-            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue) { Self.makeLink(link, to: path) })
+            // The link yields to another app's live socket at its path: no /tmp watch for it.
+            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue, yieldsToHeldPath: true) { Self.makeLink(link, to: path) })
         }
         pathWatch.withLock { $0 = watches }
         watches.forEach { $0.start() }

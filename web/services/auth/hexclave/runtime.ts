@@ -1,4 +1,5 @@
 import { cloudDb } from "../../../db/client";
+import { databaseTeamSeatQueue } from "../../billing/teamSeatQueue";
 import { invalidateNativeAuthCacheForUser } from "../../vms/auth";
 import { revokeTeamAccess, revokeTeamMemberAccess } from "../../vms/teamMemberRevocation";
 import { deleteIdentitySnapshot } from "../identitySnapshot";
@@ -40,6 +41,7 @@ export function hexclaveSyncDependencies(config: {
     revokeTeamMemberAccess,
     revokeTeamAccess,
     invalidateUser: invalidateHexclaveUser,
+    markTeamSeatsDirty: (teamId) => databaseTeamSeatQueue.markDirty(teamId),
   };
 }
 

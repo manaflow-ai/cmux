@@ -16,6 +16,8 @@ public actor CloudMachineLink {
     public nonisolated let machineID: String
     /// Whether the running link redials, from its later snapshots.
     public nonisolated let redial = CloudLinkRedial()
+    /// ``callerOwnsVM`` for the main actor (Settings > Machines' row), on the same link.
+    public nonisolated let ownership = CloudLinkOwnership()
     private let api: CloudAPIClient
     private let hub: CloudTunnelHub
     private let paths: CloudPaths
@@ -27,6 +29,13 @@ public actor CloudMachineLink {
     private var stopped = false
     private var suspended = false
     private var generation = 0
+    /// The running link's attach answer said the signed-in caller owns the machine; false once
+    /// that link ends (``callerOwnsVM``).
+    private var linkOwnsVM = false
+    /// The running link's attach answer said the machine is a teammate's (``callerIsTeammate``).
+    private var linkIsTeammate = false
+    /// Counts links: each link start and end takes a new one (``ownerLink``).
+    private var linkID = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
     public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String) {
@@ -68,7 +77,19 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        setOwnsVM(false)
         clearRedial()
+    }
+
+    /// A link started or ended: its ``callerOwnsVM`` under a new ``ownerLink`` id, here and on
+    /// ``ownership`` (which drops a hop that arrives after a newer one).
+    private func setOwnsVM(_ owns: Bool, teammate: Bool = false) {
+        linkID += 1
+        linkOwnsVM = owns
+        linkIsTeammate = teammate && !owns
+        let (ownership, link) = (ownership, linkID)
+        // task-owner: one main-actor hop
+        Task { @MainActor in ownership.publish(owns, link: link) }
     }
 
     /// Parks the link while its machine is paused. Unlike `stop`, parking is
@@ -91,6 +112,39 @@ public actor CloudMachineLink {
         guard !stopped, !suspended, self.generation == generation else { throw CancellationError() }
     }
 
+    /// `--vm-kind owner` when this attach's answer said the signed-in caller owns the machine
+    /// (``CloudAttachEndpoint/callerOwnsVM``), else nothing. Asked again at each link start and
+    /// never saved: the link's acpmux peer bridge leases the machine at the VM boundary only for
+    /// this link (cmux-tui `remote_cli/acpmux_peer.rs`).
+    public static func vmKindArguments(_ endpoint: CloudAttachEndpoint) -> [String] {
+        endpoint.callerOwnsVM ? ["--vm-kind", "owner"] : []
+    }
+
+    /// Whether the running link's attach answer said the signed-in caller owns the machine
+    /// (``CloudAttachEndpoint/callerOwnsVM``): an app-started chat there sends `vm_kind: "owner"`
+    /// (cmux-tui `agent-session-start`). False while no link runs; never saved past the link.
+    public var callerOwnsVM: Bool {
+        guard socket != nil, child?.isRunning == true else { return false }
+        return linkOwnsVM
+    }
+
+    /// The running link's id while ``callerOwnsVM``, else nil. A start reads it before it
+    /// connects and again as it sends: a different answer means the link ended or came up again
+    /// (with the Cloud API asked again), so an owner answer never carries over to another link.
+    public var ownerLink: Int? { callerOwnsVM ? linkID : nil }
+
+    /// True while a link runs and its attach answer said the machine is a teammate's
+    /// (``CloudAttachEndpoint/callerIsTeammate``): a chat start is refused as a teammate's machine.
+    /// It never grants a start; only ``ownerLink`` does.
+    public var callerIsTeammate: Bool {
+        guard socket != nil, child?.isRunning == true else { return false }
+        return linkIsTeammate
+    }
+
+    /// The running link process's pid while ``callerOwnsVM``, else nil: Move to Cloud sends the
+    /// owner word with it (`--to-pid`), so only a connection this process serves carries it.
+    public var ownerPID: Int32? { callerOwnsVM ? child?.pid : nil }
+
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 
@@ -99,14 +153,25 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        setOwnsVM(false)
+        try paths.prepare()
+        let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID)
+        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
         try checkGeneration(generation)
-        let hubSocket = try await hub.socketPath()
+        let hubEndpoint = try await hub.endpoint()
         try checkGeneration(generation)
-        try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
+        let inviteFile = endpoint.invitation.map { _ in
+            paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")
+        }
+        if let invitation = endpoint.invitation, let inviteFile {
+            try paths.writeSecret(invitation.uri + "\n", to: inviteFile)
+        }
+        defer {
+            if let inviteFile { try? FileManager.default.removeItem(at: inviteFile) }
+        }
         var arguments = [
             "remote", "connect", endpoint.route,
             "--device-name", deviceName,
@@ -115,27 +180,53 @@ public actor CloudMachineLink {
             "--headless", "--json", "--exit-with-parent", "--lanes", "single",
             "--connect-timeout-seconds", "20",
         ]
-        if endpoint.trustedCarrier { arguments.append("--carrier") }
-        arguments += ["--wireguard-hub", hubSocket]
+        if let inviteFile {
+            arguments += ["--invite-file", inviteFile.path]
+        } else if endpoint.trustedCarrier {
+            arguments.append("--carrier")
+        }
+        arguments += Self.vmKindArguments(endpoint)
+        arguments += ["--wireguard-hub", hubEndpoint.socket, "--wireguard-hub-token-stdin"]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
-        let child = ChildProcess(executable: binary, arguments: arguments, environment: environment)
+        let child = ChildProcess(executable: binary, arguments: arguments, environment: environment,
+                                 input: Data((hubEndpoint.clientToken + "\n").utf8))
         try child.start()
         self.child = child
         do {
-            let path = try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
-                if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
-                return nil
+            let socketTask = Task {
+                try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
+                    if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
+                    return nil
+                }
             }
+            defer { socketTask.cancel() }
+            if let invitation = endpoint.invitation {
+                let approval = try await api.approveCmuxRemoteEnrollment(machineID, invitationID: invitation.invitationId)
+                guard approval.approved, approval.state == "approved" || approval.state == "already_enrolled" else {
+                    socketTask.cancel()
+                    throw CloudAPIError.decoding("/api/vm/\(machineID)/cmux-remote/approve")
+                }
+                if let fingerprint = approval.deviceFingerprint, !fingerprint.isEmpty {
+                    try paths.writeSecret(fingerprint + "\n", to: paths.linkDeviceFingerprint(machineID: machineID))
+                }
+            }
+            let path = try await socketTask.value
             try checkGeneration(generation)
-            socket = path
+            self.socket = path
+            setOwnsVM(endpoint.callerOwnsVM, teammate: endpoint.callerIsTeammate)
             let redial = redial
             await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
         } catch {
+            if endpoint.invitation == nil, !endpoint.trustedCarrier, deviceFingerprint != nil {
+                // The local hint may name an enrollment revoked or absent on
+                // this machine. The next retry mints a fresh invitation.
+                paths.clearLinkDeviceFingerprint(machineID: machineID)
+            }
             child.terminate()
             if self.child === child { self.child = nil }
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -146,6 +237,7 @@ public actor CloudMachineLink {
     /// The running link client redials on its own after sleep, a network
     /// drop or change, and its local socket stays up meanwhile; only its
     /// snapshots say so. The machine reads as reconnecting until it is back.
+    /// Its stdout closing means it ended: its owner answer ends with it.
     private func watchSnapshots(_ child: ChildProcess) {
         let lines = child.lines
         // task-owner: ends with the child's stdout
@@ -154,7 +246,13 @@ public actor CloudMachineLink {
                 guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
                 await self?.linkReported(child, connected: connected)
             }
+            await self?.linkEnded(child)
         }
+    }
+
+    private func linkEnded(_ ended: ChildProcess) {
+        guard child === ended else { return }
+        setOwnsVM(false)
     }
 
     private func linkReported(_ reporting: ChildProcess, connected: Bool) async {

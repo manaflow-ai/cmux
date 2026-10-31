@@ -2,9 +2,11 @@
 
 use super::client_ids::{
     requested_client_pane_id, requested_client_split_id, requested_client_tab_id,
+    requested_reopen_tab_id,
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(super) fn resource_topology_effect_intent(
@@ -57,14 +59,21 @@ impl Mux {
                 None => TerminalId::random()?.to_hex(),
             };
             let mutation = context.mutation.reservation();
-            intent["terminal_reservation"] = json!({
-                "terminal_id":terminal_id,
-                "mutation_id":mutation.id,
-                "mutation_origin":mutation.origin,
-                "mutation_actor":mutation.actor.wire(),
-            });
-            if let Some(tab_id) = requested_client_tab_id(fields, state, registry)? {
-                intent["terminal_reservation"]["tab_id"] = json!(tab_id);
+            intent.set(
+                "terminal_reservation",
+                json!({
+                    "terminal_id":terminal_id,
+                    "mutation_id":mutation.id,
+                    "mutation_origin":mutation.origin,
+                    "mutation_actor":mutation.actor.wire(),
+                }),
+            );
+            let tab_id = match requested_client_tab_id(fields, state, registry)? {
+                Some(tab_id) => Some(tab_id),
+                None => requested_reopen_tab_id(fields, state, registry)?,
+            };
+            if let Some(tab_id) = tab_id {
+                intent.set_path(&["terminal_reservation", "tab_id"], json!(tab_id));
             }
         }
         if matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate) {
@@ -74,7 +83,7 @@ impl Mux {
                 Some(pane_id) => pane_id,
                 None => PanePublicId::random()?,
             };
-            intent["pane_reservation"] = json!({ "pane_id": pane_id });
+            intent.set("pane_reservation", json!({ "pane_id": pane_id }));
         }
         if operation == ResourceOperation::PaneSplit {
             // The new split's public id is fixed here too: the caller's
@@ -85,7 +94,7 @@ impl Mux {
                 Some(split_id) => split_id,
                 None => SplitPublicId::random()?,
             };
-            intent["split_reservation"] = json!({ "split_id": split_id });
+            intent.set("split_reservation", json!({ "split_id": split_id }));
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -95,13 +104,16 @@ impl Mux {
                 .map(str::to_string)
                 .map(Ok)
                 .unwrap_or_else(Self::new_workspace_key)?;
-            intent["workspace_reservation"] = json!({
-                "workspace_key":workspace_key,
-                "workspace_public_id":WorkspacePublicId::random()?,
-                "mutation_id":mutation.id,
-                "mutation_origin":mutation.origin,
-                "mutation_actor":mutation.actor.wire(),
-            });
+            intent.set(
+                "workspace_reservation",
+                json!({
+                    "workspace_key":workspace_key,
+                    "workspace_public_id":WorkspacePublicId::random()?,
+                    "mutation_id":mutation.id,
+                    "mutation_origin":mutation.origin,
+                    "mutation_actor":mutation.actor.wire(),
+                }),
+            );
         }
         if creates == Some(CreatedIdentityKind::Browser) {
             // A frontend-rendered browser registers its content id before
@@ -110,10 +122,17 @@ impl Mux {
                 Some(id) => Mux::unbound_frontend_browser_id(&registry.connection.get(), id)?,
                 None => BrowserPublicId::random()?,
             };
-            intent["browser_reservation"] = json!({
-                "tab_id":TabPublicId::random()?,
-                "browser_id":browser_id,
-            });
+            let tab_id = match requested_reopen_tab_id(fields, state, registry)? {
+                Some(tab_id) => tab_id,
+                None => TabPublicId::random()?,
+            };
+            intent.set(
+                "browser_reservation",
+                json!({
+                    "tab_id":tab_id,
+                    "browser_id":browser_id,
+                }),
+            );
         }
         if operation == ResourceOperation::WorkspaceLayoutApply {
             validate_layout_apply_intent(state, &resolved, &fields["layout"])?;
@@ -181,7 +200,7 @@ impl Mux {
                     )));
                 }
             }
-            intent["layout_revision"] = json!(entry.after_revision);
+            intent.set("layout_revision", json!(entry.after_revision));
         }
         Ok(intent)
     }
@@ -650,13 +669,17 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        // `workspace.create` from a caller: the resource router sends
+        // `focus: false` unless it asked. Other creations focus.
+        let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         crate::debug_spans::mark("effect.workspace_reserved");
-        let placement = self.create_empty_workspace_for_resource_effect(
+        let placement = self.create_empty_workspace_for_resource_effect_focus(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
+            focus,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
@@ -933,8 +956,10 @@ impl Mux {
             } else if let Some(width) = viewport_width {
                 let column = LayoutColumn::single(split_id.expect("column id"), width, pane_id);
                 let base = base_column_id.expect("viewport column reserved a base id");
+                // `direction: "left"` (`column-left-v1`) opens the column before the target's.
+                let before = split_direction.is_some_and(|(_, before_target)| before_target);
                 anyhow::ensure!(
-                    screen.insert_layout_column_after(target, base, column),
+                    screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
             } else if let Some((dir, before_target)) = split_direction {

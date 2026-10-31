@@ -15,10 +15,14 @@ nonisolated enum AcpmuxDaemonLauncher {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     nonisolated enum Failure: Error, Equatable {
         case spawnFailed(String)
+        /// A Team-signed app refuses an executable that is not validly signed by its team.
+        case untrustedExecutable(String)
         /// The daemon exited before it was ready; its log says why.
         case exited(logPath: String)
         /// Ready, but without a WebSocket listener (the port was taken).
         case noWebSocket(logPath: String)
+        /// The daemon refused to start, and said why on its ready line.
+        case refused(String)
     }
 
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
@@ -26,37 +30,78 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// closes it before it starts any agent; the key never goes into argv or the environment.
     static let personKeyDescriptor: Int32 = 4
 
+    /// Process basics that are safe for a Team-signed helper to inherit. Its
+    /// login-environment loader supplies user tool and credential variables
+    /// after start; the app process's unrelated capabilities never cross the
+    /// unverified launch boundary.
+    private static let signedInheritedKeys: Set<String> = [
+        "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
+    ]
+
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {
-        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3",
-         "--person-key-fd", String(personKeyDescriptor)]
+        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
+            + (environment.passesPersonKeyAtSpawn ? ["--person-key-fd", String(personKeyDescriptor)] : [])
             + environment.daemonArguments
     }
 
     /// The daemon's environment: this app's, without any inherited Computer
-    /// Use variable, plus `childEnvironment`, the current Computer Use socket
-    /// and agent token (never the host token), the session offer tools while
-    /// suggested tasks are on (``AcpmuxEnvironment/offersSessionTools``), and the launch knobs.
+    /// Use secret, plus `childEnvironment`, non-secret Computer Use v2 state,
+    /// the session offer tools while suggested tasks are on
+    /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
+    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
-        var variables = inherited.filter { !computerUse.contains($0.key) }.merging(environment.childEnvironment) { $1 }
-        for key in AcpmuxEnvironment.computerUseKeys {
-            if let value = environment.computerUse[key], !value.isEmpty { variables[key] = value }
+        let safeInherited = inherited.filter { key, _ in
+            !computerUse.contains(key)
+                && (environment.passesPersonKeyAtSpawn
+                    || signedInheritedKeys.contains(key)
+                    || key.hasPrefix("LC_"))
+        }
+        var variables = safeInherited.merging(environment.childEnvironment) { $1 }
+        for (key, value) in environment.computerUse where !value.isEmpty {
+            let developmentCredential = environment.passesPersonKeyAtSpawn
+                && AcpmuxEnvironment.computerUseKeys.contains(key)
+            if !computerUse.contains(key) || developmentCredential { variables[key] = value }
         }
         if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
+        if environment.agentPairGuard {
+            variables[AcpmuxEnvironment.agentPairCapKey] = String(max(0, environment.agentPairCap))
+            variables[AcpmuxEnvironment.agentPairWindowKey] = String(max(0, environment.agentPairWindowSeconds))
+        } else {
+            variables[AcpmuxEnvironment.agentPairGuardKey] = "0"
+        }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
         return variables
     }
 
+    /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
+    /// with an error only after that long with no write to the daemon's log, or at its exit.
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
+        try await launch(environment, deadline: deadline, onSpawn: { _ in }).endpoint
+    }
+
+    /// A launch's endpoint, and whether this launch started the daemon behind it. A launch that
+    /// lost the lock race relays the winner's readiness (`lockHeld`): that daemon is another
+    /// client's, and the app treats it as a found one, never as its own to hand off.
+    struct Launched: Equatable, Sendable {
+        var endpoint: AcpmuxWebEndpoint
+        var startedHere: Bool
+    }
+
+    /// ``launch(_:deadline:)`` with whether this launch started the daemon (``Launched``).
+    @concurrent static func launchReporting(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> Launched {
         try await launch(environment, deadline: deadline, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
-                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> Launched {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
+        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
+            throw Failure.untrustedExecutable(environment.executable.path)
+        }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
         try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)
@@ -69,30 +114,31 @@ nonisolated enum AcpmuxDaemonLauncher {
             if outputPipe[0] >= 0 { Darwin.close(outputPipe[0]) }
             if outputPipe[1] >= 0 { Darwin.close(outputPipe[1]) }
         }
-        // The person key goes in through a pipe: written and closed here, so only the spawned
-        // shell and daemon hold the read end, and the daemon closes it after one read.
+        // Only unsigned DEV needs a spawn key. A signed daemon gets no key or
+        // legacy Computer Use token until a checked socket enrolls it below.
         var keyPipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&keyPipe) == 0 else {
-            throw Failure.spawnFailed(String(cString: strerror(errno)))
-        }
-        // Close-on-exec at once: a child another part of this app spawns meanwhile never
-        // inherits either end. The spawn's dup2 to the daemon's descriptor clears it there.
-        guard fcntl(keyPipe[0], F_SETFD, FD_CLOEXEC) == 0, fcntl(keyPipe[1], F_SETFD, FD_CLOEXEC) == 0 else {
-            Darwin.close(keyPipe[0])
+        if environment.passesPersonKeyAtSpawn {
+            guard Darwin.pipe(&keyPipe) == 0 else {
+                throw Failure.spawnFailed(String(cString: strerror(errno)))
+            }
+            // Close-on-exec at once: a child another part of this app spawns meanwhile never
+            // inherits either end. The spawn's dup2 to the daemon's descriptor clears it there.
+            guard fcntl(keyPipe[0], F_SETFD, FD_CLOEXEC) == 0, fcntl(keyPipe[1], F_SETFD, FD_CLOEXEC) == 0 else {
+                Darwin.close(keyPipe[0])
+                Darwin.close(keyPipe[1])
+                throw Failure.spawnFailed(String(cString: strerror(errno)))
+            }
+            // A new key for this unsigned daemon (one key per daemon instance, cx-fcaq).
+            let keyLine = Array((AcpmuxPersonKey.spawnKey(for: environment.socketPath) + "\n").utf8)
+            let written = keyLine.withUnsafeBytes { Darwin.write(keyPipe[1], $0.baseAddress, $0.count) }
+            guard written == keyLine.count else { throw Failure.spawnFailed("unable to pass the person key") }
             Darwin.close(keyPipe[1])
-            throw Failure.spawnFailed(String(cString: strerror(errno)))
+            keyPipe[1] = -1
         }
         defer {
             if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
             if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
         }
-        // A new key for this new daemon (one key per daemon instance, cx-fcaq).
-        let keyLine = Array((AcpmuxPersonKey.spawnKey(for: environment.socketPath) + "\n").utf8)
-        let written = keyLine.withUnsafeBytes { Darwin.write(keyPipe[1], $0.baseAddress, $0.count) }
-        guard written == keyLine.count else { throw Failure.spawnFailed("unable to pass the person key") }
-        Darwin.close(keyPipe[1])
-        keyPipe[1] = -1
-
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         guard posix_spawn_file_actions_init(&actions) == 0,
@@ -109,7 +155,8 @@ nonisolated enum AcpmuxDaemonLauncher {
         let actionStatus = posix_spawn_file_actions_addclose(&actions, outputPipe[0])
         guard actionStatus == 0,
               posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO) == 0,
-              posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0,
+              (!environment.passesPersonKeyAtSpawn
+               || posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0),
               "/dev/null".withCString({ path in
                   posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
               }) == 0,
@@ -135,9 +182,11 @@ nonisolated enum AcpmuxDaemonLauncher {
                 }
             }
         }
-        // The shell holds its own copy of the key's read end now (or the spawn failed).
-        Darwin.close(keyPipe[0])
-        keyPipe[0] = -1
+        // The shell holds its own copy of the DEV key's read end now (or the spawn failed).
+        if keyPipe[0] >= 0 {
+            Darwin.close(keyPipe[0])
+            keyPipe[0] = -1
+        }
         guard spawnStatus == 0 else {
             logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(String(cString: strerror(spawnStatus)), privacy: .public) executable=/bin/sh")
             throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))
@@ -147,7 +196,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         // The shell exits as soon as it has put the daemon in the background (the daemon
         // goes to launchd). Reap it on every path out, or each launch leaves a zombie child
         // in this process (cx-xqng).
-        let ready: Result<AcpmuxWebEndpoint, any Error>
+        let ready: Result<Launched, any Error>
         do {
             ready = .success(try await readReadyLine(&outputPipe, environment: environment, deadline: deadline))
         } catch {
@@ -158,24 +207,39 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
-                                      deadline: Duration) async throws -> AcpmuxWebEndpoint {
+                                      deadline: Duration) async throws -> Launched {
         // Only the spawned shell and daemon may hold the write end. The CLOEXEC
         // default above closes every inherited descriptor; the shell creates
         // descriptor 3 explicitly for the ready line.
         Darwin.close(outputPipe[1])
         outputPipe[1] = -1
         let reader = AgentPaneLineReader(handle: FileHandle(fileDescriptor: outputPipe[0], closeOnDealloc: false))
+        // The ready line, or the daemon's exit (end of file), is the signal. `deadline` bounds only
+        // a stall: the wait goes on while the daemon still writes its log (AcpmuxLogProgress).
+        let progress = AcpmuxLogProgress(logPath: environment.logPath)
         let line: String
         do {
-            line = try await withAgentPaneDeadline(deadline, label: "acpmux start") { try await reader.firstLine() }
+            line = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask { try await reader.firstLine() }
+                group.addTask {
+                    try await progress.stalled(for: deadline)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let line = first else {
+                    throw AgentPaneDeadlineExceeded(label: "acpmux start (no log write for \(deadline))")
+                }
+                return line
+            }
         } catch AgentPaneLineReader.Failure.endOfFile {
             throw Failure.exited(logPath: environment.logPath)
         }
+        if let why = AcpmuxReadyLine.refusal(line) { throw Failure.refused(why) }
         guard let ready = AcpmuxReadyLine.parse(line) else { throw Failure.exited(logPath: environment.logPath) }
         guard let webURL = ready.webUrl, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
             throw Failure.noWebSocket(logPath: environment.logPath)
         }
-        return endpoint
+        return Launched(endpoint: endpoint, startedHere: ready.lockHeld != true)
     }
 
     /// Collects the launch shell's exit status without blocking a thread while it runs.

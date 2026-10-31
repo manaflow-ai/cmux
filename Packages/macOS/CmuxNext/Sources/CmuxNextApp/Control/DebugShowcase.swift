@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
@@ -30,7 +30,10 @@ enum DebugShowcase {
             if focus, let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
-        seedNotifications(services: services, surface: pane.pane.tabs.first?.surface)
+        // Onto a terminal, never a page tab (the Home dock, Settings) or an agent chat: an unread
+        // marker on the Home dock rang its pane and dotted its tab in every scene capture, though
+        // no reply had happened. With no terminal the notifications go to the ledger alone.
+        seedNotifications(services: services, surface: pane.pane.tabs.first { $0.page == nil && $0.agentSession == nil }?.surface)
         let workspace = pane.daemon.store.workspace(containing: pane.pane.handle)?.id ?? ""
         return .object([
             "seeded": .bool(true),
@@ -94,7 +97,7 @@ enum DebugShowcase {
                 }
                 services.showcase.workspaces[name] = nil
                 do {
-                    let id = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: false).workspaceID.rawValue
+                    let id = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: false, focus: true).workspaceID.rawValue
                     services.windows.claimNew(workspaceID: id, window: windowID)
                     services.showcase.workspaces[name] = id
                     if let controller = services.windows.controller(for: windowID) {

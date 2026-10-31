@@ -10,6 +10,8 @@ import { invalidStepRef, machineStepCommand, machineStepStdin, runMachineStep, S
 import { invalidBody } from "../src/domains/scheduler-code.ts"
 import { runLimitMs, RUN_GRACE_MS } from "../src/domains/scheduler-runs.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { bindBody, bindFile, cloudStub } from "./cloud-bind-support.ts"
+import { cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.ts"
 
 /** Org workflows (plans/cmux-next/org-workflows-DESIGN.md): machine and agent steps on the team's own machines. */
 
@@ -133,6 +135,40 @@ const op = (t: string, name: string, params: unknown) => call("/v1/ops", t, { op
 const read = (t: string, name: string, params: unknown = {}) => call("/v1/read", t, { op: name, params })
 
 describe("machine steps in a run (workerd)", { timeout: 60_000 }, () => {
+  it("does not execute a shared-team machine step after its creator leaves the team", async () => {
+    const user = cloudTestUser(190)
+    const principal: Principal = { identity: `user:${user}`, kind: "session", user, team: SHARED_TEAM }
+    const cloud = cloudStub(SHARED_TEAM)
+    const created = await cloud.submit(SHARED_TEAM, principal, {
+      t: "op",
+      op: "cloud.machine.create",
+      params: { size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } },
+      idempotency_key: crypto.randomUUID(),
+      origin: "user"
+    })
+    const machine = (created.frames.find((frame) => frame.t === "result")?.value as { machine?: { id?: string } } | undefined)?.machine?.id
+    expect(machine).toMatch(/^vm_/)
+    const file = await bindFile(cloud, machine!)
+    const { body } = await bindBody({ user, team: SHARED_TEAM }, machine!, file.json.bind_token)
+
+    let execCalls = 0
+    const reply = await inDO(cloud, async (instance) => {
+      instance.creatorIsMember = async () => true
+      expect(await instance.bindMachine(SHARED_TEAM, body)).toMatchObject({ ok: true })
+      instance.creatorIsMember = async () => false
+      instance.driverFor = () => ({
+        execStdin: async () => {
+          execCalls++
+          return { exitCode: 0, stdout: "should not run", stderr: "" }
+        }
+      })
+      return instance.automationExec(SHARED_TEAM, user, machine, "echo should-not-run", null, 1000)
+    })
+
+    expect(reply).toEqual({ ok: false, refusal: "forbidden" })
+    expect(execCalls).toBe(0)
+  })
+
   it("a step on a machine the team does not have fails the run with machine.not_found", async () => {
     const t = await token("machine-step")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string

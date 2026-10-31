@@ -2,7 +2,7 @@
 # MACOS-CROSS-COMPILE-ON-LINUX: build the macOS artifacts on a Linux runner and
 # compare each with the Mac-built artifact of the same commit
 # (scripts/ci/macho_parity.py). The shadow job replaces nothing; the package
-# build runs `toolchain`, `hosts` and `bins` when its darwin builder switch says
+# build runs `toolchain` and `all` (`hosts` and `bins` at once) when its darwin builder switch says
 # linux (cmux-tui-build-package.yml), with XC_CARGO_TARGET_DIR at its target dir.
 #
 # No Apple SDK file is used. The sysroot is Zig's bundled darwin headers and
@@ -19,8 +19,9 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
-#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, acpmux, cmux-relay, chatmux-relay
+#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
+#   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
 #   parity-bins                    compare the daemon family with the Mac references
 #   stubs-check                    the committed framework stubs cover every Mac reference import
 #   weaken-compiler-rt <lib.a> <rust-target>  ld64's symbol result for the archive's compiler_rt.o (zig wrapper)
@@ -259,6 +260,7 @@ cmd_bins() {
       # Its own command: cmuxterm-hq's build-cmux-tui-source.sh pins the text
       # of cmd_bins up to the line above for its cmux-tui-only fast path.
       cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
+      cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux --bin acpmux --release --locked --target "$t")
@@ -267,6 +269,53 @@ cmd_bins() {
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
+    cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
+    cp "$r/cmux-relay" "$out/cmux-relay-$t"
+    cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
+  done
+}
+
+# hosts and bins in one pass: every cargo invocation at once, each in its own
+# target directory (scripts/ci/cargo-groups.sh), with the same stamps and the
+# same staged files. The package build uses this; hosts and bins stay for the
+# fleet's component builds.
+cmd_all() {
+  local sha=${1:?sha} ghostty=${2:?ghostty sha} version=${3:?distribution version} out="$XC_ROOT/linux"; mkdir -p "$out"
+  [[ -f "$SYSROOT/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd" ]] \
+    || die "no framework stubs in $SYSROOT; run the toolchain command first"
+  local target_dir="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-all}" tui="$repo_root/cmux-tui"
+  local stamps
+  stamps="CMUX_TUI_BUILD_COMMIT=$(printf %q "$sha") CMUX_TUI_GHOSTTY_COMMIT=$(printf %q "$ghostty") CMUX_TUI_DISTRIBUTION_VERSION=$(printf %q "$version")"
+  q() { printf %q "$1"; }
+  # Package artifacts build and stamp the checked-out submodule (cmux-tui-build-package.yml).
+  unset CMUX_GHOSTTY_SRC
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    local start; start=$(date +%s)
+    local build="cargo build --release --locked --target $t"
+    "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
+      "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+      "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
+      "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
+      "cmux-browser-host" "cd $(q "$tui") && CMUX_BUILD_SHA=$(q "$sha") $build -p cmux-browser-host --bin cmux-browser-host" \
+      "cmux-cloud" "cd $(q "$repo_root/first-party-apps/cloud/server") && $build --bin cmux-cloud" \
+      "?cmux-agent-screen-detection" "cd $(q "$tui") && { $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml || echo 'cmux-agent-screen-detection did not build for $t; publishing without it' >&2; }" \
+      "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
+      "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
+      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux"
+    echo "all $t: $(( $(date +%s) - start )) s"
+    local r="$target_dir/$t/release"
+    cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
+    cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
+    cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
+    rm -f "$out/cmux-tui-agent-screen-detection-$t"
+    # Optional: a missing detector prints a warning annotation, never an error.
+    "$repo_root/scripts/ci/stage-agent-detector.sh" "$r" "$t" "$out/cmux-tui-agent-screen-detection-$t"
+    cp "$r/cmux-tui" "$out/cmux-tui-$t"
+    cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
+    cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
+    cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -422,6 +471,7 @@ case "$command" in
   ref-sdk) cmd_ref_sdk "$@" ;;
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
+  all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;
   stubs-check) cmd_stubs_check ;;

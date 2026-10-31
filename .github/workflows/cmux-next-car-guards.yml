@@ -1,0 +1,387 @@
+name: cmux-next car guards
+# Fast guards for one car of the cmux NEXT nightly train
+# (workstreams/cmux-next-nightly-train.md 1.2): a squash-merged PR or one direct push,
+# BASE..HEAD on feat-cmux-next. scripts/ci/car_guards.py picks the guards from the car's own
+# diff (scripts/ci/focused_tests.py's source-path-to-test map) and runs them; a car that fails
+# is quarantined before the candidate build.
+#
+# The train calls this once per car (workflow_call, a matrix in the caller). Each leg uploads
+# its verdict JSON as `car-guards-<car>-<leg>`; the job results are the verdict too.
+#   linux  repo guards (prepush-gate, god files) and focused python, webviews (not the browser
+#          lane), cargo tests. A python test or webviews file that fails at the car's base
+#          too (it exists there, and fails rather than times out) is the base's; cargo and
+#          Swift reds are never excused
+#   mac    focused Swift test targets, one build per package, on a CI Mac (never cosmic-gray
+#          or air-blue); runs only when the plan selects Swift tests
+# A pull request that changes the car guards runs them on itself (base = its merge base).
+on:
+  workflow_call:
+    inputs:
+      base:
+        description: The car's base commit (the commit before it on feat-cmux-next)
+        type: string
+        required: true
+      head:
+        description: The car's head commit
+        type: string
+        required: true
+      car:
+        description: A name for the car (pr-123, push-<sha8>); names the receipts
+        type: string
+        required: true
+      prior:
+        description: JSON {check name -> conclusion} of the car's own PR CI at its tree (reused)
+        type: string
+        default: "{}"
+    outputs:
+      # `true` when the plan needs the leg. A needed leg whose status is not `pass` (fail,
+      # error, or '' when it was cancelled or timed out) did not pass: read both.
+      linux_needed:
+        value: ${{ jobs.plan.outputs.linux }}
+      mac_needed:
+        value: ${{ jobs.plan.outputs.mac }}
+      # pass, fail (the car's own red) or error (a runner problem); '' when it did not finish.
+      linux:
+        value: ${{ jobs.linux.outputs.status }}
+      mac:
+        value: ${{ jobs.mac.outputs.status }}
+  workflow_dispatch:
+    inputs:
+      base:
+        description: The car's base commit
+        type: string
+        required: true
+      head:
+        description: The car's head commit
+        type: string
+        required: true
+      car:
+        description: A name for the car (pr-123, push-<sha8>)
+        type: string
+        required: true
+      prior:
+        description: JSON {check name -> conclusion} of the car's own PR CI at its tree
+        type: string
+        default: "{}"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/cmux-next-car-guards.yml
+      - scripts/ci/car_guards.py
+      - scripts/ci/nightly-next-car-guard.sh
+      - scripts/ci/car-guard-python.sh
+      - scripts/ci/run-webviews-tests.sh
+      - scripts/ci/focused_tests.py
+      - scripts/ci/focused-tests-extra.json
+      - tests/test_car_guards.py
+
+permissions:
+  contents: read
+
+# A pull request's newer push replaces its run; a train's car (called or dispatched) never
+# cancels another run's car of the same name.
+concurrency:
+  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: car guards plan
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.range.outputs.base }}
+      head: ${{ steps.range.outputs.head }}
+      car: ${{ steps.range.outputs.car }}
+      linux: ${{ steps.plan.outputs.linux }}
+      mac: ${{ steps.plan.outputs.mac }}
+      web: ${{ steps.plan.outputs.web }}
+      rust: ${{ steps.plan.outputs.rust }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.head || github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          filter: blob:none
+
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
+
+      - name: The car's range
+        id: range
+        env:
+          BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head || github.event.pull_request.head.sha }}
+          CAR: ${{ inputs.car || format('pr-{0}', github.event.pull_request.number) }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "$BASE" "$HEAD_SHA")"
+          { echo "base=$base"; echo "head=$HEAD_SHA"; echo "car=$CAR"; } >> "$GITHUB_OUTPUT"
+
+      - name: Plan the guards
+        id: plan
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+          CAR: ${{ steps.range.outputs.car }}
+          PRIOR: ${{ inputs.prior || '{}' }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" plan --root . --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+            --prior "$RUNNER_TEMP/prior.json" > "$RUNNER_TEMP/plan.json"
+          python3 - "$RUNNER_TEMP/plan.json" >> "$GITHUB_OUTPUT" <<'EOF'
+          import json, sys
+          plan = json.load(open(sys.argv[1]))
+          names = plan["linux"]
+          print(f"linux={'true' if names else 'false'}")
+          print(f"mac={'true' if plan['mac'] else 'false'}")
+          print(f"web={'true' if 'web' in names else 'false'}")
+          print(f"rust={'true' if any(n == 'cargo' or n.startswith('native:') for n in names) else 'false'}")
+          EOF
+          {
+            echo "### Car guards plan: $CAR"
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/plan.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    needs: plan
+    if: ${{ needs.plan.outputs.linux == 'true' }}
+    name: car guards (portable)
+    outputs:
+      status: ${{ steps.guards.outputs.status }}
+    # 32 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP)
+    # and cargo test compiles the crates the car touches.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.head }}
+          fetch-depth: 0
+          filter: blob:none
+
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
+
+      # The workflow-guard tests' modules, pinned as ci-guards.yml installs them.
+      - name: Prepare the focused python tests' modules
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/car-guard-venv"
+          "$RUNNER_TEMP/car-guard-venv/bin/python" -m pip install --disable-pip-version-check --no-input \
+            PyYAML==6.0.3 bashlex==0.18
+          echo "$RUNNER_TEMP/car-guard-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Bun
+        if: ${{ needs.plan.outputs.web == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install the webviews dependencies
+        if: ${{ needs.plan.outputs.web == 'true' }}
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        if: ${{ needs.plan.outputs.rust == 'true' }}
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install Linux build dependencies
+        if: ${{ needs.plan.outputs.rust == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        if: ${{ needs.plan.outputs.rust == 'true' }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned cmux-tui Rust
+        if: ${{ needs.plan.outputs.rust == 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The fast tier's cargo cache, read only: feat-cmux-next pushes save it.
+      - name: Restore the cargo build
+        if: ${{ needs.plan.outputs.rust == 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-next-fast-tier-cargo
+          save-if: false
+
+      - name: Run the car's guards
+        id: guards
+        env:
+          BASE: ${{ needs.plan.outputs.base }}
+          HEAD_SHA: ${{ needs.plan.outputs.head }}
+          CAR: ${{ needs.plan.outputs.car }}
+          PRIOR: ${{ inputs.prior || '{}' }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
+          set +e
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" run --root . --where linux --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+            --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
+          code=$?
+          echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Upload the verdict
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: car-guards-${{ needs.plan.outputs.car }}-portable
+          path: ${{ runner.temp }}/car-guards.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  mac:
+    needs: plan
+    if: ${{ needs.plan.outputs.mac == 'true' }}
+    name: car guards (mac)
+    outputs:
+      status: ${{ steps.guards.outputs.status }}
+    # Blacksmith 6 vCPU: the fast-tier seed's pool (cmux-next-fast-tier-seed.yml), so a car's
+    # Swift build restores a warm seed and rebuilds only what the car changed.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.head }}
+          fetch-depth: 0
+          filter: blob:none
+
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Compute fast-tier cache keys
+        id: fast-cache-key
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the CmuxNext build
+        id: fast-cache-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: Packages/macOS/CmuxNext/.build
+          key: ${{ steps.fast-cache-key.outputs.swift-key }}
+          restore-keys: ${{ steps.fast-cache-key.outputs.swift-prefix }}
+
+      - name: Replay the seed's input times
+        if: ${{ steps.fast-cache-restore.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+
+      - name: Run the car's Swift tests
+        id: guards
+        env:
+          BASE: ${{ needs.plan.outputs.base }}
+          HEAD_SHA: ${{ needs.plan.outputs.head }}
+          CAR: ${{ needs.plan.outputs.car }}
+          PRIOR: ${{ inputs.prior || '{}' }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
+          set +e
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" run --root . --where mac --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+            --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
+          code=$?
+          echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
+      - name: Upload the verdict
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: car-guards-${{ needs.plan.outputs.car }}-mac
+          path: ${{ runner.temp }}/car-guards.json
+          if-no-files-found: warn
+          retention-days: 14

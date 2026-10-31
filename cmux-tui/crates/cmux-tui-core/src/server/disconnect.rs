@@ -16,6 +16,7 @@ use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::browser::BrowserPointerOwner;
+use crate::panic_free::JsonFields;
 use crate::sizing_policy::TerminalDetachActor;
 use crate::sizing_policy::TerminalSizingState;
 use crate::sizing_policy::detach_reason;
@@ -30,10 +31,10 @@ pub(super) fn detached_event_json(
 ) -> Value {
     let mut event = json!({"event": "detached", "surface": surface, "reason": notice.reason});
     if let Some(by) = notice.by.as_ref().filter(|by| !by.is_empty()) {
-        event["by"] = json!(by);
+        event.insert("by", json!(by));
     }
     if let Some(view) = view {
-        event["view"] = json!(view);
+        event.insert("view", json!(view));
     }
     event
 }
@@ -76,7 +77,7 @@ pub(super) fn size_state_event_json(
     if let Some((client, _)) = client {
         let id = crate::mux::view_participant_id(runtime, surface, client);
         if state.participant(&id).is_some() {
-            event["self_participant"] = json!(id);
+            event.insert("self_participant", json!(id));
         }
     }
     event
@@ -106,13 +107,18 @@ pub(super) fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool
 /// asked. Its `detached` events carry `reason:"disconnected-by"` and `by`, so
 /// the viewer does not reconnect automatically.
 pub(super) fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) -> bool {
-    disconnect_client_with_notice(
+    let placements = mux.terminal_placements_of_client(client);
+    let kicked = disconnect_client_with_notice(
         mux,
         client,
         true,
         None,
         &DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) },
-    )
+    );
+    // Disconnected on purpose: the grids of its terminals follow the
+    // remaining views now, not after a departed view's hold.
+    mux.release_terminal_grid_holds(&placements);
+    kicked
 }
 
 fn disconnect_client_with_notice(
@@ -125,6 +131,8 @@ fn disconnect_client_with_notice(
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
+        // Its size leases now bound the departed-view holds it sets (size_lease.rs).
+        mux.control_clients.size_leases.client_left(client);
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
@@ -220,9 +228,10 @@ pub(super) fn detach_own_view(
     by: TerminalDetachActor,
 ) {
     mux.detach_terminal_own_view(placement, owner);
+    mux.release_terminal_grid_holds(&[placement]);
     let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
     let mut event = detached_event_json(placement, &notice, None);
-    event["scope"] = json!("view");
+    event.insert("scope", json!("view"));
     mux.control_clients.send_surface_event(owner, placement, None, &event);
 }
 
@@ -252,6 +261,7 @@ pub fn detach_size_participant(
     };
     if let Some(view) = view {
         mux.detach_terminal_sub_view(placement, client, &view);
+        mux.release_terminal_grid_holds(&[placement]);
         let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
         mux.control_clients.send_surface_event(
             client,

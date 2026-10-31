@@ -15,6 +15,29 @@ pub use crate::sidebar_layout::{Alignment, ArrangementLayout, Look, Region};
 pub type SectionId = String;
 pub type ItemId = String;
 
+/// `Item::extra` key: a group member pinned inside its group.
+pub const PINNED_IN_GROUP_KEY: &str = "pinned";
+/// `Item::extra` key: where a top-level item pinned to the Pinned band goes
+/// back on Unpin (`{"section": id, "after": id or null}`).
+pub const UNPIN_TO_KEY: &str = "unpin_to";
+/// `Item::extra` key: an archived item (plans/cmux-next/archiving-DESIGN.md):
+/// it lists after its unarchived siblings and draws dimmed.
+pub const ARCHIVED_KEY: &str = "archived";
+/// `Item::extra` key: where Unarchive puts an archived item back
+/// (`{"after": sibling id or null}`, in its own sibling list).
+pub const UNARCHIVE_TO_KEY: &str = "unarchive_to";
+/// `Item::extra` key: why an archived group is archived. `"members"`: the
+/// last of its members was archived (auto-archive-DESIGN.md "Groups").
+pub const ARCHIVED_BY_KEY: &str = "archived_by";
+/// [`ARCHIVED_BY_KEY`]'s value for a group that archived with its members.
+pub const ARCHIVED_BY_MEMBERS: &str = "members";
+/// `Item::extra` key of a group: its auto-archive rule
+/// (auto-archive-DESIGN.md "Per-group rules"): `"never"`, or the hours a
+/// member stays idle before it archives (1 to [`MAX_AUTO_ARCHIVE_HOURS`]).
+/// Absent: the setting's default.
+pub const AUTO_ARCHIVE_KEY: &str = "auto_archive";
+/// The longest idle time a group's rule may name: ten years, in hours.
+pub const MAX_AUTO_ARCHIVE_HOURS: i64 = 87_600;
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -22,9 +45,13 @@ pub const MACHINE_SECTION_PREFIX: &str = "sec_m_";
 /// A key longer than this renumbers its siblings.
 pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
-/// The most levels of groups one tree may have (host > project > branch,
-/// remote-groups-DESIGN.md R1): a top-level group is level 1.
-pub const MAX_GROUP_DEPTH: usize = 3;
+/// The most levels of groups one tree may have: a top-level group is level 1.
+/// Deep enough that nesting reads as unlimited (Lawrence 2026-10-23: "i want
+/// to see deeply nested groups"; it was 3, host > project > branch,
+/// remote-groups-DESIGN.md R1), and still a bound, so a corrupt document's
+/// walks stay finite and the view's `u8` depth never overflows. The sidebar
+/// stops indenting after a few levels (`SidebarIndent`); nesting goes on.
+pub const MAX_GROUP_DEPTH: usize = 16;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
 /// The space between a section's rows or tiles, in points (as the old
@@ -196,6 +223,15 @@ pub struct Section {
     pub order: String,
     #[serde(default)]
     pub keeps_closed: bool,
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice
+    /// 4): it draws its header, the host's name and status, even when the
+    /// sidebar is one list. Only a machine section can be one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group: bool,
+    /// A person explicitly removed this machine's remote-group header. This
+    /// survives the false `host_group` value being omitted on older wires.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group_opt_out: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -232,6 +268,10 @@ struct SectionWire {
     #[serde(default)]
     keeps_closed: bool,
     #[serde(default)]
+    host_group: bool,
+    #[serde(default)]
+    host_group_opt_out: bool,
+    #[serde(default)]
     extra: Map<String, Value>,
 }
 
@@ -254,6 +294,8 @@ impl From<SectionWire> for Section {
             room: wire.room,
             order: wire.order,
             keeps_closed: wire.keeps_closed,
+            host_group: wire.host_group,
+            host_group_opt_out: wire.host_group_opt_out,
             extra: wire.extra,
         }
     }
@@ -282,6 +324,8 @@ impl Section {
             room: None,
             order: String::new(),
             keeps_closed,
+            host_group: false,
+            host_group_opt_out: false,
             extra: Map::new(),
         }
     }
@@ -423,6 +467,25 @@ impl Item {
         Item::new(&workspace_item_id(&reference), section, Body::Workspace { reference })
     }
 
+    /// Whether this group member is pinned inside its group
+    /// (`extra.pinned`): it lists first among the group's members.
+    pub fn pinned_in_group(&self) -> bool {
+        self.parent.is_some()
+            && self.extra.get(PINNED_IN_GROUP_KEY).and_then(Value::as_bool) == Some(true)
+    }
+
+    /// Whether this item is archived (`extra.archived`): it lists after its
+    /// unarchived siblings and draws dimmed, with its subtree.
+    pub fn archived(&self) -> bool {
+        self.extra.get(ARCHIVED_KEY).and_then(Value::as_bool) == Some(true)
+    }
+
+    /// A group's own auto-archive rule ([`AUTO_ARCHIVE_KEY`]); `None` when
+    /// it follows the default.
+    pub fn auto_archive(&self) -> Option<AutoArchiveRule> {
+        AutoArchiveRule::read(self.extra.get(AUTO_ARCHIVE_KEY)?)
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -549,6 +612,10 @@ pub struct SectionPatch {
     pub keeps_closed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll: Option<Scroll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group_opt_out: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.
@@ -580,6 +647,41 @@ pub struct GroupPatch {
     pub collapsed: Option<bool>,
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub profile: Patch<String>,
+    /// The group's auto-archive rule ([`AUTO_ARCHIVE_KEY`]): `"never"` or
+    /// hours; null goes back to the setting's default.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub auto_archive: Patch<Value>,
+}
+
+/// A group's auto-archive rule ([`AUTO_ARCHIVE_KEY`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoArchiveRule {
+    /// Its members never archive on their own.
+    Never,
+    /// A member idle this many hours archives.
+    AfterHours(i64),
+}
+
+impl AutoArchiveRule {
+    /// The rule a stored or sent value names; `None` for anything else.
+    pub fn read(value: &Value) -> Option<AutoArchiveRule> {
+        match value {
+            Value::String(text) if text == "never" => Some(AutoArchiveRule::Never),
+            Value::Number(number) => number
+                .as_i64()
+                .filter(|hours| (1..=MAX_AUTO_ARCHIVE_HOURS).contains(hours))
+                .map(AutoArchiveRule::AfterHours),
+            _ => None,
+        }
+    }
+
+    /// The stored value.
+    pub fn value(self) -> Value {
+        match self {
+            AutoArchiveRule::Never => Value::String("never".into()),
+            AutoArchiveRule::AfterHours(hours) => Value::from(hours),
+        }
+    }
 }
 
 /// An item's ref as the old layout names it (`{kind, value}`).
@@ -616,6 +718,14 @@ pub enum Op {
     Pin { items: Vec<ItemId> },
     #[serde(rename = "unpin")]
     Unpin { items: Vec<ItemId> },
+    /// Mark `items` archived and move each to the end of its own sibling list
+    /// (its group, or its section's top level); it draws dimmed.
+    #[serde(rename = "archive")]
+    Archive { items: Vec<ItemId> },
+    /// Clear the archive mark and put each item back after the sibling it
+    /// followed when it was archived, else last among the unarchived ones.
+    #[serde(rename = "unarchive")]
+    Unarchive { items: Vec<ItemId> },
     #[serde(rename = "item.add")]
     ItemAdd { item: NewItem, to: Target },
     #[serde(rename = "item.remove")]

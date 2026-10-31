@@ -2,6 +2,7 @@ import CoreGraphics
 
 /// The Messages bubble outline, shared by the iOS and macOS surfaces. Paths
 /// use top-left-origin coordinates (UIKit, or a flipped AppKit view).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationBubbleGeometry {
     public enum Side: Sendable {
         case leading
@@ -143,6 +144,7 @@ public enum ConversationBubbleGeometry {
 /// Where "Select"'s edit menu points: Messages hangs it under the selected
 /// text, arrow up, even with room above (iOS 27.0: text bottom 387 -> menu
 /// top 392.7).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum BubbleSelectionMenuGeometry {
     public struct Anchor: Equatable, Sendable {
         public var point: CGPoint

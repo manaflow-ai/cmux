@@ -110,7 +110,9 @@ public struct FileOperator: FileOperating {
                          resolve: @escaping @Sendable (FileConflict) async -> ConflictAnswer)
         -> AsyncThrowingStream<TransferEvent, any Error> {
         let job = FileTransferJob(sources: sources, folder: folder, mode: mode, namer: namer, resolve: resolve)
-        return AsyncThrowingStream { continuation in
+        // Progress events are snapshots and `.finished` is always the last one, so dropping the
+        // oldest when the reader lags loses nothing it needs.
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     try await job.run { continuation.yield($0) }
@@ -153,7 +155,7 @@ public struct FileOperator: FileOperating {
 /// Carries the progress closure into `copyfile`'s C callback, which runs
 /// synchronously on the copying thread.
 // Only touched by the one thread inside copyfile(3); never shared.
-final class CopyProgressContext: @unchecked Sendable {
+final class CopyProgressContext: @unchecked Sendable { // crash-allow: one copy's context; only the copyfile(3) thread touches it, through the callback's ctx pointer
     let progress: (Int64) -> Bool
     var stopped = false
     init(progress: @escaping (Int64) -> Bool) { self.progress = progress }

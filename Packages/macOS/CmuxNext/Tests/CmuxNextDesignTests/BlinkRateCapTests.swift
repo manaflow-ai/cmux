@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-13 (cx-sya4n): nothing in cmux flashes faster than twice a second, in any mode:
 /// every on-off-on cycle of an opacity flash lasts at least 0.5 s, also at the fastest Debug
@@ -56,16 +57,17 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
 
-        var flashes: [(String, CAAnimation?)] = [("flash verb", Motion.flashAnimation()),
-                                                  ("status pulse", Motion.pulseAnimation(low: 0))]
+        var flashes: [(String, CAAnimation?)] = [("flash verb", Motion.indicators.flashAnimation()),
+                                                  ("status pulse", Motion.indicators.pulseAnimation(low: 0))]
         var attention = AttentionSettings()
         for look in AttentionHighlightLook.allCases {
             attention.style = .pulse
-            flashes.append(("attention pulse \(look)", Motion.attentionAnimation(attention, look: look)))
+            flashes.append(("attention pulse \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
             attention.style = .blink
             for count in [2, AttentionSettings.blinkRange.upperBound] {
                 attention.blinkCount = count
-                flashes.append(("attention \(count) blinks \(look)", Motion.attentionAnimation(attention, look: look)))
+                flashes.append(("attention \(count) blinks \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
+                flashes.append(("dismiss \(count) blinks \(look)", Motion.indicators.attentionDismissAnimation(attention, look: look)))
             }
         }
         for (name, animation) in flashes {

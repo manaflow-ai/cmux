@@ -1,18 +1,25 @@
 public import CmuxNextDesign
 
 /// One value in a setting's palette list. `swatches` draws real colors in
-/// the row's icon place (R98).
+/// the row's icon place (R98); `fontFamily` draws the title in that face (a
+/// font family setting's values).
 public struct PaletteSettingOption: Identifiable, Sendable {
     public let id: String
     public var title: String
     public var swatches: [ThemeRGB]
     public var isCurrent: Bool
+    public var fontFamily: String?
+    /// A font picked lately (`RecentFonts`): its row says Recent.
+    public var isRecent: Bool
 
-    public init(id: String, title: String, swatches: [ThemeRGB] = [], isCurrent: Bool = false) {
+    public init(id: String, title: String, swatches: [ThemeRGB] = [], isCurrent: Bool = false,
+                fontFamily: String? = nil, isRecent: Bool = false) {
         self.id = id
         self.title = title
         self.swatches = swatches
         self.isCurrent = isCurrent
+        self.fontFamily = fontFamily
+        self.isRecent = isRecent
     }
 }
 
@@ -49,9 +56,11 @@ public struct PaletteSettingRow: Identifiable {
     public var swatches: [ThemeRGB]
     /// False for a managed key: shown, but it does not run.
     public var isEnabled: Bool
+    /// A font family setting: its values are installed fonts (Change Font… lists it).
+    public var isFontFamily: Bool
 
     public init(id: String, title: String, group: String, value: String, kind: Kind, keywords: [String] = [],
-                swatches: [ThemeRGB] = [], isEnabled: Bool = true) {
+                swatches: [ThemeRGB] = [], isEnabled: Bool = true, isFontFamily: Bool = false) {
         self.id = id
         self.title = title
         self.group = group
@@ -60,5 +69,6 @@ public struct PaletteSettingRow: Identifiable {
         self.keywords = keywords
         self.swatches = swatches
         self.isEnabled = isEnabled
+        self.isFontFamily = isFontFamily
     }
 }

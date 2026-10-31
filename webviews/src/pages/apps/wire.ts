@@ -4,7 +4,11 @@
 import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
+  type AppContribution,
+  type AppDeploy,
   type AppDetail,
+  type AppInstance,
+  type AppIconRef,
   type AppSource,
   type AppTier,
   type AppVersion,
@@ -49,6 +53,10 @@ export interface WireDetail extends WireListing {
   versions?: AppVersion[];
   repository?: string;
   screenshots?: string[];
+  /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
+  contributes?: AppContribution[];
+  /** Absent for an app with no `deploy` block. */
+  deploy?: AppDeploy | null;
 }
 
 export interface WireCatalogPage {
@@ -64,6 +72,8 @@ export interface WireInstalledApp {
   hide_only: boolean;
   state: WireInstallState;
   grants: unknown[];
+  /** The deployed instance; null or absent for an app with none. */
+  instance?: AppInstance | null;
 }
 
 export interface WireInstalledList {
@@ -101,13 +111,29 @@ export function fromListing(listing: WireListing): CatalogApp {
     keywords: listing.keywords,
     latest_version: listing.version,
     install_count: 0,
-    // The store loads an asset through cmux.apps.asset.get; a symbol is never drawn on the web.
-    icon: listing.icon && "asset" in listing.icon ? { asset: listing.icon.asset } : undefined,
+    // The store loads an asset through cmux.apps.asset.get; a symbol is the host's own drawing
+    // of it (`glyph/<symbol>`), never Apple's symbol.
+    icon: wireIcon(listing.icon),
     installed: listing.install?.installed === true,
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
   };
+}
+
+function wireIcon(icon: WireIcon): AppIconRef | undefined {
+  if (!icon) return undefined;
+  if ("asset" in icon) return { asset: icon.asset };
+  return icon.symbol ? { symbol: icon.symbol } : undefined;
+}
+
+/** The owner's contributions, keeping only entries with a string kind and a non-blank title. */
+function contributionsFrom(value: unknown): AppContribution[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(
+    (item): item is AppContribution =>
+      typeof item?.kind === "string" && typeof item.title === "string" && item.title.trim() !== "",
+  );
 }
 
 export function fromDetail(detail: WireDetail): AppDetail {
@@ -117,6 +143,28 @@ export function fromDetail(detail: WireDetail): AppDetail {
     versions: detail.versions ?? [],
     repository: detail.repository,
     screenshots: detail.screenshots ?? [],
+    contributes: contributionsFrom(detail.contributes),
+    deploy: deployFrom(detail.deploy),
+  };
+}
+
+/** The owner's deploy facts, keeping only string entries; undefined for an app with none. */
+function deployFrom(value: AppDeploy | null | undefined): AppDeploy | undefined {
+  if (!value || !Array.isArray(value.targets)) return undefined;
+  const strings = (list: unknown) =>
+    Array.isArray(list) ? list.filter((item): item is string => typeof item === "string") : [];
+  return { targets: strings(value.targets), tenancy: strings(value.tenancy) };
+}
+
+/** The owner's instance object; undefined for null or a malformed one. */
+function instanceFrom(value: AppInstance | null | undefined): AppInstance | undefined {
+  if (!value || typeof value.id !== "string" || typeof value.target !== "string") return undefined;
+  if (value.state !== "deploying" && value.state !== "running") return undefined;
+  return {
+    id: value.id,
+    target: value.target,
+    state: value.state,
+    url: typeof value.url === "string" ? value.url : undefined,
   };
 }
 
@@ -133,6 +181,7 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     hide_only: row.hide_only,
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
+    instance: instanceFrom(row.instance),
   };
 }
 

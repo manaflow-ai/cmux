@@ -82,7 +82,7 @@ const previous: Play = async (ctx) => {
 };
 
 const keyboard: Play = async (ctx) => {
-  await ctx.focus({ role: "textbox", name: "Find in diff" });
+  await ctx.focus({ role: "searchbox", name: "Find in diff" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
   await ctx.press("Shift+Enter");
@@ -122,7 +122,7 @@ export default componentEntry<Props>({
     },
   },
   styles: () => import("../styles.css"),
-  covers: ["find/FindBar.tsx#FindBar"],
+  covers: ["find/FindBar.tsx#FindBar", "ui/FindPill.tsx#FindPill"],
   load: async () => GalleryFindBar,
   variants: {
     empty: { props: { initialQuery: "", initialMatches: 3, requestToken: 1 } },

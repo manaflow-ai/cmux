@@ -1,5 +1,7 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import SwiftUI
+import CmuxNextTasks
 
 /// The Todo page: a field that adds an item, then the workspace's checklist.
 struct WorkspaceTodoPageView: View {
@@ -12,6 +14,7 @@ struct WorkspaceTodoPageView: View {
             } else {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $model.draft)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .onSubmit { model.submitDraft() }
                 let items = model.items
                 if items.isEmpty {
@@ -25,6 +28,7 @@ struct WorkspaceTodoPageView: View {
                                 WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: actions)
                             }
                         }
+                        .thinScrollers()
                     }
                 }
             }

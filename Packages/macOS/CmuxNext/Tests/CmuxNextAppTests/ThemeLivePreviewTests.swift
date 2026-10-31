@@ -70,6 +70,31 @@ import Testing
         settings.endPreview()
     }
 
+    /// The Hue and Saturation sliders preview while you drag them, like Opacity: the window's tint
+    /// follows the previewed value before the release writes it, and ending the preview reverts it.
+    @Test func previewingHueTintsTheWindowBeforeItIsSaved() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try Data(#"{"appearance":{"theme":"Nord","experimentalControls":true}}"#.utf8).write(to: url)
+        await settings.reload()
+        let scope = ThemeScope(level: .room)
+        let terminal = TerminalThemeSetting(backdropScope: scope)
+        terminal.reload = {}
+        terminal.follow(settings)
+        #expect(scope.appearanceTuning.hue == AppearanceTuning.identity.hue)
+
+        #expect(settings.preview(try descriptor("appearance.hue"), .number(0.8)))
+        await settle { scope.appearanceTuning.hue == 0.8 }
+        #expect(scope.appearanceTuning.hue == 0.8)
+        #expect(settings.snapshot.appearanceTuning.hue == AppearanceTuning.identity.hue)
+
+        settings.endPreview()
+        await settle { scope.appearanceTuning.hue == AppearanceTuning.identity.hue }
+        #expect(scope.appearanceTuning.hue == AppearanceTuning.identity.hue)
+        // The stream holds the setting weakly: keep it alive through the last check.
+        withExtendedLifetime(terminal) {}
+    }
+
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

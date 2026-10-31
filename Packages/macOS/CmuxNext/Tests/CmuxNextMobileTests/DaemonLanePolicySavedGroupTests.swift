@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// Reopen / Delete Saved Tab Group from a phone: the saved id and a pane only. The Rust
-/// mirror (cnx-hostd `policy.rs`) has the same rule
+/// mirror (cmux-mobile-host `policy.rs`) has the same rule
 /// (`saved_tab_groups_take_only_the_saved_id_and_a_pane`).
 struct DaemonLanePolicySavedGroupTests {
     private let policy = DaemonLanePolicy(deviceID: "phone")

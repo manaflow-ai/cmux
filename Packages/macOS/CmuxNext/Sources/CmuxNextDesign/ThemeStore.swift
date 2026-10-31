@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 public import Observation
 import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the
@@ -20,24 +21,43 @@ public protocol ThemeResponsive: AnyObject {
 /// and appearance handlers re-resolve, and (4) calls registered
 /// `ThemeResponsive` objects (non-view owners of resolved colors). Views
 /// never branch on the theme themselves.
+///
+/// The app's store is the one ``ThemeScope/app`` roots on (`ThemeScope.app.store`); the
+/// composition root (`AppServices.themeStore`) hands that reference to the App's owners, and a
+/// scope reads its tree's store as ``ThemeScope/store``. Tests make their own (`ThemeStore()`).
 @Observable
 public final class ThemeStore {
-    public static let shared = ThemeStore(publishesGlobally: true)
 
     public private(set) var tokens: ThemeTokens
+    /// The colors the chrome derives from: the app theme's (`appearance.appTheme`) when it names
+    /// one, else the Ghostty config's (``configInput``). Scopes without a theme of their own
+    /// inherit it.
     public private(set) var input: ThemeInput
+    /// The Ghostty config's colors (the terminal theme) as last applied, whatever the app theme.
+    public private(set) var configInput: ThemeInput
+    /// The app theme's colors while `appearance.appTheme` names one.
+    @ObservationIgnored private var appInput: ThemeInput?
     /// Bumps on every applied change (tests, diagnostics).
     public private(set) var generation = 0
     /// The app theme when `appearance.appTheme` names one; nil follows each scope's terminal
-    /// theme (`ThemeTokens.app`). Web pages read it through `WebTheme`.
+    /// theme (`ThemeTokens.app`). Web pages read it through `WebTheme`; the native chrome derives
+    /// from its colors (``input``).
     public private(set) var appTheme: AppTheme?
     /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
     public private(set) var accent: ThemeAccent = .neutral
     /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
     /// shows (`BackdropArt.accentHue`), over the theme's own.
     public private(set) var accentFollowsArt = false
+    /// `appearance.machineColors`: the colors people picked for machines (`MachineColor.color`).
+    public private(set) var machineColors = MachineColorOverrides.none
 
     @ObservationIgnored private let publishesGlobally: Bool
+    /// The root scope of this store's tree (``ThemeScope/app`` for the app's store): it tells its
+    /// subtree after a change.
+    @ObservationIgnored weak var root: ThemeScope?
+    /// Bumped when any theme scope's shown picture or tuning changes (``ThemeScope/shownWindowOpacity``
+    /// readers observe it).
+    @ObservationIgnored package let backdropRevision = BackdropRevision()
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false
@@ -45,14 +65,20 @@ public final class ThemeStore {
 
     public init(input: ThemeInput = .ghosttyDefault) {
         self.input = input
+        configInput = input
         tokens = ThemeTokens.derive(from: input)
         publishesGlobally = false
     }
 
-    private init(publishesGlobally: Bool) {
+    /// The app's store: a change repaints every window. Only ``ThemeScope/app`` makes one.
+    init(publishesGlobally: Bool) {
         input = .ghosttyDefault
+        configInput = .ghosttyDefault
         tokens = .fallback
         self.publishesGlobally = publishesGlobally
+        // The app's store comes first at launch (ThemeBridge.start): the UI font (Inter) is
+        // registered and its page script read off the main thread before chrome or a page needs them.
+        if publishesGlobally { BundledFonts.prepareInBackground() }
     }
 
     /// The appearance that matches the theme, for windows and panels.
@@ -61,12 +87,31 @@ public final class ThemeStore {
     }
 
     /// Applies a theme read from the Ghostty config. Returns false when the
-    /// derived tokens did not change (no invalidation happens then).
+    /// derived tokens did not change (no invalidation happens then). While an app theme is set
+    /// the chrome keeps its colors; only ``configInput`` changes.
     @discardableResult
     public func apply(_ input: ThemeInput) -> Bool {
         let firstConfig = !hasAppliedConfig
         defer { if publishesGlobally { hasAppliedConfig = true } }
         var input = input
+        input.accent = accent
+        let previousConfig = configInput
+        configInput = input
+        let changed = applyChrome(firstConfig: firstConfig)
+        // Under an app theme the chrome holds still, yet readers of the config's own colors
+        // (Settings' "Use Ghostty Config" swatch) watch `generation`, and the terminals draw them.
+        if !changed, appInput != nil, configInput != previousConfig {
+            generation += 1
+            root?.configDidChange()
+        }
+        return changed
+    }
+
+    /// Derives the chrome from the app theme's colors, else the config's. `firstConfig`: the
+    /// launch's first colors, which windows show at once (default: until the config's first apply).
+    private func applyChrome(firstConfig: Bool? = nil) -> Bool {
+        let firstConfig = firstConfig ?? !hasAppliedConfig
+        var input = appInput ?? configInput
         input.accent = accent
         let previous = self.input
         self.input = input
@@ -76,12 +121,14 @@ public final class ThemeStore {
             // the store's observers (Settings' Ghostty preview); nothing repaints.
             if input != previous {
                 generation += 1
-                if publishesGlobally { ThemeScope.app.storeDidChange() }
+                root?.storeDidChange()
             }
             return false
         }
         tokens = derived
         generation += 1
+        // Only the app's store repaints every window; a test's tree (``ThemeScope/init(root:)``) recomputes.
+        if !publishesGlobally { root?.storeDidChange() }
         if publishesGlobally {
             ThemeSnapshot.store(derived)
             // Room, workspace and terminal scopes inherit from the app scope.
@@ -90,7 +137,7 @@ public final class ThemeStore {
             // surfaces switch at once). Not the first config of the launch: windows show it as
             // their first colors.
             ThemeRepaint.batch {
-                ThemeScope.app.storeDidChange()
+                root?.storeDidChange()
                 for window in NSApp?.windows ?? [] { refresh(window, crossfade: !firstConfig) }
             }
         }
@@ -100,15 +147,34 @@ public final class ThemeStore {
         return true
     }
 
-    /// Sets the app theme apart from the terminal theme (nil: follow it), and repaints so every
-    /// page re-applies its `--cmux-app-*` tokens. Returns false when nothing changed.
+    /// Sets the app theme apart from the terminal theme from its colors (nil: follow the terminal
+    /// theme): the native chrome derives from them, and every page re-applies its `--cmux-app-*`
+    /// tokens. The accent is the store's (``accent``). Returns false when nothing changed.
+    /// - Parameter input: The app theme's resolved colors (its light or dark variant).
     @discardableResult
-    public func setAppTheme(_ theme: AppTheme?) -> Bool {
-        guard theme != appTheme else { return false }
-        appTheme = theme
+    public func setAppTheme(from input: ThemeInput?) -> Bool {
+        var input = input
+        input?.accent = accent
+        guard input != appInput else { return false }
+        appInput = input
+        appTheme = input.map(AppTheme.derive)
         generation += 1
-        if publishesGlobally { repaintAll(crossfade: true) }
+        // The chrome's tokens moved: `applyChrome` repaints every window; else only the pages do.
+        if !applyChrome(), publishesGlobally { repaintAll(crossfade: true) }
         return true
+    }
+
+    /// Sets cmux.json's window opacity and blur on the config's colors and the app theme's, ahead
+    /// of the config reload that brings the terminals along (an Opacity slider step).
+    @discardableResult
+    public func applyBackground(opacity: Double, blur: Int) -> Bool {
+        (configInput.backgroundOpacity, configInput.backgroundBlur) = (opacity, blur)
+        if var app = appInput {
+            (app.backgroundOpacity, app.backgroundBlur) = (opacity, blur)
+            appInput = app
+            appTheme = AppTheme.derive(from: app)
+        }
+        return applyChrome()
     }
 
     /// Sets where the accent comes from and re-derives every scope's tokens with it. Returns
@@ -117,11 +183,17 @@ public final class ThemeStore {
     public func setAccent(_ accent: ThemeAccent) -> Bool {
         guard accent != self.accent else { return false }
         self.accent = accent
+        if var app = appInput {
+            app.accent = accent
+            appInput = app
+            appTheme = AppTheme.derive(from: app)
+        }
+        configInput.accent = accent
         // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
-        if !apply(input), publishesGlobally {
+        if !applyChrome(), publishesGlobally {
             ThemeRepaint.batch {
-                ThemeScope.app.storeDidChange()
+                root?.storeDidChange()
                 repaintAll(crossfade: true)
             }
         }
@@ -137,10 +209,21 @@ public final class ThemeStore {
         generation += 1
         if publishesGlobally {
             ThemeRepaint.batch {
-                ThemeScope.app.accentSourceDidChange()
+                root?.accentSourceDidChange()
                 repaintAll(crossfade: true)
             }
         }
+        return true
+    }
+
+    /// Sets the colors people picked for machines and repaints, so every machine mark (sidebar
+    /// rows, tab badges) redraws in them. Returns false when they did not change.
+    @discardableResult
+    public func setMachineColors(_ colors: MachineColorOverrides) -> Bool {
+        guard colors != machineColors else { return false }
+        machineColors = colors
+        generation += 1
+        if publishesGlobally { repaintAll(crossfade: true) }
         return true
     }
 

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextMobile
 
-/// The Swift mirror of cnx-hostd's workspace group rules (policy.rs
-/// `group_params`, cnx-ios/SECURITY.md "Workspace groups").
+/// The Swift mirror of cmux-mobile-host's workspace group rules (policy.rs
+/// `group_params`, cmux-next-ios/SECURITY.md "Workspace groups").
 struct DaemonLanePolicyGroupTests {
     let policy = DaemonLanePolicy(deviceID: "phone")
 
@@ -11,7 +11,7 @@ struct DaemonLanePolicyGroupTests {
         try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
-    private func resource(_ operation: String, _ extra: [String: Any], key: String? = "cnx-ios-group-1",
+    private func resource(_ operation: String, _ extra: [String: Any], key: String? = "cmux-next-ios-group-1",
                           current: Bool = true) -> Data {
         var params = extra
         if current {
@@ -29,7 +29,7 @@ struct DaemonLanePolicyGroupTests {
 
     /// The shapes the iOS app sends pass the value checks; a new group is sent on
     /// as checked, and the edits that name a group or a workspace wait for
-    /// cnx-hostd's ownership check (refused on this lane).
+    /// cmux-mobile-host's ownership check (refused on this lane).
     @Test func allowedShapesPass() {
         let create = resource("workspace_group.create", ["name": "Release", "color": "red", "room": "default"])
         guard case .rewrite(let sent) = policy.evaluate(create) else { Issue.record("refused a new group"); return }

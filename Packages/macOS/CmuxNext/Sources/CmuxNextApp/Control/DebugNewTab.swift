@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -142,7 +142,7 @@ enum DebugNewTab {
             return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
                                     open_tabs: openTabs });
             """
-        guard let text = try? await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page) as? String,
+        guard let text = try? await view.callPageScript(script) as? String,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
             return .object(["error": .string("the page returned no JSON")])
         }

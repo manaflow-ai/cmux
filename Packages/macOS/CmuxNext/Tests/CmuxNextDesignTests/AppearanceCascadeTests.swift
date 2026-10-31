@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The appearance cascade (plans/cmux-next/appearance-scopes-DESIGN.md): app < window <
 /// workspace < rule < pane < tab, each level overriding the ones before, with the source of

@@ -1,0 +1,22 @@
+{
+  "id": "automations-a675-triggered-webhook",
+  "group": "automations",
+  "owner": "a675",
+  "about": "a triggered job (when a URL is called) is made as a webhook job through the Cloud Chief",
+  "history": [],
+  "stubs": [],
+  "turns": [
+    {
+      "text": "whenever our status page calls a webhook, have Chief post the incident summary in this chat",
+      "checks": [
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the assistant makes a Cloud automation with a tool call this turn (`cmux automation create … --target cloud --webhook --prompt` with the full task, or a tell asking the Cloud Chief to make a chief-auto webhook job) and says it will send the webhook URL. FAIL when it polls, only promises, or asks the person to set it up."
+        }
+      ]
+    }
+  ]
+}

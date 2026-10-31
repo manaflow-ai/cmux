@@ -45,14 +45,14 @@ struct SidebarGroupFlow {
     /// asks without a name: that group's name editor opens (repeated New
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
-    /// A person's new group gets the next palette color and its editor
-    /// opens on it (the Chrome flow). `index` places the group
+    /// Every new group gets the next palette color (Leo 2026-10-20: agents'
+    /// groups were all grey); a person's also opens its editor (the Chrome flow). `index` places the group
     /// (`SidebarIntent.createGroup`), else it forms at its first member.
     func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool, index: Int? = nil) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
         let id = CmuxNextSidebar.GroupID.make()
         let used = Set(bridge.services.machines.local.store.personal.groups.compactMap(\.color))
-        bridge.handle(.createGroup(id, name: name, color: byUser ? GroupColor.automatic(used: used) ?? .grey : .grey, workspaces: ids,
+        bridge.handle(.createGroup(id, name: name, color: GroupColor.automatic(used: used) ?? .grey, workspaces: ids,
                                    index: index))
         if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
@@ -67,9 +67,9 @@ struct SidebarGroupFlow {
 
     /// Called after each sidebar update: opens a waiting group editor.
     func openPendingEditor() {
-        guard let pending = editor.pending, bridge.model.group(CmuxNextSidebar.GroupID(pending.rawValue)) != nil else { return }
+        // On the sidebar document the group shows as its item (`itm_g_<id>`).
+        guard let pending = editor.pending, case let id = bridge.model.groupID(personal: pending.rawValue), bridge.model.group(id) != nil else { return }
         editor.pending = nil
-        let id = CmuxNextSidebar.GroupID(pending.rawValue)
         bridge.container.beginRename(group: id)
         // No editor came up (a drag, a row out of view): a group made empty does not wait for one.
         if bridge.container.editingGroup != id { endUnedited(pending) }
@@ -95,7 +95,7 @@ struct SidebarGroupFlow {
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
         let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) },
+        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
                     failed: failed, applied: applied) { connection in
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
@@ -107,7 +107,7 @@ struct SidebarGroupFlow {
     /// `.createGroup`: the group forms where the model formed it; a group its
     /// members leave empty goes.
     func create(_ group: CmuxNextSidebar.GroupID, name: String, color: GroupColor, _ ids: [SidebarWorkspaceID], collapsed: Bool,
-                room: ProfileID, _ intent: SidebarIntent) {
+                room: ProfileID, index: Int? = nil, _ intent: SidebarIntent) {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids), v2 = bridge.statePersonal
         let life = bridge.life, ending = life.emptied(by: members, into: nil)
         // A pending edit until the store holds the new group (cx-odqn): the
@@ -125,9 +125,10 @@ struct SidebarGroupFlow {
         let place = bridge.usesMixedOrder && v2
             ? PersonalSidebarPlanner(machines: bridge.services.machines).groupPlacement(of: group, in: bridge.model.sections)
             : PersonalSidebar.GroupPlacement()
-        let move = place.move, top = place.topIndex, flow = self
+        // The sidebar's place wins; else the caller's (New Workspace in New Group: `workspaces.newPlacement`).
+        let move = place.move ?? index, top = place.topIndex, flow = self
         editor.creating[id] = []
-        life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: failed,
+        life.commit("create-personal-group", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed,
                     applied: applied, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
             let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
@@ -204,7 +205,8 @@ struct SidebarGroupFlow {
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
-        let local = WorkspaceGroupID(rawValue: group.rawValue)
+        // On the sidebar document a group from the personal store shows as its item (`itm_g_<id>`).
+        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
         // The emoji picker (Set Icon) and the color panel edit it after the editor closes.
         if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, SidebarContainerView.keepGroupItem,
             "workspaceGroup.setIcon", "workspaceGroup.delete", "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces"].contains(item) {

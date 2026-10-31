@@ -162,3 +162,60 @@ fn split_with_shell_runs_the_script() {
     let argv = mux.surface(tabs[0]).and_then(|surface| surface.spawn_argv()).unwrap();
     assert_eq!(argv.last().map(String::as_str), Some("sleep 30"), "{argv:?}");
 }
+
+/// The workspace `session.snapshot` reports as focused.
+fn focused_workspace_id(mux: &Arc<Mux>) -> String {
+    let snapshot = public_session_snapshot(mux).unwrap();
+    let focused = snapshot["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|workspace| workspace["focused"] == true)
+        .map(|workspace| workspace["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(focused.len(), 1, "exactly one workspace is focused: {snapshot}");
+    focused[0].clone()
+}
+
+/// `workspace.create` keeps the caller's focus like `pane.split` (agent
+/// evals: the last two `focus_stolen` runs, new-workspace-background).
+#[test]
+fn workspace_create_keeps_the_callers_focus() {
+    for initial_content in ["terminal", "empty"] {
+        let mux = mux();
+        let home = focused_workspace(&mux, &format!("ws-keep-{initial_content}"));
+        let before = focused_workspace_id(&mux);
+        let created = send(
+            &mux,
+            "workspace.create",
+            json!({"initial_content":initial_content,"name":"background"}),
+            Some(&format!("ws-keep-{initial_content}-create")),
+        );
+        let new_id = created["value"]["workspace_id"].as_str().unwrap();
+        assert_ne!(new_id, before);
+        assert_eq!(
+            focused_workspace_id(&mux),
+            before,
+            "workspace.create ({initial_content}) without focus moved the user's focus"
+        );
+        if initial_content == "terminal" {
+            assert_eq!(focused_pane(&mux), home);
+        }
+    }
+}
+
+#[test]
+fn workspace_create_with_focus_true_focuses_it() {
+    for initial_content in ["terminal", "empty"] {
+        let mux = mux();
+        focused_workspace(&mux, &format!("ws-focus-{initial_content}"));
+        let created = send(
+            &mux,
+            "workspace.create",
+            json!({"initial_content":initial_content,"name":"shown","focus":true}),
+            Some(&format!("ws-focus-{initial_content}-create")),
+        );
+        let new_id = created["value"]["workspace_id"].as_str().unwrap();
+        assert_eq!(focused_workspace_id(&mux), new_id);
+    }
+}

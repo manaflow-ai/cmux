@@ -30,6 +30,15 @@ public final class UpdateController {
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
 
+    /// Background mode owns the staged installer so a later feed check can replace it. Keep this
+    /// preference mutation beside the private defaults store; extensions use this narrow seam.
+    @discardableResult
+    func disableSparkleSilentStagingIfNeeded() -> Bool {
+        guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+        return true
+    }
+
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
         didSet { driver.actionDelegate = actionDelegate }
@@ -46,6 +55,11 @@ public final class UpdateController {
     var activeCheckIntent: UpdateCheckIntent?
     /// A ``checkInBackground()`` that waits for the running session to end.
     var pendingBackgroundCheck = false
+    /// The wake observer and the pending check after a wake (`UpdateController+Wake.swift`).
+    var wakeObservation: Task<Void, Never>?
+    var wakeCheckTask: Task<Void, Never>?
+    /// Runs after every Sparkle update cycle (scheduled, launch, wake, or asked for).
+    public var onUpdateCycleFinished: (@MainActor () -> Void)?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
@@ -60,7 +74,7 @@ public final class UpdateController {
     let readyRetryDelay: Duration = .milliseconds(250)
     let readyRetryCount = 20
 
-    private var didStartUpdater = false
+    private(set) var didStartUpdater = false
     /// `DisableAutoUpdate` (MDM), read on every start and check request.
     let isDisabledByPolicy: () -> Bool
 
@@ -72,7 +86,7 @@ public final class UpdateController {
     /// - Parameters:
     ///   - log: The update log sink (the app's `UpdateLogStore`).
     ///   - clock: Clock for bounded UI delays. Defaults to ``SystemUpdateClock``.
-    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
+    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's 15-minute check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
@@ -158,6 +172,8 @@ public final class UpdateController {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
         readyCheckTask?.cancel()
+        wakeObservation?.cancel()
+        wakeCheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
@@ -199,7 +215,10 @@ public final class UpdateController {
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
         // Terminal states the controller sets itself never pass through the driver.
-        if UpdateDriver.endsInstallRequest(state) { driver.installsWhenStaged = false }
+        if UpdateDriver.endsInstallRequest(state) {
+            driver.installsWhenStaged = false
+            driver.relaunchIsAutomatic = false
+        }
 
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)
@@ -279,6 +298,7 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.scheduledCheckIntervalKey)
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
+            defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
@@ -298,6 +318,7 @@ public final class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            if installsUpdatesInBackground { observeSystemWake() }
             return true
         } catch {
             model.setState(.error(.init(
@@ -328,6 +349,14 @@ public final class UpdateController {
             return
         }
 
+        if installsUpdatesInBackground {
+            // Hosts that never prompt check for real at launch: a found update downloads in the
+            // background and waits staged, instead of only being noted until the next scheduled
+            // check (up to an interval later).
+            log.append("starting launch background check")
+            checkInBackground()
+            return
+        }
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")

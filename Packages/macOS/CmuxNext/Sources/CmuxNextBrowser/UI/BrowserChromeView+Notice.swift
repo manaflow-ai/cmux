@@ -25,7 +25,7 @@ extension BrowserChromeView {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
         pageOverlays.release(notice)
-        Motion.animate(.fadeOut, in: notice, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.overlays.animate(.fadeOut, in: notice, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
             self?.pageOverlays.remove(notice)
         })
     }
@@ -56,7 +56,7 @@ extension BrowserChromeView {
         pageOverlays.add(notice)
         notice.alphaValue = 0
         syncPageOverlays()
-        Motion.animate(.fadeIn, in: notice) { notice.animator().alphaValue = 1 }
+        Motion.overlays.animate(.fadeIn, in: notice) { notice.animator().alphaValue = 1 }
         return notice
     }
 

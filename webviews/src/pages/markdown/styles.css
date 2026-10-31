@@ -3,7 +3,7 @@
    markdown/theme.css comes last). Defaults sit at zero specificity (`:where(:root)`) so settings
    and theme.css always win. The shared base (page colors, one background) is shared/pageBase.css. */
 :where(:root) {
-  --cmux-md-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --cmux-md-font-family: var(--font-ui);
   --cmux-md-font-size: 16px;
   --cmux-md-font-weight: 400;
   --cmux-md-line-height: 1.6;
@@ -80,6 +80,33 @@ body {
   min-width: 0;
 }
 
+/* Find (Cmd-F): the shared find pill at the top right of the document, under the toolbar, where
+   every pane's pill sits. The host takes no height, so opening find never moves the document. */
+.md-find-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-overlay);
+}
+.md-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.md-find > .find-pill {
+  min-width: 0;
+}
+::highlight(cmux-md-find) {
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+}
+::highlight(cmux-md-find-active) {
+  background-color: light-dark(#ff9632, #e8821e);
+  color: #1a1208;
+}
+
 .md-page-message {
   align-items: center;
   justify-content: center;
@@ -87,7 +114,9 @@ body {
   color: var(--cmux-md-muted-color);
 }
 
-.md-toolbar {
+/* The host scopes it past .ui-toolbar's inline-flex (ui.css), whatever order the bundle loads them in:
+   inline, the bar shrank to its content, its border stopped short and the file name met "Saved". */
+.md-toolbar-host > .md-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -126,6 +155,10 @@ body {
   border-radius: 4px;
   background: var(--cmux-md-accent-background);
   color: var(--cmux-md-muted-color);
+}
+
+.md-edit-button {
+  font-weight: 600;
 }
 
 .md-mode {
@@ -487,12 +520,39 @@ body {
   caret-color: transparent;
 }
 
-.md-prose :is(td, th).selectedCell::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--cmux-md-selection-color);
-  pointer-events: none;
+/* User 2026-10-28 ("highlighting full table cells is still weird"): the fill was an ::after layer
+   above the cell in --cmux-md-selection-color, which the app sets to the theme's opaque terminal
+   selection color, so selected cells were flat gray blocks with their words hidden. Native text
+   selection never draws that color as is: WebKit (the app's engine) paints an opaque ::selection
+   color through Color::blendWithWhite, the translucent color (alpha 0.6, 0.667, 0.733 or 0.8,
+   the least whose channels stay >= 0) that over white looks like the given one. The cell fill does
+   the same, as a background under the text: it matches the text selection in the rest of the
+   document, the page shows through it, and the words stay on top. A translucent color is kept. */
+.md-prose {
+  /* Inside rgb(from …) only: 1 for a translucent color, 0 for an opaque one. */
+  --md-cell-selection-keep: sign(1 - alpha);
+  --md-cell-selection-alpha: clamp(0.6, round(up, 1 - min(r, g, b) / 255, calc(1 / 15)), 0.8);
+  --md-cell-selection-color: rgb(
+    from var(--cmux-md-selection-color)
+      calc(
+        var(--md-cell-selection-keep) * r + (1 - var(--md-cell-selection-keep)) *
+          (r - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * g + (1 - var(--md-cell-selection-keep)) *
+          (g - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * b + (1 - var(--md-cell-selection-keep)) *
+          (b - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      / calc(var(--md-cell-selection-keep) * alpha + (1 - var(--md-cell-selection-keep)) * var(--md-cell-selection-alpha))
+  );
+}
+
+.md-prose :is(td, th).selectedCell {
+  background-image: linear-gradient(var(--md-cell-selection-color), var(--md-cell-selection-color));
+  background-clip: padding-box;
 }
 
 /* Column resizing (tables.ts ResizableTableView): a handle on the hovered column's right edge. */
@@ -758,7 +818,7 @@ body {
 [data-read-only="true"] .md-prose a,
 [data-read-only="true"] .md-prose sup[data-type="footnote_reference"],
 .md-prose [data-type="footnote_definition"] > dt {
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-prose .md-link-broken,
@@ -776,16 +836,18 @@ body {
   z-index: 20;
   max-width: min(560px, calc(100vw - 16px));
   padding: 6px 10px;
-  border: 1px solid var(--cmux-md-border-color);
   border-radius: 8px;
-  background: var(--cmux-md-popover-background);
-  box-shadow: var(--cmux-md-popover-shadow);
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-font-family);
   font-size: var(--cmux-md-popover-font-size);
 }
 
+/* The edit form is a glass popover (ui Popover): the glass rim is its one edge and .ui-popup gives
+   it no border and its elevation, so it sets neither (test/glass-one-edge.test.ts). */
 .md-link-bubble {
+  border: 1px solid var(--cmux-md-border-color);
+  background: var(--cmux-md-popover-background);
+  box-shadow: var(--cmux-md-popover-shadow);
   min-width: 220px;
   padding: 4px 4px 6px 8px;
   pointer-events: auto;
@@ -809,7 +871,7 @@ body {
   color: var(--cmux-md-link-color);
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-link-bubble-target:hover .md-link-bubble-url {
@@ -1020,7 +1082,7 @@ body {
   padding-left: 6px;
   border-radius: 5px;
   background: var(--page-hover);
-  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
 .md-width-field:focus-within {
@@ -1074,6 +1136,7 @@ body {
   font-size: var(--text-caption);
   line-height: 1;
   cursor: default;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .md-width-stepper button:hover {
@@ -1090,6 +1153,7 @@ body {
   color: var(--page-text-3);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .md-reading-check {
@@ -1256,15 +1320,15 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="abstract"], [data-callout="question"]) {
-  --md-callout-color: light-dark(#0f8a8a, #3cc6c6);
+  --md-callout-color: light-dark(#0f8a8a, #3cc6c6); /* theme-fixed: the abstract callout's teal has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="tip"], [data-callout="success"]) {
-  --md-callout-color: light-dark(#1a7f37, #3fb950);
+  --md-callout-color: var(--cmux-app-success, light-dark(#1a7f37, #3fb950));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="warning"]) {
-  --md-callout-color: light-dark(#b35900, #f0883e);
+  --md-callout-color: var(--cmux-app-warning, light-dark(#b35900, #f0883e));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="failure"], [data-callout="danger"], [data-callout="bug"]) {
@@ -1272,7 +1336,7 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="example"]) {
-  --md-callout-color: light-dark(#7c3aed, #a78bfa);
+  --md-callout-color: light-dark(#7c3aed, #a78bfa); /* theme-fixed: the example callout's purple has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="quote"]) {
@@ -1345,4 +1409,77 @@ body {
 .md-prose .md-callout-folded > :not(:first-child),
 .md-prose .md-callout-folded .md-callout-body {
   display: none;
+}
+
+/* Viewer comments (comments.ts, viewer-comments-DESIGN.md): a marker in the left margin just before
+   the block that holds the comment's first line; it opens the comment's card under it. The marker
+   takes no height, so the text never moves when comments come and go. */
+.cmux-comment-marker {
+  position: relative;
+  height: 0;
+  user-select: none;
+}
+
+.cmux-comment-button {
+  position: absolute;
+  top: 0.35em;
+  left: -28px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px 9px 9px 3px;
+  background: var(--cmux-accent);
+  opacity: 0.85;
+  cursor: default;
+}
+
+.cmux-comment-button:hover,
+.cmux-comment-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.cmux-comment-card {
+  position: absolute;
+  z-index: var(--layer-dropdown);
+  top: 1.6em;
+  left: -28px;
+  width: min(360px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 10px;
+  background: var(--page-elevated);
+  color: var(--cmux-md-text-color);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  box-shadow: var(--elevation-2);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.cmux-comment-card blockquote {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--cmux-md-border-color);
+  color: var(--cmux-md-muted-color);
+  white-space: pre-wrap;
+  max-height: 6.5em;
+  overflow: hidden;
+}
+
+.cmux-comment-card p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.cmux-comment-delete {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cmux-md-muted-color);
+  font: inherit;
+  cursor: default;
+}
+
+.cmux-comment-delete:hover {
+  color: var(--cmux-md-text-color);
 }

@@ -1,13 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts and harness names), not shipped UI.
 // Compaction and failover notes in the transcript (CompactionNote.tsx): a compaction running, one
-// subrouter ran to move the chat to another account, and acpmux moving the chat to its fallback
-// harness after a usage limit.
+// that failed and why, one subrouter ran to move the chat to another account, acpmux moving the chat to its fallback
+// harness after a usage limit, and a permission policy the chat's harness cannot keep (OpenCode, Pi).
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
 export default agentPaneEntry({
   id: "agent-pane.compaction-note",
-  title: "Compaction and failover notes",
+  title: "Compaction, failover and policy notes",
   area: "Agent pane",
   height: 360,
   covers: ["agent-session/acpmux/conversation/CompactionNote.tsx"],
@@ -24,10 +24,10 @@ export default agentPaneEntry({
       ]),
     },
     running: {
-      note: "A compaction while it runs, and one that failed.",
+      note: "A compaction while it runs, and one that failed with Claude Code's reason.",
       snapshot: chat([
         user("/compact", 3),
-        row("compaction", 3, { compaction: { state: "failed" } }),
+        row("compaction", 3, { compaction: { state: "failed", error: "Prompt is too long" } }),
         user("/compact", 2),
         row("compaction", 2, { compaction: { state: "running" } }),
       ]),
@@ -40,6 +40,30 @@ export default agentPaneEntry({
         assistant("Continuing the refactor from the restored context.", 3),
         summary(3, { status: "completed", durationMs: 12_000, toolCount: 0 }),
       ]),
+    },
+    "policy-unenforced": {
+      note: "An OpenCode chat with approve-reads: OpenCode's own settings decide what it asks, so acpmux can't keep the policy.",
+      snapshot: chat(
+        [
+          row("policyUnenforced", 5, { policyUnenforced: { policy: "approve-reads", why: "ownSettings" } }),
+          user("Tidy the README", 4),
+          assistant("Done: the install section now comes first.", 3),
+          summary(3, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+        ],
+        { harness: "opencode" },
+      ),
+    },
+    "policy-no-asking-mode": {
+      note: "A Pi chat locked down to deny-all: Pi has no mode that asks, so acpmux can't keep the policy.",
+      snapshot: chat(
+        [
+          row("policyUnenforced", 5, { policyUnenforced: { policy: "deny-all", why: "noAskingMode" } }),
+          user("Summarize the open issues", 4),
+          assistant("There are three: the flaky upload test, the slow cold start and the missing Thai strings.", 3),
+          summary(3, { status: "completed", durationMs: 6_000, toolCount: 0 }),
+        ],
+        { harness: "pi" },
+      ),
     },
   },
 });

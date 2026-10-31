@@ -24,10 +24,13 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The scale's own definitions, and the DEBUG text probes (cx-8w027.12, cx-8w027.26), which draw the
 # off-scale fonts chrome still uses (12 pt medium, 10.5 pt) to measure them; no chrome draws theirs.
+# Sleepy Mode's scene is illustration, not chrome: a 96 pt moon glyph, a 64 pt thin clock and
+# animated Zs on a full-screen night sky, none of which is a step of the scale.
 SKIP = (
     "CmuxNextDesign/TypeScale.generated.swift",
     "CmuxNextDesign/Text/LabelParityProbe.swift",
     "CmuxNextDesign/Text/TextWeightProbe.swift",
+    "CmuxNextApp/SleepyMode/SleepySceneView.swift",
 )
 
 NUMBER = r"\d+(?:\.\d+)?"

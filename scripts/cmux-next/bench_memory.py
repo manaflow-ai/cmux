@@ -13,6 +13,12 @@ and every --sample-minutes it lets the app settle at the same workspace
 count and samples again. Growth across those samples at an unchanged
 workspace count is a leak.
 
+--tabs 1,10,20 measures browser tabs instead (the Ardia/Helium/Dia comparison):
+N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
+(`local`: N distinct sites `siteN.localhost` served by this script, the same
+page each, so a run is deterministic; `real`: 20 well-known public sites; or a
+comma list). Each count is sampled after --settle seconds.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -25,6 +31,7 @@ Usage:
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
+  bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -35,7 +42,9 @@ import argparse
 import ctypes
 import json
 import os
+import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -211,12 +220,16 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
-        the app through it."""
+        the app through it. `focus` moves the app's focus to what the action
+        opens or selects, as the user's shortcut would; without it a new tab
+        opens in the background and does not load until it is shown."""
         params = {"action": action, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+        if focus:
+            params["focus"] = True
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
@@ -265,8 +278,10 @@ class FakeChats:
 
     def __init__(self, app: App, bundle: str, script: str):
         self.app = app
+        # The app splits `args` into words like a shell: a fleet step's checkout is under
+        # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(script), protocol="acp", replace="true")
+                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -395,6 +410,8 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     cmux on this Mac may bind one meanwhile. (lsof shows the app's bind
     path, not the name it is reached by.)"""
     for directory in dirs:
+        if not os.path.isdir(directory):
+            continue
         for name in os.listdir(directory):
             path = os.path.join(directory, name)
             if name.startswith("cmux") and name.endswith(".sock") and App(bundle, path).identify().get("pid") == pid:
@@ -431,14 +448,51 @@ def merged(base: dict, extra: dict) -> dict:
     return out
 
 
-def launch(bundle: str, config: dict, extra_env: dict | None = None):
+def tail(path: str, lines: int = 20) -> str:
+    """The last `lines` of the app's own output, for a launch that failed (empty when none)."""
+    try:
+        with open(path, errors="replace") as handle:
+            text = handle.read().splitlines()[-lines:]
+    except OSError:
+        return ""
+    return ("\napp output:\n" + "\n".join(text)) if text else ""
+
+
+def exception_records(bundle: str, since: float) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), written
+    since `since`. The app reads the account's real home (`homeDirectoryForCurrentUser`), not the
+    scratch HOME, so it is under ~/Library/Application Support/cmux-next/<bundle id>/."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier", "")
+    except OSError:
+        return ""
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    path = os.path.join(real_home, "Library", "Application Support", "cmux-next", bundle_id, "run.exception")
+    if not bundle_id or not os.path.exists(path) or os.path.getmtime(path) < since:
+        return ""
+    with open(path, errors="replace") as handle:
+        return f"\n--- {path}\n{handle.read()[:4000]}"
+
+
+def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
     responsible process of its WebKit processes. A child of this script
-    would leave them attributed to the shell that ran it."""
+    would leave them attributed to the shell that ran it.
+
+    `direct` (default: CMUX_BENCH_LAUNCH=direct) runs the app binary as a child instead, as
+    palette-open-stages.py does: a fleet step has no LaunchServices session (`open` starts
+    nothing on the minis, and the AWS workers refuse it), so a measure script must launch so."""
+    if direct is None:
+        direct = os.environ.get("CMUX_BENCH_LAUNCH") == "direct"
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
+    # The bundle's own executable (Info.plist): a DEV build also ships `__preview.dylib` there,
+    # which sorts first, so the first file is not the app.
+    with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+        binary = os.path.join(binary_dir, plistlib.load(handle)["CFBundleExecutable"])
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.
@@ -457,23 +511,102 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None):
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
-    argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
-    subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
+    log_path = os.path.join(scratch, "app.log")
+    launched_at = time.time()
+    if direct:
+        env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
+        with open(log_path, "a") as log:
+            child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+    else:
+        child = None
+        argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
+        subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             pid = next((p for p, _, cmd in process_table() if is_binary(cmd, binary)), None)
             # Only a socket the launched app itself holds: another cmux on
             # this Mac may bind one meanwhile.
-            path = control_socket(bundle, pid, ["/tmp", env["TMPDIR"]]) if pid else None
+            # A DEV build binds its socket in <HOME>/.local/state/cmux (build_names.py), linked from /tmp
+            # only when that path fits; look in all three.
+            path = control_socket(bundle, pid, [os.path.join(home, ".local", "state", "cmux"), "/tmp", env["TMPDIR"]]) if pid else None
             if path:
                 return pid, path, scratch
             time.sleep(1)  # test script: waiting for the launched app's socket
-        raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
+        state = os.path.join(home, ".local", "state", "cmux")
+        seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        # A direct child that ended says how (its exit status, or the signal that ended it).
+        ended = ""
+        if child is not None and child.poll() is not None:
+            code = child.returncode
+            ended = f"; the app process {child.pid} ended with {'signal ' + str(-code) if code < 0 else 'exit status ' + str(code)}"
+        elif child is not None:
+            ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
+        raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
+                         f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
         raise
+
+
+REAL_SITES = [
+    "https://en.wikipedia.org/wiki/Main_Page", "https://github.com/explore", "https://news.ycombinator.com",
+    "https://www.apple.com", "https://developer.mozilla.org/en-US/", "https://www.reddit.com",
+    "https://www.nytimes.com", "https://www.bbc.com/news", "https://stackoverflow.com/questions",
+    "https://www.youtube.com", "https://www.amazon.com", "https://docs.python.org/3/",
+    "https://www.figma.com", "https://www.notion.so", "https://vercel.com", "https://www.cloudflare.com",
+    "https://www.theverge.com", "https://arxiv.org", "https://www.espn.com", "https://www.imdb.com",
+]
+
+_LOCAL_PAGE = """<!doctype html><html><head><meta charset=utf-8><title>bench %(n)d</title>
+<style>body{font:15px -apple-system,sans-serif;max-width:760px;margin:40px auto;line-height:1.5}
+.card{border:1px solid #ccc;border-radius:8px;padding:12px;margin:12px 0}</style></head><body>
+<h1>Memory bench site %(n)d</h1>%(cards)s
+<script>document.querySelectorAll('.card').forEach((c,i)=>c.dataset.i=i)</script></body></html>"""
+
+
+def local_sites(count: int) -> list[str]:
+    """`count` distinct sites (siteN.localhost, its own renderer under site isolation) served here."""
+    import http.server
+    import threading
+
+    cards = "".join(f"<div class=card><h3>Card {i}</h3><p>{'lorem ipsum dolor sit amet ' * 12}</p></div>" for i in range(40))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            host = (self.headers.get("Host") or "site0").split(".")[0]
+            number = int(re.sub(r"\D", "", host) or 0)
+            body = (_LOCAL_PAGE % {"n": number, "cards": cards}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    return [f"http://site{i}.localhost:{port}/" for i in range(count)]
+
+
+def tab_urls(spec: str, count: int) -> list[str]:
+    if spec == "local":
+        return local_sites(count)
+    urls = REAL_SITES if spec == "real" else [u for u in spec.split(",") if u]
+    return [urls[i % len(urls)] for i in range(count)]
+
+
+def open_browser_tab(app: App, url: str) -> bool:
+    response = app.run("openBrowser.chromium", url=url)
+    if response.get("error") or response.get("code"):
+        print(f"   browser tab {url}: {response.get('message') or response.get('error')}", file=sys.stderr)
+        return False
+    return True
 
 
 def interrupted(_signum, _frame):
@@ -493,6 +626,10 @@ def main():
     parser.add_argument("--churn-minutes", type=float, default=0)
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
+    parser.add_argument("--tabs", help="browser-tab counts to sample, e.g. 1,10,20 (instead of --workspaces)")
+    parser.add_argument("--urls", default="local", help="--tabs: local, real or a comma list of URLs")
+    parser.add_argument("--cef-switches", default="",
+                        help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
@@ -513,13 +650,14 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config))
+        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
-    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
+    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []
 
@@ -534,6 +672,18 @@ def main():
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
+        if args.tabs:
+            tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
+            urls = tab_urls(args.urls, max(tab_counts))
+            report["tabs"] = tab_counts
+            report["urls"] = args.urls
+            made = 0
+            for count in tab_counts:
+                while made < count and open_browser_tab(app, urls[made]):
+                    made += 1
+                result = settle_and_sample(f"tabs-{made}")
+                result["tabs"] = made
+            counts = []
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:

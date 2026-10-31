@@ -27,6 +27,7 @@ use crate::state::prelude::*;
 use crate::state::remote_terminal_tabs_store::RemoteTerminalRecord;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::user_settings::NewWorkspacePlacement;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "closed.reopen";
 
@@ -39,6 +40,14 @@ pub(crate) struct ReopenRequest {
     pub(crate) window: Option<String>,
     /// Member indexes to restore; None: every member.
     pub(crate) members: Option<Vec<usize>>,
+    /// A `tab_` id: reopen the member of the newest group that holds this
+    /// tab, under the same id (a `cmux://tab/` link,
+    /// plans/cmux-next/durable-links-DESIGN.md). Excludes `closed` and
+    /// `members`.
+    pub(crate) tab: Option<String>,
+    /// A `pane_` id: where a reopened tab goes when its own pane and
+    /// workspace are gone, instead of the session's focused pane.
+    pub(crate) fallback_pane: Option<String>,
 }
 
 impl ReopenRequest {
@@ -47,10 +56,16 @@ impl ReopenRequest {
     fn fingerprint(&self) -> Value {
         let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
         if let Some(window) = &self.window {
-            fingerprint["window"] = serde_json::json!(window);
+            fingerprint.set("window", serde_json::json!(window));
         }
         if let Some(members) = &self.members {
-            fingerprint["members"] = serde_json::json!(members);
+            fingerprint.set("members", serde_json::json!(members));
+        }
+        if let Some(tab) = &self.tab {
+            fingerprint.set("tab", serde_json::json!(tab));
+        }
+        if let Some(pane) = &self.fallback_pane {
+            fingerprint.set("fallback_pane", serde_json::json!(pane));
         }
         fingerprint
     }
@@ -63,12 +78,15 @@ pub(super) struct Reopened {
     pub(super) screens: Vec<String>,
     pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
-    placements: Vec<(String, String)>,
+    pub(super) placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
-    reopened_as: std::collections::HashMap<String, String>,
+    pub(super) reopened_as: std::collections::HashMap<String, String>,
     /// A closed pane's id to the pane split off its neighbor again; the
     /// group's kept tabs of that pane follow it there.
     panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
+    /// The request's `fallback_pane`, live: where a tab whose pane and
+    /// workspace are gone reopens.
+    fallback_pane: Option<PaneId>,
 }
 
 impl Reopened {
@@ -161,6 +179,8 @@ fn commit_reopen(
         .cloned()
         .collect::<Vec<_>>();
     super::closed_pane_split::follow_split_panes(&mut keep, &reopened.panes);
+    super::closed_pane_split::retarget_members(&mut keep, &reopened.panes);
+    super::closed_pane_split::retarget_split_neighbors(transaction, closed_id, &reopened.panes)?;
     let remaining = keep.len();
     let kind = record["kind"].as_str().unwrap_or_default().to_string();
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
@@ -241,6 +261,10 @@ fn commit_reopen(
         changes.extend(crate::state::personal::all_groups(transaction)?);
         changes.extend(crate::state::personal::all_placements(transaction)?);
     }
+    // sidebar-doc-v1: the restored rows move their items back to their old
+    // place in the document (it listed the reopened workspace where it was
+    // created, last).
+    super::sidebar_doc_sync::sync_from_legacy(transaction)?;
     Ok(StateChanges::new(
         serde_json::json!({
             "closed_id": closed_id,
@@ -256,26 +280,33 @@ fn commit_reopen(
     ))
 }
 
-/// Give the reopened workspace the closed one's personal row: its group,
-/// its place in the personal sidebar order and its theme
-/// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
-fn restore_placement(
-    transaction: &rusqlite::Transaction<'_>,
-    closed_key: &str,
-    reopened_key: &str,
-) -> anyhow::Result<Vec<Value>> {
-    use crate::state::personal_state_store::{placement_id, placement_snapshot};
+/// Whether closed workspace `closed_key` still has its personal row in this
+/// session, the place [`restore_placement`] gives back on reopen.
+fn place_kept(connection: &rusqlite::Connection, closed_key: &str) -> anyhow::Result<bool> {
     use rusqlite::{OptionalExtension, params};
-    let local = crate::state::values::local_registry_id(transaction)?;
-    let kept = transaction
+    let local = crate::state::values::local_registry_id(connection)?;
+    Ok(connection
         .query_row(
             "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
             params![local, closed_key],
             |_| Ok(()),
         )
         .optional()?
-        .is_some();
-    if !kept {
+        .is_some())
+}
+
+/// Give the reopened workspace the closed one's personal row: its group,
+/// its place in the personal sidebar order and its theme
+/// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
+pub(super) fn restore_placement(
+    transaction: &rusqlite::Transaction<'_>,
+    closed_key: &str,
+    reopened_key: &str,
+) -> anyhow::Result<Vec<Value>> {
+    use crate::state::personal_state_store::{placement_id, placement_snapshot};
+    use rusqlite::params;
+    let local = crate::state::values::local_registry_id(transaction)?;
+    if !place_kept(transaction, closed_key)? {
         return Ok(Vec::new());
     }
     transaction.execute(
@@ -310,9 +341,31 @@ impl Mux {
         )? {
             return Ok(replay.into());
         }
-        let closed_id = match &request.closed {
-            Some(closed) => closed.clone(),
-            None => self
+        let by_tab = match &request.tab {
+            Some(tab) => {
+                if request.closed.is_some() || request.members.is_some() {
+                    anyhow::bail!("bad request: tab excludes closed and members");
+                }
+                let live = self.with_state(|state| {
+                    state.resource_indexes.tab_ids.values().any(|id| id.as_str() == tab)
+                });
+                let found = if live {
+                    None
+                } else {
+                    self.read_registry_state(|connection| {
+                        crate::state::closed_history_query::group_member_holding_tab(
+                            connection, tab,
+                        )
+                    })?
+                };
+                Some(found.ok_or_else(|| state_not_found("tab", tab))?)
+            }
+            None => None,
+        };
+        let closed_id = match (&by_tab, &request.closed) {
+            (Some((closed, _)), _) => closed.clone(),
+            (None, Some(closed)) => closed.clone(),
+            (None, None) => self
                 .read_registry_state(|connection| {
                     newest_for_window(connection, request.window.as_deref())
                 })?
@@ -322,8 +375,18 @@ impl Mux {
             .read_registry_state(|connection| closed_record(connection, &closed_id))?
             .ok_or_else(|| state_not_found("closed", &closed_id))?;
         let members = record["members"].as_array().cloned().unwrap_or_default();
-        let (restore, _) = choose(members, request.members.as_deref())?;
-        let mut reopened = Reopened::default();
+        let chosen = match &by_tab {
+            Some((_, member)) => Some(vec![*member]),
+            None => request.members.clone(),
+        };
+        let (restore, _) = choose(members, chosen.as_deref())?;
+        // A closed pane split off another pane of the same gesture comes back after it.
+        let restore = super::closed_pane_split::neighbors_first(restore);
+        let fallback_pane = request
+            .fallback_pane
+            .as_deref()
+            .and_then(|pane| self.with_state(|state| pane_by_public_id(state, pane)));
+        let mut reopened = Reopened { fallback_pane, ..Reopened::default() };
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
@@ -349,7 +412,7 @@ impl Mux {
                 if tabs.is_empty() {
                     continue;
                 }
-                group["tab_ids"] = serde_json::json!(tabs);
+                group.set("tab_ids", serde_json::json!(tabs));
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
@@ -406,7 +469,7 @@ impl Mux {
     /// tabs this reopen brought back, which are already in `reopened`. A
     /// live group of that id (an earlier partial reopen formed it) takes
     /// them in.
-    fn reopen_tab_group(
+    pub(super) fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
@@ -426,8 +489,15 @@ impl Mux {
                 .flatten()
                 .filter_map(Value::as_str)
                 .filter(|tab| {
+                    // A reopened tab keeps its id (durable-links-DESIGN.md), so the
+                    // membership row its close left behind names this same group: only
+                    // another group's row keeps it out.
                     !presentation.pinned_tabs.contains(*tab)
-                        && !presentation.tab_groups.members.contains_key(*tab)
+                        && presentation
+                            .tab_groups
+                            .members
+                            .get(*tab)
+                            .is_none_or(|group| group.as_str() == id)
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
@@ -589,40 +659,56 @@ impl Mux {
         tab: &Value,
         reattach: bool,
     ) -> anyhow::Result<SurfaceId> {
+        // The tab comes back under its own id, so every link to it keeps
+        // working (plans/cmux-next/durable-links-DESIGN.md). Each creation
+        // attempt below gets the id; the first that commits keeps it.
+        let retired = tab["tab_id"].as_str();
+        let same_id = |create: &mut dyn FnMut() -> anyhow::Result<SurfaceId>| {
+            tab_strip::reopen_identity::scoped(retired, create)
+        };
         let surface = match tab["kind"].as_str() {
             Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
                 let record = ConversationTabRecord::from_wire(&tab["conversation"])
                     .context("the closed conversation tab has no valid record")?;
-                let target = ConversationTabTarget::Pane(Some(pane));
-                self.new_conversation_tab_as(actor, target, record, None, None, None)?.surface.id
+                same_id(&mut || {
+                    let target = ConversationTabTarget::Pane(Some(pane));
+                    Ok(self
+                        .new_conversation_tab_as(actor, target, record.clone(), None, None, None)?
+                        .surface
+                        .id)
+                })?
             }
             Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
                 let record = RemoteTerminalRecord::from_wire(&tab["remote"])
                     .context("the closed remote-terminal tab has no valid record")?;
-                self.new_remote_terminal_tab_as(actor, Some(pane), record, None)?.id
+                same_id(&mut || {
+                    Ok(self.new_remote_terminal_tab_as(actor, Some(pane), record.clone(), None)?.id)
+                })?
             }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        let surface = self
-                            .new_frontend_browser_tab_as(
-                                actor,
-                                Some(pane),
-                                crate::workspace_registry::FrontendBrowserRecord {
-                                    engine: engine.to_string(),
-                                    url,
-                                    title: None,
-                                    favicon_url: None,
-                                    profile_id: tab["browser_profile_id"]
-                                        .as_str()
-                                        .map(str::to_string),
-                                    // The app that shows the reopened tab claims it.
-                                    owner: None,
-                                },
-                                None,
-                            )?
-                            .id;
+                        let surface = same_id(&mut || {
+                            Ok(self
+                                .new_frontend_browser_tab_as(
+                                    actor,
+                                    Some(pane),
+                                    crate::workspace_registry::FrontendBrowserRecord {
+                                        engine: engine.to_string(),
+                                        url: url.clone(),
+                                        title: None,
+                                        favicon_url: None,
+                                        profile_id: tab["browser_profile_id"]
+                                            .as_str()
+                                            .map(str::to_string),
+                                        // The app that shows the reopened tab claims it.
+                                        owner: None,
+                                    },
+                                    None,
+                                )?
+                                .id)
+                        })?;
                         // The page restores its back/forward entries and
                         // scroll from here, as at relaunch (cx-d0d.11).
                         if let Some(history) = tab["browser_history"].as_str()
@@ -635,27 +721,36 @@ impl Mux {
                         }
                         surface
                     }
-                    None => self.new_browser_tab_as(actor, url, Some(pane), None)?.id,
+                    None => same_id(&mut || {
+                        Ok(self.new_browser_tab_as(actor, url.clone(), Some(pane), None)?.id)
+                    })?,
                 }
             }
             _ => {
                 let running = reattach
                     .then(|| tab["terminal_id"].as_str())
                     .flatten()
-                    .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                    .filter(|resolution| {
-                        resolution.terminal.lifecycle == TerminalLifecycle::Running
-                    });
+                    .and_then(|terminal| self.resolve_running_terminal(terminal));
                 match running.and_then(|resolution| {
-                    self.project_terminal_into_pane(actor, &resolution.terminal.terminal_id, pane)
-                        .ok()
+                    same_id(&mut || {
+                        self.project_terminal_into_pane(
+                            actor,
+                            &resolution.terminal.terminal_id,
+                            pane,
+                        )
+                    })
+                    .ok()
                 }) {
                     Some(surface) => surface,
                     None => {
                         // ARCHIVE-1: the archived screen and the stopped
                         // program come back above the new shell.
                         let (spawn, _seed, size) = self.reopen_terminal_spawn(tab);
-                        self.new_tab_with_options_as(actor, Some(pane), spawn, size)?.id
+                        same_id(&mut || {
+                            Ok(self
+                                .new_tab_with_options_as(actor, Some(pane), spawn.clone(), size)?
+                                .id)
+                        })?
                     }
                 }
             }
@@ -700,9 +795,10 @@ impl Mux {
         let (home, neighbor) = self.with_state(|state| {
             (
                 super::closed_pane_split::home_pane(state, record, &reopened.panes),
-                super::closed_pane_split::split_neighbor(state, record),
+                super::closed_pane_split::split_neighbor(state, record, &reopened.panes),
             )
         });
+        let fallback = reopened.fallback_pane;
         let pane = self.with_state(|state| {
             home.or(neighbor)
                 .or_else(|| {
@@ -713,6 +809,9 @@ impl Mux {
                         .find(|candidate| candidate.public_id.as_str() == workspace)?;
                     workspace.active_screen_ref().map(|screen| screen.active_pane)
                 })
+                // A link's caller names where new items open (Home: the pane
+                // right of Home), checked live: it may have closed since.
+                .or_else(|| fallback.filter(|pane| state.panes.contains_key(pane)))
                 .or_else(|| state.active_pane())
         });
         // Back in its own pane, the tab is created at its recorded index in
@@ -738,8 +837,26 @@ impl Mux {
                 self.reopen_tab_record(actor, pane, tab, true)?
             }
         };
-        let home = match (home, neighbor) {
-            (None, Some(neighbor)) => {
+        // With its neighbor gone too (two sibling panes of one Close Other Panes), a closed
+        // pane still comes back as a pane of its own: split off the pane its first tab landed
+        // in, in its workspace, rather than joining that pane's tabs.
+        let landed_home = || {
+            self.with_state(|state| {
+                let landed = state.pane_of(surface)?;
+                let (workspace, _) = state.screen_of(landed)?;
+                (record["split"].is_object()
+                    && record["workspace_id"].as_str()
+                        == Some(state.workspaces.get(workspace)?.public_id.as_str()))
+                .then_some(landed)
+            })
+        };
+        let split_from = match (home, neighbor) {
+            (None, Some(neighbor)) => Some(neighbor),
+            (None, None) => landed_home(),
+            _ => None,
+        };
+        let home = match split_from {
+            Some(neighbor) => {
                 let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
                 let split = pane.and_then(|pane| {
                     self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
@@ -749,7 +866,7 @@ impl Mux {
                 }
                 pane
             }
-            (home, _) => home,
+            None => home,
         };
         self.restore_tab_index(actor, surface, home, record, tab);
         let pane =
@@ -908,7 +1025,7 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_workspace(
+    pub(super) fn reopen_closed_workspace(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,
@@ -921,10 +1038,18 @@ impl Mux {
             .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
                 self.first_terminal_spawn(screen)
             });
-        // Created last, so the row `restore_placement` drops in the reopen
-        // commit moves no other row; the closed row's place comes back.
-        let first = NewWorkspacePlacement::Bottom
-            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, size))?;
+        // A known place (the closed workspace's personal row was kept): created
+        // last, so the row `restore_placement` drops in the reopen commit moves
+        // no other row, and the closed row's place comes back. No known place:
+        // where `workspaces.newPlacement` puts a new workspace (top by default).
+        let known = match record["workspace_key"].as_str() {
+            Some(closed_key) => {
+                self.read_registry_state(|connection| place_kept(connection, closed_key))?
+            }
+            None => false,
+        };
+        let create = || self.new_workspace_with_spawn_as(actor, name, spawn, size);
+        let first = if known { NewWorkspacePlacement::Bottom.scoped(create)? } else { create()? };
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;

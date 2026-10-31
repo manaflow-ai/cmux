@@ -8,12 +8,15 @@
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
 //! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
-//! "recent": [<turn.end>...], "offered": {"models": [{id, name}...],
-//! "efforts": [...]}}`, or `{"error": {"code", "message"}}`.
+//! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
+//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
+//! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
+//! unavailable, unavailableReason?, ...}...]}}` (harness_offer.rs), or
+//! `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
-use super::{Brain, EngineRequest, Phase};
+use super::{Brain, EngineRequest, Phase, ReactionFields};
 use crate::engine::{EngineChoice, resolve};
 
 /// The efforts acpmux maps onto a harness (`default` clears the field).
@@ -34,6 +37,31 @@ fn apply(field: &mut Option<String>, value: Option<String>) {
     }
 }
 
+/// The reaction-wake fields of a set over `choice`; Err: the refusal.
+fn apply_reactions(choice: &mut EngineChoice, fields: ReactionFields) -> Result<(), Value> {
+    apply(&mut choice.classifier_harness, fields.classifier_harness);
+    apply(&mut choice.classifier_model, fields.classifier_model);
+    if let Some(prompt) = fields.classifier_prompt {
+        // A prompt keeps its own spacing; only `default` or empty clears it.
+        choice.classifier_prompt =
+            (!prompt.trim().is_empty() && prompt.trim() != "default").then_some(prompt);
+    }
+    if let Some(on) = fields.reactions_can_wake {
+        choice.reactions_can_wake = match on.trim() {
+            "" | "default" => None,
+            "true" | "on" => Some(true),
+            "false" | "off" => Some(false),
+            other => {
+                return Err(error(
+                    "invalid_value",
+                    format!("reactions_can_wake is true, false or default, not {other:?}"),
+                ));
+            }
+        };
+    }
+    Ok(())
+}
+
 impl Brain {
     pub(super) fn engine_control(&mut self, request: EngineRequest) -> Value {
         let Some(file) = self.settings.engine_file.clone() else {
@@ -51,6 +79,7 @@ impl Brain {
             compactor_speed,
             compactor_harness,
             compactor_model,
+            reactions,
         } = request
         {
             // A speed the target harness has (the turns' after this set;
@@ -86,9 +115,13 @@ impl Brain {
                     return error("invalid_speed", reason);
                 }
             }
-            for h in [set(&harness), set(&compactor_harness)]
-                .into_iter()
-                .flatten()
+            for h in [
+                set(&harness),
+                set(&compactor_harness),
+                set(&reactions.classifier_harness),
+            ]
+            .into_iter()
+            .flatten()
             {
                 if !self.settings.families.is_empty() && !self.settings.families.contains_key(&h) {
                     let known: Vec<&str> =
@@ -122,6 +155,9 @@ impl Brain {
             apply(&mut choice.compactor_speed, compactor_speed);
             apply(&mut choice.compactor_harness, compactor_harness);
             apply(&mut choice.compactor_model, compactor_model);
+            if let Err(e) = apply_reactions(&mut choice, *reactions) {
+                return e;
+            }
             if let Err(e) = crate::engine::save(&file, &choice) {
                 return error("write_failed", format!("{}: {e}", file.display()));
             }
@@ -139,6 +175,9 @@ impl Brain {
     }
 
     fn engine_answer(&self, choice: &EngineChoice) -> Value {
+        // The reaction classifier this Chief runs now (its engine.json over
+        // the user's cmux.json, reaction_wake.rs).
+        let reactions = self.reaction_config_for(choice);
         let s = &self.settings;
         let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
         let ends: Vec<Value> = s
@@ -159,6 +198,26 @@ impl Brain {
                 (self.log)(&format!("engine answer: acpmux models: {e}"));
                 Vec::new()
             });
+        // The speeds the turns' harness runs (Fast only on codex), as a set checks.
+        let family = self.family_of(&engine.harness);
+        let speeds: Vec<&str> = crate::engine::SPEEDS
+            .iter()
+            .copied()
+            .filter(|speed| crate::engine::check_speed(speed, family).is_ok())
+            .collect();
+        // Every engine the picker can switch the next turn to (harness_offer.rs).
+        let harnesses = self
+            .agents
+            .harness_catalog()
+            .map(|answer| {
+                super::harness_offer::offered_harnesses(&answer, &self.settings.families, |h| {
+                    self.family_of(h)
+                })
+            })
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
+                Vec::new()
+            });
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -168,34 +227,35 @@ impl Brain {
                 "compactor_model": choice.compactor_model,
                 "speed": engine.speed.as_deref().unwrap_or("default"),
                 "compactor_speed": choice.compactor_speed.as_deref().unwrap_or("default"),
+                "classifier_harness": reactions.harness,
+                "classifier_model": reactions.model,
+                "classifier_prompt": if reactions.prompt == crate::brain::reaction_wake::DEFAULT_PROMPT {
+                    ""
+                } else {
+                    reactions.prompt.as_str()
+                },
+                "reactions_can_wake": reactions.can_wake,
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS},
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses},
         })
     }
 
     /// chief.stop: a running turn stops as for a newer message, and its end
     /// posts nothing: the owner already knows they stopped it.
-    /// Every subagent at work stops too (the reference client's stop).
+    /// Subagents at work go on: only their own stop (chief.stop {name}) or a
+    /// control cancel stops one (2026-10-20: a Home stop while the Chief
+    /// worked stopped every subagent).
     pub(super) fn owner_stop(&mut self) -> Value {
-        let subagents = self.stop_subagents();
         let turn = self.phase == Phase::Running;
         if turn {
-            self.deny_pending("the owner stopped the turn");
             self.owner_stopped = true;
-            self.interrupt.request();
+            self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");
         }
-        if subagents.is_empty() {
-            return json!({"stopped": turn});
-        }
-        (self.log)(&format!(
-            "the owner stopped subagents {}",
-            subagents.join(", ")
-        ));
-        json!({"stopped": true, "subagents": subagents})
+        json!({"stopped": turn})
     }
 }
 

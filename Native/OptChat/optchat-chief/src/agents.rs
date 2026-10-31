@@ -178,15 +178,14 @@ fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value,
         .map_err(|e| format!("{method}: {e}"))
 }
 
-/// `_acpmux/sessions`, bounded.
+/// `_acpmux/sessions`, every page, each bounded.
 fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    Ok(ask_bounded(client, "_acpmux/sessions", json!({}))?
-        .get("sessions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect())
+    let list = crate::acpmux::whole_list(
+        |m, p| ask_bounded(client, m, p),
+        "_acpmux/sessions",
+        json!({}),
+    )?;
+    Ok(crate::acpmux::session_rows(&list).unwrap_or_default())
 }
 
 /// How long [`end_own_sessions`] waits for all its kills.
@@ -220,7 +219,14 @@ fn child(client: &RpcClient, name: &str) -> Result<SessionSummary, String> {
 /// The prompt's own answer, forwarded into the notification stream.
 const ANSWER: &str = "\u{0}answer";
 
-/// Sends a prompt and returns once acpmux accepted it (ran or queued it), not when its turn ends.
+/// A message to a child: steered into its running turn when its agent steers (acpmux queues it
+/// otherwise), so the child reads it at its next tool boundary instead of when that turn ends.
+fn tell_params(session: &str, text: &str, prompt_id: &str) -> Value {
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "steer": true}}})
+}
+
+/// Sends a prompt and returns once acpmux accepted it (ran, steered or queued it), not when its
+/// turn ends.
 fn prompt_accepted(
     client: &RpcClient,
     notes: &Notes,
@@ -231,10 +237,7 @@ fn prompt_accepted(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let prompt_id = format!("chief-cli-{}-{nanos}", std::process::id());
-    let answer = client.start(
-        "session/prompt",
-        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}}),
-    );
+    let answer = client.start("session/prompt", tell_params(session, text, &prompt_id));
     let forward = notes.0.clone();
     std::thread::spawn(move || {
         let params = match answer.recv() {
@@ -302,7 +305,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
 }
 
 /// The policy a child gets: the host's floor (`ask` while the Chief works
-/// for a paired device, README "Remote-origin messages") wins over
+/// in a turn another person started, README "Remote-origin messages") wins over
 /// `--policy` and `MUX_POLICY`.
 pub fn apply_floor(requested: &str, floor: Option<&str>) -> String {
     floor.unwrap_or(requested).to_owned()
@@ -314,13 +317,13 @@ fn asks(s: &SessionSummary) -> bool {
 
 /// Whether `agents allow|deny` may answer `child`'s `pending` permission (an
 /// `_acpmux/info` pending entry): not a child that runs with policy `ask`,
-/// whose approvals a person gives in the Chief chat, and never a question
+/// whose local effects the host refuses, and never a question
 /// (`toolCall._meta.acpmux.question`), which only a person answers or
 /// declines.
 pub fn cli_may_answer(child: &SessionSummary, pending: &Value) -> Result<(), String> {
     if asks(child) {
         return Err(format!(
-            "{} needs approvals from a person: answer allow or deny in the Chief chat",
+            "{} runs under the spawn floor of another person's turn: the host refuses its local effects",
             child.name
         ));
     }
@@ -432,7 +435,17 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             }
             client
                 .request("_acpmux/permission_respond", params)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| {
+                    if verb == "allow" {
+                        // acpmux takes an allow only from the person's app,
+                        // and a child has no tab there: say what still works.
+                        format!(
+                            "{e}\nOnly the person's cmux app can allow, and {name} has no tab there: `chief agents deny {name}` denies it, or tell it what to do instead with `chief agents prompt {name} \"...\"`."
+                        )
+                    } else {
+                        e.to_string()
+                    }
+                })?;
             client.close();
             Ok(format!(
                 "{}: {}",
@@ -441,5 +454,21 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             ))
         }
         _ => Err(USAGE.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tell_params;
+
+    #[test]
+    fn a_message_to_a_child_steers_its_running_turn() {
+        let params = tell_params("s-1", "look at this", "chief-cli-1");
+        assert_eq!(params["_meta"]["acpmux"]["steer"], true, "{params}");
+        assert_eq!(
+            params["_meta"]["acpmux"]["promptId"], "chief-cli-1",
+            "{params}"
+        );
+        assert_eq!(params["prompt"][0]["text"], "look at this", "{params}");
     }
 }

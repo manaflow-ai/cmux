@@ -7,11 +7,19 @@ import Testing
 @Suite struct ActionContractTests {
     let catalog = ActionCatalog.all
 
+    /// `remote.openRemote` is a top-level verb from #25092; rename to a
+    /// noun-verb form (e.g. `remote open`) when its owner next touches it.
+    static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            if let verb = Self.topLevelVerbs[descriptor.id] {
+                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            } else {
+                #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            }
             #expect(descriptor.cliName == descriptor.cliName.lowercased(), "\(descriptor.id)")
             if let other = seen[descriptor.cliName] {
                 Issue.record("cliName \(descriptor.cliName) used by \(other) and \(descriptor.id)")
@@ -27,9 +35,13 @@ import Testing
     /// Item move the selection of the focused list, which the palette
     /// replaces while it is open; the page menu's copy, save and Look Up
     /// rows act on the right-clicked element; Archive Chief and Open
-    /// Conversation act on a row of the Home page's list; Start Agent from
-    /// Any App is the system-wide key of Start Agent, whose row it is; the sidebar's Compact
-    /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows).
+    /// Conversation act on a row of the Home page's list, and Open Chief Subagent on a row of the Chief
+    /// pane's Subagents menu, and Pin or Unpin Chat on a row of the sidebar's chat history; Send Message… and Send to (Chief)… act on
+    /// the right-clicked object or selection, and Send Message To… is their palette row; Start Agent from
+    /// Any App and Message the Chief from Any App are the system-wide keys of Start Agent and Message the
+    /// Chief, whose rows they are; the sidebar's Compact
+    /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows; Mute Tab and
+    /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -37,11 +49,14 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.openConversation", "list.next", "list.previous",
+                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
+                "home.sendSelectionToChief", "list.next", "list.previous",
+                "import.card", "import.list", "import.suggest",
+                "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
-                "sidebar.density.comfortable", "sidebar.density.compact"]
+                "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
                "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",

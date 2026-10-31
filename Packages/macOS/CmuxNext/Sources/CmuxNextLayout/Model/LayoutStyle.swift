@@ -56,8 +56,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderColor: ThemeRGB?
     /// Border width in points (`layout.paneBorderWidth`); nil is one device pixel.
     public var paneBorderWidth: CGFloat?
-    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
-    public var inactivePaneDimming: CGFloat = 0.14
+    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on. Token: `Palette.inactivePaneDim`.
+    public var inactivePaneDimming: CGFloat = 0.10
     /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
     /// `inactivePaneDimming` on every unfocused pane.
     public var unfocusedPaneDim = UnfocusedPaneDim()
@@ -69,7 +69,7 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
     public var focusIndicator: FocusIndicator = .tabs
     public var inactiveTabStyle: InactiveTabStyle = .fade
-    public var inactiveTabStrength: CGFloat = 0.35
+    public var inactiveTabStrength: CGFloat = 0.4
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25
@@ -96,6 +96,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// cmux.json `layout.rows` (plans/cmux-next/rows.md O1 to O3): off, a
     /// column's existing rows fit it like stacked panes and never scroll.
     public var rowsEnabled = true
+    /// cmux.json `layout.scrollAreas` (plans/cmux-next/scroll-areas-DESIGN.md G1 to G5): on, a
+    /// split tree that needs more width than its frame scrolls inside it instead of squashing
+    /// its panes, and columns keep their width. Off (default) is today's layout.
+    public var scrollAreasEnabled = false
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -132,6 +136,7 @@ extension LayoutStyle {
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
+        style.inactivePaneDimming = Palette.inactivePaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
@@ -147,6 +152,7 @@ extension LayoutStyle {
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
         style.rowsEnabled = DesignSettings.shared.layoutRows
+        style.scrollAreasEnabled = DesignSettings.shared.layoutScrollAreas
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }

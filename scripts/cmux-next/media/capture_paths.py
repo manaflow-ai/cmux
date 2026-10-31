@@ -22,17 +22,11 @@ from path_map import map_paths
 
 ROOT = Path(__file__).resolve().parents[3]
 TOURS = ROOT / "scripts/cmux-next/media/tours"
-TOUR_FILES = {
-    "new-tab": TOURS / "new-tab.json",
-    "agent-pane": TOURS / "agent-pane.json",
-    "now-playing": TOURS / "now-playing.json",
-    "pinned-tabs": TOURS / "pinned-tabs.json",
-    "hover-card": TOURS / "hover-card.json",
-    "update-card": TOURS / "update-card.json",
-    "chief-settings": TOURS / "chief-settings.json",
-    "glass": TOURS / "glass.json",
-    "core": TOURS / "core.json",
-}
+
+
+def tour_file(name: str) -> Path:
+    """The tour file for a tour name path_map selected: tours/<name>.json."""
+    return TOURS / f"{name}.json"
 
 
 def read_paths(args: argparse.Namespace) -> list[str]:
@@ -79,7 +73,7 @@ def run_variant(
                "--app", str(app), "--out", str(raw)]
     if fresh_state:
         command.append("--fresh-state")
-    command.extend(str(TOUR_FILES[name]) for name in tours)
+    command.extend(str(tour_file(name)) for name in tours)
     completed = subprocess.run(command, check=False)
     status = completed.returncode
     for name in tours:
@@ -137,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
         args.receipt.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         return 0
 
-    tours = list(mapping["tours"])
+    # A pull request that deletes a tour file names a tour with nothing left to run.
+    tours = [name for name in mapping["tours"] if tour_file(name).is_file()]
     status = run_variant(app=args.base_app, variant="before", tours=tours, out=args.out,
                          fresh_state=not args.no_fresh_state)
     status |= run_variant(app=args.head_app, variant="after", tours=tours, out=args.out,

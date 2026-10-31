@@ -24,6 +24,7 @@ fn fx(name: &str) -> Fx {
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     let mut cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };

@@ -100,7 +100,7 @@ public struct PaletteQueryTargetParser: Sendable {
         }
         let local = host.lowercased() == "localhost"
         let labels = host.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        let isIPv4 = labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy(\.isNumber) && Int($0)! <= 255 }
+        let isIPv4 = labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy(\.isNumber) && (Int($0) ?? 256) <= 255 }
         let validLabels = labels.allSatisfy { label in
             !label.isEmpty && label.count <= 63 && !label.hasPrefix("-") && !label.hasSuffix("-")
                 && label.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || $0 == "-" }

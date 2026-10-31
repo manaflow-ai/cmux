@@ -10,7 +10,10 @@ export type NewTabIntent =
   /// An address the browser loads.
   | { kind: "url"; url: string }
   /// Plain text: a prompt for an agent (a web search is an explicit row, never a mode, R86).
-  | { kind: "prompt"; text: string };
+  | { kind: "prompt"; text: string }
+  /// Text nothing may load, search or send to an agent: an old Mac Screen pairing link
+  /// (`pairing_link`; it carried a room secret). Return shows the host's refusal.
+  | { kind: "refused"; reason: "pairing_link" };
 
 export type NewTabIntentOptions = {
   /// The user's home folder, for `~` and `~/path`; without it those are text.
@@ -87,9 +90,17 @@ const FILE_EXTENSIONS = new Set([
   "zsh",
 ]);
 
+/// Whether `text` holds an old Mac Screen pairing link (`cmux-vnc://pair?…` or
+/// `cmux-vnc:pair?…`, any case, anywhere). The Swift `BrowserURLResolver.containsPairingLink`
+/// is the same rule; the intent table holds both to it.
+export function containsPairingLink(text: string): boolean {
+  return /cmux-vnc:(\/\/)?pair/i.test(text);
+}
+
 export function classifyNewTabInput(input: string, options: NewTabIntentOptions = {}): NewTabIntent {
   const trimmed = input.trim();
   if (!trimmed) return { kind: "none" };
+  if (containsPairingLink(trimmed)) return { kind: "refused", reason: "pairing_link" };
   if (trimmed.startsWith(TERMINAL_PREFIX)) return { kind: "terminal", command: trimmed.slice(1).trim() };
   const url = newTabURL(trimmed, options.home);
   if (url) return { kind: "url", url };
@@ -207,9 +218,51 @@ function schemeLessURL(text: string): string | undefined {
   const { host, hasPort } = splitHostAndPort(authority);
   if (!host) return undefined;
   if (isLoopback(host)) return "http://" + text;
+  if (isNonUniqueHost(host)) {
+    // Chromium never upgrades private IPs or intranet names to https (no certificate). A single
+    // label needs a port or a path (`go/gday`, `devbox:8080`, `router/`); alone it is text.
+    const hasPath = text.charAt(authority.length) === "/";
+    if (!/[.:]/.test(host) && !hasPort && !hasPath) return undefined;
+    return "http://" + text;
+  }
   if (hasPort || isDottedHost(host)) return "https://" + text;
   return undefined;
 }
+
+/// Names and addresses that are not globally unique (BrowserURLResolver.isNonUniqueHost,
+/// Chromium's `net::IsHostnameNonUnique`): private, shared and link-local IPv4, unique-local and
+/// link-local IPv6, single-label hosts and the reserved or intranet suffixes.
+function isNonUniqueHost(host: string): boolean {
+  if (host.includes(":")) return /^(fc|fd|fe[89ab])/.test(host);
+  const labels = host.split(".");
+  if (labels.length === 4 && labels.every(isOctet)) {
+    const [a, b] = labels.map(Number) as [number, number];
+    return (
+      a === 10 ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+  if (labels.some((label) => !label)) return false;
+  if (labels.length === 1) return !/^[0-9]+$/.test(host);
+  return INTRANET_SUFFIXES.some((suffix) => host === suffix || host.endsWith("." + suffix));
+}
+
+const INTRANET_SUFFIXES = [
+  "local",
+  "lan",
+  "internal",
+  "intranet",
+  "corp",
+  "home",
+  "localdomain",
+  "test",
+  "example",
+  "invalid",
+  "home.arpa",
+];
 
 /// Lowercased host (IPv6 brackets stripped) and whether a numeric port follows. A non-numeric
 /// port gives an empty host.

@@ -173,7 +173,8 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     await page.getByText("All three done.").waitFor();
     const lists = await page.evaluate(() =>
       [...document.querySelectorAll(".cv-plan")].map((list) => ({
-        heading: list.querySelector(".cv-plan__heading")?.textContent,
+        // Heard, not drawn, like each item's state: the marks show the progress.
+        progress: list.querySelector(".cv-plan__progress")?.textContent,
         items: [...list.querySelectorAll(".cv-plan__item")].map((item) => [
           item.querySelector(".cv-plan__text")?.textContent,
           item.getAttribute("data-status"),
@@ -190,7 +191,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     ).toBe(true);
     expect(lists).toEqual([
       {
-        heading: "2 of 3 tasks done",
+        progress: "2 of 3 tasks done",
         items: [
           ["Add retry to the uploader", "completed", "Done"],
           ["Cover it with a test", "completed", "Done"],
@@ -199,6 +200,50 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
       },
     ]);
 
+    // Claude desktop's card: the marks carry the state, with no strike-through or bold, and the
+    // step the agent left in progress stops spinning once its turn has ended.
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".cv-plan__item")].map((item) => {
+          const style = getComputedStyle(item);
+          return [style.textDecorationLine, style.fontWeight];
+        }),
+      ),
+    ).toEqual([
+      ["none", "400"],
+      ["none", "400"],
+      ["none", "400"],
+    ]);
+    expect(
+      await page
+        .locator('.cv-plan__item[data-status="in_progress"] .cv-plan__mark')
+        .evaluate((mark) => getComputedStyle(mark).animationName),
+    ).toBe("none");
+    expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).not.toBe("none");
+
+    await page.close();
+  });
+  test("while the turn runs, the step in progress spins and the next one waits as a dashed circle", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(LIVE));
+    await page.getByText("Adding retry now.").waitFor();
+    const mark = (status: string) =>
+      page.locator(`.cv-plan__item[data-status="${status}"] .cv-plan__mark`).evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { animation: style.animationName, border: style.borderTopStyle };
+      });
+    // Every step shows: the row is not held to the composer Plan toggle's 28px (.acpmux-plan).
+    expect(
+      await page.evaluate(() => {
+        const row = document.querySelector(".acpmux-row:has(.cv-plan)")!.getBoundingClientRect();
+        return [...document.querySelectorAll(".cv-plan__item")].every((item) => {
+          const box = item.getBoundingClientRect();
+          return box.top >= row.top && box.bottom <= row.bottom;
+        });
+      }),
+    ).toBe(true);
+    expect((await mark("in_progress")).animation).toBe("cmux-spin");
+    expect(await mark("pending")).toEqual({ animation: "none", border: "dashed" });
     await page.close();
   });
   test("while the turn runs, the checklist stands for its TodoWrite calls", async () => {

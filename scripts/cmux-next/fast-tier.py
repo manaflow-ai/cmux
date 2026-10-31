@@ -12,8 +12,8 @@ within --max-seconds (60) after the build. A swift or cargo entry whose filter
 runs no test fails.
 
 --kind KIND (repeatable) runs only the entries of those kinds, so one registry
-feeds two CI jobs: cmux-next.yml's Linux `fast-tier-cargo` job runs
-`--kind cargo` and the Mac `fast-tier` job runs `--kind swift --kind script`.
+feeds two CI jobs: cmux-next.yml's `fast-tier-cargo` job runs
+`--kind cargo --kind script` and the Mac `fast-tier` job runs `--kind swift`.
 A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
 
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
@@ -33,9 +33,11 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shlex
 import subprocess
 import sys
+import threading
 import time
 
 KINDS = {"swift": ("package", "filter"), "cargo": ("path", "package"), "script": ("path",)}
@@ -99,18 +101,67 @@ def ran_no_test(entry, output):
     return not any(int(n) for match in TEST_COUNTS.findall(output) for n in match if n)
 
 
+def descendants(pid):
+    """Every live process below pid, from one ps table (macOS and Linux)."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = [tuple(int(x) for x in line.split()) for line in out.splitlines() if len(line.split()) == 3]
+    children = {}
+    for child, parent, pgid in rows:
+        children.setdefault(parent, []).append((child, pgid))
+    found, todo = [], [pid]
+    while todo:
+        for child, pgid in children.get(todo.pop(), []):
+            found.append((child, pgid))
+            todo.append(child)
+    return found
+
+
+def stop_tree(pid):
+    """SIGKILL the entry's process group and every process below it, in whatever
+    group it sits: SwiftPM starts xctest in a group of its own. Never our own group."""
+    mine = os.getpgrp()
+    targets = descendants(pid)
+    for group in {pid, *(pgid for _, pgid in targets)} - {mine}:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    for child, _ in targets:
+        try:
+            os.kill(child, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def run_once(root, entry, max_seconds):
     argv, cwd = command(entry)
     started = time.monotonic()
+    # Its own session, so a timeout stops everything the entry started: swift test
+    # runs the tests in an xctest child that outlives it (cmux19, run 39360407187:
+    # six orphan xctest processes after three timed-out entries).
+    proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
     try:
-        done = subprocess.run(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, timeout=max_seconds)
-        ok, output = done.returncode == 0, done.stdout
+        output, _ = proc.communicate(timeout=max_seconds)
+        ok = proc.returncode == 0
         if ok and ran_no_test(entry, output):
             ok, output = False, output + "\nmatched no test: check the entry's filter"
-    except subprocess.TimeoutExpired as expired:
-        output = expired.stdout if isinstance(expired.stdout, str) else (expired.stdout or b"").decode(errors="replace")
-        ok, output = False, output + f"\ntimed out after {max_seconds}s"
+    except subprocess.TimeoutExpired:
+        stop_tree(proc.pid)
+        try:
+            output, _ = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:  # something outside the tree still holds the pipe
+            proc.stdout.close()
+            proc.wait()
+            output = "(output cut off: a process outside the entry still held it)"
+        ok, output = False, (output or "") + f"\ntimed out after {max_seconds}s"
+    finally:
+        # A child that outlived a finished entry dies with it too.
+        stop_tree(proc.pid)
     return ok, time.monotonic() - started, output
 
 
@@ -119,27 +170,67 @@ def line(status, entry, seconds, extra=""):
     return f"FAST-TIER {status} {entry['name']} {seconds:.1f}s owner={entry['owner']} bead={entry.get('bead') or 'none'}{tail}"
 
 
+def run_build(root, argv, cwd, what, log_lock):
+    """One build, its output streamed line by line under a `[what]` prefix so a
+    build running beside another stays readable. Returns (returncode, seconds)."""
+    started = time.monotonic()
+    proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    for output_line in proc.stdout:
+        with log_lock:
+            print(f"[{what}] {output_line.rstrip()}", flush=True)
+    return proc.wait(), time.monotonic() - started
+
+
 def build_packages(root, entries, dry_run, timing):
-    """Builds every Swift package and cargo test binary once, outside the entries' time cap."""
-    builds = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
-              for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
+    """Builds every Swift package and cargo test binary once, outside the entries' time cap.
+
+    The Swift builds and the cargo builds share no outputs, so the two groups run
+    side by side (each group in order): on a warm runner the CmuxNext build
+    (~160 s) and the cmux-tui test build (~115 s) used to run one after the other.
+    """
+    swift = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
+             for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
+    cargo = []
     for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
         packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        builds.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
-    for argv, cwd, what in builds:
-        print("BUILD " + describe(argv, cwd), flush=True)
-        started = time.monotonic()
-        if dry_run:
+        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+    builds = swift + cargo
+    if dry_run:
+        for argv, cwd, what in builds:
+            print("BUILD " + describe(argv, cwd), flush=True)
             timing.append({"name": what, "command": describe(argv, cwd), "seconds": 0.0, "status": "dry-run"})
+        return True
+
+    log_lock = threading.Lock()
+    results = {}
+
+    def run_group(group):
+        for argv, cwd, what in group:
+            with log_lock:
+                print("BUILD " + describe(argv, cwd), flush=True)
+            returncode, seconds = run_build(root, argv, cwd, what, log_lock)
+            results[what] = (returncode, seconds)
+            if returncode != 0:
+                return
+
+    threads = [threading.Thread(target=run_group, args=(group,)) for group in (swift, cargo) if group]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    ok = True
+    for argv, cwd, what in builds:
+        if what not in results:
             continue
-        done = subprocess.run(argv, cwd=root / cwd)
-        seconds = time.monotonic() - started
-        status = "pass" if done.returncode == 0 else "fail"
+        returncode, seconds = results[what]
+        status = "pass" if returncode == 0 else "fail"
         timing.append({"name": what, "command": describe(argv, cwd), "seconds": round(seconds, 3), "status": status})
-        if done.returncode != 0:
+        if returncode != 0:
             print(f"FAST-TIER FAIL build:{what}: the tests do not build", flush=True)
-            return False
-    return True
+            ok = False
+    return ok
 
 
 def write_receipt(path, *, status, started_wall, builds, results, total_seconds, kinds=None):

@@ -4,8 +4,11 @@
 //! picks the tab (`browser.page.right`: the agent's own tab there, else the
 //! shown browser tab, else a new one there, never in the dock or with focus,
 //! and never a tab another agent holds); the verb then runs on that tab like
-//! `cmux browser <tab_…> <verb>`. `cmux browser right release` gives the
-//! agent's tabs back.
+//! `cmux browser <tab_…> <verb>`. The CLI names the verb, because only reads
+//! may run on the person's shown tab; `--take` (only when the person handed
+//! that tab over) lets a write run there too
+//! (plans/cmux-next/agent-browser-passkey-DESIGN.md). `cmux browser right
+//! release` gives the agent's tabs back.
 
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
@@ -20,6 +23,9 @@ const RIGHT_TIMEOUT: Duration = Duration::from_secs(25);
 
 pub(super) fn parse(args: &[String]) -> Result<AppCommand, UsageError> {
     let usage = || UsageError::new(crate::localization::catalog().app_control.browser_page_usage);
+    let take = args.iter().any(|arg| arg == "--take");
+    let args: Vec<String> = args.iter().filter(|arg| *arg != "--take").cloned().collect();
+    let args = args.as_slice();
     let (words, agent) = take_agent(args).ok_or_else(usage)?;
     let agent = agent.or_else(|| agent_from_env(|key| std::env::var(key).ok()));
     let mut params = Map::new();
@@ -37,6 +43,17 @@ pub(super) fn parse(args: &[String]) -> Result<AppCommand, UsageError> {
     }
     // The verb as on the focused tab (`page`); run() names the tab.
     let then = parse_page("page", args)?;
+    let verb = match &then {
+        AppCommand::Call { method, .. } => Some(*method),
+        AppCommand::Screenshot { .. } => Some("browser.page.screenshot"),
+        _ => None,
+    };
+    if let Some(verb) = verb {
+        params.insert("verb".into(), json!(verb));
+    }
+    if take {
+        params.insert("take".into(), json!(true));
+    }
     if let AppCommand::Call { method: "browser.page.navigate", params: inner, .. } = &then
         && let Some(url) = inner.get("url")
     {

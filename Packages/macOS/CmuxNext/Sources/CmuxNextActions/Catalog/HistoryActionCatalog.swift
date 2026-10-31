@@ -58,7 +58,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ),
             // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
-                id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
+                id: "browserShowHistory", title: t("action.history.showFromPage", "Show Browser History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),
                 category: .browser, symbol: "clock.fill", surfaces: [.keyboard], requires: [.browserFocused],
                 cliName: "browser show-history"
@@ -95,7 +95,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             // resume the agent session, run the command again). The History page's rows and
             // `cmux history open` run it; the entry's facts come from its owner, never the caller.
             ActionDescriptor(
-                id: "history.open", title: t("action.history.open", "Open History Entry"),
+                id: "history.open", title: t("action.history.open", "Open History Entry…"),
                 keywords: ["history", "open", "reopen", "resume", "run again", "go to"], category: .window,
                 symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
                 arguments: [

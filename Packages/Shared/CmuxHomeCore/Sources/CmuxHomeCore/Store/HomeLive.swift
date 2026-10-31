@@ -116,13 +116,16 @@ public struct HomeLiveRunChange: Hashable, Sendable {
     public var turn: IdempotencyKey?
     /// `running`, `done`, `failed` or `cancelled` (TRAJECTORIES.md Run.status).
     public var status: String
+    /// Persisted agent-message steps accompanying this run update.
+    public var agentRun: HomeAgentRun?
 
-    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?, status: String) {
+    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?, status: String, agentRun: HomeAgentRun? = nil) {
         self.conversation = conversation
         self.author = author
         self.run = run
         self.turn = turn
         self.status = status
+        self.agentRun = agentRun
     }
 }
 
@@ -136,6 +139,10 @@ public struct HomeLiveRun: Hashable, Sendable {
     /// The run's talk steps in order, joined by a blank line ("" before the first text).
     public var text: String
     public var activity: HomeLiveActivity?
+    /// The headline of the run's newest thought (`String.thoughtHeadline`), kept after its step ends
+    /// until the next thought; nil when there is none.
+    /// Home's running indicator shows its headline as the Chief's progress narration.
+    public var thought: String? = nil
 
     /// The reply so far as HomeStore's running reply, so the view grows it as
     /// it grows a `conversation-draft` and lands the posted reply in it.

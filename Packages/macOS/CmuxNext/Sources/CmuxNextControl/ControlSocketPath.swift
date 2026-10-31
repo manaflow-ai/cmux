@@ -164,13 +164,8 @@ public enum ControlAccessMode: String, Sendable, CaseIterable {
     case cmuxOnly
     /// Any process of the same user.
     case automation
-    /// Same user, after `auth <password>` or `auth.login`.
-    case password
-    /// Any local process. Developer-only.
-    case allowAll
-
     /// Socket file permissions for this mode.
     var filePermissions: mode_t {
-        self == .allowAll ? 0o666 : 0o600
+        0o600
     }
 }

@@ -53,6 +53,30 @@ test("child exit before readiness fails even if its old socket path exists", asy
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a non-connected snapshot is not successful authentication", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "cmux-ready-state-"));
+  const socket = path.join(root, "link.sock");
+  try {
+    const fixture = `
+      process.stdout.write(JSON.stringify({
+        event: 'connection-snapshot',
+        local_socket: ${JSON.stringify(socket)},
+        connection: { state: 'reconnecting' },
+      }) + '\\n');
+      setTimeout(() => process.exit(1), 20);
+    `;
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const managed = yield* startPrivateLinkClient(
+        process.execPath,
+        ["-e", fixture],
+        { event: "connection-snapshot", socket },
+      );
+      return yield* Effect.either(managed.ready);
+    })));
+    expect(result._tag).toBe("Left");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("shutdown escalates only after its deadline and waits for process close", async () => {
   const { Fiber, TestClock, TestContext } = await import("effect");
   const root = mkdtempSync(path.join(tmpdir(), "cmux-close-test-"));

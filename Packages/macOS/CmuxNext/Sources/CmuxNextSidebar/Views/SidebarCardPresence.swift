@@ -20,11 +20,13 @@ final class SidebarCardPresence {
     private var laidOut = false
     /// Bumped by every show or hide, so a stale exit's completion does nothing.
     private var generation = 0
+    /// The next hide skips the exit: the card goes in one frame (Hide under Reduce Motion).
+    var hidesNextAtOnce = false
 
     /// - Parameters:
     ///   - view: The card.
     ///   - policy: The motion settings, read at each change (`Motion.policy`).
-    init(_ view: NSView, policy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+    init(_ view: NSView, policy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         self.view = view
         self.policy = policy
     }
@@ -35,6 +37,7 @@ final class SidebarCardPresence {
     func setShown(_ shown: Bool) {
         guard let view else { return }
         if shown {
+            hidesNextAtOnce = false
             guard view.isHidden || isLeaving else { return }
             generation += 1
             if isLeaving {
@@ -51,8 +54,12 @@ final class SidebarCardPresence {
         guard !view.isHidden, !isLeaving else { return }
         generation += 1
         pendingEnter = false
-        guard laidOut else {
+        let atOnce = hidesNextAtOnce
+        hidesNextAtOnce = false
+        guard laidOut, !atOnce else {
+            laidOut = false
             view.isHidden = true
+            view.superview?.needsLayout = true
             return
         }
         isLeaving = true

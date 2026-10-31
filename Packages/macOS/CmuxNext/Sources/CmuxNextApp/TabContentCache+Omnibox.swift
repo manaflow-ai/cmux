@@ -8,6 +8,7 @@ extension TabContentCache {
     func makeSuggestionEngine(history: InMemoryBrowserHistory, profile: BrowserProfileID) -> OmniboxSuggestionEngine {
         let engine = OmniboxSuggestionEngine(history: history)
         engine.remote.fetcher = URLSessionSuggestFetcher()
+        engine.intranetProbe = Self.makeIntranetProbe()
         engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: false, profile: profile) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
@@ -21,16 +22,23 @@ extension TabContentCache {
         // A private profile follows the remote setting, over an ephemeral session.
         engine.remote.fetcher = URLSessionSuggestFetcher()
         engine.remote.isPrivate = true
+        if engine.intranetProbe == nil { engine.intranetProbe = Self.makeIntranetProbe() }
         engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: true, profile: .default) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
         return engine
     }
 
+    /// The bare-word intranet check (`wiki` loads `http://wiki/` when the
+    /// company's DNS resolves it), under Chrome's IntranetRedirectBehavior policy.
+    static func makeIntranetProbe() -> IntranetHostProbe {
+        IntranetHostProbe(lookup: SystemHostLookup(), behavior: ChromeIntranetPolicy().behavior())
+    }
+
     /// The omnibar engine of `page`'s profile: the incognito one for an
     /// off-the-record page (a tab's omnibar and a popup window's share it).
     func suggestionEngine(forPage page: any BrowserTab) -> OmniboxSuggestionEngine {
-        OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoSuggestions(incognitoMemory) : suggestions(for: page.profileID)
+        cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoSuggestions(incognitoMemory) : suggestions(for: page.profileID)
     }
 
     /// Every engine made so far (settings apply to each).
@@ -42,7 +50,7 @@ extension TabContentCache {
     func openTabRows(incognito: Bool, profile: BrowserProfileID) -> [OmniboxTabRow] {
         browsers.compactMap { key, entry in
             let page = entry.tab
-            let offTheRecord = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID)
+            let offTheRecord = cef.stores.offTheRecord.isOffTheRecord(page.profileID)
             guard offTheRecord == incognito, incognito || page.profileID == profile,
                   let url = page.state.url, !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return OmniboxTabRow(key: key, url: url, title: page.state.title)

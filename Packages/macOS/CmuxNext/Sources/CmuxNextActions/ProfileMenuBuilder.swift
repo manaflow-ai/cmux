@@ -22,8 +22,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         self.registry = registry
     }
 
-    /// `avatar` is drawn in the current-profile row's image column.
-    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
+    /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
+    /// leaves the row out.
+    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
+                     spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
         menu.addItem(profileRow(profile, avatar: avatar, actions: spec.profileActions))
@@ -40,13 +43,38 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             item.submenu = sub
             menu.addItem(item)
         }
+        if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
+        if let updates = row(spec.updates) { menu.addItem(updates) }
+        spec.account.compactMap(row).forEach(menu.addItem)
         let creation = spec.creation.compactMap(row)
         if !creation.isEmpty {
             menu.addItem(.separator())
             creation.forEach(menu.addItem)
         }
         return menu
+    }
+
+    /// The account rows: signed in (`who` is the name, then the email), who it is (not a command)
+    /// and the team (its row opens the team picker) on top and Sign Out at the end; signed out
+    /// (`who` nil), Sign In at the end.
+    public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?) {
+        if let item = registry.makeMenuItem(for: who == nil ? "palette.auth.signIn" : "palette.auth.signOut") {
+            menu.addItem(.separator())
+            menu.addItem(item)
+        }
+        guard let who else { return }
+        menu.insertItem(.separator(), at: 0)
+        if let team, let item = registry.makeMenuItem(for: "openTeamPicker") {
+            item.title = team
+            item.image = Self.symbol("person.2", label: team)
+            menu.insertItem(item, at: 0)
+        }
+        for line in who.reversed() {
+            let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.insertItem(header, at: 0)
+        }
     }
 
     /// The current profile, its avatar and a submenu with its options. A
@@ -65,6 +93,23 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return item
     }
 
+    /// Show Chief / Hide Chief (Leo 2026-10-20, as Codex's profile menu toggles its floating
+    /// window): flips `home.chiefPetEnabled` to the other value through the one setting path,
+    /// `palette.toggleSetting`, as the palette and `cmux settings toggle-setting` do.
+    private func chiefPetRow(shown: Bool) -> NSMenuItem? {
+        let toggle: ActionID = "palette.toggleSetting"
+        guard let item = boundMenuItem(toggle) else { return nil }
+        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChief", "Hide Chief")
+            : ProfileMenuSpec.text("menu.profile.showChief", "Show Chief")
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        item.image = Self.symbol(shown ? "eye.slash" : "eye", label: item.title)
+        item.identifier = NSUserInterfaceItemIdentifier("profileMenu.chiefPet")
+        item.representedObject = ActionMenuPayload(id: toggle, target: nil,
+                                                   arguments: ["setting": .string(ProfileMenuSpec.chiefPetSetting), "on": .bool(!shown)])
+        return item
+    }
+
     private func row(_ row: ProfileMenuSpec.Row) -> NSMenuItem? {
         guard let item = boundMenuItem(row.action) else { return nil }
         if let title = row.title { item.title = title }
@@ -79,6 +124,10 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: label)
+        // A template at the menu font's size, as every right-click row's symbol (`ActionRegistry.menuIcon`).
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
 }

@@ -27,22 +27,22 @@ function entry(overrides: Partial<VmAttachEntry> = {}): VmAttachEntry {
 }
 
 describe("create attach contract", () => {
-  test("returns a trusted dial route with IPv4 preferred over IPv6", () => {
-    expect(createAttachBlock({ entry: entry(), manifestEntry })).toEqual({
-      transport: "cmux-remote",
-      route: "ws://10.0.0.42:1337/v1/link",
-      token: "",
-      session: "cloud",
-      trustedCarrier: true,
-      daemonBuild: { commit: "daemon-commit", remoteProtocol: null, version: null },
-      guestToolsBaked: true,
-      readiness: "dial",
-    });
-  });
-
-  test("uses IPv6 when the provider only allocated IPv6", () => {
-    expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })?.route)
-      .toBe("ws://[fd00::42]:1337/v1/link");
+  test("a client-grant image always requires the attach endpoint, independent of the backend flag", () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    try {
+      expect(createAttachBlock({
+        entry: entry(),
+        manifestEntry: { ...manifestEntry, cmuxRemoteAuth: "client-grant" },
+      })).toBeNull();
+      expect(createAttachBlock({
+        entry: entry(),
+        manifestEntry: { ...manifestEntry, cmuxRemoteAuth: "trusted-carrier" },
+      })?.trustedCarrier).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   test("feature detects old or public rows and falls back to attach endpoint", () => {

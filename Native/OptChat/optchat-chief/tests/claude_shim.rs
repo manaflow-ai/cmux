@@ -47,19 +47,33 @@ fn session() -> (tempfile::TempDir, std::path::PathBuf, String) {
     (dir, paths.bin.join("claude"), path)
 }
 
+/// Runs `command`. A parallel test that forks while this one's script is
+/// still open for write makes Linux refuse the exec (ETXTBSY) for a moment.
+fn output(command: &mut Command) -> std::process::Output {
+    for _ in 0..50 {
+        match command.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            result => return result.unwrap(),
+        }
+    }
+    command.output().unwrap()
+}
+
 #[test]
 fn a_claude_started_from_a_chief_session_gets_the_users_own_config() {
     let (_dir, shim, path) = session();
     assert!(shim.exists(), "the session bin has no claude shim");
-    let out = Command::new(&shim)
+    let mut command = Command::new(&shim);
+    command
         .args(["-p", "reply with: hi"])
         .env_clear()
         .env("PATH", &path)
         .env("HOME", "/x/home")
         .env("KEEP_ME", "kept")
-        .envs(POISON)
-        .output()
-        .unwrap();
+        .envs(POISON);
+    let out = output(&mut command);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success(),
@@ -83,13 +97,13 @@ fn a_claude_started_from_a_chief_session_gets_the_users_own_config() {
 #[test]
 fn chief_keep_claude_env_keeps_the_inherited_config() {
     let (_dir, shim, path) = session();
-    let out = Command::new(&shim)
+    let mut command = Command::new(&shim);
+    command
         .env_clear()
         .env("PATH", &path)
         .env("CHIEF_KEEP_CLAUDE_ENV", "1")
-        .envs(POISON)
-        .output()
-        .unwrap();
+        .envs(POISON);
+    let out = output(&mut command);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains("CLAUDE_CONFIG_DIR=/x/.codex-accounts/claude/_p1"),

@@ -59,11 +59,6 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     public var sourceIndex: Int?
     /// The tab group the dragged tab is in (nil: none, or a group drag).
     public var sourceGroupID: String?
-    /// The owner can split the source pane with every tab it holds by
-    /// spawning a new tab of the same kind there (`move-tab-to-split`
-    /// `respawn`): a single tab whose kind can respawn, on a daemon that
-    /// supports it.
-    public var respawnsOnSplit = false
     /// The drag carries a whole tab group (not a single tab).
     public var isGroupDrag = false
     /// The dragged tabs stay in their workspace (Home's own tab, Leo
@@ -93,10 +88,11 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
         return final == sourceIndex && groupID == sourceGroupID
     }
 
-    /// A split onto `pane` that needs the owner to respawn a tab in the
-    /// source pane (it is the source pane, and the drag holds all its tabs).
-    public func splitRespawns(pane: String) -> Bool {
-        respawnsOnSplit && pane == sourcePaneID && emptiesSourcePane
+    /// A split onto `pane` with every tab it holds: the tabs stay and the
+    /// New Tab page opens on the far side (`TabMoves.splitBehind`), where
+    /// classic cmux fills bonsplit's placeholder (#22287). Never refused.
+    public func splitsBehind(pane: String) -> Bool {
+        pane == sourcePaneID && emptiesSourcePane
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
@@ -114,9 +110,6 @@ public nonisolated enum TabDragResolver {
     /// False for proposals that would be a no-op or break the layout:
     /// - the tabs' own place (no drop target: no highlight, no slot; a
     ///   release there springs back),
-    /// - splitting the source pane with every tab it holds, unless the
-    ///   owner respawns a tab of the same kind there (`respawnsOnSplit`;
-    ///   otherwise the pane would close, leaving nothing to split),
     /// - moving into the workspace the tabs already live in,
     /// - a column before the first one (no daemon command expresses it).
     /// - a tab group on a dock edge (groups have no dock move yet).

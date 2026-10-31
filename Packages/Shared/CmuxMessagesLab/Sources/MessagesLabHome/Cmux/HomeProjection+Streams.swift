@@ -28,7 +28,11 @@ struct ShownStream: Equatable {
 extension ProjectionCore {
     /// The rows `streams(_:state:)` would show, in order.
     private func visible(_ want: [HomeStreamRow]) -> [HomeStreamRow] {
-        want.filter { row in !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !shown.contains { $0.key == row.turn } }
+        // Whole messages (the default, user Oct 20): no stream bubble ever shows; each running
+        // reply is its author's typing dots (`replyTypists`) and each message comes whole (`.receive`).
+        guard replies == .streaming else { return [] }
+        // The first non-whitespace character ends the scan (trimming copied the whole reply every token).
+        return want.filter { row in row.text.unicodeScalars.contains { !CharacterSet.whitespacesAndNewlines.contains($0) } && !shown.contains { $0.key == row.turn } }
     }
 
     /// True when `streams(_:state:)` would act.
@@ -51,6 +55,7 @@ extension ProjectionCore {
             actions.append(.streamEnd(Self.streamID(live.turn), replacedBy: final))
         }
         shownStreams.removeAll { !wanted.contains($0.turn) }
+        streamMappers.keep(only: wanted)
         // The streams that stay must keep their order (new ones go below them); a reply that began
         // earlier than one on screen (a snapshot after a join) restarts the bubbles in order.
         let staying = rows.map(\.turn).filter { turn in shownStreams.contains { $0.turn == turn } }
@@ -61,10 +66,10 @@ extension ProjectionCore {
         for row in rows {
             let bubble = bubble(row)
             if let i = shownStreams.firstIndex(where: { $0.turn == row.turn }) {
-                guard shownStreams[i].text != row.text else { continue }
-                shownStreams[i].text = row.text
-                shownStreams[i].seq += 1
-                actions.append(.streamSet(Self.streamID(row.turn), text: row.text, parts: bubble.parts, seq: shownStreams[i].seq))
+                guard let shown = shownStreams[checked: i], shown.text != row.text else { continue }
+                let seq = shown.seq + 1
+                shownStreams.update(at: i) { $0.text = row.text; $0.seq = seq }
+                actions.append(.streamSet(Self.streamID(row.turn), text: row.text, parts: bubble.parts, seq: seq))
                 continue
             }
             // An older window shows: the reply comes as a message at the newest.
@@ -74,6 +79,13 @@ extension ProjectionCore {
             actions.append(.streamSet(Self.streamID(row.turn), text: row.text, parts: bubble.parts, seq: 1))
         }
         return actions
+    }
+
+    /// The authors of running replies whose dots must show (whole messages): HomeStore's live runs
+    /// already count as typing, an older owner's `conversation-draft` may not. A reply already posted is not running.
+    func replyTypists(_ want: [HomeStreamRow]) -> Set<ParticipantID> {
+        guard replies == .wholeMessages else { return [] }
+        return Set(want.filter { row in !shown.contains { $0.key == row.turn } }.map(\.author))
     }
 
     static func streamID(_ turn: IdempotencyKey) -> StreamID { turn.rawValue }
@@ -88,6 +100,16 @@ extension ProjectionCore {
     private func bubble(_ row: HomeStreamRow) -> Message {
         let item = TranscriptItem(key: row.turn, seq: nil, author: row.author, parts: [.text(row.text)],
                                   createdAt: Date(), delivery: .committed)
-        return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        guard HomeMapping.isAgent(row.author, summary) else {
+            return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        }
+        // An agent's reply: the same parts as HomeMapping.parts(markdown: true), at the token's cost
+        // (HomeStreamMapper keeps the reply's rendered lines between tokens).
+        var bare = item
+        bare.parts = []
+        var message = HomeMapping.message(bare, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        message.parts = streamMappers.mapper(row.turn).parts(row.text, links: links)
+        message.format = .markdown
+        return message
     }
 }

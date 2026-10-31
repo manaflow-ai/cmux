@@ -36,6 +36,9 @@ struct NewTabSuccession {
     weak var services: AppServices?
     weak var pane: PaneModel?
 
+    /// Whether a new tab of `pane` is still being placed (tests).
+    static func isOpen(in pane: PaneModel) -> Bool { active[ObjectIdentifier(pane)] != nil }
+
     /// Starts showing what replaces New Tab page `key` in the page's slot. Returns the open, for `made`.
     @discardableResult
     static func begin(replacing key: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
@@ -104,6 +107,9 @@ struct NewTabSuccession {
         if left.count == 1, arrived.count == 1, let provisional = left.first {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
+            // The selection goes with the cell, in the same apply: a selected stand-in never
+            // hands the pane to a neighbor for the frames until its creator hears the reply.
+            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelectSurface = handed }
         }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {
@@ -116,8 +122,9 @@ struct NewTabSuccession {
         let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
-            // (a reopened tab being selected never does).
-            let fresh = Set(tabs.map(\.id)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
+            // (a reopened tab being selected never does). One the strip already shows stays: hidden,
+            // the selection would take it for closed and move to a neighbor (census #7).
+            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
             snapshot.items.removeAll { fresh.contains($0.id.rawValue) }
             return snapshot
         }

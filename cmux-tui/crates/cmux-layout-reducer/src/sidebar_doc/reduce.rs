@@ -13,10 +13,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::archive::{archive, archived_side, unarchive, wake_groups_of};
 use super::check;
 use super::doc::{Doc, ListEntry};
 use super::model::*;
 use super::order_key;
+use serde_json::Value;
 
 pub use super::check::{check, diff, fit_title, repair};
 
@@ -273,9 +275,14 @@ impl Tx<'_> {
 
 fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
     match op {
-        Op::Move { items, to } => place(tx, items, to),
+        Op::Move { items, to } => {
+            place(tx, items, to)?;
+            wake_groups_of(tx, items)
+        }
         Op::Pin { items } => pin(tx, items),
         Op::Unpin { items } => unpin(tx, items),
+        Op::Archive { items } => archive(tx, items),
+        Op::Unarchive { items } => unarchive(tx, items),
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
             let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
@@ -359,6 +366,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             if let Some(value) = patch.collapsed {
                 *collapsed = value;
             }
+            match &patch.auto_archive {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(AUTO_ARCHIVE_KEY);
+                }
+                Patch::Set(value) => {
+                    let rule = AutoArchiveRule::read(value).ok_or(Refusal::InvalidValue)?;
+                    item.extra.insert(AUTO_ARCHIVE_KEY.into(), rule.value());
+                }
+            }
             Ok(())
         }),
         Op::GroupUngroup { id } => {
@@ -378,7 +395,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             tx.remove_item(id);
             Ok(())
         }
-        Op::Adopt { refs, to } => adopt(tx, refs, to.as_ref()),
+        Op::Adopt { refs, to } => {
+            adopt(tx, refs, to.as_ref())?;
+            let placed: Vec<ItemId> = refs
+                .iter()
+                .filter_map(|reference| {
+                    tx.doc.workspace_item(reference).map(|item| item.id.clone())
+                })
+                .collect();
+            wake_groups_of(tx, &placed)
+        }
         Op::Close { refs } => {
             close(tx, refs);
             Ok(())
@@ -488,7 +514,7 @@ fn add_item(
 
 /// The two entries around the place `to` names among the siblings that do
 /// not move: `(low, high)` (either absent at an end).
-fn neighbors(
+pub(super) fn neighbors(
     doc: &Doc,
     to: &Target,
     moved: &HashSet<ItemId>,
@@ -597,7 +623,77 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             }
         }
     }
-    let (low, high) = neighbors(tx.doc, to, &moved_set)?;
+    // Archived items list last (archiving-DESIGN.md): a run that mixes both
+    // goes in two steps, and each keeps to its side.
+    let (archived, unarchived): (Vec<ItemId>, Vec<ItemId>) =
+        moved.iter().cloned().partition(|id| tx.doc.item(id).is_some_and(Item::archived));
+    if !archived.is_empty() && !unarchived.is_empty() {
+        place(tx, &unarchived, to)?;
+        return place(tx, &archived, to);
+    }
+    let archived = !archived.is_empty();
+    if let Some(group) = &to.parent {
+        // A group lists its pinned members first (pinning-DESIGN.md): a run
+        // that mixes both goes in two steps, and each keeps to its side.
+        let stays_pinned = |id: &ItemId| {
+            tx.doc
+                .item(id)
+                .is_some_and(|item| item.pinned_in_group() && item.parent.as_ref() == Some(group))
+        };
+        let (pinned, unpinned): (Vec<ItemId>, Vec<ItemId>) =
+            moved.iter().cloned().partition(|id| stays_pinned(id));
+        if !pinned.is_empty() && !unpinned.is_empty() {
+            place(tx, &pinned, to)?;
+            return place(tx, &unpinned, to);
+        }
+        let to = pinned_side(tx.doc, to, group, &moved_set, !pinned.is_empty())?;
+        let to = archived_side(tx.doc, &to, &moved_set, archived)?;
+        return place_run(tx, &moved, &moved_set, &to);
+    }
+    let to = archived_side(tx.doc, to, &moved_set, archived)?;
+    place_run(tx, &moved, &moved_set, &to)
+}
+
+/// `to` moved to the pinned (or unpinned) side of `group`'s members.
+fn pinned_side(
+    doc: &Doc,
+    to: &Target,
+    group: &str,
+    moved: &HashSet<ItemId>,
+    pinned: bool,
+) -> Result<Target, Refusal> {
+    let siblings: Vec<&ListEntry> = doc
+        .list_entries(&to.section, Some(group))
+        .map(|set| set.iter().filter(|(_, id)| !moved.contains(id)).collect())
+        .unwrap_or_default();
+    let (_, high) = neighbors(doc, to, moved)?;
+    let at = high
+        .as_ref()
+        .and_then(|high| siblings.iter().position(|entry| *entry == high))
+        .unwrap_or(siblings.len());
+    let run =
+        siblings.iter().filter(|(_, id)| doc.item(id).is_some_and(Item::pinned_in_group)).count();
+    let clamped = if pinned { at.min(run) } else { at.max(run) };
+    if clamped == at {
+        return Ok(to.clone());
+    }
+    let index = i64::try_from(clamped).unwrap_or(i64::MAX);
+    Ok(Target {
+        section: to.section.clone(),
+        parent: to.parent.clone(),
+        index: Some(index),
+        ..Target::default()
+    })
+}
+
+/// [`place`] after the checks: order keys, then each moved item's place.
+fn place_run(
+    tx: &mut Tx,
+    moved: &[ItemId],
+    moved_set: &HashSet<ItemId>,
+    to: &Target,
+) -> Result<(), Refusal> {
+    let (low, high) = neighbors(tx.doc, to, moved_set)?;
     let (low_key, high_key) =
         (low.as_ref().map(|e| e.0.as_str()), high.as_ref().map(|e| e.0.as_str()));
     let keys = order_key::sequence(low_key, high_key, moved.len());
@@ -640,11 +736,38 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             (ids, item.section.clone())
         })
         .collect();
+    // Where each top-level item entering the Pinned band sat, for Unpin.
+    let enters_band = to.section == PINNED_SECTION_ID && to.parent.is_none();
+    let unpin_to: HashMap<ItemId, Value> = moved
+        .iter()
+        .filter_map(|id| tx.doc.item(id))
+        .filter(|item| enters_band && item.parent.is_none() && item.section != PINNED_SECTION_ID)
+        .map(|item| {
+            let after = tx.doc.list_entries(&item.section, None).and_then(|set| {
+                Doc::entry_before(set, &(item.order.clone(), item.id.clone()), &|id| {
+                    moved_set.contains(id)
+                })
+            });
+            let after = after.map_or(Value::Null, |(_, id)| Value::String(id.clone()));
+            (item.id.clone(), serde_json::json!({ "section": item.section, "after": after }))
+        })
+        .collect();
     for (id, key) in assignments {
         let is_moved = moved_set.contains(&id);
+        let remembered = unpin_to.get(&id).cloned();
         tx.edit_item(&id, |item| {
             item.order = key;
             if is_moved {
+                // A member pinned in its group is pinned there only.
+                if item.parent != to.parent {
+                    item.extra.remove(PINNED_IN_GROUP_KEY);
+                }
+                if to.section != PINNED_SECTION_ID {
+                    item.extra.remove(UNPIN_TO_KEY);
+                }
+                if let Some(place) = remembered {
+                    item.extra.insert(UNPIN_TO_KEY.into(), place);
+                }
                 item.section = to.section.clone();
                 item.parent = to.parent.clone();
             }
@@ -693,22 +816,65 @@ fn ensure_pinned_section(tx: &mut Tx) {
     tx.put_section(section);
 }
 
+/// Pin (plans/cmux-next/pinning-DESIGN.md). A group member stays in its
+/// group, marked pinned, after the group's other pinned members. Any other
+/// item goes to the end of the Pinned band; [`place`] remembers where it was.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
-    ensure_pinned_section(tx);
+    // A pin is not archived: it comes back first.
+    unarchive(tx, ids)?;
     let mut moving = Vec::new();
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if !(item.section == PINNED_SECTION_ID && item.parent.is_none()) {
+        if let Some(group) = item.parent.clone() {
+            if item.pinned_in_group() {
+                continue;
+            }
+            let section = item.section.clone();
+            tx.edit_item(id, |item| {
+                item.extra.insert(PINNED_IN_GROUP_KEY.into(), Value::Bool(true));
+                Ok(())
+            })?;
+            let index = pinned_members(tx.doc, &section, &group, id);
+            let to =
+                Target { section, parent: Some(group), index: Some(index), ..Target::default() };
+            place(tx, std::slice::from_ref(id), &to)?;
+        } else if item.section != PINNED_SECTION_ID {
             moving.push(id.clone());
         }
     }
+    if moving.is_empty() {
+        return Ok(());
+    }
+    ensure_pinned_section(tx);
     place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
+/// Unpin. A member pinned in its group goes right under the group's other
+/// pinned members; any other group member is not pinned and stays (a tree
+/// pinned with its top group unpins with it). An item in the Pinned band (or a custom section) goes
+/// back where it was pinned from when that place is still there, else to
+/// the top of its own machine section.
 fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        let machine = tx.doc.item_machine(item).ok_or(Refusal::NoMachine)?;
+        if item.pinned_in_group() {
+            let (section, group) = (item.section.clone(), item.parent.clone());
+            tx.edit_item(id, |item| {
+                item.extra.remove(PINNED_IN_GROUP_KEY);
+                Ok(())
+            })?;
+            let index =
+                group.as_deref().map_or(0, |group| pinned_members(tx.doc, &section, group, id));
+            let to = Target { section, parent: group, index: Some(index), ..Target::default() };
+            place(tx, std::slice::from_ref(id), &to)?;
+            continue;
+        }
+        // A member of a group that is not pinned in it is not pinned itself
+        // (in a pinned tree, it is pinned with its top group): it stays.
+        if item.parent.is_some() {
+            continue;
+        }
+        let machine = unpin_machine(tx.doc, item).ok_or(Refusal::NoMachine)?;
         if tx
             .doc
             .section(&item.section)
@@ -716,10 +882,80 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
         {
             continue;
         }
-        let section = ensure_machine_section(tx, &machine);
-        place(tx, std::slice::from_ref(id), &Target::end(&section))?;
+        let target = remembered_place(tx.doc, item, &machine);
+        let target = match target {
+            Some(target) => target,
+            // Nowhere remembered: the top of its machine section, as Move to Top (Chief's default, 2026-10-20).
+            None => Target {
+                section: ensure_machine_section(tx, &machine),
+                index: Some(0),
+                ..Target::default()
+            },
+        };
+        place(tx, std::slice::from_ref(id), &target)?;
     }
     Ok(())
+}
+
+/// The machine Unpin returns `item` to: its workspaces' (a group's
+/// members). A group with none (an empty saved group, kept when its
+/// workspaces closed) goes back to the machine section it was pinned from,
+/// else to the first machine section; it was refused (`no_machine`), so an
+/// empty pinned group could never be unpinned.
+fn unpin_machine(doc: &Doc, item: &Item) -> Option<String> {
+    if let Some(machine) = doc.item_machine(item) {
+        return Some(machine);
+    }
+    if !item.body.is_group() {
+        return None;
+    }
+    let machine_of = |section: &Section| section.kind.machine().map(str::to_owned);
+    item.extra
+        .get(UNPIN_TO_KEY)
+        .and_then(|place| place.get("section"))
+        .and_then(Value::as_str)
+        .and_then(|section| doc.section(section))
+        .and_then(machine_of)
+        .or_else(|| {
+            doc.sections()
+                .iter()
+                .filter(|section| section.kind.machine().is_some())
+                .min_by(|a, b| a.order.cmp(&b.order))
+                .and_then(machine_of)
+        })
+}
+
+/// How many members of `group` other than `except` are pinned in it.
+fn pinned_members(doc: &Doc, section: &str, group: &str, except: &str) -> i64 {
+    let count = doc
+        .list(section, Some(group))
+        .filter(|child| child.id != except && child.pinned_in_group())
+        .count();
+    i64::try_from(count).unwrap_or(i64::MAX)
+}
+
+/// Where Unpin puts `item` back: its `extra.unpin_to` place, while that
+/// section is `machine`'s own and the neighbor it sat after still sits at
+/// that section's top level. Nil: no place is remembered, or it is gone.
+fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
+    let remembered = item.extra.get(UNPIN_TO_KEY)?;
+    let section = remembered.get("section")?.as_str()?;
+    if doc.section(section)?.kind.machine() != Some(machine) {
+        return None;
+    }
+    match remembered.get("after").and_then(Value::as_str) {
+        None => Some(Target { section: section.into(), index: Some(0), ..Target::default() }),
+        Some(after) => {
+            let anchor = doc.item(after)?;
+            (anchor.id != item.id && anchor.section == section && anchor.parent.is_none()).then(
+                || Target {
+                    section: section.into(),
+                    after: Some(after.into()),
+                    ..Target::default()
+                },
+            )
+        }
+    }
 }
 
 fn adopt(tx: &mut Tx, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<(), Refusal> {
@@ -834,6 +1070,7 @@ fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(
         }
         _ => {}
     }
+    validate_host_group_flags(section)?;
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
@@ -872,9 +1109,35 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
     if let Some(scroll) = patch.scroll {
         section.scroll = scroll;
     }
+    if let Some(host_group) = patch.host_group {
+        if host_group && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        section.host_group = host_group;
+        // Older clients only sent `host_group`; preserve their explicit
+        // Remove/mark choice in the durable opt-out field unless a newer
+        // client supplied that field explicitly.
+        if patch.host_group_opt_out.is_none() {
+            section.host_group_opt_out = section.kind.machine().is_some() && !host_group;
+        }
+    }
+    if let Some(opt_out) = patch.host_group_opt_out {
+        section.host_group_opt_out = opt_out;
+    }
+    validate_host_group_flags(&section)?;
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);
+    }
+    Ok(())
+}
+
+fn validate_host_group_flags(section: &Section) -> Result<(), Refusal> {
+    if section.host_group_opt_out && section.kind.machine().is_none() {
+        return Err(Refusal::InvalidValue);
+    }
+    if section.host_group && section.host_group_opt_out {
+        return Err(Refusal::InvalidValue);
     }
     Ok(())
 }

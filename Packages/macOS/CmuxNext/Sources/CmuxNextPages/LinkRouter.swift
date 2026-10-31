@@ -41,19 +41,27 @@ public final class LinkRouter {
         flags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift])
     }
 
+    /// Command without Shift on a click: the link's tab opens in the background, as Chrome's
+    /// Cmd-click does; a plain click's tab takes the focus (Leo 2026-10-21).
+    public static func opensInBackground(_ flags: NSEvent.ModifierFlags) -> Bool {
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.command) && !flags.contains(.shift)
+    }
+
     /// Where `url` goes now (``LinkRouting/target(for:otherTarget:explicit:)``).
     public func target(for url: URL, otherTarget: Bool = false, explicit: Bool = false) -> LinkRouting.Target {
         routing().target(for: url, otherTarget: otherTarget, explicit: explicit)
     }
 
     /// Opens a clicked link where the rule sends it; `otherTarget` is Shift-Command on the click,
-    /// `source` the tab it was clicked in (nil: the focused pane). Returns where it went, nil for
-    /// an app link.
+    /// `background` a page's Cmd-click, `source` the tab it was clicked in (nil: the focused pane).
+    /// Returns where it went, nil for an app link.
     @discardableResult
-    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, source: String? = nil) -> LinkRouting.Target? {
+    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, background: Bool = false,
+                     source: String? = nil) -> LinkRouting.Target? {
         if appLink(url) { return nil }
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
-        open(url, in: target, source: source)
+        open(url, in: target, background: background, source: source)
         return target
     }
 
@@ -63,6 +71,13 @@ public final class LinkRouter {
     @discardableResult
     public func open(_ url: URL, otherTarget: Bool = false, from view: NSView) -> LinkRouting.Target? {
         open(url, otherTarget: otherTarget, source: sourceTab(view))
+    }
+
+    /// Opens a link clicked in `view` with `modifiers` held (``open(_:otherTarget:from:)``):
+    /// Shift-Command picks the other browser, Command alone opens the tab in the background.
+    @discardableResult
+    public func open(_ url: URL, modifiers: NSEvent.ModifierFlags, from view: NSView) -> LinkRouting.Target? {
+        open(url, otherTarget: Self.isOtherTarget(modifiers), background: Self.opensInBackground(modifiers), source: sourceTab(view))
     }
 
     /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in

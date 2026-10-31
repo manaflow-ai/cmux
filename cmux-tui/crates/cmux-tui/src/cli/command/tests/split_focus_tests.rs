@@ -36,3 +36,14 @@ fn pane_split_takes_the_new_panes_command() {
     );
     assert!(both.is_err(), "argv and --shell together must be refused");
 }
+
+#[test]
+fn workspace_create_sends_focus_only_when_asked() {
+    let catalog = operation_catalog();
+    let plain = protocol(&["workspace", "create", "--name", "bg"]);
+    assert_eq!(operation(&plain), "workspace.create");
+    assert_eq!(plain.params.get("focus"), None, "{:?}", plain.params);
+    let focused = protocol(&["workspace", "create", "--name", "shown", "--focus"]);
+    assert_eq!(focused.params["focus"], true);
+    assert_plan_matches_catalog(&focused, "workspace.create", &catalog);
+}

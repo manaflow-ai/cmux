@@ -22,5 +22,11 @@ extension SettingsSchema {
         "tabs.tabBar.browser": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
         // The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v).
         "tabs.tabBar.agent": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+        // New Tab picks the action itself and has no Search | Ask switch (Leo 2026-10-20, #22816).
+        "tabs.newTabWidgets.modeSwitch": "New Tab picks open, ask or search from what you type; there is no switch",
+        // One app for everyone (Lawrence 2026-10-30: "wtf is cmux classic mode get rid of it").
+        "tabs.terminalFirst": "cmux Classic Mode was removed; New Tab opens the New Tab page, where a terminal is one pick",
+        // No tabs inside the sidebar (Lawrence 2026-10-30: "i dont want to see tabs expanded inside of sidebar").
+        "sidebar.showWorkspaceTabs": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
     ]
 }

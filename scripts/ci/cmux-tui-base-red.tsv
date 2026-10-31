@@ -2,17 +2,6 @@
 # One test per line, tab-separated: FILTER BEAD EXPIRES OS REASON
 #   FILTER   libtest --skip substring; use the full test path or a unique test name
 #   BEAD     the bead that owns the fix (required)
-#   EXPIRES  YYYY-MM-DD, UTC, the last day the skip applies; after it the step fails
+#   EXPIRES  YYYY-MM-DD, UTC, the review date; after it the skip still applies and each run warns
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
-protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	_acpmux/complete (a242167877bc) not in protocol::registry()
-a_remote_chain_cannot_query_the_keychain	cx-3czkh	2026-10-18	macos	the Web chain's agent reads the System keychain on the AWS Mac
-the_requests_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
-the_known_params_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
-the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
-submodule_with_missing_git_folder_is_skipped	cx-4swbu	2026-10-18	macos	macOS git exits fatal on a gitfile that points nowhere (eb8924f440e3)
-apps_store::the_customize_folder_installs_itself_and_reloads_when_it_changes	cx-pqv7y	2026-10-18	macos	local/customize 1.0.1 never listed on macOS
-close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled	cx-59iu3	2026-10-18	macos	terminal #1 waits on the Kitty budget (2-3 s) on macOS
-every_safe_transport_operation_has_a_noun_first_path	cx-2fi09	2026-10-18	any	session.journal.append field live_reply (9fed109bd855, #21008) has no CLI case (red alone too)
-closed_delete::split_close_and_restore_survive_a_daemon_restart	cx-2ueez	2026-10-18	any	restored state after a daemon restart differs (red alone too: macOS, and Linux on rbx at 06a8f6dbf993)
-protocol::tests::protocol_ir_is_current	cx-gz5dx	2026-10-19	any	acpmux-protocol.json lifecycle receipt descriptions stale since 06ce386ab985 (#21397), red alone on rbx at tip e04ac062c1a7

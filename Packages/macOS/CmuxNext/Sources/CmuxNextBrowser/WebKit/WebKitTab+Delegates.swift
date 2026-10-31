@@ -2,6 +2,10 @@ import AppKit
 public import Foundation
 public import WebKit
 import CmuxNextCompat
+import CmuxNextDesign
+import os
+
+private let processLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 // MARK: - Navigation
 
@@ -42,6 +46,9 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
+        // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.
+        if BrowserNavigationGuard.isCloudDesktop(url) { return decisionHandler(.cancel, preferences) }
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
@@ -52,6 +59,13 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
+        // This view's own main-frame navigation, from here on not cancelled by this method: the
+        // newest one decides, as WebKit lets only the newest go ahead. A new window's action has
+        // no target frame and leaves it as it was.
+        if navigationAction.targetFrame?.isMainFrame == true {
+            let get = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
+            mainFramePlayableVideo = get && navigationAction.navigationType != .backForward && RemoteVideoPage.plays(url) ? url : nil
+        }
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
         engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
@@ -67,7 +81,13 @@ extension WebKitTab: WKNavigationDelegate {
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
-        if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
+        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType,
+           let url = navigationResponse.response.url, url == mainFramePlayableVideo {
+            // A video sent as a generic file plays in the tab, at its own address. A simulated
+            // load, not `loadHTMLString`: the player takes the video's place in the back list.
+            decisionHandler(.cancel)
+            webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: RemoteVideoPage.html(for: url))
+        } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
             admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {
@@ -96,6 +116,7 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
+        pageDidCommit()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -112,27 +133,84 @@ extension WebKitTab: WKNavigationDelegate {
         forgetNavigation(navigation)
         apply(.finished(id))
         pageDidFinish()
+        // The load ended: a document with no contentful paint (an empty body) shows as it is.
+        removeStandIn()
         syncHistory()
         refreshFavicon()
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        let failure = BrowserLoadError(error)
+        // The committed document stopped loading: it keeps the page area, so
+        // WebKit draws its background again (`pageDidCommit`). A cancellation
+        // is a newer navigation taking this one's place, and that one's commit
+        // decides: handing the page area back here would draw white over a
+        // document that has not painted yet. `stop()` settles its own case.
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
         formResubmissionFailed()
+        let failure = BrowserLoadError(error)
+        // Nothing is going to commit, so whatever is on screen keeps the page
+        // area; without this a document that committed but never finished
+        // keeps no background for good (`WebKitTab+LoadingBackground`). A
+        // benign interruption is a newer navigation taking this one's place,
+        // and that one's commit decides, as in `didFail`.
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
-    /// WebKit gives no reason; the sad tab says the page crashed.
+    /// The public callback, for a WebKit without the reason SPI below: no reason, so the sad tab
+    /// says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        webContentProcessEnded(BrowserProcessExit(reason: .crashed))
+    }
+
+    /// WebKit's reason (`_WKProcessTerminationReason`, SPI): when the delegate answers this, WebKit
+    /// calls it instead of ``webViewWebContentProcessDidTerminate(_:)``. ExceededMemoryLimit is out
+    /// of memory; ExceededCPULimit and RequestedByClient are a stop from outside the page; Crash
+    /// (which also covers WebKit ending every page after its GPU process failed too often) crashed.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    public func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        let mapped: BrowserProcessExit.Reason = switch reason {
+        case 0: .outOfMemory
+        case 1, 2: .killed
+        default: .crashed
+        }
+        webContentProcessEnded(BrowserProcessExit(reason: mapped))
+    }
+
+    private func webContentProcessEnded(_ exit: BrowserProcessExit) {
+        // No commit or finish is coming, so the page area goes back to
+        // WebKit's own background rather than keeping none for good.
+        // Unconditionally, not through `pageDidFinish`: a crash can leave
+        // `webView.url` nil, which that one reads as a blank page and skips,
+        // putting the tab back in the stuck state this is here to prevent.
+        pageBaseHold.cancel()
+        setDrawsPageBackground(true)
+        removeStandIn()
+        // A page the system ended for memory reloads by itself once, now when on screen, else
+        // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
+        let pressure = memoryPressure()
+        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        let tabID = id.rawValue
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
+        apply(.processExited(exit))
+        if owed, webView.window?.isVisible == true, !webView.isHiddenOrHasHiddenAncestor { reloadOwedAfterExit() }
+    }
+
+    /// Takes the one automatic reload a memory end owes (`exitRecovery`), if the sad tab still shows.
+    func reloadOwedAfterExit() {
+        guard state.processExit != nil, exitRecovery.takeReload(now: .now) else { return }
+        processLogger.error("web content process ended tab=\(self.id.rawValue, privacy: .public): reloading once after a memory end")
+        startReload()
     }
 
 
@@ -255,19 +333,21 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.canChooseFiles = true
-        panel.resolvesAliases = true
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completionHandler(response == .OK ? panel.urls : nil)
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
         }
-        if let window = webView.window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            panel.begin(completionHandler: finish)
+        // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
+        // A tab whose engine is gone ends the input as a cancel.
+        guard let engine else {
+            completionHandler(nil)
+            return
         }
+        engine.fileInput.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
+                                         allowsDirectories: parameters.allowsDirectories,
+                                         window: webView.window, completion: completionHandler)
     }
 
     static func displayOrigin(_ origin: WKSecurityOrigin) -> String {
@@ -292,7 +372,7 @@ extension WebKitTab: WKScriptMessageHandler {
         // Entering hides the chrome: only in answer to the user (a script
         // could otherwise hide the address bar and draw a fake one).
         if on, !((webView as? WebKitWebView)?.hadRecentUserInput() ?? false) {
-            webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+            WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
             return
         }
         apply(.contentFullscreenChanged(on))

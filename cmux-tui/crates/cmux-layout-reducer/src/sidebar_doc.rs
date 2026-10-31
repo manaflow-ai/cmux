@@ -19,15 +19,26 @@
 //! - [`migrate`]: the one-time move from the old sidebar stores.
 
 pub mod accept;
+mod archive;
+#[cfg(test)]
+mod archive_group_tests;
+#[cfg(test)]
+mod archive_tests;
 pub mod check;
 pub mod doc;
 pub mod migrate;
 pub mod model;
+#[cfg(test)]
+mod nested_pin_tests;
 pub mod order_key;
+#[cfg(test)]
+mod pin_tests;
 pub mod reduce;
 pub mod reset;
 pub mod view;
 
+#[cfg(test)]
+mod host_group_tests;
 #[cfg(test)]
 mod nested_group_tests;
 

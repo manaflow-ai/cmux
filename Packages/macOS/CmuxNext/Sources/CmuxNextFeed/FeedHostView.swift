@@ -14,19 +14,36 @@ public final class FeedHostView: NSView {
     public let model: FeedModel
     let appearanceState = FeedAppearance()
 
-    /// `floating`: the host is a panel of its own (the Feed panel), with no
-    /// pane under it, so it paints the content background itself; as a page
-    /// tab it paints the pane's fill (`Palette.paneFill`).
-    let floating: Bool
+    /// Where the feed is shown, which decides the ground it paints.
+    public enum Surface: Sendable {
+        /// A page tab: the pane's fill (`Palette.paneFill`) under the list.
+        case page
+        /// The Feed panel, a window of its own with no pane under it: the content background.
+        case panel
+        /// A right sidebar section: no ground of its own, the sidebar's shows through.
+        case sidebar
+    }
 
-    /// `layoutOverride` pins a prototype (demos and screenshots); nil
-    /// follows the Debug Settings switch `feed.layout`.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, floating: Bool = false) {
+    /// Where this host is shown (``Surface``).
+    let surface: Surface
+    #if DEBUG
+    private var bench: FeedBench?
+    #endif
+
+    /// - Parameters:
+    ///   - model: The feed.
+    ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
+    ///   - surface: Where the feed is shown; a page tab by default.
+    ///   - onReportsReply: Sends a reply from the reports basket and answers whether it was sent
+    ///     (nil: the basket has no Reply). A reply sent again keeps its ``ReportReply/promptID``.
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
+                onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
-        self.floating = floating
+        self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
-        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride)
+        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride,
+                            onReportsReply: onReportsReply)
         embed(NSHostingView(rootView: root))
     }
 
@@ -42,6 +59,12 @@ public final class FeedHostView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        #if DEBUG
+        if window != nil, bench == nil, let settings = FeedBench.Settings(environment: ProcessInfo.processInfo.environment) {
+            bench = FeedBench(settings: settings, model: model, host: self)
+            bench?.start()
+        }
+        #endif
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -51,68 +74,14 @@ public final class FeedHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            let background = floating ? Palette.contentBackground : (Palette.surfaceOverride(.internalPage) ?? Palette.paneFill)
-            layer?.backgroundColor = floating ? background.cgColor : nil
+            let background: NSColor = switch surface {
+            case .panel: Palette.contentBackground
+            case .page: Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
+            case .sidebar: .clear
+            }
+            layer?.backgroundColor = surface == .panel ? background.cgColor : nil
             return FeedColors.resolved(background: background)
         }
-        if appearanceState.colors != colors { appearanceState.colors = colors }
-    }
-}
-
-/// Hosts the menu bar variant (`feed.menubar = compact`) at the popover
-/// width. In an `NSPopover` the popover draws the material; with
-/// `backdrop`, the view draws its own (Liquid Glass, a blur before macOS 26,
-/// an opaque fill under Reduce Transparency) for a plain window.
-public final class FeedMenubarHostView: NSView {
-    public let model: FeedModel
-    private let appearanceState = FeedAppearance()
-    private let surface: OverlaySurfaceView?
-    private let hosting: NSHostingView<FeedMenubarRoot>
-
-    public init(model: FeedModel, backdrop: Bool = false) {
-        self.model = model
-        surface = backdrop ? OverlaySurfaceView() : nil
-        let root = FeedMenubarRoot(model: model, appearance: appearanceState)
-        hosting = NSHostingView(rootView: root)
-        super.init(frame: NSRect(x: 0, y: 0, width: FeedTunables.menubarWidth.value, height: 320))
-        if let surface {
-            surface.cornerRadius = 14
-            embed(surface)
-            hosting.frame = surface.contentView.bounds
-            hosting.autoresizingMask = [.width, .height]
-            surface.contentView.addSubview(hosting)
-        } else {
-            embed(hosting)
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    /// The popover's content size: fixed width, height from the rows.
-    public override var intrinsicContentSize: NSSize {
-        NSSize(width: FeedTunables.menubarWidth.value, height: NSView.noIntrinsicMetric)
-    }
-
-    /// The size the rows need: set it as the popover's `contentSize` after
-    /// the model changes.
-    public var preferredContentSize: NSSize {
-        NSSize(width: FeedTunables.menubarWidth.value, height: hosting.fittingSize.height)
-    }
-
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        resolveColors()
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        resolveColors()
-    }
-
-    private func resolveColors() {
-        let colors = performWithTheme { FeedColors.resolved(background: Palette.elevatedBackground) }
-        surface?.applyTheme()
         if appearanceState.colors != colors { appearanceState.colors = colors }
     }
 }

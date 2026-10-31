@@ -7,6 +7,16 @@ nonisolated enum HistoryStrings {
     }
 
     static var title: String { t("page.title", "History") }
+    static var menuShowAll: String { t("titlebarHistory.showAll", "Show All History") }
+    static func menuHeader(_ kind: LocationTrailMenuSection.Kind) -> String? {
+        switch kind {
+        case .scope: nil
+        case .otherWorkspaces: t("titlebarHistory.otherWorkspaces", "Other Workspaces")
+        case .browser: t("titlebarHistory.browser", "Browser")
+        case .chatsAndPages: t("titlebarHistory.chatsAndPages", "Chats and Pages")
+        case .terminals: t("titlebarHistory.terminals", "Terminals")
+        }
+    }
     static var searchPlaceholder: String { t("page.search", "Search history") }
     static var empty: String { t("page.empty", "No history") }
     static var emptySearch: String { t("page.emptySearch", "No matches") }

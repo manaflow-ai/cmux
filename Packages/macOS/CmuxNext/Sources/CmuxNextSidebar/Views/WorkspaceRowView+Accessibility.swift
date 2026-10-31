@@ -1,5 +1,15 @@
 import AppKit
 
+/// What VoiceOver reaches on a group's header, for the one row a group draws as (`SidebarLayout+SoleMember`): the
+/// header's expanded state and its editor, menu, New Workspace and fold actions, beside the workspace's own.
+struct StandingGroupAccess {
+    var expanded: Bool
+    var toggle: () -> Void
+    var edit: () -> Void
+    var menu: () -> Void
+    var add: (() -> Void)?
+}
+
 extension WorkspaceRowView {
     /// Routes AXPress through the sidebar's shared workspace selection action.
     override func accessibilityPerformPress() -> Bool {
@@ -8,29 +18,47 @@ extension WorkspaceRowView {
         return true
     }
 
-    /// Show Tabs or Hide Tabs on every row with tabs: the chevron shows only
-    /// on hover or selection (cx-fo2t), and a hidden button leaves the
-    /// accessibility tree.
-    /// The row's menu as well: the more button shows only on hover (Lawrence 2026-10-11).
+    /// The session tree's fold and the row's menu: the more button shows only on hover
+    /// (Lawrence 2026-10-11), and a hidden button leaves the accessibility tree.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions = super.accessibilityCustomActions() ?? []
         guard !isShowingPlaceholder else { return actions.isEmpty ? nil : actions }
-        if let disclosure, disclosure != .empty, let onToggleTabs {
-            let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
-            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true })
+        if let treeFold, let onToggleTree {
+            let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
+            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
         }
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
         }
+        if let group = standingGroup {
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { group.edit(); return true })
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { group.menu(); return true })
+            if let add = group.add { actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { add(); return true }) }
+            let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
+            actions.append(NSAccessibilityCustomAction(name: fold) { group.toggle(); return true })
+        }
         return actions.isEmpty ? nil : actions
     }
 
-    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
-        var parts = [ws.title]
-        if let s = content.detail { parts.append(s) }
-        if let s = content.trailingStatus { parts.append(s) }
+    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+                               title: title)
+    }
+
+    /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the
+    /// row's tab count and presence dots show (nil and empty when hidden). `title` is the name the
+    /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
+    static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
+                                  presence: [SidebarPresence], title: String? = nil) -> String {
+        var parts = [title ?? ws.title]
+        let detail = content.now.map(Strings.rowNow) ?? content.detail
+        if let detail { parts.append(detail) }
+        // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
+        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
+        if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
+        if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
@@ -39,8 +67,16 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
-        if ws.muted { parts.append(Strings.muted) }
-        if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
+        if ws.muted { parts.append(Strings.notificationsMuted) }
+        parts += ws.usageWarnings
+        // The computer: a one-list row on another computer says it with its status when it cannot connect
+        // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
+        // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second
+        // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
+        // never matched against them: a branch named like the machine is no proof the machine was said
+        // (review of #28510 at 4acab8c2).
+        if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
+        parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }
 }

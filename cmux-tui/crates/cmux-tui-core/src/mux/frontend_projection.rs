@@ -6,11 +6,11 @@ impl Mux {
     /// The terminal registry revision without reading every terminal row:
     /// the registry lock is held for one indexed read.
     pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
-        self.workspace_registry.lock().unwrap().terminal_revision()
+        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_revision()
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
-        self.workspace_registry.lock().unwrap().terminal_snapshot()
+        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_snapshot()
     }
 
     pub fn terminal_registry_events_page(
@@ -23,7 +23,7 @@ impl Mux {
         // One writer guard is the read transaction boundary exposed to a
         // frontend. Otherwise a commit between snapshot and event queries can
         // return an event whose revision is newer than terminal_revision.
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let snapshot = registry.terminal_snapshot()?;
         let events = registry.terminal_events_after(revision)?;
         Ok((snapshot, events))
@@ -51,11 +51,10 @@ impl Mux {
         scope: &str,
         subject_key: &str,
     ) -> anyhow::Result<Option<FrontendProjection>> {
-        self.workspace_registry.lock().unwrap().get_frontend_projection(
-            frontend,
-            scope,
-            subject_key,
-        )
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_frontend_projection(frontend, scope, subject_key)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -69,7 +68,7 @@ impl Mux {
         expected_projection_revision: Option<u64>,
         projection: &Value,
     ) -> anyhow::Result<ProjectionCommit> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let commit = registry.put_frontend_projection(
             mutation,
             frontend,
@@ -80,6 +79,9 @@ impl Mux {
             projection,
         )?;
         if !commit.replayed {
+            // The write added a `projection_mutations` ledger row and
+            // publishes no journal event: journal maintenance bounds it.
+            self.journal_maintenance_control.note_change();
             self.emit(MuxEvent::FrontendProjectionChanged {
                 frontend: frontend.to_string(),
                 scope: scope.to_string(),
@@ -105,7 +107,7 @@ impl Mux {
             "selectors":selectors,
             "projection":projection,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "frontend_projection.put", &fingerprint)?
         {

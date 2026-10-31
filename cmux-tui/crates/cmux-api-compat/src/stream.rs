@@ -65,7 +65,7 @@ impl Editor<'_, '_> {
         self.input.get(self.pos).copied().ok_or(CompatError::Malformed(self.pos))
     }
 
-    fn expect(&mut self, byte: u8) -> Result<(), CompatError> {
+    fn expect_byte(&mut self, byte: u8) -> Result<(), CompatError> {
         if self.peek()? != byte {
             return Err(CompatError::Malformed(self.pos));
         }
@@ -163,7 +163,8 @@ impl Editor<'_, '_> {
         let mut value: Value = serde_json::from_slice(&self.input[self.pos..end])
             .map_err(|_| CompatError::Malformed(self.pos))?;
         node.apply_value(&mut value);
-        serde_json::to_writer(&mut *self.out, &value).expect("writing to a Vec cannot fail");
+        serde_json::to_writer(&mut *self.out, &value)
+            .map_err(|_| CompatError::Malformed(self.pos))?;
         self.pos = end;
         Ok(())
     }
@@ -216,7 +217,7 @@ impl Editor<'_, '_> {
                 let raw_key = &self.input[key_start..key_end];
                 self.pos = key_end;
                 self.ws();
-                self.expect(b':')?;
+                self.expect_byte(b':')?;
                 self.ws();
                 let inner = &raw_key[1..raw_key.len() - 1];
                 let decoded;
@@ -278,7 +279,7 @@ impl Editor<'_, '_> {
                     first = false;
                     self.out.extend_from_slice(&member.output_json);
                     serde_json::to_writer(&mut *self.out, default)
-                        .expect("writing to a Vec cannot fail");
+                        .map_err(|_| CompatError::Malformed(self.pos))?;
                 }
             }
         }

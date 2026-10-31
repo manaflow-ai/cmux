@@ -12,17 +12,16 @@ and pull requests the way the short [writing guide](STYLE.md) says.
 Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` and
 `web/` work on Linux; see [what you can fix without a Mac build](docs/start-here.md#2-things-you-can-fix-without-a-mac-build).
 
-- macOS 26 (the app's deployment target)
+- macOS 14+
 - Xcode 26 (the pinned toolchain)
-- [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs): `scripts/setup.sh` requires `rustup`. The official installer puts
-  `rustup` and `cargo` in `~/.cargo/bin`, which is where `setup.sh` looks:
+- The Xcode 26 Metal compiler, which is a separate download. Select the Xcode you
+  build with first (`DEVELOPER_DIR` overrides `xcode-select`), then:
 
   ```bash
   xcodebuild -downloadComponent MetalToolchain
   ```
 
-- [Zig](https://ziglang.org/): `brew install zig`
+- [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs). Every app build compiles the bundled `cmux-cua` engine
   with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
   the official installer puts it:
@@ -171,5 +170,5 @@ Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGEN
 
 By contributing to this repository, you agree that:
 
-1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
+1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `workers/device-hub/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
 2. You grant Manaflow, Inc. a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, sublicense, and distribute your contributions under any license, including a commercial license offered to third parties.

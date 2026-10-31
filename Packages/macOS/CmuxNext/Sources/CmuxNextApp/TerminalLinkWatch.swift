@@ -12,8 +12,8 @@ extension TerminalCursorDefault {
 
 /// Tells one terminal view about daemon facts its stream cannot: the
 /// terminal's process ended (tab `dead`), its shell's host link is down
-/// (tab `terminal_state`, a labeled stall), or the terminal or the daemon
-/// connection came back, which re-attaches a disconnected view. Tells the
+/// (tab `terminal_state`, a labeled stall), or the terminal or the daemon connection came
+/// back (a new `connectionEpoch`, even one missed between hops), which re-attaches a disconnected view. Tells the
 /// store the folder the shell reported to the view (OSC 7). Observation
 /// only (re-armed after each change); nothing polls.
 @MainActor
@@ -23,7 +23,7 @@ final class TerminalLinkWatch {
     private weak var model: TerminalSurfaceModel?
     private weak var session: TerminalSession?
     private let surface: SurfaceID
-    private var connected: Bool
+    private var epoch: Int
     private var dead: Bool
     private var stall: TerminalShellStall?
     /// The shell's folder last told to the store; only a new one is sent, so
@@ -41,7 +41,7 @@ final class TerminalLinkWatch {
         self.io = io
         self.session = session
         model = session.model
-        connected = Self.isConnected(store.connectionState)
+        epoch = store.connectionEpoch
         dead = store.tab(surface: surface)?.dead ?? false
         if dead { io.processExited() }
         stall = Self.shellStall(store.tab(surface: surface))
@@ -70,7 +70,7 @@ final class TerminalLinkWatch {
 
     private func changed() {
         guard !stopped, let store, let io else { return }
-        let nowConnected = Self.isConnected(store.connectionState)
+        let nowEpoch = store.connectionEpoch
         let nowDead = store.tab(surface: surface)?.dead ?? dead
         let nowStall = Self.shellStall(store.tab(surface: surface))
         if nowDead, !dead {
@@ -79,13 +79,13 @@ final class TerminalLinkWatch {
             // The daemon reported the terminal dead and now running (R41): a
             // dead report can be transient, so the view must leave "exited".
             io.processRevived()
-        } else if nowConnected, !connected {
+        } else if Self.isConnected(store.connectionState), nowEpoch != epoch {
             io.reconnect()
         } else if stall != nil, nowStall == nil {
             // The shell is reachable again: a view whose attach failed meanwhile re-attaches.
             io.reconnect()
         }
-        connected = nowConnected
+        epoch = nowEpoch
         dead = nowDead
         stall = nowStall
         session?.shellStall = nowStall

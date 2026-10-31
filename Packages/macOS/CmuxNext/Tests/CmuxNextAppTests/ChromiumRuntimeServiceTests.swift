@@ -20,7 +20,7 @@ import Testing
 
     func pin(_ key: String) -> ChromiumRuntimePin {
         ChromiumRuntimePin(key: key, cef: "154.0.28", chromium: "154.0.8037.58", shimABI: "abi-1", sha256: String(repeating: "0", count: 64),
-                           size: 1, url: URL(string: "https://files.example.com/cef-runtime/\(key)/pack.tar.xz")!, teamID: nil,
+                           size: 1, url: URL(string: "https://files.example.com/cef-runtime/\(key)/pack.tar.xz")!, teamID: "ABCDE12345",
                            folder: "cmux TEST Chromium")
     }
 
@@ -61,6 +61,7 @@ import Testing
         #expect(service.source.layout?.frameworksDirectory.path == installation.frameworksDirectory.path)
         // A flat pack is not an app: the app stays Chromium's main bundle (the helper sandbox reads only the pack folder).
         #expect(service.source.layout?.mainBundle.path == app.path)
+        #expect(service.source.layout?.trust == .downloaded(teamID: "ABCDE12345"))
         #expect(inUse == ["aaaaaaaaaaaaaaaa"])
     }
 
@@ -75,7 +76,7 @@ import Testing
 
     @Test func downloadStatesReachTheEngineAndTheInstallSwitchesItToChromium() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
-        let engine = CEFEngine(source: service.source)
+        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
         service.apply(.waitingForNetwork)
         #expect(engine.unavailableReason == .downloading(fraction: nil))
         service.apply(.downloading(received: 25, total: 100))

@@ -1,55 +1,44 @@
-import React, { useState } from "react";
-import { useT } from "../i18n";
+import React from "react";
 
-/// Rows a section shows before "View all".
-const FOLDED = 5;
-
-/// One titled list in the summary popover. A long list shows its first rows and a "View all"
-/// that opens the rest in place. A `fixed` section stays while empty, with "None", so the
-/// popover keeps its sections in place while a turn adds to them. `lead` is the list's first row,
-/// unfolded (a section with one stays without "None"); `footer` draws under the list, empty or not.
+/// One titled list in the summary popover. Long lists are drawn in full; the card body owns the
+/// scrolling. A section with nothing to list is not drawn: no title over
+/// "None". `lead` is the list's first row, unfolded; `footer` draws under the list (Outputs'
+/// gallery row), and a section with only a lead or a footer still draws.
 export function SummarySection<T>({
   title,
   items,
   row,
-  fixed = false,
   lead,
   footer,
+  action,
+  keep = false,
 }: {
   title: string;
   items: readonly T[];
   row: (item: T) => React.ReactNode;
-  fixed?: boolean;
   lead?: React.ReactNode;
   footer?: React.ReactNode;
+  /// A control at the title's end (Sources' Attach files or folders).
+  action?: React.ReactNode;
+  /// Draw the section with nothing to list (Sources while its + offers Use tools).
+  keep?: boolean;
 }) {
-  const t = useT();
-  const [all, setAll] = useState(false);
-  if (items.length === 0 && !lead) {
-    if (!fixed) return null;
-    return (
-      <section className="acpmux-summary-section" aria-label={title}>
-        <h3 className="acpmux-summary-title">{title}</h3>
-        <ul className="acpmux-summary-list">
-          <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
-        </ul>
-        {footer}
-      </section>
-    );
-  }
-  const shown = all ? items : items.slice(0, FOLDED);
+  if (items.length === 0 && !lead && !footer && !keep) return null;
+  const heading = action ? (
+    <div className="acpmux-summary-heading">
+      <h3 className="acpmux-summary-title">{title}</h3>
+      {action}
+    </div>
+  ) : (
+    <h3 className="acpmux-summary-title">{title}</h3>
+  );
   return (
     <section className="acpmux-summary-section" aria-label={title}>
-      <h3 className="acpmux-summary-title">{title}</h3>
+      {heading}
       <ul className="acpmux-summary-list">
         {lead}
-        {shown.map((item) => row(item))}
+        {items.map((item) => row(item))}
       </ul>
-      {items.length > FOLDED && (
-        <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>
-          {all ? t("summary.showFewer") : t("summary.viewAll", { n: items.length })}
-        </button>
-      )}
       {footer}
     </section>
   );

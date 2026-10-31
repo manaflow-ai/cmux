@@ -435,6 +435,18 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(all(test, unix))]
+mod test_pty;
+
+#[cfg(all(test, unix))]
+mod prompt_redraw_tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod fork_watch;
+
+#[cfg(all(test, unix))]
+mod fork_count_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -120,7 +120,6 @@ export function NowPlayingCard({
               className="nt-player-button"
               data-command="previous"
               aria-label={labels.previous}
-              title={labels.previous}
               disabled={!track.canPrevious}
               onClick={() => onCommand("previous")}
             >
@@ -131,7 +130,6 @@ export function NowPlayingCard({
               className="nt-player-button nt-player-play"
               data-command="playPause"
               aria-label={track.playing ? labels.pause : labels.play}
-              title={track.playing ? labels.pause : labels.play}
               onClick={() => onCommand("playPause")}
             >
               <Glyph name={track.playing ? "pause" : "play"} />
@@ -141,7 +139,6 @@ export function NowPlayingCard({
               className="nt-player-button"
               data-command="next"
               aria-label={labels.next}
-              title={labels.next}
               disabled={!track.canNext}
               onClick={() => onCommand("next")}
             >
@@ -164,7 +161,7 @@ export function NowPlayingPlayer({ onCommand }: { onCommand?(command: NowPlaying
   if (!onCommand) return null;
   if (hidden)
     return (
-      <div className="nt-player-note" role="status">
+      <output className="nt-player-note">
         <span className="nt-player-note-text">{nt("nowPlaying.hidden")}</span>
         <button
           type="button"
@@ -176,7 +173,7 @@ export function NowPlayingPlayer({ onCommand }: { onCommand?(command: NowPlaying
         >
           {nt("nowPlaying.undo")}
         </button>
-      </div>
+      </output>
     );
   if (!track) return null;
   return (

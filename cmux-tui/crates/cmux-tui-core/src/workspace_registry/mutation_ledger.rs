@@ -31,7 +31,7 @@ pub enum Actor {
     /// A connection from another machine: a `cmux link` peer
     /// (`link:<install>`), or a WebSocket or remote-entry connection.
     Peer { id: String },
-    /// A process in a cmux terminal, proved by its launch credential.
+    /// A process in a cmux terminal, proved by its launch credential or socket-peer ancestry.
     Terminal { id: String },
     /// An agent in an acpmux ACP session, proved by its launch credential;
     /// `agent` is the principal the local user named when minting it.

@@ -10,7 +10,7 @@ import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import { BridgePageClient } from "../shared/pageClient";
 import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
-import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
+import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
@@ -33,6 +33,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** Adds #launch, a channel two teammates share; Ana types in it. */
+  teammates?: boolean;
   /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
   terminalSelection?: string;
   /** A sheet route (routes.ts) to open. */
@@ -103,6 +105,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  teammates = false,
   terminalSelection,
   route,
   hostGrants = false,
@@ -113,7 +116,7 @@ function HomeChannelsGallery({
   link,
 }: Props) {
   const [store] = useState(() => {
-    const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
+    const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && extraChief) provider.addChief("Release Chief");
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
@@ -130,6 +133,10 @@ function HomeChannelsGallery({
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
+        if (teammates) {
+          provider?.viewing("c-launch", [sam.id, ana.id]);
+          provider?.typing("c-launch", ana.id, true);
+        }
       });
     return created;
   });
@@ -224,6 +231,18 @@ export default componentEntry<Props>({
     await import("./ledger.css");
   },
   variants: {
+    "stable-thread-counts": {
+      note: "Thread metadata keeps equal-width digits as reply and participant totals change.",
+      props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
+    },
+    "stable-picker-counts": {
+      note: "The selected-person count uses tabular digits while choices change.",
+      props: { select: "c-release", route: { kind: "newMessage" } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row input"));
+        await ctx.click({ selector: ".lg-form .lg-picker-row input" });
+      },
+    },
     normal: { note: "The conversation list and the page's first conversation.", props: {} },
     channel: {
       note: "The #release channel: day separator, grouped rows, a reply, a thread summary, code.",
@@ -300,6 +319,13 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-msg.head .hc-md"));
         await ctx.selectText({ selector: ".lg-main .hc-msg.head .hc-md" });
+      },
+    },
+    teammates: {
+      note: "A channel two teammates share: Sam has it open and Ana types, so both faces show in the header's presence stack.",
+      props: { select: "c-launch", teammates: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-header .cv-presence"));
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
@@ -694,14 +720,41 @@ export default componentEntry<Props>({
       },
     },
     run: {
-      note: "The Chief's finished run under its reply: Worked for, steps, cost; Open shows the whole run.",
+      note: "The Chief's finished run under its reply: Worked for, steps, tokens (no dollar figure); Open shows the whole run.",
       props: { select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
+    "run-messages": {
+      note: "Chief's tell and an agent report remain visible with the finished run folded.",
+      props: { select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "run-messages-open": {
+      note: "Either message expands independently of the run, preserving its complete body.",
+      props: { select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-messages .cv-agentmsg").length === 2);
+        await ctx.click({
+          selector: '.lg-run-messages [data-direction="sent"] .cv-agentmsg__toggle',
+        });
+        await ctx.click({
+          selector: '.lg-run-messages [data-direction="received"] .cv-agentmsg__toggle',
+        });
+      },
+    },
+    "run-messages-narrow": {
+      note: "Both message rows remain readable in a narrow Home conversation.",
+      props: { width: 380, pane: "conversation", select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-messages .cv-agentmsg").length === 2);
+      },
+    },
     "run-open": {
-      note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and cost.",
+      note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and the cost labelled as API prices.",
       props: { select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-open"));
@@ -757,14 +810,14 @@ export default componentEntry<Props>({
       },
     },
     "narrow-run-card": {
-      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and cost under it.",
+      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and tokens under it.",
       props: { width: 380, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
     },
     "narrow-run-card-480": {
-      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      note: "A run card on a 480 px page: the step count and tokens move under Worked for as one line, never starting with a separator.",
       props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));

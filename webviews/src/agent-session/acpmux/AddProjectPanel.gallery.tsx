@@ -63,7 +63,7 @@ const host: ProjectDirectoryHost = {
 const base = {
   host,
   localName: "This Mac",
-  peers: ["big-red", "Office Mac"],
+  peers: ["lab-box", "Office Mac"],
   onPick: () => undefined,
   onClose: () => undefined,
 };
@@ -88,6 +88,13 @@ const keyboardBrowse: Play = async (ctx) => {
   await ctx.press("ArrowDown");
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="directory"]'));
+};
+
+const rejectedBrowse: Play = async (ctx) => {
+  await toSources(ctx);
+  await ctx.click({ text: "Local folder" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status button"));
 };
 
 export default componentEntry({
@@ -130,6 +137,17 @@ export default componentEntry({
       note: "Arrow keys and Enter move through the command panel without stacked dialogs.",
       props: base,
       play: keyboardBrowse,
+    },
+    "browse-error": {
+      note: "A rejected native folder chooser stays in the panel with its error and Retry action; cancellation still closes it.",
+      props: {
+        ...base,
+        host: {},
+        onBrowse: async () => {
+          throw new Error("The folder chooser is unavailable.");
+        },
+      },
+      play: rejectedBrowse,
     },
   },
 });

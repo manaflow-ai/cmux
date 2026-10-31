@@ -7,62 +7,100 @@ import CmuxNextHomeEngine
 import Foundation
 import Observation
 
-/// "Chief: Open Memory Inspector" (DEV and nightly, palette; the Chief
-/// settings sidebar's Show Memory runs it too): the local Chief's brain host
-/// serves a read-only memory inspector on 127.0.0.1 (optchat-chief
-/// inspect/http.rs) and writes its address and token to
-/// `<mux home>/optchat/inspector.json`. The app trades the token for a
-/// one-time ticket and opens the page as a browser tab in a new column to
-/// the right of the focused pane's column, so no live secret is ever in a URL.
-/// In the home workspace (the pinned Chief dock and the right column) it is a
-/// tab in the right column instead (``ChiefInspectorPlacement``): a new column
-/// there lands off screen, and the pinned dock takes no tab (a243). From the
-/// classic Home page (no focused pane) the column goes right of the window's
-/// workspace's last column, and the app shows that workspace.
+/// "Chief: Open Memory Inspector" (palette, `cmux chief memory`, MCP, and the
+/// Chief settings panel's Show Memory): the built-in Memory Inspector
+/// (memory-inspector-native-DESIGN.md), a native pane tab per Chief in the
+/// Home right column that reads and changes the memory over the daemon
+/// connection (`chief-inspect`). Arguments: `chief` (a Chief this Mac runs
+/// that is not the default) or `server` (the machine id of a paired server
+/// whose Chief to show); neither: this Mac's default Chief.
+///
+/// Fallback: with `CMUX_MEMORY_INSPECTOR_WEB=1` in the app's environment (and
+/// `OPTCHAT_INSPECTOR_WEB=1` in the brain's), the old web page opens instead:
+/// the local brain host serves it on 127.0.0.1 (optchat-chief
+/// inspect/http.rs) behind a token traded for a one-time ticket. In the home
+/// workspace it is a tab in the right column (``ChiefInspectorPlacement``,
+/// a243); elsewhere a browser tab in a new column right of the focused pane's.
 @MainActor
 enum ChiefInspectorHandlers {
     static let actionID: ActionID = "chief.openMemoryInspector"
+    /// The Home header's Memory toggle (``HomeHeaderPanels``) and the palette's Toggle Memory
+    /// Inspector: closes the active window's Memory Inspector tabs when its workspace shows one,
+    /// else opens one exactly as ``actionID`` (same arguments, same fallback).
+    static let toggleActionID: ActionID = "chief.toggleMemoryInspector"
+    /// The old web page instead of the native view (the fallback).
+    static var opensWebPage: Bool { ProcessInfo.processInfo.environment["CMUX_MEMORY_INSPECTOR_WEB"] == "1" }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let remotePage = ChiefInspectorPageService(services: context.services)
         context.services.pages.register(remotePage)
-        registry.bind(actionID, requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
-            let target = try placement(invocation, context: context)
-            let muxHome = HomeBrainHost.muxHome(tag: context.services.environment.tag)
-            // task-owner: one file read, one ticket request and one tab open; ends
-            // with them (a caller such as `cmux action run` waits and gets the failure).
-            context.registry.track(Task { @MainActor in
-                do {
-                    // No Chief on this Mac: a paired server's Chief, through its daemon.
-                    if !(await Task.detached { ChiefInspectorEndpoint.exists(muxHome: muxHome) }.value),
-                       let server = remoteChief(context) {
-                        try openRemote(server, page: remotePage, placement: target, invocation: invocation, context: context)
-                        return nil
-                    }
-                    let endpoint = try await Task.detached { try ChiefInspectorEndpoint.read(muxHome: muxHome) }.value
-                    let url = try await endpoint.ticketURL()
-                    switch target {
-                    case .tab(let pane): try await openAsTab(url, in: pane, context: context)
-                    case .newColumn(let anchor): try await openInNewColumn(url, anchor: anchor, context: context)
-                    }
+        let memory = ChiefMemoryPageService(services: context.services)
+        context.services.pages.register(memory)
+        registry.bind(actionID, run: { invocation in
+            if opensWebPage {
+                try openWeb(invocation, remotePage: remotePage, context: context)
+                return
+            }
+            guard let window = context.services.windows.active,
+                  memory.open(route(invocation), in: window, focus: invocation.allowsViewChange) != nil else {
+                throw ActionWorkFailure(RefusalStrings.noWindowOpen)
+            }
+        })
+        registry.bind(toggleActionID, run: { invocation in
+            guard let window = context.services.windows.active else { throw ActionWorkFailure(RefusalStrings.noWindowOpen) }
+            if memory.closeShown(in: window) { return }
+            _ = context.registry.perform(actionID, invocation: invocation)
+        })
+    }
+
+    /// The Chief the invocation names (`chief`, `server`), else this Mac's default Chief.
+    static func route(_ invocation: ActionInvocation) -> ChiefMemoryRoute {
+        if let machine = invocation.arguments["server"]?.stringValue, !machine.isEmpty {
+            return ChiefMemoryRoute(place: .server(machineID: machine))
+        }
+        let chief = invocation.arguments["chief"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        return ChiefMemoryRoute(place: .local(chief: chief))
+    }
+
+    /// The old web page (the fallback): the local host's page through a
+    /// ticket, or a paired server's through its daemon.
+    private static func openWeb(_ invocation: ActionInvocation, remotePage: ChiefInspectorPageService,
+                                context: AppActionContext) throws {
+        let target = try placement(invocation, context: context)
+        let muxHome = HomeBrainHost.muxHome(tag: context.services.environment.tag)
+        // task-owner: one file read, one ticket request and one tab open; ends
+        // with them (a caller such as `cmux action run` waits and gets the failure).
+        context.registry.track(Task { @MainActor in
+            do {
+                // No Chief on this Mac: a paired server's Chief, through its daemon.
+                if !(await Task.detached { ChiefInspectorEndpoint.exists(muxHome: muxHome) }.value),
+                   let server = remoteChief(context) {
+                    try openRemote(server, page: remotePage, placement: target, invocation: invocation, context: context)
                     return nil
-                } catch {
-                    let reason = switch error {
-                    case is ChiefInspectorEndpoint.Missing: ChiefInspectorStrings.noLocalChief
-                    case let failure as ActionWorkFailure: failure.message
-                    default: ChiefInspectorStrings.unreachable
-                    }
-                    context.daemon.logger.error("memory inspector: \(String(describing: error), privacy: .public)")
-                    context.registry.refuse(reason)
-                    return ActionWorkFailure(reason)
                 }
-            })
+                let endpoint = try await Task.detached { try ChiefInspectorEndpoint.read(muxHome: muxHome) }.value
+                let url = try await endpoint.ticketURL()
+                switch target {
+                case .tab(let pane): try await openAsTab(url, in: pane, context: context)
+                case .newColumn(let anchor): try await openInNewColumn(url, anchor: anchor, context: context)
+                }
+                return nil
+            } catch {
+                let reason = switch error {
+                case is ChiefInspectorEndpoint.Missing: ChiefInspectorStrings.noLocalChief
+                case let failure as ActionWorkFailure: failure.message
+                default: ChiefInspectorStrings.unreachable
+                }
+                context.daemon.logger.error("memory inspector: \(String(describing: error), privacy: .public)")
+                context.registry.refuse(reason)
+                return ActionWorkFailure(reason)
+            }
         })
     }
 
     /// A connected paired server whose brain daemon serves `chief-inspect`.
     private static func remoteChief(_ context: AppActionContext) -> ServerMachineSession? {
-        context.services.machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+        context.services.machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
     }
 
     /// The remote inspector page in this window, then moved into a new
@@ -102,7 +140,7 @@ enum ChiefInspectorHandlers {
 
     /// The screen of `pane` when it is in the home workspace, else nil.
     private static func homeScreen(of pane: PaneModel, context: AppActionContext) -> ScreenModel? {
-        for workspace in context.daemon.store.workspaces where workspace.kind == "home" {
+        for workspace in context.daemon.store.workspaces where workspace.isAnyHome {
             if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return screen }
         }
         return nil
@@ -124,7 +162,7 @@ enum ChiefInspectorHandlers {
         guard invocation.target == nil || scope.pane != nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The home workspace (kind "home") holds only the Chief conversation
         // that the Home page shows: the column goes into a user workspace.
-        let user = { (w: WorkspaceModel) in w.kind != "home" && w.screens.first?.panes.last != nil }
+        let user = { (w: WorkspaceModel) in !w.isAnyHome && w.screens.first?.panes.last != nil }
         let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
             ?? context.daemon.store.workspaces.first(where: user)
         guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
@@ -159,14 +197,13 @@ enum ChiefInspectorHandlers {
         let handle = anchor.handle
         let connection = try context.requireConnection()
         guard case let browserTabs = context.services.cache.browserTabs,
-              case .open(let choice) = browserTabs.resolve(requested: nil) else {
+              case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }
         let surface = try await browserTabs.open(choice, in: anchor, url: url.absoluteString, profile: nil)
-        let spawn = context.services.newColumnWidth(nextTo: anchor)
+        let width = context.services.newColumnWidth(nextTo: anchor)
         do {
-            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: spawn.width)
-            spawn.commit()
+            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: width)
         } catch DaemonError.missingCapabilities {
             try await connection.split(handle, direction: .right, movingTab: surface)
         }

@@ -22,10 +22,26 @@ pub enum Settings {
     Unreadable(String),
 }
 
-/// The settings file as it is now.
-pub fn read() -> Settings {
+/// The files `read` looks at, first that exists wins: the override alone,
+/// else `cmux-next.json` then classic `cmux.json`. The settings watcher
+/// (`hub/settings_watch.rs`) watches these.
+pub fn paths() -> Vec<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
     let home = || var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    if let Some(path) = var(CONFIG_OVERRIDE) {
+        let path = PathBuf::from(path);
+        let path = match path.strip_prefix("~") {
+            Ok(rest) => home().join(rest),
+            Err(_) => path,
+        };
+        return vec![path];
+    }
+    let home = home();
+    vec![home.join(".config/cmux/cmux-next.json"), home.join(".config/cmux/cmux.json")]
+}
+
+/// The settings file as it is now.
+pub fn read() -> Settings {
     let read_one = |path: &std::path::Path| match std::fs::read_to_string(path) {
         Ok(text) => Some(match document(&text) {
             Some(doc) => Settings::Parsed(doc),
@@ -34,18 +50,7 @@ pub fn read() -> Settings {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => Some(Settings::Unreadable(format!("{}: {e}", path.display()))),
     };
-    if let Some(path) = var(CONFIG_OVERRIDE) {
-        let path = PathBuf::from(path);
-        let path = match path.strip_prefix("~") {
-            Ok(rest) => home().join(rest),
-            Err(_) => path,
-        };
-        return read_one(&path).unwrap_or(Settings::Missing);
-    }
-    let home = home();
-    read_one(&home.join(".config/cmux/cmux-next.json"))
-        .or_else(|| read_one(&home.join(".config/cmux/cmux.json")))
-        .unwrap_or(Settings::Missing)
+    paths().iter().find_map(|path| read_one(path)).unwrap_or(Settings::Missing)
 }
 
 /// The settings file's text, or `None` when there is none to read.

@@ -47,8 +47,8 @@ final class PageInfoToggle: NSView {
     private func refresh(animated: Bool) {
         // The knob slides with the selection token (instant under Reduce
         // Motion or when animations are off).
-        guard animated else { return Motion.transaction(nil) { applyState() } }
-        Motion.transaction(spring: .selection) { applyState() }
+        guard animated else { return Motion.overlays.transaction(nil) { applyState() } }
+        Motion.overlays.transaction(spring: .selection) { applyState() }
     }
 
     private func applyState() {

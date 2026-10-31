@@ -28,6 +28,7 @@ import {
 import { isStripeBillingConfigured, stripe } from "./stripe";
 import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
+import { databaseTeamSeatQueue } from "./teamSeatQueue";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
 import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
 import {
@@ -37,6 +38,31 @@ import {
 } from "../telemetry";
 
 
+/**
+ * Every event type the billing webhook acts on. The live endpoint's
+ * subscriptions (`scripts/stripe/provision-catalog.sh`) and the local
+ * `stripe listen` (`scripts/stripe/dev-stack.sh`) must list exactly these;
+ * tests/stripe-webhook-event-types.test.ts holds them together.
+ */
+export const STRIPE_WEBHOOK_EVENT_TYPES = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+  "customer.subscription.pending_update_applied",
+  "customer.subscription.pending_update_expired",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "invoice.marked_uncollectible",
+  "charge.refunded",
+] as const satisfies readonly Stripe.Event.Type[];
+
 type StripeWebhookDependencies = {
   webhookSecret: () => string | undefined;
   isConfigured: () => boolean;
@@ -45,6 +71,7 @@ type StripeWebhookDependencies = {
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  markTeamSeatsDirty?: (stackTeamId: string) => Promise<void>;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
@@ -61,6 +88,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  markTeamSeatsDirty: (stackTeamId) => databaseTeamSeatQueue.markDirty(stackTeamId),
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
@@ -260,15 +288,23 @@ async function processStripeEvent(
       return processCheckoutCompleted(event, event.data.object, dependencies);
     case "checkout.session.expired":
       return processExpiredCheckout(event, event.data.object, dependencies);
+    case "checkout.session.async_payment_failed":
+      return processFailedAsyncCheckout(event, event.data.object, dependencies);
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":
+    case "customer.subscription.paused":
+    case "customer.subscription.resumed":
+    case "customer.subscription.pending_update_applied":
+    case "customer.subscription.pending_update_expired":
       // Stripe can deliver events late or out of order. Always reconcile the
       // provider's current object rather than allowing an older event payload
       // to overwrite a newer entitlement state.
       return reconcileSubscriptionEvent(event, event.data.object.id, "subscription_unmapped", dependencies);
     case "invoice.paid":
-    case "invoice.payment_failed": {
+    case "invoice.payment_failed":
+    case "invoice.payment_action_required":
+    case "invoice.marked_uncollectible": {
       const subscriptionId = invoiceSubscriptionId(event.data.object);
       if (!subscriptionId) return { skipped: "invoice_without_subscription" };
       return reconcileSubscriptionEvent(event, subscriptionId, "invoice_subscription_unmapped", dependencies);
@@ -363,7 +399,8 @@ async function reconcileSubscriptionEvent(
   dependencies: StripeWebhookDependencies,
 ): Promise<StripeEventOutcome> {
   const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-  const result = await applySubscriptionEntitlementUpdate(subscription, dependencies);
+  const marksTeamSeats = TEAM_SEAT_EVENT_TYPES.has(event.type);
+  const result = await applySubscriptionEntitlementUpdate(subscription, dependencies, marksTeamSeats);
   return "skipped" in result
     ? { skipped: unmappedSkip }
     : {
@@ -373,6 +410,27 @@ async function reconcileSubscriptionEvent(
           analyticsSubject(result, result.isActive, subscription.status),
         ),
       };
+}
+
+// Events whose subscription may have changed its quantity, so a Team's seats
+// are reconciled after the entitlement update.
+const TEAM_SEAT_EVENT_TYPES: ReadonlySet<Stripe.Event.Type> = new Set([
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.pending_update_applied",
+]);
+
+// A delayed payment method (ACH, SEPA, Boleto) failed after the checkout
+// completed unpaid. Nothing was fulfilled, but the subscription Checkout
+// created is now incomplete or canceled, so its current state is applied.
+async function processFailedAsyncCheckout(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  const subscriptionId = stringId(session.subscription);
+  if (!subscriptionId) return { skipped: "checkout_without_subscription" };
+  return reconcileSubscriptionEvent(event, subscriptionId, "checkout_subscription_unmapped", dependencies);
 }
 
 async function processRefund(
@@ -448,8 +506,11 @@ function analyticsSubject(
 async function applySubscriptionEntitlementUpdate(
   subscription: Stripe.Subscription,
   dependencies: StripeWebhookDependencies,
+  marksTeamSeats: boolean,
 ) {
-  const result = await dependencies.applySubscriptionUpdate(subscription);
+  const result = await dependencies.applySubscriptionUpdate(subscription, {
+    markTeamSeatsDirty: marksTeamSeats ? dependencies.markTeamSeatsDirty ?? false : false,
+  });
   if (
     !("skipped" in result)
     && !result.isActive

@@ -27,21 +27,35 @@ mod control;
 mod drafts;
 mod engine_control;
 pub mod files;
+mod harness_offer;
 mod image_fit;
 pub mod images;
 mod inbox;
 pub mod media;
 mod mux_ack;
 mod outbox;
+mod outcome_ledger;
 mod previews;
 mod prewarm;
+pub mod reaction_wake;
 mod recover;
 mod replies;
+mod reply_ledger;
+mod screen;
+pub use outcome_ledger::UNTOLD_TAG;
+pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+mod send;
 mod side;
 mod spawns;
 mod steer;
+mod transcript;
 mod turns;
+mod wakes;
+mod watches;
+pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
+pub use steer::STEER_DEADLINE;
+pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -62,6 +76,19 @@ use crate::turn::{TurnOutcome, TurnStart};
 /// Everything the brain reacts to.
 /// The start of [`Brain::run`]'s answer when a signal asked the host to stop.
 pub const STOP_REQUESTED: &str = "stop requested";
+
+/// The brain's stop when an update asked the host to hand off when idle
+/// (SIGUSR1): it stopped between turns, so the next host cuts nothing.
+pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
+
+/// How long a handoff request waits for the running turn: past it the host
+/// stops anyway and the next host adopts the turn session.
+pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// How long a host whose binary was replaced waits for no turn to run: it
+/// still works, so only a turn that never ends brings the cut.
+pub(crate) const BINARY_REPLACED_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
 
 pub enum Input {
     Daemon(Box<DaemonEvent>),
@@ -136,16 +163,38 @@ pub enum Input {
     SubagentPrompted {
         id: String,
     },
+    /// A subagent's task turn started at acpmux: `turn_started` after the
+    /// echo of its task prompt `prompt_id` (`Spawner::forward_answer`).
+    SubagentTurnStarted {
+        id: String,
+        prompt_id: String,
+    },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
         id: String,
         key: String,
         name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
     },
     /// A subagent could not start.
     SubagentFailed {
         id: String,
         error: String,
+    },
+    /// A cloud subagent holds this sandbox key (agent_keys.rs): revoked once
+    /// it has been done for `agent_keys::REVOKE_AFTER_DONE`.
+    SubagentAgentKey {
+        id: String,
+        key_id: String,
+    },
+    /// The sandbox key of subagent `id` is revoked (its VMs go with it).
+    AgentKeyRevoked {
+        id: String,
+    },
+    /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
+    AgentKeyRevokeFailed {
+        id: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -161,6 +210,21 @@ pub enum Input {
         reason: String,
         after_network: bool,
         online: bool,
+    },
+    /// The model endpoint answers again after the Chief's turn was cut by a
+    /// network error (`turns::Cut::Network`), or the wait for it ended
+    /// (`!online`): the cut turn whose hold is `hold` runs at `not_before`
+    /// at the earliest.
+    NetworkBack {
+        hold: Instant,
+        not_before: Instant,
+        online: bool,
+    },
+    /// Subagent `id`, whose account hit a usage limit, continues in a new
+    /// session on `harness` (auto_resume.rs `Decision::Move`).
+    AutoMove {
+        id: String,
+        harness: String,
     },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
@@ -188,6 +252,13 @@ pub enum Input {
         reaction: String,
         reply: Sender<Result<String, String>>,
     },
+    /// `transcript(n, before)` (transcript.rs): the conversation as the
+    /// daemon stores it; the answer goes to `reply`.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
+        reply: Sender<Result<String, String>>,
+    },
     /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
     Reply {
         id: u64,
@@ -202,6 +273,59 @@ pub enum Input {
         session: String,
         message: String,
     },
+    /// `send(text, attachments, reply_to)` (send.rs).
+    Send {
+        call: crate::tools::SendCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `stop()` (wakes.rs): ends the running turn.
+    StopTurn {
+        reply: Sender<Result<String, String>>,
+    },
+    /// `sleep(seconds, note, until)` (wakes.rs).
+    Sleep {
+        call: crate::tools::SleepCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `watch(...)` (watches.rs): start, cancel or list watches.
+    Watch {
+        call: crate::tools::WatchCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A watch's command ended it (watches.rs): the Chief wakes once.
+    WatchFired(Box<crate::watch::Fired>),
+    /// A message from a Chief on another machine (peer_chiefs.rs), already
+    /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
+    PeerChiefNote {
+        text: String,
+    },
+    /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
+    EscalateAuth {
+        agent: String,
+        request: crate::tools::AuthEscalation,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `peers` from subagent `caller` (acp-chief-issues.md #11).
+    PeerList {
+        caller: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `tell` from subagent `from` to subagent `id`.
+    PeerTell {
+        from: String,
+        id: String,
+        message: String,
+        key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell to a running subagent that neither its steer nor the prompt
+    /// after it delivered (acp-chief-issues.md #10): it goes back into the
+    /// subagent's inbox, first, for its next prompt.
+    TellUndelivered {
+        id: String,
+        message: String,
+        error: String,
+    },
     /// `control(action, ...)` (control.rs).
     Control {
         request: crate::tools::ControlCall,
@@ -209,8 +333,7 @@ pub enum Input {
     },
     /// Once a minute while subagents work: stuck detection (control.rs).
     SubTick,
-    /// Changes a per-Chief setting (`chief_settings`); refused for
-    /// `remote.autoApprove` on during a remote-origin turn.
+    /// Changes a per-Chief setting (`chief_settings`).
     Setting {
         key: String,
         value: String,
@@ -223,6 +346,20 @@ pub enum Input {
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
     SpawnPolicy {
         reply: Sender<Option<String>>,
+    },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
+    },
+    /// The reaction classifier's answer for decision `id` on Chief message
+    /// `seq` (reaction_wake.rs).
+    ReactionJudged {
+        seq: u64,
+        id: u64,
+        answer: Result<String, String>,
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
@@ -240,6 +377,50 @@ pub enum Input {
     Shutdown {
         signal: i32,
     },
+    /// Every few seconds while cloud VMs are set: pauses idle ones
+    /// (`cloud.autoPauseIdleSeconds`).
+    CloudTick,
+    /// Fleet job `job`, which cloud subagent `id` waits on, ended in `state`.
+    FleetJobFinished {
+        id: String,
+        job: String,
+        state: String,
+    },
+    /// The fleet poll of subagent `id`'s jobs ended.
+    FleetPolled {
+        id: String,
+    },
+    /// The pool tool refused or failed to pause `peer` with `error`: it is
+    /// tried again after a growing wait (`cloud_pause_backoff`).
+    CloudPauseFailed {
+        peer: String,
+        error: String,
+    },
+    /// The pool tool paused `peer`.
+    CloudPaused {
+        peer: String,
+    },
+    /// A finished subagent's own VM `peer` is deleted (its work was pushed).
+    CloudVmDeleted {
+        peer: String,
+    },
+    /// Deleting `peer` was refused (unpushed work) or failed: tried again
+    /// after another reap wait.
+    CloudVmDeleteFailed {
+        peer: String,
+    },
+    /// Subagent `id`'s own VM could not be made (`why`): it runs on this host.
+    SubagentPlacedHere {
+        id: String,
+        why: String,
+    },
+    /// SIGUSR1 to the host: an update replaced the app, so the brain stops
+    /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
+    /// off and starts the next host.
+    /// The host's binary was replaced on disk (an app update): hand off once
+    /// no turn runs (`update_watch`).
+    BinaryReplaced,
+    HandoffWhenIdle,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
     Stop {
@@ -249,6 +430,18 @@ pub enum Input {
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
         name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {all: true} ("Stop all agents"): the running turn and
+    /// every subagent at work or queued; answers `{"stopped": bool,
+    /// "subagents": [ids]}`.
+    StopAll {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {restart: [ids]} (Restart on the stop-all toast): those
+    /// subagents go on; answers `{"restarted": [ids], "errors": [...]}`.
+    RestartSubagents {
+        names: Vec<String>,
         reply: Sender<serde_json::Value>,
     },
     /// The link preview thread's answer for reply `key`: its parts with the
@@ -273,7 +466,21 @@ pub enum EngineRequest {
         compactor_speed: Option<String>,
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
+        /// The reaction classifier's fields (reaction_wake.rs).
+        reactions: Box<ReactionFields>,
     },
+}
+
+/// The reaction-wake fields of an engine set (engine.json
+/// `classifier_harness`, `classifier_model`, `classifier_prompt`,
+/// `reactions_can_wake`): an absent field stays; `default` clears one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReactionFields {
+    pub classifier_harness: Option<String>,
+    pub classifier_model: Option<String>,
+    pub classifier_prompt: Option<String>,
+    /// `true`, `false` or `default`.
+    pub reactions_can_wake: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -373,6 +580,9 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
+    /// its inbox becomes a note at each turn start. None: not read.
+    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -475,6 +685,10 @@ enum Phase {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The longest the Chief waits for a turn session the next acpmux adopted
+/// (an update relaunch) to end before it folds and ends it.
+pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// Runs after every turn with its key (persist and back up, section 10).
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -486,6 +700,9 @@ pub struct Brain {
     state: HostState,
     tx: Sender<Input>,
     log: Log,
+    /// The running watches by id (watches.rs); dropping one kills its
+    /// process group, so a stopping host leaves none behind.
+    watch_runs: HashMap<String, crate::watch::Running>,
     daemon: Option<Box<dyn ConversationPort>>,
     reconnect: Option<Box<dyn Fn() + Send>>,
     summary: Option<Summary>,
@@ -509,6 +726,8 @@ pub struct Brain {
     stop_wanted: bool,
     /// The owner stopped the running turn (chief.stop): its end posts nothing.
     owner_stopped: bool,
+    /// This turn's send was refused for length once; its next send posts.
+    length_refused: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -564,8 +783,37 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Peers whose last pause failed: when the next try may run and the
+    /// error last logged. The waits come from `cloud_pause_backoff`.
+    cloud_pause_retry: std::collections::BTreeMap<String, spawns::PauseRetry>,
+    cloud_pause_backoff: Vec<std::time::Duration>,
+    /// One VM per subagent: how long a finished subagent's own VM stays
+    /// (paused) before it is deleted, since when each is done, and the
+    /// deletes in flight.
+    cloud_reap: std::time::Duration,
+    cloud_reaping: std::collections::BTreeSet<String>,
+    /// The fleet controller cloud subagents' `fleet-wait` jobs are read
+    /// from (fleet_wait.rs), how often, when last, and the subagents whose
+    /// poll is running.
+    fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+    fleet_every: std::time::Duration,
+    fleet_polled_ms: u64,
+    fleet_polling: std::collections::BTreeSet<String>,
+    /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
+    /// keyed subagent is done, and the revokes in flight.
+    agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+    agent_key_done_since: std::collections::BTreeMap<String, u64>,
+    agent_key_revoking: std::collections::BTreeSet<String>,
+    /// How long a keyed subagent stays done before its key is revoked.
+    agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
+    /// The wall clock (ms since the epoch) the subagent watch reads; tests
+    /// set their own (`set_clock`).
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Each running subagent's folded events (sub_watch.rs), by id: kept
+    /// between ticks so each tick reads only the new events.
+    watches: HashMap<String, crate::sub_watch::Watch>,
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
@@ -591,18 +839,23 @@ pub struct Brain {
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
-    /// The running turn has a remote origin (a paired device's message, or
-    /// a remote turn it supersedes): the strictest origin wins until it ends.
-    turn_remote: bool,
-    /// The running turn runs with policy `ask` (remote, no auto-approve).
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// A remote-origin turn was stopped for a newer message: the turn that
-    /// answers both keeps its origin.
-    remote_taint: bool,
-    /// The running turn's permission requests waiting for a person.
-    approvals: VecDeque<crate::approval::Pending>,
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
+    turn_denied: Vec<String>,
+    /// Requests of the running turn denied again because they repeat one
+    /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
+    repeat_denials: u32,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
+    /// A user's reaction that may wake the Chief (reaction_wake.rs).
+    reaction_wake: reaction_wake::State,
     /// Images being described now (`conversation/hash`), started once each.
     describing: HashSet<String>,
     /// Highest seq handled (queued or skipped) of each side conversation;
@@ -629,15 +882,48 @@ pub struct Brain {
     /// The keys of the reactions this host posted (`react` dedupe, besides
     /// the message's own reactions).
     reacted: std::collections::HashSet<String>,
+    /// The idempotency keys of this run's `send` calls (send.rs): a repeat
+    /// of one in the same turn is a noop even after the owner took it.
+    sent_keys: std::collections::HashSet<String>,
+    /// The running turn was ended by the Chief's own `stop` or `sleep`
+    /// (wakes.rs): its final text is not posted, and it is no failure.
+    tool_stopped: bool,
+    /// The running turn was stopped for asking again and again for a tool
+    /// call it was denied (approvals.rs): later requests are denied, and the
+    /// turn posts one line saying so (what it asked for) instead of its text.
+    denial_stopped: Option<(String, approvals::DenyWhy)>,
+    /// Permission requests the host left open, denied once overdue
+    /// (`approvals::deny_overdue_permissions_at`).
+    unanswered: Vec<approvals::Unanswered>,
+    /// Subagent prompts whose refused allow the person was told about
+    /// (`control answer`): the line is posted once per prompt.
+    approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// While set, an adopted turn session still runs and no turn starts; at
+    /// this time it is folded and ended anyway (`children::adopt_orphans`).
+    orphan_wait: Option<Instant>,
     /// When a turn an upstream error cut may run again (None: now).
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
     upstream_backoff: Vec<std::time::Duration>,
+    /// How often a turn cut by a network error checks the model endpoint.
+    network_poll: std::time::Duration,
+    /// An update asked for a handoff: the brain stops between turns, at
+    /// the latest at this deadline.
+    handoff_at: Option<Instant>,
+    handoff_wait: std::time::Duration,
+    /// How long a person's message steered into the running turn may stay
+    /// unread before the turn is interrupted (`steer.rs`); None: it waits
+    /// for the turn's next tool boundary.
+    steer_deadline: Option<Duration>,
+    /// When that deadline passes, and for which turn.
+    steer_due: Option<(Instant, String)>,
+    /// The waits between reply checks (`reply_ledger::REPLY_RETRY_WAITS`).
+    reply_waits: Vec<Duration>,
 }
 
 impl Brain {
@@ -669,6 +955,7 @@ impl Brain {
             state,
             tx,
             log,
+            watch_runs: HashMap::new(),
             daemon: None,
             reconnect: None,
             summary: None,
@@ -683,6 +970,7 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
+            length_refused: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -701,10 +989,10 @@ impl Brain {
             keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
-            turn_remote: false,
             turn_ask: false,
-            remote_taint: false,
-            approvals: VecDeque::new(),
+            last_turn_ask: false,
+            turn_denied: Vec::new(),
+            repeat_denials: 0,
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -712,10 +1000,26 @@ impl Brain {
             workspaces: None,
             sub_starter: None,
             cloud_vms: None,
-            cloud_idle: std::time::Duration::from_secs(600),
+            cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            cloud_pause_retry: Default::default(),
+            cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
+            cloud_reap: std::time::Duration::from_secs(
+                chief.cloud_delete_after_paused_days * 86_400,
+            ),
+            cloud_reaping: Default::default(),
+            fleet: None,
+            fleet_every: std::time::Duration::from_secs(30),
+            fleet_polled_ms: 0,
+            fleet_polling: Default::default(),
+            agent_keys: None,
+            agent_key_done_since: Default::default(),
+            agent_key_revoking: Default::default(),
+            agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
+            clock: Arc::new(now_ms),
+            watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
             reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
@@ -732,6 +1036,7 @@ impl Brain {
             turn_view: None,
             turn_engine: None,
             describer: None,
+            reaction_wake: reaction_wake::State::default(),
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
@@ -740,11 +1045,27 @@ impl Brain {
             message_seqs: HashMap::new(),
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
+            sent_keys: std::collections::HashSet::new(),
+            tool_stopped: false,
+            denial_stopped: None,
+            unanswered: Vec::new(),
+            approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
             resume_at: None,
+            orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            network_poll: crate::auto_resume::NETWORK_POLL,
+            handoff_at: None,
+            handoff_wait: HANDOFF_DEADLINE,
+            steer_deadline: None,
+            steer_due: None,
+            reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
+        // A host can exit after sub_done persists Done but before deliver
+        // queues the report. Recover that durable outbox before accepting new
+        // work so the report reaches both Chief and Home after restart.
+        brain.redeliver_saved_reports();
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
         let resumes = brain.state.resumes.clone();
@@ -761,6 +1082,7 @@ impl Brain {
                 logged: false,
             });
         }
+        brain.rearm_reply_checks();
         brain.save();
         // The compactor's first nodes take the turns' TTL too.
         brain.turn_cache_ttl();
@@ -807,6 +1129,14 @@ impl Brain {
         self.sub_close_on_finish = close;
     }
 
+    /// Moves subagent `id`'s run start back by `by` (tests of how long a run
+    /// took; no production caller).
+    pub fn backdate_sub_run(&mut self, id: &str, by: std::time::Duration) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.run_ms = sub.run_ms.saturating_sub(by.as_millis() as u64);
+        }
+    }
+
     /// Auto-resume of subagents that stop on an error (None: off), and the
     /// probe a network stop waits on.
     pub fn set_auto_resume(
@@ -836,8 +1166,67 @@ impl Brain {
         vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
         idle: std::time::Duration,
     ) {
+        // A host that runs cloud subagents checks its VMs every few seconds.
+        if vms.is_some() && self.cloud_vms.is_none() {
+            control::start_cloud_ticker(self.tx.clone());
+        }
         self.cloud_vms = vms;
         self.cloud_idle = idle;
+    }
+
+    /// How long a finished subagent's own VM is kept (paused) before it is
+    /// deleted (`cloud.deleteAfterPausedDays`, default 7 days).
+    pub fn set_fleet_jobs(
+        &mut self,
+        fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+        every: std::time::Duration,
+    ) {
+        self.fleet = fleet;
+        self.fleet_every = every;
+    }
+
+    /// The waits before each new try of a failed VM pause, the last one
+    /// repeated (5 s, 30 s, 2 min, 10 min on a host).
+    pub fn set_cloud_pause_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        if !waits.is_empty() {
+            self.cloud_pause_backoff = waits;
+        }
+    }
+
+    pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
+        self.cloud_reap = after;
+    }
+
+    /// Revokes cloud subagents' sandbox keys once they are done for a while.
+    /// `grace`: how long a subagent stays done before its key is revoked
+    /// (`agent_keys::REVOKE_AFTER_DONE` on a host).
+    pub fn set_agent_keys(
+        &mut self,
+        keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+        grace: std::time::Duration,
+    ) {
+        if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
+            control::start_cloud_ticker(self.tx.clone());
+        }
+        self.agent_keys = keys;
+        self.agent_key_grace = grace;
+    }
+
+    /// How long a finished subagent's own VM stays paused before it is
+    /// deleted (`cloud.deleteAfterPausedDays`).
+    pub fn cloud_delete_after_paused(&self) -> std::time::Duration {
+        self.cloud_reap
+    }
+
+    /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
+    /// pauses.
+    pub fn cloud_auto_pause_idle(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.chief.cloud_auto_pause_idle_secs)
+    }
+
+    /// The clock the subagent watch reads (ms since the epoch).
+    pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.clock = clock;
     }
 
     /// Caps the subagents at work at once (None: no cap, the default).
@@ -877,27 +1266,56 @@ impl Brain {
         self.phase == Phase::Idle
             && !self.queue.iter().any(Queued::wakes)
             && self.steering.is_empty()
+            && !self.reaction_wake.busy()
     }
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        match (self.outbox_timer, self.resume_at) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [
+            self.outbox_timer,
+            self.resume_at,
+            self.orphan_wait,
+            self.handoff_at,
+            self.steer_due.as_ref().map(|(at, _)| *at),
+            self.reaction_wake.due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
+        self.rearm_auto_resumes();
+        self.rearm_watches();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
             }
-            let input = match self.next_timer() {
+            // The `sleep` wakes run on the same loop (wakes.rs); they stay
+            // out of `next_timer`, which waits only for the outbox and resume.
+            // So does the watch on permission requests nobody answers
+            // (approvals.rs).
+            let timer = [
+                self.next_timer(),
+                self.next_wake(),
+                self.next_unanswered_due(),
+                self.next_reply_due(),
+                self.next_outcome_due(),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let input = match timer {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
+                        self.fire_wakes_at(now_ms());
+                        self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
+                        let now = (self.clock)();
+                        self.deny_overdue_permissions_at(now);
                         continue;
                     }
                     Err(RecvTimeoutError::Disconnected) => return "input channel closed".into(),
@@ -947,9 +1365,16 @@ impl Brain {
                 place,
                 reply,
             } => {
+                // `cloud:SIZE`: on the cloud, at that VM size.
+                let (place, size) = match place.as_deref().and_then(|p| p.split_once(':')) {
+                    Some((p, s)) => (Some(p.to_owned()), Some(s.to_owned())),
+                    None => (place, None),
+                };
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
-                    .and_then(|peers| self.register_spawn(&tasks, &peers));
+                    .and_then(|peers| {
+                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                    });
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -958,9 +1383,18 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
-            Input::SubagentPrompted { id } => self.sub_prompted(&id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentPrompted { id } => {
+                self.sub_prompted(&id);
+                self.stop_if_cancelled(&id);
+            }
+            Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
+            Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
+            Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
+            Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
             Input::AutoResume {
                 id,
@@ -969,6 +1403,12 @@ impl Brain {
                 after_network,
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
+            Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
+            Input::NetworkBack {
+                hold,
+                not_before,
+                online,
+            } => self.network_back(hold, not_before, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -996,18 +1436,73 @@ impl Brain {
             Input::Reply { id, text, reply } => {
                 let _ = reply.send(self.reply_now(id, &text));
             }
+            Input::Transcript { n, before, reply } => {
+                let _ = reply.send(self.transcript(n, before));
+            }
             Input::TellUnsteered {
                 id,
                 session,
                 message,
             } => self.tell_unsteered(&id, &session, &message),
+            Input::Send { call, reply } => {
+                let _ = reply.send(self.send(call));
+            }
+            Input::StopTurn { reply } => {
+                let _ = reply.send(self.stop_turn());
+            }
+            Input::Sleep { call, reply } => {
+                let _ = reply.send(self.sleep(call));
+            }
+            Input::Watch { call, reply } => {
+                let _ = reply.send(self.watch(call));
+            }
+            Input::WatchFired(fired) => self.watch_fired(*fired),
+            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
+            Input::EscalateAuth {
+                agent,
+                request,
+                reply,
+            } => {
+                let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
+            Input::PeerList { caller, reply } => {
+                let _ = reply.send(Ok(self.agents_list(&caller)));
+            }
+            Input::PeerTell {
+                from,
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let _ = reply.send(self.peer_tell(&from, &id, &message, key.as_deref()));
+            }
+            Input::TellUndelivered { id, message, error } => {
+                self.tell_undelivered(&id, message, &error);
+            }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
+            Input::CloudTick => {
+                self.cloud_tick();
+                self.agent_key_tick();
+                self.cloud_reap_tick();
+                self.fleet_tick();
+            }
+            Input::FleetJobFinished { id, job, state } => {
+                self.fleet_job_finished(&id, &job, &state)
+            }
+            Input::FleetPolled { id } => {
+                self.fleet_polling.remove(&id);
+            }
+            Input::CloudPauseFailed { peer, error } => self.cloud_pause_failed(&peer, &error),
+            Input::CloudPaused { peer } => self.cloud_pause_ok(&peer),
+            Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
+            Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
+            Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
                 self.sub_tick();
-                self.cloud_tick();
             }
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
@@ -1018,7 +1513,11 @@ impl Brain {
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
+            }
             Input::Described { image, description } => self.described(&image, description),
+            Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));
             }
@@ -1027,10 +1526,35 @@ impl Brain {
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
+                // The Chief goes away: its idle cloud VMs pause now.
+                self.cloud_shutdown();
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
+            }
+            Input::BinaryReplaced => {
+                if self.handoff_at.is_none() {
+                    (self.log)(
+                        "this host's binary was replaced (an update): stopping once no turn runs",
+                    );
+                    // No cut of a running turn: an outdated host still works.
+                    self.handoff_at = Some(Instant::now() + BINARY_REPLACED_WAIT);
+                }
+                self.handoff_if_idle();
+            }
+            Input::HandoffWhenIdle => {
+                if self.handoff_at.is_none() {
+                    (self.log)("an update asks for a handoff: stopping once no turn runs");
+                    self.handoff_at = Some(Instant::now() + self.handoff_wait);
+                }
+                self.handoff_if_idle();
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StopAll { reply } => {
+                let _ = reply.send(self.stop_all());
+            }
+            Input::RestartSubagents { names, reply } => {
+                let _ = reply.send(self.restart_subagents(&names));
             }
             Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }
@@ -1125,11 +1649,47 @@ impl Brain {
 
     pub fn on_timer(&mut self) {
         let now = Instant::now();
+        if self.handoff_at.is_some_and(|at| at <= now) && self.fatal.is_none() {
+            (self.log)("the turn ran past the handoff deadline; stopping, the next host adopts it");
+            self.fatal = Some(format!("{HANDOFF_WHEN_IDLE} (deadline)"));
+            return;
+        }
         if self.outbox_timer.is_some_and(|at| at <= now) {
             self.outbox_timer = None;
             self.flush_outbox();
         }
         self.on_resume_timer();
+        self.on_steer_deadline(now);
+        self.reaction_timer(now);
+        if self.orphan_wait.is_some_and(|at| at <= now) {
+            (self.log)("an adopted turn session ran past its wait; folding and ending it");
+            self.adopt_orphans(true);
+            self.maybe_start_turn();
+        }
+    }
+
+    /// Sets how long a handoff request waits for the running turn (tests
+    /// shorten it).
+    pub fn set_handoff_deadline(&mut self, wait: std::time::Duration) {
+        self.handoff_wait = wait;
+    }
+
+    /// A handoff was asked and no turn runs (none in flight, no adopted turn
+    /// session it waits for): the brain stops. True when it stopped.
+    pub(super) fn handoff_if_idle(&mut self) -> bool {
+        if self.handoff_at.is_none() || self.phase != Phase::Idle || self.orphan_wait.is_some() {
+            return false;
+        }
+        if self.fatal.is_none() {
+            (self.log)("no turn runs: handing off for the update");
+            // Replies the agent gap holds back post now, not with the next host.
+            if self.outbox_timer.take().is_some() {
+                self.flush_outbox();
+            }
+            self.save();
+            self.fatal = Some(HANDOFF_WHEN_IDLE.into());
+        }
+        true
     }
 
     fn save(&self) {
@@ -1143,21 +1703,68 @@ impl Brain {
         }
     }
 
-    /// Whether `remote.autoApprove` is on.
-    pub fn remote_auto_approve(&self) -> bool {
-        self.chief.remote_auto_approve
-    }
-
-    /// Changes a per-Chief setting and saves it. `remote.autoApprove` can be
-    /// turned on only when no remote-origin work is running, settling or
-    /// queued: never by a paired device, nor by a command a remote turn runs
-    /// (an approved shell command reaches the host the same way). Turning
-    /// it off is always allowed.
+    /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, parse_bool, parse_reply_threads,
-            parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            parse_reply_threads, parse_ttl,
         };
+        if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
+            let days = crate::chief_settings::parse_paused_days(value)?;
+            let mut next = self.chief;
+            next.cloud_delete_after_paused_days = days;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_reap = std::time::Duration::from_secs(days * 86_400);
+            (self.log)(&format!("setting {key} = {days}"));
+            return Ok(format!("{key} = {days}"));
+        }
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+            let secs = crate::chief_settings::parse_idle_secs(value)?;
+            let mut next = self.chief;
+            next.cloud_auto_pause_idle_secs = secs;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_idle = std::time::Duration::from_secs(secs);
+            (self.log)(&format!("setting {key} = {secs}"));
+            return Ok(format!("{key} = {secs}"));
+        }
+        if key == crate::chief_settings::TRACE_FULL {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.trace_full = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.trace.set_full(on);
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::REPLY_MAX_WORDS {
+            let words: usize = value
+                .trim()
+                .parse()
+                .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
+            let mut next = self.chief;
+            next.reply_max_words = words;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {words}"));
+            return Ok(format!("{key} = {words}"));
+        }
+        if key == SHOW_AFTER_REPORT {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.show_after_report = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
             let mut next = self.chief;
@@ -1182,35 +1789,9 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        if key != REMOTE_AUTO_APPROVE {
-            return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS})"
-            ));
-        }
-        let on = parse_bool(value)?;
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
-            (self.log)("refused: remote.autoApprove on during remote-origin work");
-            return Err(
-                "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"
-                    .to_owned(),
-            );
-        }
-        let mut next = self.chief;
-        next.remote_auto_approve = on;
-        next.save(&self.settings.settings_file)
-            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
-        self.chief = next;
-        (self.log)(&format!("setting {key} = {on}"));
-        Ok(format!("{key} = {on}"))
+        Err(format!(
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+        ))
     }
 
     fn queue(&mut self, text: String, source: Source) {
@@ -1246,6 +1827,25 @@ impl Brain {
         let wakes = item.wakes();
         self.queue.push_back(item);
         if human && same && wakes {
+            self.interrupt_for_newer();
+        }
+        self.maybe_start_turn();
+    }
+
+    /// Queues `text` as a note at the head of the main conversation's queue
+    /// and steers it into a running main turn at once (a subagent's
+    /// sign-in escalation: the user is waiting on it, so it never waits
+    /// behind other reports).
+    fn queue_urgent(&mut self, text: String) {
+        let item = Queued {
+            logged: false,
+            text,
+            source: Source::Note,
+            images: Vec::new(),
+            conversation: None,
+        };
+        self.queue.push_front(item);
+        if self.phase == Phase::Running && self.turn_side().is_none() {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();

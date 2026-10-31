@@ -16,10 +16,12 @@ import {
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
+  cmuxTuiApprovalCommand,
   parseCmuxTuiManifest,
   cmuxTuiAttachBundleCommand,
   cmuxTuiTrustedListenerProbe,
   parseCmuxTuiAttachBundle,
+  mintCmuxTuiInvitation,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
@@ -388,5 +390,52 @@ describe("cmux-tui attach bundle", () => {
       "freestyle", "vm-1", "fp-1",
     );
     expect(revoked.enrolled).toBe(false);
+  });
+});
+
+describe("cmux-tui enrollment approval", () => {
+  test("invitation mint errors never include guest output or the invitation URI", async () => {
+    const secretUri = "cmux://enroll/eyJzZWNyZXQiOiJtdXN0LW5vdC1sb2cifQ";
+    const error = await mintCmuxTuiInvitation(
+      async () => ({ exitCode: 1, stdout: secretUri, stderr: `partial output: ${secretUri}` }),
+      "freestyle",
+      "vm-secret",
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).not.toContain(secretUri);
+    expect(String(error)).not.toContain("partial output");
+  });
+
+  test("waits for the exact invitation claim before approving", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-approve-"));
+    const binary = join(root, "cmux-tui");
+    const attempts = join(root, "attempts");
+    const fakeBin = join(root, "bin");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(join(fakeBin, "setpriv"), ["#!/bin/sh", "while [ $# -gt 0 ]; do case \"$1\" in --*) shift;; *) break;; esac; done", 'exec "$@"', ""].join("\n"));
+    chmodSync(join(fakeBin, "setpriv"), 0o755);
+    writeFileSync(binary, [
+      "#!/bin/sh",
+      "case \"$*\" in",
+      "  'remote enroll pending --session cloud --json')",
+      `    if [ -f ${JSON.stringify(attempts)} ]; then printf '%s\\n' '[{"invitation_id":"inv_wait"}]'; else : > ${JSON.stringify(attempts)}; printf '%s\\n' '[]'; fi ;;`,
+      "  'remote enroll approve inv_wait --session cloud --json') printf '%s\\n' '{\"fingerprint\":\"device-fingerprint\"}' ;;",
+      "  *) exit 64 ;;",
+      "esac",
+      "",
+    ].join("\n"));
+    chmodSync(binary, 0o755);
+    try {
+      const command = cmuxTuiApprovalCommand("inv_wait", binary);
+      const result = await runChild("/bin/sh", ["-c", command], {
+        env: { ...process.env, PATH: [fakeBin, process.env.PATH || ""].join(":") },
+        timeout: 5_000,
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({ fingerprint: "device-fingerprint" });
+      expect(existsSync(attempts)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

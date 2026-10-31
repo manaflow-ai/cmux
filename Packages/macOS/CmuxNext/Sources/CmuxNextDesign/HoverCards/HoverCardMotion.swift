@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one entrance and exit every hover card plays: the workspace and tab cards
 /// (`HoverCardPanel`) and the sidebar's Update Ready highlights card.
@@ -42,14 +43,14 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     /// Where a first show starts from its rest place: toward the target it describes.
     /// - Parameters:
     ///   - placement: Where the card sits relative to its target.
-    ///   - leading: For ``HoverCardPlacement/beside``: the card sits left of its target (a
+    ///   - leading: For ``HoverCardPlacement/beside`` and ``HoverCardPlacement/besideRow``: the card sits left of its target (a
     ///     sidebar on the right, or no room on the right), so it starts to the right.
     /// - Returns: The translation (points, y up) the entrance slide starts from.
     public func entryVector(for placement: HoverCardPlacement, leading: Bool = false) -> CGVector {
         switch placement {
         case .below: CGVector(dx: 0, dy: entryOffset)
         case .above: CGVector(dx: 0, dy: -entryOffset)
-        case .beside: CGVector(dx: leading ? entryOffset : -entryOffset, dy: 0)
+        case .beside, .besideRow: CGVector(dx: leading ? entryOffset : -entryOffset, dy: 0)
         }
     }
 
@@ -67,24 +68,24 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
         panel.orderFront(nil)
         if let layer = panel.contentView?.layer {
             let offset = entryVector(for: placement, leading: leading)
-            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
+            Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
                        from: NSValue(caTransform3D: CATransform3DMakeTranslation(offset.dx, offset.dy, 0)))
         }
-        Motion.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
     }
 
     /// A return while the card fades out (the pointer came back): it fades back in from the
     /// alpha it reached, where it is, with no second entrance.
     @MainActor
     public func resume(_ panel: NSWindow) {
-        Motion.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
     }
 
     /// A hide: `panel` fades out where it is (no slide, no scale), then `completion` runs
     /// (which orders it out).
     @MainActor
     public func exit(_ panel: NSWindow, completion: @escaping @MainActor @Sendable () -> Void) {
-        Motion.animateTimed(fadeOut, in: panel.contentView, { panel.animator().alphaValue = 0 }, completion: completion)
+        Motion.hoverCards.animateTimed(fadeOut, in: panel.contentView, { panel.animator().alphaValue = 0 }, completion: completion)
     }
 
     /// A card's origin (screen coordinates, y up) next to `anchor`, before the screen clamp:

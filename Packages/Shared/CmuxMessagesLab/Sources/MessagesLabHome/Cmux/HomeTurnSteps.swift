@@ -23,14 +23,14 @@ struct HomeTurnSteps: Equatable {
         if let last = steps.last {
             if last.start == activity.since {
                 // The same work, a sharper line ("Telling an agent" -> "Telling a31").
-                steps[steps.count - 1].line = activity.line
+                steps.update(at: steps.count - 1) { $0.line = activity.line }
                 return
             }
             if activity.since < last.start {
                 // Older than the newest step: a new run's clock (or a resend of an old frame). Start over.
                 self = HomeTurnSteps()
             } else {
-                steps[steps.count - 1].end = activity.since
+                steps.update(at: steps.count - 1) { $0.end = activity.since }
             }
         }
         if started == nil { started = activity.since }

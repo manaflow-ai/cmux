@@ -72,6 +72,42 @@ public struct WebKitPrivateCalls: Sendable {
         }
     }
 
+    /// Resumes once WebKit presented the page's next frame (SPI `_doAfterNextPresentationUpdate:`),
+    /// or after the bound; at once without it. A wheel sent before the page's layers reached the
+    /// screen is dropped.
+    @MainActor
+    public func afterNextPresentationUpdate(_ webView: WKWebView) async {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
+        guard webView.responds(to: selector) else { return }
+        typealias Action = @convention(block) () -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+        let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+        _ = await awaitCallback { done in
+            // WebKit keeps the block until the update: it must be an escaping one.
+            let action: Action = { done() }
+            function(webView, selector, action)
+        }
+    }
+
+    /// Resumes once WebKit processed the mouse events sent to `webView` so far (SPI
+    /// `_doAfterProcessingAllPendingMouseEvents:`), or after the bound; at once without it.
+    @MainActor
+    public func afterPendingMouseEvents(_ webView: WKWebView) async {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let selector = NSSelectorFromString("_doAfterProcessingAllPendingMouseEvents:")
+        guard webView.responds(to: selector) else { return }
+        typealias Action = @convention(block) () -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+        let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+        // Bounded like every WebKit block wait: a page whose web process
+        // never answers (not loaded yet, suspended) must not hang the call.
+        _ = await awaitCallback { done in
+            let action: Action = { done() }
+            function(webView, selector, action)
+        }
+    }
+
     /// Turns WebKit's window occlusion detection on or off for `webView`.
     /// With it on, a window no pixel of which is on a display counts as
     /// occluded and the page stops rendering. On an unverified macOS nothing

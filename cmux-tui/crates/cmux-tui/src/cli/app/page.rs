@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::OutputMode;
 use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
+use cmux_json::JsonSet as _;
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
 /// `cmux browser wait`); the CLI waits that long plus this margin.
@@ -141,6 +142,14 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        // An agent at a passkey step asks the person: the app brings the tab forward on
+        // their click, then clicks SELECTOR (plans/cmux-next/agent-browser-passkey-DESIGN.md).
+        ("passkey", [] | [_]) => {
+            if let [selector] = words.as_slice() {
+                params.insert("selector".into(), json!(selector));
+            }
+            "browser.page.passkey"
+        }
         ("tabs", []) => {
             if Options::parse(rest, &[], &["all"])?.flag("all") {
                 params.insert("all".into(), json!(true));
@@ -177,15 +186,48 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("target".into(), json!(target));
             "browser.page.drag"
         }
-        ("upload", [selector, files @ ..]) if !files.is_empty() => {
+        // `upload SELECTOR FILE… [--timeout-ms N]`: the app clicks SELECTOR and answers the page's file
+        // chooser with the files (N: how long the chooser may take to open, default 3 s).
+        ("upload", _) => {
+            let (words, options) = words_and_options(rest, &["timeout-ms"], &[])?;
+            let [selector, files @ ..] = words.as_slice() else { return Err(usage()) };
+            if files.is_empty() {
+                return Err(usage());
+            }
             params.insert("selector".into(), json!(selector));
-            let cwd = std::env::current_dir().unwrap_or_default();
-            let files: Vec<String> = files
-                .iter()
-                .map(|file| cwd.join(file.as_str()).to_string_lossy().into_owned())
-                .collect();
+            let files: Vec<String> = files.iter().map(|file| absolute(file)).collect();
             params.insert("files".into(), json!(files));
+            let ms = match options.value("timeout-ms") {
+                Some(ms) => {
+                    let ms: u64 = ms.parse().map_err(|_| usage())?;
+                    params.insert("timeout_ms".into(), json!(ms));
+                    ms
+                }
+                None => DEFAULT_CHOOSER_WAIT_MS,
+            };
+            // The app may first wait for the page's load, then the chooser, then the page-script fallback.
+            timeout = UPLOAD_MARGIN + Duration::from_millis(ms);
             "browser.page.upload"
+        }
+        // `download list [--limit N]`, `download [wait] [--id ID] [--path P] [--timeout-ms N]` (the old
+        // CLI's verbs): the app's downloads, this tab's (`page`: every tab's).
+        ("download" | "downloads", _) => {
+            download(rest, &mut params, &mut timeout).ok_or_else(usage)??
+        }
+        // `mirror [--pane P] [--off]`: the tab shows in a second pane too (default: right of the
+        // Home chat), the same live page (plans/cmux-next/shared-browser-tabs.md).
+        ("mirror", _) => {
+            let (words, options) = words_and_options(rest, &["pane"], &["off"])?;
+            if !words.is_empty() {
+                return Err(usage());
+            }
+            if let Some(pane) = options.value("pane") {
+                params.insert("pane".into(), json!(pane));
+            }
+            if options.flag("off") {
+                params.insert("off".into(), json!(true));
+            }
+            "browser.page.mirror"
         }
         ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
@@ -210,6 +252,10 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         "scroll",
         "cookies",
         "storage",
+        "upload",
+        "download",
+        "downloads",
+        "mirror",
     ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
@@ -230,6 +276,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
 /// The page methods an agent's input goes through: they take `agent`, the
 /// name its cursor shows.
 const AGENT_METHODS: &[&str] = &[
+    "browser.page.passkey",
     "browser.page.click",
     "browser.page.focus",
     "browser.page.fill",
@@ -243,6 +290,13 @@ const AGENT_METHODS: &[&str] = &[
     "browser.page.drag",
     "browser.page.upload",
 ];
+
+/// The methods the CLI names its caller on: [`super::CALLER_METHODS`], and
+/// every page input verb, so the agent cursor's tag says who drives and where
+/// and a click on it goes there (user, 2026-10-20).
+pub(super) fn takes_caller(method: &str) -> bool {
+    super::CALLER_METHODS.contains(&method) || AGENT_METHODS.contains(&method)
+}
 
 /// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
 /// when the flag has no name.
@@ -471,9 +525,66 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
     match output {
         OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
         _ => {
-            result["path"] = json!(path);
+            result.set("path", json!(path));
             super::super::wire::print_local_success(&result, output)
         }
+    }
+}
+
+/// `path` against the working directory: the app resolves no relative path.
+fn absolute(path: &str) -> String {
+    std::env::current_dir().unwrap_or_default().join(path).to_string_lossy().into_owned()
+}
+
+/// How long the app gives a chooser to open after an upload's click, by default.
+const DEFAULT_CHOOSER_WAIT_MS: u64 = 3_000;
+/// An upload's time besides the chooser wait: the page's first load (15 s at most) and the fallback.
+const UPLOAD_MARGIN: Duration = Duration::from_secs(30);
+
+/// A download wait's own default (the app's `browser.page.download.wait`).
+const DEFAULT_DOWNLOAD_WAIT_MS: u64 = 30_000;
+
+/// `download list [--limit N]` and `download [wait] [--id ID] [--path P] [--timeout-ms N]`. None is a
+/// usage error.
+fn download(
+    args: &[String],
+    params: &mut Map<String, Value>,
+    timeout: &mut Duration,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, options) =
+        match words_and_options(args, &["limit", "id", "path", "timeout-ms"], &[]) {
+            Ok(parsed) => parsed,
+            Err(error) => return Some(Err(error)),
+        };
+    match words.as_slice() {
+        [list] if list == "list" || list == "ls" => {
+            if ["id", "path", "timeout-ms"].iter().any(|flag| options.value(flag).is_some()) {
+                return None;
+            }
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(limit.parse::<u32>().ok()?));
+            }
+            Some(Ok("browser.page.downloads"))
+        }
+        [] | [_] if words.first().is_none_or(|word| word == "wait") => {
+            if options.value("limit").is_some() {
+                return None;
+            }
+            if let Some(id) = options.value("id") {
+                params.insert("id".into(), json!(id));
+            }
+            if let Some(path) = options.value("path") {
+                params.insert("path".into(), json!(absolute(path)));
+            }
+            let ms = match options.value("timeout-ms") {
+                Some(ms) => ms.parse::<u64>().ok()?,
+                None => DEFAULT_DOWNLOAD_WAIT_MS,
+            };
+            params.insert("timeout_ms".into(), json!(ms));
+            *timeout = Duration::from_millis(ms) + WAIT_MARGIN;
+            Some(Ok("browser.page.download.wait"))
+        }
+        _ => None,
     }
 }
 

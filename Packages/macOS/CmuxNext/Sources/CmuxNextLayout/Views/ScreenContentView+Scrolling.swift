@@ -21,7 +21,9 @@ extension ScreenContentView {
         lastFocused = focused
         defer { leadIfPending() }
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
+        // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
+        let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
@@ -43,6 +45,7 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
+        scrollRidesFrames = false
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -57,28 +60,34 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
+        scrollRidesFrames = false
         apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
     }
 
     func beginUserScroll() {
+        // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
+        scrollRidesFrames = false
         scrollState.reduce(.gestureBegan)
     }
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
-        applyPresentation()
+        presentPan()
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point.
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
+        // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
+        panPresentationPending = false
         apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
+        scrollRidesFrames = false
         apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
     }
 

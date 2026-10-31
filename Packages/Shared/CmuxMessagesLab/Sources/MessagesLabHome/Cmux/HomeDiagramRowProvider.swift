@@ -77,8 +77,8 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
     /// streamed reply whose diagram changes is measured again.
     static func version(_ source: String) -> Int {
         var hash: UInt32 = 2_166_136_261
-        for byte in source.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-        return Int(hash & 0x7fff_ffff)
+        for byte in source.utf8 { hash = (hash ^ UInt32(truncatingIfNeeded: byte)) &* 16_777_619 }
+        return Int(truncatingIfNeeded: hash & 0x7fff_ffff)
     }
 
     // MARK: TranscriptCustomRowProvider
@@ -99,7 +99,7 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
         }
         let fitted = Self.fit(natural, width: room, height: Self.maxHeight)
         let size = CGSize(width: (fitted.width + 2 * pad).rounded(.up), height: (fitted.height + 2 * pad).rounded(.up))
-        let key = WidthKey(source: source, width: Int(size.width), height: Int(size.height))
+        let key = WidthKey(source: source, width: CrashGuard.int(size.width), height: CrashGuard.int(size.height))
         widths.withLock { memo in
             if memo.count > 512 { memo.removeAll(keepingCapacity: true) }
             memo[key] = room
@@ -111,7 +111,7 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
         guard let source = Self.source(part) else { return }
         let content = rect.insetBy(dx: Self.padding, dy: Self.padding)
         guard content.width > 0, content.height > 0 else { return }
-        let key = WidthKey(source: source, width: Int(rect.width.rounded()), height: Int(rect.height.rounded()))
+        let key = WidthKey(source: source, width: CrashGuard.int(rect.width.rounded()), height: CrashGuard.int(rect.height.rounded()))
         let room = widths.withLock { $0[key] } ?? content.width
         guard let natural = renderer.layout(mermaid: source, maxWidth: room), natural.width > 0, natural.height > 0 else { return }
         let target = Self.fit(natural, width: content.width, height: content.height)

@@ -47,6 +47,45 @@ fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
 }
 
 impl Hub {
+    /// Limits the model probes to `names` (None: every harness), so a
+    /// client that uses a few harnesses (the Chief) never starts the others'
+    /// agents at daemon start. Set before `begin_startup`.
+    pub fn set_probe_only(&self, names: Option<std::collections::BTreeSet<String>>) {
+        *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
+    }
+
+    /// A client now uses `names` too (the Chief's engine set): they join the
+    /// probe list and are probed now, in the background, so their model
+    /// lists arrive without a daemon restart.
+    pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
+        if let Some(list) =
+            self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
+        {
+            list.extend(names.iter().cloned());
+        }
+        let hub = self.clone();
+        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
+    }
+
+    /// Whether the model probes may start harness `name`: never a capture
+    /// fixture's (`harness_fixture.rs`), which names no installed program.
+    pub(super) fn probes(&self, name: &str) -> bool {
+        !crate::harness_fixture::active().is_some_and(|fixture| fixture.names(name))
+            && self
+                .probe_only
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .is_none_or(|names| names.contains(name))
+    }
+
+    /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
+    pub fn probe_only_from_env(value: Option<&str>) -> Option<std::collections::BTreeSet<String>> {
+        value.map(|v| {
+            v.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect()
+        })
+    }
+
     /// The live list for `harness`, when one arrived or was cached.
     pub(super) fn live_models_for(&self, harness: &str) -> Option<Vec<LiveModel>> {
         self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
@@ -55,6 +94,10 @@ impl Hub {
     /// Serves the cached lists whose programs are unchanged. Daemon start,
     /// before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
+        // A capture fixture's harnesses show no list of this host's (`harness_fixture.rs`).
+        if crate::harness_fixture::active().is_some() {
+            return;
+        }
         let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
@@ -77,6 +120,11 @@ impl Hub {
             tracing::info!("agent launch is disabled; live model probes skipped");
             return;
         }
+        // Nor for a capture fixture (`harness_fixture.rs`): its harnesses run nothing,
+        // and finding the CLIs would read this host's PATH.
+        if crate::harness_fixture::active().is_some() {
+            return;
+        }
         let handles: Vec<_> = {
             let cfg = self.config.read().await;
             targets(&cfg.harnesses)
@@ -97,6 +145,8 @@ impl Hub {
     }
 
     async fn probe_live(self: &Arc<Self>, target: Target) {
+        // MDM's off as the list starts: its one read, taken first (review 120 of #23322).
+        let latch = self.off_latch();
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
@@ -105,9 +155,26 @@ impl Hub {
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
-        let listed =
-            crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)
-                .await;
+        // MDM forces full access off (#23322): a profile pinning it is never started to list its
+        // models, and a list that runs when the off lands ends then (`probe_bound`).
+        let listed = match self.probe_bound(&latch, &target.argv) {
+            Err(e) => Err(e),
+            Ok(mut bound) => {
+                let probe = crate::live_models::probe(
+                    target.cli,
+                    &target.argv,
+                    &target.env,
+                    &cwd,
+                    PROBE_TIMEOUT,
+                );
+                tokio::select! {
+                    listed = probe => listed,
+                    () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
+                        Err(anyhow::anyhow!("MDM forced full access off, which its profile pins"))
+                    }
+                }
+            }
+        };
         // A list call that started a session leaves no transcript behind.
         let folder = cwd.clone();
         let _ = tokio::task::spawn_blocking(move || {

@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scroll areas: three designs</title>
+<style>
+  :root { color-scheme: dark; --bg:#141518; --panel:#1d1f24; --pane:#24272e; --pane2:#2b2f37; --line:#3a3f49;
+          --text:#e7e9ee; --dim:#9aa1ad; --accent:#5b9cff; --ok:#4cc38a; --warn:#f5a524; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px 20px 8px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  header p { margin:0; color:var(--dim); max-width:900px; }
+  nav { display:flex; gap:8px; padding:8px 20px; flex-wrap:wrap; }
+  nav button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; font:inherit; }
+  nav button.on { border-color:var(--accent); background:#20324f; }
+  .badge { font-size:11px; padding:1px 6px; border-radius:6px; background:var(--ok); color:#06210f; margin-left:6px; font-weight:600; }
+  section { display:none; padding:4px 20px 24px; }
+  section.on { display:block; }
+  .explain { color:var(--dim); max-width:980px; margin:4px 0 10px; }
+  .explain b { color:var(--text); }
+  .toolbar { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .toolbar button { background:var(--pane2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; }
+  .toolbar button:hover { border-color:var(--accent); }
+  .toolbar kbd { font:11px ui-monospace, Menlo, monospace; color:var(--dim); margin-left:4px; }
+  .win { border:1px solid var(--line); border-radius:12px; background:var(--panel); height:420px; display:flex; overflow:hidden; position:relative; }
+  .sidebar { width:150px; border-right:1px solid var(--line); padding:10px 8px; color:var(--dim); flex:none; }
+  .sidebar div { padding:4px 8px; border-radius:6px; margin-bottom:2px; cursor:pointer; }
+  .sidebar div.sel { background:#2a3550; color:var(--text); }
+  .sidebar div.multi { outline:1px dashed var(--accent); }
+  .screen { flex:1; display:flex; min-width:0; position:relative; }
+  .strip { flex:1; display:flex; gap:8px; padding:8px; overflow-x:auto; scroll-behavior:smooth; min-width:0; }
+  .dock { flex:none; display:flex; padding:8px 8px 8px 0; border-left:1px solid var(--line); background:#1a1c21; }
+  .col { flex:none; display:flex; flex-direction:column; gap:8px; }
+  .area { display:flex; overflow-x:auto; overflow-y:hidden; scroll-behavior:smooth; border-radius:10px; height:100%; position:relative; }
+  .area.scrolls { box-shadow: inset 0 -3px 0 0 rgba(91,156,255,.35); }
+  .area.explicit { outline:1px solid #5b9cff66; outline-offset:-1px; background:#1b2333; padding:6px; gap:6px; }
+  .area::-webkit-scrollbar { height:6px; } .area::-webkit-scrollbar-thumb { background:#5b9cff88; border-radius:3px; }
+  .strip::-webkit-scrollbar { height:8px; } .strip::-webkit-scrollbar-thumb { background:#666b; border-radius:4px; }
+  .pane { flex:none; background:var(--pane); border:1px solid var(--line); border-radius:10px; display:flex; flex-direction:column; overflow:hidden; cursor:pointer; }
+  .pane + .pane.split { margin-left:2px; }
+  .pane.focus { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .pane .tabs { font-size:11px; color:var(--dim); padding:4px 8px; border-bottom:1px solid var(--line); background:#20232a; white-space:nowrap; overflow:hidden; }
+  .pane .body { flex:1; padding:8px; font:11px ui-monospace, Menlo, monospace; color:#b8c0cc; white-space:pre; overflow:hidden; }
+  .squash .pane { flex:1 1 0; min-width:0; }
+  .squash .pane .body { color:#ff8a80; }
+  .note { position:absolute; right:12px; bottom:10px; font-size:11px; color:var(--dim); background:#0009; padding:3px 8px; border-radius:6px; }
+  .ws { flex:none; display:flex; flex-direction:column; border:1px solid var(--line); border-radius:12px; padding:6px; background:#191b20; }
+  .ws h4 { margin:0 0 6px; font-size:12px; color:var(--dim); font-weight:500; }
+  .ws .inner { flex:1; display:flex; gap:6px; min-height:0; }
+  .compare { display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:12px; }
+  .compare .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:var(--panel); }
+  .compare h3 { margin:0 0 6px; font-size:13px; }
+  ul { margin:4px 0; padding-left:18px; } li { margin:2px 0; }
+  .tag { color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Scroll areas: three interaction designs</h1>
+  <p>Design note: <code>plans/cmux-next/scroll-areas-DESIGN.md</code>. Every demo is clickable: click a pane to focus it, use the buttons (or the shown keys while this page has focus), and scroll sideways with the trackpad or Shift+wheel. The general idea: a split and a strip are one container with two sizing rules ("fit" or "scroll"). A scroll area is a "scroll" container below the screen.</p>
+</header>
+<nav>
+  <button data-tab="a" class="on">A. Overflow splits<span class="badge">Recommended</span></button>
+  <button data-tab="b">B. Explicit scroll areas</button>
+  <button data-tab="c">C. Side-by-side workspaces</button>
+  <button data-tab="cmp">Compare</button>
+</nav>
+
+<section id="a" class="on">
+  <p class="explain"><b>Nothing new to learn.</b> Split as today (Cmd-D). When a split cannot give every pane its minimum width, it <b>scrolls instead of squashing</b>. This works in the docked column on the right, which today can only squash. Turn the toggle off to see today's behavior. Cmd-Opt-Left/Right still moves to the neighbor pane, and focus scrolls the pane into view.</p>
+  <div class="toolbar">
+    <button id="a-split">Split Right in focused<kbd>⌘D</kbd></button>
+    <button id="a-close">Close focused pane<kbd>⌘W</kbd></button>
+    <button id="a-left">Focus left<kbd>⌘⌥←</kbd></button>
+    <button id="a-right">Focus right<kbd>⌘⌥→</kbd></button>
+    <button id="a-toggle">Scroll areas: <b id="a-state">on</b></button>
+  </div>
+  <div class="win"><div class="sidebar"><div class="sel">api-server</div><div>docs</div><div>infra</div></div>
+    <div class="screen"><div class="strip" id="a-strip"></div><div class="dock" id="a-dock"></div></div>
+    <div class="note" id="a-note"></div></div>
+</section>
+
+<section id="b">
+  <p class="explain"><b>An explicit box.</b> "Make Scroll Area" wraps the focused pane in a scroll area (blue outline). Inside it, "New Column in Area" adds a column that scrolls inside the area only, the way Ctrl-Cmd-D adds a screen column. Powerful, but "New Column" now has two meanings. Same-axis areas never nest directly (rule S1), and at most three scroll levels deep (S2).</p>
+  <div class="toolbar">
+    <button id="b-wrap">Make Scroll Area (focused pane)</button>
+    <button id="b-add">New Column in Area<kbd>⌃⌘D in area</kbd></button>
+    <button id="b-unwrap">Unwrap Scroll Area</button>
+    <button id="b-left">Focus left<kbd>⌘⌥←</kbd></button>
+    <button id="b-right">Focus right<kbd>⌘⌥→</kbd></button>
+  </div>
+  <div class="win"><div class="sidebar"><div class="sel">api-server</div><div>docs</div><div>infra</div></div>
+    <div class="screen"><div class="strip" id="b-strip"></div><div class="dock" id="b-dock"></div></div>
+    <div class="note" id="b-note"></div></div>
+</section>
+
+<section id="c">
+  <p class="explain"><b>Two workspaces, one view.</b> Cmd-click a second workspace in the sidebar, then "View Side by Side". Each workspace keeps its own tabs and focus; the view only shows them together in one strip. Closing the view never closes a workspace. This is a <i>view</i>, never ownership: a workspace never contains another. <span class="tag">Highest risk of confusion; recommended to wait.</span></p>
+  <div class="toolbar">
+    <button id="c-view">View Side by Side</button>
+    <button id="c-close">Close View</button>
+    <button id="c-left">Focus left<kbd>⌘⌥←</kbd></button>
+    <button id="c-right">Focus right<kbd>⌘⌥→</kbd></button>
+  </div>
+  <div class="win"><div class="sidebar" id="c-sidebar"></div>
+    <div class="screen"><div class="strip" id="c-strip"></div></div>
+    <div class="note" id="c-note"></div></div>
+</section>
+
+<section id="cmp">
+  <div class="compare">
+    <div class="card"><h3>A. Overflow splits (Recommended)</h3><ul>
+      <li>No new words, no new commands: a scrollbar shows only when a split overflows.</li>
+      <li>Fixes the real pain: docked and narrow columns no longer squash splits.</li>
+      <li>Client only for step 1: no daemon or wire change; off by default behind <code>layout.scrollAreas</code>.</li>
+      <li>Same reveal, snap and gesture rules as the column strip (one reducer).</li></ul></div>
+    <div class="card"><h3>B. Explicit scroll areas</h3><ul>
+      <li>Most flexible; needs a new store node, ops, TLA+ and actions on every surface.</li>
+      <li>"New Column" means "in the strip that holds focus": a second meaning to learn.</li>
+      <li>Builds on A's geometry later; no rewrite.</li></ul></div>
+    <div class="card"><h3>C. Side-by-side workspaces</h3><ul>
+      <li>Answers "a workspace with two workspaces" without nesting ownership.</li>
+      <li>New rules for sidebar, close, unread and restore; most confusing.</li>
+      <li>Recommended: decide after A is dogfooded.</li></ul></div>
+    <div class="card"><h3>Shared rules</h3><ul>
+      <li>Cmd-Opt-arrows: geometric neighbor (Ghostty semantics), unchanged.</li>
+      <li>Horizontal gestures: innermost area that can move, owner fixed per gesture.</li>
+      <li>Vertical wheel stays with the terminal (scrollback).</li>
+      <li>Offsets are view state; nothing new persists in step 1.</li></ul></div>
+  </div>
+</section>
+
+<script>
+const MIN = 170; // minimum pane width (points) in the demo
+const text = (n) => `$ cargo test ${n}\n   Compiling ${n} v0.1\n    Finished in 1.${n}s\n test result: ok`;
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+});
+function paneEl(id, focused, width, label) {
+  const p = document.createElement('div');
+  p.className = 'pane' + (focused ? ' focus' : '');
+  if (width) p.style.width = width + 'px';
+  p.innerHTML = `<div class="tabs">${label || 'zsh'} · ${id}</div><div class="body">${text(id.replace(/\D/g, '') || 1)}</div>`;
+  p.dataset.id = id;
+  return p;
+}
+function reveal(container, el) {
+  if (!container || !el) return;
+  const c = container.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if (r.left < c.left) container.scrollLeft -= (c.left - r.left) + 4;
+  else if (r.right > c.right) container.scrollLeft += (r.right - c.right) + 4;
+}
+
+// ---- A: overflow splits ----
+const A = { on: true, columns: [{ w: 420, panes: ['p1'] }, { w: 420, panes: ['p2', 'p3'] }], dock: { w: 300, panes: ['d1'] }, focus: 'd1', n: 4 };
+function aOrder() { return [...A.columns.flatMap(c => c.panes), ...A.dock.panes]; }
+function aContainerOf(id) { return A.dock.panes.includes(id) ? A.dock : A.columns.find(c => c.panes.includes(id)); }
+function aRenderInto(host, col, isDock) {
+  host.innerHTML = '';
+  const c = document.createElement('div'); c.className = 'col'; c.style.width = col.w + 'px';
+  const fits = col.panes.length * MIN + (col.panes.length - 1) * 2 <= col.w;
+  const area = document.createElement('div');
+  area.className = 'area' + (A.on ? (fits ? '' : ' scrolls') : ' squash');
+  const each = A.on && !fits ? MIN : null;
+  col.panes.forEach((id, i) => {
+    const p = paneEl(id, id === A.focus, A.on ? (each || (col.w - (col.panes.length - 1) * 2) / col.panes.length) : null, isDock ? 'agent' : 'zsh');
+    if (i) p.classList.add('split');
+    p.onclick = () => { A.focus = id; aRender(); };
+    area.appendChild(p);
+  });
+  c.appendChild(area); host.appendChild(c);
+  return area;
+}
+function aRender() {
+  const strip = document.getElementById('a-strip'); strip.innerHTML = '';
+  let focusEl = null, focusArea = null;
+  A.columns.forEach(col => {
+    const wrap = document.createElement('div'); strip.appendChild(wrap); wrap.style.display = 'flex';
+    const area = aRenderInto(wrap, col, false);
+    const f = area.querySelector('.focus'); if (f) { focusEl = f; focusArea = area; }
+  });
+  const dockArea = aRenderInto(document.getElementById('a-dock'), A.dock, true);
+  const f = dockArea.querySelector('.focus'); if (f) { focusEl = f; focusArea = dockArea; }
+  requestAnimationFrame(() => { reveal(focusArea, focusEl); reveal(strip, focusArea && focusArea.closest('#a-strip') ? focusArea : null); });
+  document.getElementById('a-state').textContent = A.on ? 'on' : 'off (today)';
+  const over = [...A.columns, A.dock].filter(c => c.panes.length * MIN > c.w).length;
+  document.getElementById('a-note').textContent = A.on
+    ? (over ? `${over} split(s) overflow: they scroll; panes keep ${MIN} pt` : 'Everything fits: no scroll areas')
+    : (over ? `${over} split(s) squashed below the minimum (red)` : 'Everything fits');
+}
+document.getElementById('a-split').onclick = () => { const c = aContainerOf(A.focus); const id = 'p' + A.n++; c.panes.splice(c.panes.indexOf(A.focus) + 1, 0, id); A.focus = id; aRender(); };
+document.getElementById('a-close').onclick = () => { const c = aContainerOf(A.focus); if (c.panes.length < 2) return; const i = c.panes.indexOf(A.focus); c.panes.splice(i, 1); A.focus = c.panes[Math.max(0, i - 1)]; aRender(); };
+function aMove(d) { const o = aOrder(); const i = o.indexOf(A.focus); A.focus = o[Math.min(o.length - 1, Math.max(0, i + d))]; aRender(); }
+document.getElementById('a-left').onclick = () => aMove(-1);
+document.getElementById('a-right').onclick = () => aMove(1);
+document.getElementById('a-toggle').onclick = () => { A.on = !A.on; aRender(); };
+['p4', 'p5'].forEach(() => { A.dock.panes.push('d' + A.n++); });
+aRender();
+
+// ---- B: explicit scroll areas ----
+const B = { items: [{ kind: 'pane', id: 'p1', w: 380 }, { kind: 'pane', id: 'p2', w: 380 }], dock: { kind: 'pane', id: 'd1', w: 300 }, focus: 'd1', n: 3 };
+function bFind(id) {
+  for (const holder of [...B.items, B.dock]) {
+    if (holder.kind === 'pane' && holder.id === id) return { holder };
+    if (holder.kind === 'area' && holder.panes.includes(id)) return { holder, area: holder };
+  }
+  return {};
+}
+function bOrder() { return [...B.items, B.dock].flatMap(h => h.kind === 'pane' ? [h.id] : h.panes); }
+function bRenderHolder(h, host) {
+  if (h.kind === 'pane') { const p = paneEl(h.id, h.id === B.focus, h.w); p.onclick = () => { B.focus = h.id; bRender(); }; host.appendChild(p); return null; }
+  const area = document.createElement('div'); area.className = 'area explicit'; area.style.width = h.w + 'px'; area.style.flex = 'none';
+  h.panes.forEach(id => { const p = paneEl(id, id === B.focus, Math.round(h.w * 0.62)); p.onclick = () => { B.focus = id; bRender(); }; area.appendChild(p); });
+  host.appendChild(area); return area;
+}
+function bRender() {
+  const strip = document.getElementById('b-strip'); strip.innerHTML = '';
+  B.items.forEach(h => { const a = bRenderHolder(h, strip); if (a) requestAnimationFrame(() => reveal(a, a.querySelector('.focus'))); });
+  const dock = document.getElementById('b-dock'); dock.innerHTML = '';
+  const a = bRenderHolder(B.dock, dock); if (a) requestAnimationFrame(() => reveal(a, a.querySelector('.focus')));
+  const areas = [...B.items, B.dock].filter(h => h.kind === 'area').length;
+  document.getElementById('b-note').textContent = areas ? `${areas} scroll area(s): blue outline; New Column adds inside the focused area` : 'No scroll areas yet: focus a pane, then Make Scroll Area';
+}
+document.getElementById('b-wrap').onclick = () => {
+  const { holder, area } = bFind(B.focus); if (area) return; // S1: no area directly in an area
+  holder.kind = 'area'; holder.panes = [holder.id]; delete holder.id; bRender();
+};
+document.getElementById('b-add').onclick = () => {
+  const { area } = bFind(B.focus); const id = 'p' + B.n++;
+  if (area) { area.panes.splice(area.panes.indexOf(B.focus) + 1, 0, id); }
+  else { const i = B.items.findIndex(h => h.id === B.focus); B.items.splice(i < 0 ? B.items.length : i + 1, 0, { kind: 'pane', id, w: 380 }); }
+  B.focus = id; bRender();
+};
+document.getElementById('b-unwrap').onclick = () => {
+  const { area } = bFind(B.focus); if (!area) return;
+  if (area === B.dock) { B.dock = { kind: 'pane', id: B.focus, w: 300 }; }
+  else { const i = B.items.indexOf(area); B.items.splice(i, 1, ...area.panes.map(id => ({ kind: 'pane', id, w: 380 }))); }
+  bRender();
+};
+function bMove(d) { const o = bOrder(); const i = o.indexOf(B.focus); B.focus = o[Math.min(o.length - 1, Math.max(0, i + d))]; bRender(); }
+document.getElementById('b-left').onclick = () => bMove(-1);
+document.getElementById('b-right').onclick = () => bMove(1);
+bRender();
+
+// ---- C: side-by-side workspaces ----
+const C = { ws: { 'api-server': ['a1', 'a2'], 'docs': ['b1'], 'infra': ['c1', 'c2', 'c3'] }, selected: ['api-server'], view: null, focus: 'a1' };
+function cRender() {
+  const sb = document.getElementById('c-sidebar'); sb.innerHTML = '';
+  if (C.view) { const v = document.createElement('div'); v.className = 'sel'; v.textContent = '▦ ' + C.view.join(' + '); sb.appendChild(v); }
+  Object.keys(C.ws).forEach(name => {
+    const d = document.createElement('div'); d.textContent = name;
+    if (C.selected.includes(name)) d.className = C.selected.length > 1 ? 'sel multi' : 'sel';
+    d.onclick = (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) { C.selected = C.selected.includes(name) ? C.selected.filter(x => x !== name) : [...C.selected, name]; }
+      else { C.selected = [name]; C.view = null; C.focus = C.ws[name][0]; }
+      cRender();
+    };
+    sb.appendChild(d);
+  });
+  const hint = document.createElement('div'); hint.style.cssText = 'font-size:11px;margin-top:10px;cursor:default'; hint.textContent = 'Cmd-click to select two'; sb.appendChild(hint);
+  const strip = document.getElementById('c-strip'); strip.innerHTML = '';
+  const shown = C.view || [C.selected[0]];
+  shown.forEach(name => {
+    const box = document.createElement('div'); box.className = 'ws'; box.style.width = (C.view ? 520 : 700) + 'px';
+    box.innerHTML = `<h4>${name}</h4>`; const inner = document.createElement('div'); inner.className = 'inner';
+    C.ws[name].forEach(id => { const p = paneEl(id, id === C.focus, null, name); p.style.flex = '1'; p.onclick = () => { C.focus = id; cRender(); }; inner.appendChild(p); });
+    box.appendChild(inner); strip.appendChild(box);
+  });
+  requestAnimationFrame(() => reveal(strip, strip.querySelector('.focus')));
+  document.getElementById('c-note').textContent = C.view ? 'One view, two workspaces: each keeps its own tabs; Close View closes nothing' : 'One workspace';
+}
+document.getElementById('c-view').onclick = () => { if (C.selected.length < 2) { C.selected = ['api-server', 'infra']; } C.view = [...C.selected]; cRender(); };
+document.getElementById('c-close').onclick = () => { C.view = null; C.selected = [C.selected[0]]; if (!C.ws[C.selected[0]].includes(C.focus)) C.focus = C.ws[C.selected[0]][0]; cRender(); };
+function cMove(d) { const o = (C.view || [C.selected[0]]).flatMap(n => C.ws[n]); const i = o.indexOf(C.focus); C.focus = o[Math.min(o.length - 1, Math.max(0, i + d))]; cRender(); }
+document.getElementById('c-left').onclick = () => cMove(-1);
+document.getElementById('c-right').onclick = () => cMove(1);
+cRender();
+
+document.addEventListener('keydown', (e) => {
+  const tab = document.querySelector('section.on').id;
+  const map = { a: { split: 'a-split', close: 'a-close', left: 'a-left', right: 'a-right' }, b: { left: 'b-left', right: 'b-right' }, c: { left: 'c-left', right: 'c-right' } }[tab] || {};
+  let key = null;
+  if (e.metaKey && e.altKey && e.key === 'ArrowLeft') key = 'left';
+  else if (e.metaKey && e.altKey && e.key === 'ArrowRight') key = 'right';
+  else if (e.metaKey && e.key.toLowerCase() === 'd') key = 'split';
+  else if (e.metaKey && e.key.toLowerCase() === 'w') key = 'close';
+  if (key && map[key]) { e.preventDefault(); document.getElementById(map[key]).click(); }
+});
+</script>
+</body>
+</html>

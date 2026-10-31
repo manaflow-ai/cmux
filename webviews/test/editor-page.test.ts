@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -146,24 +147,58 @@ await requireBrowserLane("editor-page.test.ts", async () => {
     );
   }
 
+  /** Cmd-S, once the save it starts has ended: written, refused, or nothing to write. */
   async function save(page: Page) {
+    // Each save the store ends is counted, after it set the status the host's answer gave.
+    const before = await page.evaluate(() => {
+      const store = window.__cmuxEditor!.store as NonNullable<Window["__cmuxEditor"]>["store"] & { saves?: number };
+      if (store.saves === undefined) {
+        store.saves = 0;
+        const save = store.save.bind(store);
+        store.save = async (...args) => {
+          try {
+            return await save(...args);
+          } finally {
+            store.saves! += 1;
+          }
+        };
+      }
+      return store.saves;
+    });
     await page.keyboard.press("Meta+s");
-    await page.waitForFunction(() => document.documentElement.dataset.cmuxEditorStatus !== "saving");
-    // The status updates after the host answered; give the page a frame to settle.
-    await page.waitForTimeout(100);
+    await page.waitForFunction(
+      (before) => ((window.__cmuxEditor!.store as { saves?: number }).saves ?? 0) > before,
+      before,
+    );
   }
 
   /** The dev host's preferences file once `check` holds for it (the write is asynchronous). */
   async function preferencesWhen(check: (preferences: Record<string, unknown>) => boolean) {
     const target = path.join(stateDir, "editor-preferences.json");
-    for (let tries = 0; tries < 50; tries += 1) {
+    const read = () => {
       try {
         const preferences = JSON.parse(fs.readFileSync(target, "utf8"));
-        if (check(preferences)) return preferences;
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error("preferences never matched");
+        return check(preferences) ? (preferences as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    // Read again each time the state folder changes.
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const watcher = fs.watch(stateDir, () => attempt());
+      const timer = setTimeout(() => {
+        watcher.close();
+        reject(new Error("preferences never matched within 5 s"));
+      }, 5_000);
+      const attempt = () => {
+        const preferences = read();
+        if (!preferences) return;
+        watcher.close();
+        clearTimeout(timer);
+        resolve(preferences);
+      };
+      attempt();
+    });
   }
 
   const editorText = (page: Page) =>
@@ -184,6 +219,7 @@ await requireBrowserLane("editor-page.test.ts", async () => {
       const fresh = async (colorScheme: "light" | "dark" = "light") => {
         await page?.close();
         page = await browser.newPage({ viewport: { width: 1000, height: 640 }, colorScheme });
+        await installPaintedFrames(page);
         return page;
       };
 
@@ -285,24 +321,30 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         expect(await asked()).toEqual(["commandPalette"]);
         expect(await monacoPalette()).toBe(false);
         expect(await editorText(page)).toBe("const a = 1;\n");
-        // The context menu's Command Palette item (its last row) runs the same command. Chosen from
-        // the keyboard: Monaco's menu did not take a synthetic mouse-up on its row here.
+        // The context menu's Command Palette row runs the same command. The right-click menu is the
+        // app's native menu (nativeEditorMenu.ts): the dev host notes its rows and picks the row
+        // the test names, as the person would in the app's NSMenu.
+        await page.evaluate(
+          (id) =>
+            ((window as unknown as { __cmuxEditorDev: { menuPick: string | null } }).__cmuxEditorDev.menuPick = id),
+          "editor.action.quickCommand",
+        );
         await page.click(".monaco-editor .view-lines", { button: "right" });
-        await page
-          .locator('.monaco-menu [role="menuitem"]', { hasText: "Command Palette" })
-          .first()
-          .waitFor({ timeout: 10_000 });
-        await page.keyboard.press("ArrowUp");
-        expect(
-          await page.evaluate(() => document.activeElement?.shadowRoot?.activeElement?.textContent ?? ""),
-        ).toContain("Command Palette");
-        await page.keyboard.press("Enter");
         await page.waitForFunction(
           () =>
             (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions.length > 1,
           null,
           { timeout: 10_000 },
         );
+        const rows = await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { menus: { items: { id: string; label: string }[] }[] } }
+          ).__cmuxEditorDev.menus
+            .at(-1)!
+            .items.map((row) => row.label),
+        );
+        expect(rows).toContain("Command Palette");
+        expect(await page.locator(".monaco-menu").count()).toBe(0);
         expect(await asked()).toEqual(["commandPalette", "commandPalette"]);
         expect(await monacoPalette()).toBe(false);
       });
@@ -432,7 +474,13 @@ await requireBrowserLane("editor-page.test.ts", async () => {
             });
             const target = file(fileName, "const a = 1;\n");
             await openEditor(page, target, { highlighted: fileName.endsWith(".ts") });
-            await page.waitForTimeout(200);
+            // Shiki's themes are defined and set once its highlighter loads, plain text too; the
+            // observer has seen that switch once a frame after it has painted.
+            await page.evaluate(async () => {
+              const view = window.__cmuxEditor!.view() as unknown as { syntax: { getHighlighter(): Promise<unknown> } };
+              await view.syntax.getHighlighter();
+              await window.cmuxPaintFrame();
+            });
             const frames = await page.evaluate(
               () => (window as unknown as { __themeFrames: { classes: string; background: string }[] }).__themeFrames,
             );
@@ -472,6 +520,36 @@ await requireBrowserLane("editor-page.test.ts", async () => {
             )
           );
         });
+      });
+
+      test("resizing the editor does not show the scroller; scrolling it does", async () => {
+        await fresh();
+        // Counts every time an editor is marked scrolling (the mark clears 800 ms later, so a check
+        // of the attribute alone could miss it).
+        await page.addInitScript(() => {
+          const scope = window as unknown as { scrollMarks: number };
+          scope.scrollMarks = 0;
+          new MutationObserver((records) => {
+            for (const record of records)
+              if ((record.target as Element).hasAttribute("data-cmux-scrolling")) scope.scrollMarks++;
+          }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-cmux-scrolling"] });
+        });
+        const lines = Array.from({ length: 200 }, (_, index) => `const line${index} = ${index};`).join("\n");
+        await openEditor(page, file("long.ts", `${lines}\n`), { highlighted: true });
+        const marks = () => page.evaluate(() => (window as unknown as { scrollMarks: number }).scrollMarks);
+        const before = await marks();
+        // A pane or window resize changes the scroll size, not the scroll position.
+        await page.setViewportSize({ width: 700, height: 420 });
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.getLayoutInfo().width < 720);
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        expect(await marks()).toBe(before);
+        await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.setScrollTop(400));
+        await page.waitForFunction(
+          (count) => (window as unknown as { scrollMarks: number }).scrollMarks > count,
+          before,
+        );
       });
 
       test("a large file opens with highlighting and the minimap off, and takes typing", async () => {
@@ -550,17 +628,97 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await openEditor(page, target);
         // The find field has focus: getting the keyboard back keeps it there.
         await page.keyboard.press("Meta+f");
-        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
         expect(await focusContent(page)).toBe(true);
-        await page.waitForTimeout(100);
-        expect(await page.evaluate(() => document.activeElement?.closest(".find-widget") != null)).toBe(true);
+        // A request kept for later tries again on the next frame.
+        await page.evaluate(() => window.cmuxPaintFrame());
+        expect(await page.evaluate(() => document.activeElement?.closest(".find-pill") != null)).toBe(true);
         // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
         await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
           timeout: 5_000,
         });
+      });
+
+      test("Cmd-F shows the shared find pill, never Monaco's find widget", async () => {
+        await fresh();
+        const target = file("pill.ts", "alpha beta\nalpha gamma\nAlpha delta\n");
+        await openEditor(page, target);
+        await page.keyboard.press("Meta+f");
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
+        await page.keyboard.type("alpha");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 3");
+        // Monaco's own widget never shows.
+        expect(
+          await page.evaluate(() => {
+            const widget = document.querySelector<HTMLElement>(".find-widget");
+            return widget != null && widget.classList.contains("visible") && widget.offsetParent != null;
+          }),
+        ).toBe(false);
+        // Return steps and selects the next match in the editor.
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "2 of 3");
+        expect(
+          await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.getSelection()?.startLineNumber),
+        ).toBe(2);
+        // Match Case drops "Alpha".
+        await page.click(".find-pill__button[aria-pressed]");
+        await page.waitForFunction(() =>
+          (document.querySelector(".find-pill__count")?.textContent ?? "").endsWith("of 2"),
+        );
+        // Escape hides the pill and gives Monaco the keyboard back.
+        await page.focus(".find-pill__field");
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector(".find-pill") == null);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+      });
+
+      test("Replace (the replace page command) opens the find pill's replace row, never Monaco's widget", async () => {
+        await fresh();
+        const target = file("replace.ts", "old one\nold two\n");
+        await openEditor(page, target);
+        await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "replace" }),
+        );
+        await page.waitForSelector(".find-pill__replace");
+        expect(await page.evaluate(() => document.querySelector(".find-widget.visible.replaceToggled") != null)).toBe(
+          false,
+        );
+        await page.fill(".find-pill__field", "old");
+        await page.fill(".find-pill__replace .find-pill__field", "new");
+        await page.click(".find-pill__replace-all");
+        await page.waitForFunction(
+          () => window.__cmuxEditor!.view()!.monacoEditor.getModel()!.getValue() === "new one\nnew two\n",
+        );
+      });
+
+      test("find counts every match and Replace All replaces them all, past Monaco's 999 default", async () => {
+        await fresh();
+        const target = file("many.txt", "x\n".repeat(1500));
+        await openEditor(page, target);
+        await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "replace" }),
+        );
+        await page.waitForSelector(".find-pill__replace");
+        await page.fill(".find-pill__field", "x");
+        await page.waitForFunction(() =>
+          /^1 of \d+$/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
+        );
+        if (shots && name === "chromium") await page.screenshot({ path: path.join(shots, "editor-find-count.png") });
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 1500");
+        await page.fill(".find-pill__replace .find-pill__field", "y");
+        await page.click(".find-pill__replace-all");
+        await page.waitForFunction(
+          () => window.__cmuxEditor!.view()!.monacoEditor.getModel()!.getValue() === "y\n".repeat(1500),
+        );
       });
 
       test("screen reader mode works from the keyboard alone", async () => {
@@ -618,15 +776,19 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         );
         // Find (the dispatcher's `find` page command) announces its result in a live region.
         await page.keyboard.press("Meta+f");
-        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.keyboard.type("second");
         await page.waitForFunction(
-          () => /2/.test(document.querySelector(".find-widget .matchesCount")?.textContent ?? ""),
+          () => /2/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
           null,
           { timeout: 10_000 },
         );
         const announced = await page.evaluate(() =>
-          [...document.querySelectorAll(".monaco-aria-container [role], .monaco-alert, .monaco-status")]
+          [
+            ...document.querySelectorAll(
+              ".find-pill__count[aria-live], .monaco-aria-container [role], .monaco-alert, .monaco-status",
+            ),
+          ]
             .map((node) => node.textContent ?? "")
             .join(" | "),
         );

@@ -21,13 +21,13 @@ extension TabContentCache {
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
             initialSize: size ?? CellSize(cols: 80, rows: 24))
         let render = ledger.isRendering(key)
-        let io = DaemonTerminalIO(target: target, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
-        session.delegate = sessionDelegate
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
         terminals[key] = entry
+        session.delegate = sessionDelegate
         session.isRenderingSuspended = !render
         contentDidMount(key)
         return entry

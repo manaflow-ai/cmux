@@ -64,6 +64,24 @@ import Testing
         #expect(target.before == first, "Move to Top went before \(target.before ?? target.after ?? "nothing"), not the first row")
     }
 
+    /// The gap a219 found (2026-10-20): a workspace with no document item draws after every group, and when
+    /// the document has no section for its machine here, Move to Top found no target and did nothing, so
+    /// nothing could lift it. It now adopts the rows and moves them to slot 0 of their machine section.
+    @Test func moveToTopLiftsAnUnplacedRowWhenItsMachineHasNoSectionHere() throws {
+        let drag = SidebarDocDrag(item: { key in if case .group(let group) = key { group.rawValue } else { nil } },
+                                  section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { Self.ref($0) })
+        let model = Self.model()
+        let position = try #require(WorkspaceSlot.top(anchor: "moved").position(moving: ["moved"], section: .machine(.local), in: model.sections))
+        #expect(drag.anchoredTarget(position, moving: ["itm_moved"], model: model) == nil, "the machine has a section here")
+        let target = try #require(drag.unplacedTarget(position, moving: [WorkspaceID("moved")]), "Move to Top cannot lift an unplaced row")
+        #expect(target == SidebarDocTarget(section: Self.docSection, index: 0))
+    }
+
+    @Test func aPlacedRowIsNotMovedAsUnplaced() {
+        let drag = Self.drag(placed: ["moved"])
+        #expect(drag.unplacedTarget(DropPosition(section: .machine(.local), index: 0), moving: [WorkspaceID("moved")]) == nil)
+    }
+
     @Test func anAnchorWithoutItsItemHereIsAdoptedWithTheMove() throws {
         let drag = Self.drag(placed: ["c", "moved"])
         let model = Self.model()

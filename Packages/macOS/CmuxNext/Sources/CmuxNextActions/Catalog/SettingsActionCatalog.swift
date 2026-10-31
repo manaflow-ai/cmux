@@ -2,7 +2,7 @@
 
 nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "reloadConfiguration",
                 title: String(localized: "action.reloadConfiguration", defaultValue: "Reload Configuration", bundle: .module),
@@ -20,7 +20,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openGhosttySettings",
                 title: String(localized: "action.palette.openGhosttySettings", defaultValue: "Open Ghostty Config", bundle: .module),
-                keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
+                keywords: ["config", "settings", "file", "edit", "ghostty"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
             // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
@@ -62,6 +62,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.searchShortcuts", defaultValue: "Search Keyboard Shortcuts…", bundle: .module),
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
+            ),
+            // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it on one menu).
+            ActionDescriptor(
+                id: "settings.customizeMenus",
+                title: String(localized: "action.settings.customizeMenus", defaultValue: "Customize Right-Click Menus…", bundle: .module),
+                keywords: ["context menu", "right click", "menu", "customize", "reorder", "hide", "more"], category: .settings,
+                symbol: "contextualmenu.and.cursorarrow", surfaces: [.palette, .menu], cliName: "settings customize-menus", mainMenu: .app
             ),
             // The Keyboard Shortcuts editor (R59), a React page tab; no
             // default key (defaults do not change, K1).
@@ -160,6 +167,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "antenna.radiowaves.left.and.right.circle", surfaces: [.palette, .menu],
                 arguments: [CatalogArgument.channelChoice], cliName: "settings switch-update-channel", mainMenu: .app
             ),
+            // Drop back to the build before the last update (kept by `updates.keepPreviousVersions`):
+            // refused, with the reason, when nothing is kept or a store holds data the kept build
+            // cannot read. Relaunches, so every entrypoint confirms first.
+            ActionDescriptor(
+                id: "updates.rollback",
+                title: String(localized: "action.updates.rollback", defaultValue: "Roll Back to Previous Version…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "previous", "revert", "update", "nightly", "drop back"],
+                category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
+                cliName: "settings rollback-update", mainMenu: .app, destructive: true
+            ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
                 title: String(localized: "action.palette.pro.upgrade", defaultValue: "Upgrade to cmux Pro", bundle: .module),
@@ -223,6 +240,72 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
                 keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.toggle",
+                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Toggle All Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"], category: .settings,
+                symbol: "sparkles", surfaces: [.palette], cliName: "settings toggle-all-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.sidebar.toggle",
+                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Toggle Sidebar Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"], category: .settings,
+                symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-sidebar-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.tabs.toggle",
+                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Toggle Tab Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "tab", "tab bar"], category: .settings,
+                symbol: "rectangle.split.3x1", surfaces: [.palette], cliName: "settings toggle-tab-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.panes.toggle",
+                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Toggle Pane and Window Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "pane", "split", "zoom", "window"], category: .settings,
+                symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-pane-and-window-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.overlays.toggle",
+                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Toggle Menu and Card Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"], category: .settings,
+                symbol: "menubar.rectangle", surfaces: [.palette], cliName: "settings toggle-menu-and-card-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.hoverCards.toggle",
+                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Toggle Hover Card Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "hover card", "tooltip"], category: .settings,
+                symbol: "rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-hover-card-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.home.toggle",
+                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Toggle Home and Chat Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "home", "chief", "chat", "bubble"], category: .settings,
+                symbol: "bubble.left.and.bubble.right", surfaces: [.palette], cliName: "settings toggle-home-and-chat-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.cursor.toggle",
+                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Toggle Agent Cursor Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "cursor", "agent", "ripple"], category: .settings,
+                symbol: "cursorarrow.motionlines", surfaces: [.palette], cliName: "settings toggle-agent-cursor-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.indicators.toggle",
+                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Toggle Spinner and Progress Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"], category: .settings,
+                symbol: "progress.indicator", surfaces: [.palette], cliName: "settings toggle-spinner-and-progress-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.feedback.toggle",
+                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Toggle Highlight and Color Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "hover", "highlight", "color", "theme"], category: .settings,
+                symbol: "hand.point.up.left", surfaces: [.palette], cliName: "settings toggle-highlight-and-color-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.web.toggle",
+                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Toggle Web Page Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "web", "page", "css"], category: .settings,
+                symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.bounce.subtle",
@@ -316,6 +399,22 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.forward.app", surfaces: [.palette], cliName: "settings open-links-in-default-browser",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Sign-in pages (`browser.openSignInPagesInCmux`): a sign-in or device-code page opens in a
+            // cmux tab whatever the link settings, or follows them. Settings changes with no object.
+            ActionDescriptor(
+                id: "links.signInPagesInCmux",
+                title: String(localized: "action.links.signInPagesInCmux", defaultValue: "Sign-In Pages: Open in cmux Browser", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "passkey", "browser", "helium", "gh auth login"], category: .settings,
+                symbol: "person.badge.key", surfaces: [.palette], cliName: "settings open-sign-in-pages-in-cmux",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "links.signInPagesByLinkSettings",
+                title: String(localized: "action.links.signInPagesByLinkSettings", defaultValue: "Sign-In Pages: Follow Link Settings", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "default browser", "external", "system"], category: .settings,
+                symbol: "person.badge.key.fill", surfaces: [.palette], cliName: "settings sign-in-pages-follow-link-settings",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "focusRing.toggle",
                 title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
@@ -363,6 +462,36 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.titlebar.standard", defaultValue: "Use Standard Titlebar", bundle: .module),
                 keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
+            ),
+            // Leo 2026-10-21: the lens is a toggle to see and feel before it is the default. Flips the
+            // Debug choice `glass.lens` between Plain Glass (the default) and Lens, live, from the
+            // palette or the Debug menu (DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "appearance.glass.lens.toggle",
+                title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
+                keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
+                category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
+            // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.actionLatencyHUD",
+                title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Toggle Action Latency HUD", bundle: .module),
+                keywords: ["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
+            // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
+            ActionDescriptor(
+                id: "debug.blockingCalls.reset",
+                title: String(localized: "action.debug.blockingCalls.reset", defaultValue: "Reset Main-Thread Blocking Counts",
+                              bundle: .module),
+                keywords: ["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
+                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette, .menu], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "appearance.customize",
@@ -413,5 +542,12 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
+        // A CLI or agent run answers with the result: the feed's newest build, or whether the
+        // update installs and why not (UpdateHandlers+Results.swift).
+        let waitsForResult: Set<ActionID> = ["palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.attemptUpdate"]
+        for index in actions.indices where waitsForResult.contains(actions[index].id) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 }

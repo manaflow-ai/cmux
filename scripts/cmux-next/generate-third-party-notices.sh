@@ -31,6 +31,10 @@
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
+#   rust-mobile-host          bin/cmux-mobile-host                    cmux-next-ios/rust/Cargo.lock (this tree)
+#   rust-cmux-remote-browser-host  Helpers/cmux-remote-browser-host.app
+#                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
+#                           pinned binary's source_commit (remote-browser-host.pin.json)
 #   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
 #   rust-cmux-cua           cmux Computer Use.app            manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin
 #
@@ -123,6 +127,37 @@ if [[ ! -d "$cua_src" ]]; then
 fi
 cua_rust="$cua_src/libs/cmux-cua/rust"
 
+# The remote browser host is a prebuilt, pinned binary (ensure-remote-browser-host.sh),
+# not a build of this tree: its notices come from the crate at the pin's
+# source_commit, checked against the pin's crate_tree.
+rbh_pin="$ROOT/scripts/cmux-next/remote-browser-host.pin.json"
+read -r rbh_rev rbh_tree < <(python3 -c 'import json, sys
+pin = json.load(open(sys.argv[1]))
+print(pin["source_commit"], pin["crate_tree"])' "$rbh_pin")
+[[ "$rbh_rev" =~ ^[0-9a-f]{40}$ && "$rbh_tree" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no source_commit and crate_tree in $rbh_pin" >&2; exit 1; }
+rbh_crate=cmux-tui/crates/cmux-remote-browser-host
+# source_commit need not be on a branch, so a permanent tag holds it (publish-remote-browser-host.sh
+# pushes it), as cmux-tui-src-<pin> does for the cmux-tui pin; the first-party links name the tag.
+rbh_ref="cmux-rbh-src-${rbh_rev:0:11}"
+rbh_tag_lines="$(git -C "$ROOT" ls-remote --tags origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref" || true)"
+if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
+  echo "error: source tag $rbh_ref (the remote browser host pin's source_commit) is not on origin at $rbh_rev; push it: git push origin $rbh_rev:refs/tags/$rbh_ref" >&2
+  exit 1
+fi
+rbh_src="$CACHE/cmux-rbh-src-$rbh_rev"
+if [[ ! -d "$rbh_src" ]]; then
+  # Its own shallow fetch (as for iroh-ffi), not this checkout's history.
+  rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
+  git init --quiet "$rbh_src.git"
+  git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
+  [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
+    { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }
+  git -C "$rbh_src.git" archive FETCH_HEAD cmux-tui/Cargo.toml cmux-tui/crates | tar -x -C "$rbh_src.partial"
+  rm -rf "$rbh_src.git"
+  mv "$rbh_src.partial" "$rbh_src"
+fi
+
 if [[ "$WRITE_TREES" == 1 ]]; then
   mkdir -p "$TREES"
   cargo_tree() { # <section> <dir> <package>...
@@ -141,6 +176,8 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
   cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
+  cargo_tree rust-mobile-host "$ROOT/cmux-next-ios/rust" cmux-mobile-host
+  cargo_tree rust-cmux-remote-browser-host "$rbh_src/$rbh_crate" cmux-remote-browser-host
   cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
   cargo_tree rust-cmux-cua "$cua_rust" cmux-cua
 fi
@@ -150,6 +187,8 @@ python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
+  --lock "$rbh_src/$rbh_crate/Cargo.lock" \
   --lock "$iroh_src/Cargo.lock" \
   --lock "$cua_rust/Cargo.lock"
 
@@ -193,6 +232,14 @@ section rust-optchat-chief "Rust crates: Home Chief brain host (bin/optchat-chie
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock-label "Native/OptChat/optchat-chief/Cargo.lock" \
   --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/Native/OptChat/optchat-core" --workspace "$ROOT/Native/OptChat/optchat-host" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
   --first-party 'Native/OptChat/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-mobile-host "Rust crates: iPhone connection host (bin/cmux-mobile-host)" \
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock-label "cmux-next-ios/rust/Cargo.lock" \
+  --root cmux-mobile-host --workspace "$ROOT/cmux-next-ios/rust" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
+  --first-party 'cmux-next-ios/rust/crates/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-cmux-remote-browser-host "Rust crates: remote browser host (Helpers/cmux-remote-browser-host.app)" \
+  --lock "$rbh_src/$rbh_crate/Cargo.lock" --lock-label "$rbh_crate/Cargo.lock at ${rbh_rev:0:11} (the pinned binary's source)" \
+  --root cmux-remote-browser-host --workspace "$rbh_src/$rbh_crate" --repo-root "$rbh_src" \
+  --first-party 'cmux-tui/crates/*' --source-tag "$rbh_ref"
 section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
   --lock "$iroh_src/Cargo.lock" --lock-label "manaflow-ai/iroh-ffi Cargo.lock at ${iroh_rev:0:11}" \
   --root iroh-ffi --workspace "$iroh_src" \
@@ -210,12 +257,15 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-browser-host.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-optchat-chief.md"
+  --section "$work/rust-mobile-host.md"
+  --section "$work/rust-cmux-remote-browser-host.md"
   --section "$work/rust-iroh-ffi.md"
   --section "$work/rust-cmux-cua.md"
   --out "$ROOT/THIRD_PARTY_LICENSES.md")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
   --lock "$cua_rust/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"

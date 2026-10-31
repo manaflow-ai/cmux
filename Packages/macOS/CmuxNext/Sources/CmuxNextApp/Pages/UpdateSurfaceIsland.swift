@@ -130,12 +130,20 @@ final class UpdateSurfaceProvider: PageProvider {
 
 extension PageFactory {
     /// One update surface: the changelog bundle on `#/surface/<kind>`, its
-    /// `cmux.changelog.surface.` ops to `provider`.
+    /// `cmux.changelog.surface.` ops to `provider`, and the other `cmux.changelog.` ops
+    /// (`list`, `get`, a PR chip's `pr.inspect`, `browser.list` and `browser.openIn`) to the
+    /// page's verified notes, so the Updated card sums up every build the update spans. The card shows no pictures: no media inlining.
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)")
+        // PageRouter tries the longest prefix first: the surface's own ops before the notes.
+        let notes = changelogNotes()
+        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
+        // The island floats over the window's backdrop: a Chromium page cannot be transparent.
+        // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true))
         native.anchor = { [weak page] in page }
+        notes.anchor = { [weak page] in page }
         return page
     }
 }

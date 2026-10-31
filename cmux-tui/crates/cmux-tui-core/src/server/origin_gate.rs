@@ -8,8 +8,9 @@
 
 use super::*;
 use crate::Actor;
+use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, RequestOrigin, forbidden, mint_token, needs_user,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
     valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
@@ -68,8 +69,7 @@ pub(super) fn handle_resource_line(
 /// held a line) has no known role, so it is refused (fail closed).
 fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else {
         return Err(forbidden(
             "the connection is not registered",
@@ -92,11 +92,51 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     Ok(peer_or_local(mux, client, transport, local))
 }
 
-/// `credential.mint` and `credential.rotate` are the owner's: a registered
-/// local Unix connection with no link peer record whose principal is the
-/// local user (or the verified app), on a request that presents no
-/// credential. An agent in a terminal or ACP session (it presents one, valid
-/// or not) is refused, so no agent can mint another identity or revoke one.
+/// Classifies one accepted local peer while its kernel PID evidence is live.
+fn classify_local_peer(
+    mux: &Mux,
+    peer_key: Option<&str>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
+) -> LocalPeer {
+    let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
+    let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
+    let terminal = mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .chain(state.terminal_catalog.values())
+            .find(|surface| surface.process_id() == Some(session))
+            .and_then(|surface| surface.terminal_public_id())
+            .map(|terminal| terminal.as_str().to_string())
+    });
+    if let Some(terminal) = terminal {
+        return LocalPeer::Terminal(terminal);
+    }
+    LocalPeer::Other
+}
+
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
+    let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
+    let pid = pid.parse().ok()?;
+    (!version.is_empty() && pid > 0).then_some(pid)
+}
+
+#[cfg(unix)]
+fn peer_session_id(pid: u32) -> Option<u32> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: getsid only reads kernel process metadata for the positive pid.
+    let session = unsafe { libc::getsid(pid) };
+    u32::try_from(session).ok().filter(|session| *session > 0)
+}
+
+#[cfg(not(unix))]
+fn peer_session_id(_pid: u32) -> Option<u32> {
+    None
+}
+
+/// `credential.mint` and `credential.rotate` require the verified frontend.
+/// Unknown, terminal-bound and other local peers fail closed. Acpmux treats a
+/// mint refusal as non-fatal until the frontend can delegate mint authority.
 fn check_credential_owner(
     mux: &Mux,
     client: u64,
@@ -108,8 +148,7 @@ fn check_credential_owner(
     {
         return Ok(());
     }
-    let owner = matches!(actor, Actor::User { id } if id == crate::conversation_store::LOCAL_USER)
-        || matches!(actor, Actor::Frontend { .. });
+    let owner = matches!(actor, Actor::Frontend { .. });
     let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
     let principal = mux.conversation_principal(client) == crate::conversation_store::LOCAL_USER;
     if owner && local && principal && !presents_credential {
@@ -150,7 +189,7 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
 
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
 
@@ -169,8 +208,7 @@ fn check_pairing_accept(
         return Ok(());
     }
     let derived = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
     };
     Err(forbidden(
@@ -182,7 +220,7 @@ fn check_pairing_accept(
 /// The actor of a durable mutation that `client` asks for on the legacy
 /// control protocol. A client with no record is never the local user.
 pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get(&client) else {
         return Actor::Peer { id: "unregistered".to_string() };
     };
@@ -223,8 +261,7 @@ pub(super) struct AppConnection {
 
 pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     let verified_app = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state
             .clients
             .get(&client)
@@ -239,8 +276,7 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
 /// A WebSocket connection admitted with a page-bound credential
 /// (`page-credential {page}`): fixed at accept, with its page.
 pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.page = Some(page);
         record.origin.scoped_page = true;
@@ -269,7 +305,7 @@ static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::Laz
 /// connection's (its page's conversation events), or `None` for any other
 /// connection, whose stream stays as it was.
 pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     let origin = &state.clients.get(&client)?.origin;
     if origin.scoped_page {
         let channels = origin.page.as_deref() == Some("home-channels");
@@ -288,8 +324,7 @@ pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [Stri
 /// origin `user` (a verified cmux app connection).
 pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::ApiError> {
     let derived = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
     };
     if derived == RequestOrigin::User {
@@ -312,24 +347,98 @@ pub(super) fn set_hello(
     signature_proved: bool,
     page: Option<String>,
 ) -> bool {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
     if record.origin.role != HelloRole::Legacy {
         return false;
     }
     record.origin.role = role;
-    record.origin.peer_key = peer_key;
+    if peer_key.is_some() {
+        record.origin.peer_key = peer_key;
+    }
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     true
 }
 
+/// Records kernel peer identity at accept, before a legacy client can skip hello.
+pub(super) fn set_peer_identity_at_accept(
+    mux: &Mux,
+    client: u64,
+    peer_key: Option<String>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
+) {
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
+        .is_some_and(|path| is_bundled_mobile_host_path(&path));
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.peer_key = peer_key;
+        record.origin.local_peer = local_peer;
+        record.origin.mobile_host = mobile_host;
+    }
+}
+
+/// Name of the phone host beside the daemon's executable
+/// (`Contents/Resources/bin/cmux-mobile-host` next to `.../bin/cmux-tui`).
+const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
+
+/// Whether `path` (a peer's executable) is this build's bundled
+/// `cmux-mobile-host`: by real path, the regular file of that name beside
+/// the daemon's own (canonical) executable. Any lookup failure is false (a
+/// daemon with no hostd beside it, such as a development build run from
+/// another folder, has no phone lane that may write the host policy).
+fn is_bundled_mobile_host_path(path: &Path) -> bool {
+    static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    let sibling = SIBLING.get_or_init(|| {
+        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+    });
+    let Some(sibling) = sibling else { return false };
+    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+}
+
+/// The executable of the accepted peer, read so that a process that reused
+/// the peer's pid never answers for it. macOS reads it by the peer's audit
+/// token (the kernel refuses a token whose pid version is stale; exec gives
+/// a process a new pid version). Linux reads the peer pid's executable and
+/// then checks the pid still has the start time in the peer key
+/// (`platform::peer_executable`, the peer authentication module); a process that
+/// exec'd after it connected keeps its pid and start time there, which
+/// PROTOCOL.md lists as the residual risk.
+fn peer_executable(
+    peer_key: Option<&str>,
+    peer_token: Option<&cmux_link::app_caller::PeerToken>,
+) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = peer_key;
+        cmux_link::app_caller::executable_path(peer_token?)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = peer_token;
+        platform::peer_executable(peer_key?)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (peer_key, peer_token);
+        None
+    }
+}
+
+/// Whether `client` is a phone's lane spliced by this build's
+/// cmux-mobile-host (fixed at accept; a client with no record is not).
+pub(super) fn is_mobile_host_lane(mux: &Mux, client: u64) -> bool {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get(&client).is_some_and(|record| record.origin.mobile_host)
+}
+
 /// The page a WebSocket connection serves, from its handshake Origin
 /// (`page-router-v1`): fixed at accept, before the connection's first line.
 pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.page = Some(page);
     }
@@ -339,7 +448,7 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
 /// relay's hello), or `None` (also for a client with no record). For the
 /// audit actor only: an access decision reads [`websocket_admission`].
 pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).and_then(|record| record.origin.page.clone())
 }
 
@@ -371,8 +480,7 @@ pub(super) fn websocket_admission(mux: &Mux, client: u64) -> Option<WebSocketAdm
 /// relay (same process, same token) still matches it. False when the client
 /// is gone or is not role main.
 pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bool {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
     if record.origin.role != HelloRole::Main {
         return false;
@@ -433,8 +541,7 @@ fn issue(
     let deadline_ms = now_ms.saturating_add(CONFIRMATION_TTL_MS);
     let expires_at_ms =
         mux.control_clients.origin_clock.wall_ms().saturating_add(CONFIRMATION_TTL_MS);
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let caller = state.clients.get(&client).map(|record| &record.origin);
     let Some(caller) = caller else { return Err(needs_user(RequestOrigin::Agent)) };
     let derived = caller.derive();
@@ -488,7 +595,7 @@ mod test_hooks {
     use crate::request_origin::ConnectionOrigin;
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
-        let mut state = mux.control_clients.state.lock().unwrap();
+        let mut state = mux.control_clients.state.lock().recover_poison();
         change(&mut state.clients.get_mut(&client).expect("registered client").origin);
     }
 
@@ -505,8 +612,17 @@ mod test_hooks {
         with_origin(mux, client, |origin| origin.verified_app = verified);
     }
 
+    /// What accept sets for a connection from the bundled cmux-mobile-host.
+    pub(in crate::server) fn set_mobile_host_peer_for_test(mux: &Arc<Mux>, client: u64) {
+        with_origin(mux, client, |origin| origin.mobile_host = true);
+    }
+
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
         with_origin(mux, client, |origin| origin.peer_key = Some(peer_key.to_string()));
+    }
+
+    pub(in crate::server) fn set_local_peer_for_test(mux: &Arc<Mux>, client: u64, peer: LocalPeer) {
+        with_origin(mux, client, |origin| origin.local_peer = peer);
     }
 
     pub(in crate::server) fn advance_origin_clock_for_test(mux: &Arc<Mux>, ms: u64) {
@@ -520,7 +636,7 @@ mod test_hooks {
 
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
         let role = {
-            let state = mux.control_clients.state.lock().unwrap();
+            let state = mux.control_clients.state.lock().recover_poison();
             state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
         };
         match role {
@@ -547,3 +663,27 @@ mod pairing_gate_tests;
 #[cfg(all(test, unix))]
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
+
+/// The peer executable is read only while the peer key or token still
+/// names the same process (review 2 finding 3): a stale pid version, as a
+/// process that reused the pid would have, reads nothing.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod peer_executable_tests {
+    use super::peer_executable;
+    use crate::platform::transport::Stream;
+
+    #[test]
+    fn peer_executable_needs_the_peers_own_pid_version() {
+        let (ours, _theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        let key = Stream::peer_process_key(&ours);
+        let token = Stream::peer_token(&ours);
+        let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let read = peer_executable(key.as_deref(), token.as_ref()).expect("our own executable");
+        assert_eq!(std::fs::canonicalize(read).unwrap(), own);
+        let key = key.unwrap();
+        let (pid, _) = key.split_once('.').unwrap();
+        let stale_key = format!("{pid}.1");
+        let stale_token = token.map(|token| token.with_pid_version_for_test(1));
+        assert_eq!(peer_executable(Some(&stale_key), stale_token.as_ref()), None);
+    }
+}

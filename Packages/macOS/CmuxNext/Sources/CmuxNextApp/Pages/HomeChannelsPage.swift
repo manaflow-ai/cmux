@@ -26,20 +26,30 @@ extension PageDescriptor {
 }
 
 extension PageFactory {
+    /// The channels page's engine options.
+    static let homeChannelsEngineOptions = PageEngineOptions.standard
+
+    /// `cmux.app.edit {command}` on the Channels page: its route, and the provider whose `run` the page sets once its view exists.
+    static func homeChannelsEditRoute() -> (route: PageRoute, edits: PageEditProvider) {
+        let edits = PageEditProvider()
+        return (PageRoute(prefix: PageNativeOp.edit, provider: edits), edits)
+    }
+
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
-        let edits = PageEditProvider()
+        let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: PageNativeOp.edit, provider: edits)]
+                      editRoute]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        guard let page = PageWebView(descriptor: .homeChannels, routes: routes, surface: .home) else { return nil }
+        guard let page = PageWebView(descriptor: .homeChannels, routes: routes,
+                                     options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in
-            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+            page?.performEdit(command.selector)
         }
         // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
         let registry = services.registry
@@ -47,24 +57,15 @@ extension PageFactory {
             PageSelectionMenu(
                 quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
-                    page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
-                        guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    // task-owner: one selection read per menu choice; ends with the page's answer
+                    Task { @MainActor in
+                        guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                     }
                 }).rebuild(menu)
         }
         services.home.homeDidOpen(asked: true)
         return page
-    }
-}
-
-extension PageFactory {
-    /// `cmux.app.edit {command}` on the Channels page: `run` gets the composer menu's command, only
-    /// on the person's click or key in the page (a paste puts their pasteboard into the page).
-    static func homeChannelsEditRoute(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) -> PageRoute {
-        let edits = PageEditProvider()
-        edits.run = run
-        return PageRoute(prefix: PageNativeOp.edit, provider: edits)
     }
 }
 
@@ -126,7 +127,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         // The file names the endpoint. The page authenticates with a page credential when the
         // daemon has them: only that one carries the person's Cloud lease (the file token is any
         // same-user process's). An older daemon keeps the file token: local conversations only.
-        guard daemon.supports(DaemonCapabilities.shared.pageCredential), case .object(var fields) = file else { return file }
+        guard daemon.supports(DaemonCapability.pageCredential.rawValue), case .object(var fields) = file else { return file }
         // A single-use credential for this connect (every reconnect asks again). A lost connection
         // retries. A refusal (a daemon this app did not start, so the app is not verified there)
         // keeps the file token: local conversations only, never a dead end.

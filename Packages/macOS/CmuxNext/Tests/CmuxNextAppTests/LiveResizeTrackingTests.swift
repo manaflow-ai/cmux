@@ -44,7 +44,7 @@ import Testing
         let paneAnimations = DesignSettings.shared.paneAnimations
         DesignSettings.shared.paneAnimations = true
         defer { DesignSettings.shared.paneAnimations = paneAnimations }
-        try #require(Motion.animatesMovement, "animation speed is off on this host")
+        try #require(Motion.panes.animatesMovement, "animation speed is off on this host")
         let provider = Panes()
         let model = LayoutModel(screens: Self.split(0.5), activeScreenID: "s", focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: provider)
@@ -78,13 +78,13 @@ import Testing
         defer { Motion.liveResizeOverride = nil }
         model.apply(screens: Self.split(0.6))
         root.syncWithModel()
-        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.animatesMovement), other windows resizing \(otherWindowsResizing))")
+        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.panes.animatesMovement), other windows resizing \(otherWindowsResizing))")
     }
 
     @Test func aTabStripThatStartsOverflowingMidDragFadesItsEdgeAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        try #require(Motion.animatesFades, "animation speed is off on this host")
+        try #require(Motion.panes.animatesFades, "animation speed is off on this host")
         let tabs = (0..<8).map { CmuxNextTabs.TabItem(id: CmuxNextTabs.TabID("tab\($0)"), title: "Tab \($0)") }
         let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
         let window = Self.window(width: 1600, height: 40)

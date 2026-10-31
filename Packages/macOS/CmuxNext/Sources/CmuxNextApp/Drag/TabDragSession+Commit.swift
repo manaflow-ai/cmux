@@ -36,8 +36,13 @@ extension TabDragSession {
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
                 self?.services.input.monitor?.noteChange()
-                // The view change of a landed user drop, after the echo.
-                if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
+                // The view change of a landed user drop, after the echo, unless the drop showed it.
+                if ok, !drag.revealedEarly { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
+                // A refused move the drop already showed: the window shows what it showed before.
+                if !ok, drag.revealedEarly, let from = drag.revealedFrom, let state = dropWindow?.state,
+                   state.workspaceID == drag.landedWorkspaceID, self?.services.workspace(id: from) != nil {
+                    self?.services.windows.select(from, in: state)
+                }
             }
             if ok, let daemon { daemon.whenApplied(transaction, end) } else { end() }
             if let emptied { self?.finishClosing(emptied, moved: ok) }
@@ -46,7 +51,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
-            guard let (tab, _) = services.locateTab(id) else { return settle(false) }
+            guard let (tab, _) = services.locateTab(id, onMachine: drag.source.pane.map { services.machines.daemon(forPane: $0.pane).machineID } ?? services.machines.local.machineID) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,
@@ -73,15 +78,12 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            // The tab's own pane with its only tab: the owner spawns a fresh
-            // tab of the same kind there in the same op.
-            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab, in: pane, services: services) : nil
+            // The tab's own pane with its only tab opens the New Tab page behind it (`TabMoves.splitBehind`).
             // The preview decided split or new column with the same room
             // rule (`LayoutTabDropTarget.removingPane`); run that decision.
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, roomDecided: true,
-                                transaction: transaction, completion: settle)
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction, completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow, avoiding: emptiedPane(drag)) else { return gone(settle) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
         case .newDock(let screenID, let edge):
             guard let anchor = screenAnchor(screenID: screenID, in: dropWindow),
@@ -100,7 +102,15 @@ extension TabDragSession {
         case .workspace(let id):
             guard let workspace = services.workspace(id: id) else { return gone(settle) }
             drag.landedWorkspaceID = id
+            let shown = dropWindow?.state.workspaceID
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
+            // The store shows the move now (its intent): the landing shows in the drop's turn, not
+            // after the reply and the snapshot the daemon's tree-changed asks for (tab-move-tearing).
+            if services.workspaceID(ofTab: tab.id) == id {
+                drag.revealedEarly = true
+                drag.revealedFrom = shown
+                revealLanded(drag, outcome: outcome, dropWindow: dropWindow)
+            }
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task { [services] in
@@ -125,10 +135,12 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction,
+            if liveContext(drag).splitsBehind(pane: paneID) { return TabMoves.splitBehind(pane, edge: edge.paneEdge, services: services, completion: settle) }
+            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true,
+                                     emptying: liveContext(drag).emptiesSourcePane ? drag.source.pane?.pane : nil, transaction: transaction,
                                      completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow, avoiding: emptiedPane(drag)) else { return gone(settle) }
             TabGroupMoves.toNewColumn(group, anchor: anchor, afterColumn: column, services: services, transaction: transaction,
                                       completion: settle)
         case .newDock:
@@ -182,10 +194,14 @@ extension TabDragSession {
 
     /// The sidebar gap or collapsed group the drag was dropped on.
     func gapSlot(_ drag: Drag) -> WorkspaceSlot? {
-        switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
-        case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
-        case .intoGroup(let group)?: .endOfGroup(group)
-        case .intoWorkspace?, .beforeTab?, nil: nil
+        let target = drag.winner?.provider as? SidebarTabDropTarget
+        switch target?.lastDrop {
+        case .newWorkspace(let section, let group, let index)?:
+            guard let sections = target?.bridgeForDrop?.model.sections,
+                  let gap = WorkspaceGap(DropPosition(section: section, group: group, index: index), in: sections) else { return nil }
+            return .gap(gap)
+        case .intoGroup(let group)?: return .endOfGroup(group)
+        case .intoWorkspace?, nil: return nil
         }
     }
 
@@ -214,7 +230,7 @@ extension TabDragSession {
 
     func paneController(stripID: UUID) -> PaneController? {
         for controller in services.windows.controllers {
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.stripModel.stripID == stripID { return pane }
+            for pane in controller.onScreenContents.flatMap(\.panes.values) where pane.stripModel.stripID == stripID { return pane }
         }
         return nil
     }
@@ -228,21 +244,27 @@ extension TabDragSession {
         return nil
     }
 
+    /// The layout pane id of the pane the drag empties (it closes with the move); nil when it keeps a tab.
+    func emptiedPane(_ drag: Drag) -> String? { liveContext(drag).emptiesSourcePane ? liveContext(drag).sourcePaneID : nil }
+
     /// The pane to anchor a new column on (the last pane of the column the
     /// new one follows) and that column's daemon id.
     /// Any pane of `screenID` in `window` (a dock opens on the anchor's screen).
     func screenAnchor(screenID: String, in window: WindowController?) -> PaneModel? {
-        guard let content = window?.content,
+        guard let content = window?.onScreenContent(holdingScreen: screenID),
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let anchor = screen.layout.panes.first, let handle = content.handles.panes[anchor] else { return nil }
         return content.daemon.store.pane(handle)
     }
 
-    func columnAnchor(screenID: String, after: String, in window: WindowController?) -> (PaneModel, DaemonColumnID?)? {
-        guard let content = window?.content,
+    /// `avoiding`: the pane the drag empties. Its only tab cannot leave through it (the daemon refuses that as
+    /// a split, as DockColumnHandlers notes), so another pane anchors the new column; `after` still places it.
+    func columnAnchor(screenID: String, after: String, in window: WindowController?, avoiding: String? = nil) -> (PaneModel, DaemonColumnID?)? {
+        guard let content = window?.onScreenContent(holdingScreen: screenID),
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let column = screen.layout.columns.first(where: { $0.id.rawValue == after }),
-              let anchor = column.root.panes.last, let handle = content.handles.panes[anchor],
+              let anchor = column.root.panes.last(where: { $0.rawValue != avoiding }) ?? screen.layout.panes.first(where: { $0.rawValue != avoiding }),
+              let handle = content.handles.panes[anchor],
               let pane = content.daemon.store.pane(handle) else { return nil }
         return (pane, content.handles.columns[column.id])
     }

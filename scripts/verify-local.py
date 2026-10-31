@@ -64,24 +64,48 @@ CHECK_INPUTS = {
 }
 
 
+INTEGRATION_BRANCH = "feat-cmux-next"
+
+
 def automatic_scope(repo, environ):
     """Use local Git metadata only; CI keeps the full static recipe."""
     if any(environ.get(key, "").lower() not in ("", "0", "false", "no")
            for key in ("CI", "GITHUB_ACTIONS")):
         return {"mode": "ci_full", "base_ref": None, "reason": "CI: full static recipe"}
+    candidates = []
     for remote in ("upstream", "origin"):
         try:
             base = subprocess.run(
                 ["git", "-C", str(repo), "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD"],
                 capture_output=True, text=True, check=True, timeout=5).stdout.strip()
-            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
-                           capture_output=True, check=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             continue
-        return {"mode": "affected", "base_ref": base,
-                "reason": f"Local default-branch reference: {base} (no fetch)"}
+        candidates.append((base, f"Local default-branch reference: {base} (no fetch)"))
+    # feat-cmux-next split from main long ago, so main's merge base with one of its branches is that
+    # old split and would select every check. The candidate with the fewest commits between it and
+    # HEAD wins; ties keep list order. On a large partial clone each git call takes seconds.
+    ranked = []
+    for remote in ("upstream", "origin"):
+        base = f"refs/remotes/{remote}/{INTEGRATION_BRANCH}"
+        candidates.append((base, f"Local integration-branch reference: {base} (no fetch)"))
+    for order, (base, reason) in enumerate(candidates):
+        try:
+            ahead = int(subprocess.run(["git", "-C", str(repo), "rev-list", "--count", f"{base}..HEAD"],
+                                       capture_output=True, text=True, check=True, timeout=30).stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        ranked.append((ahead, order, base, reason))
+    # rev-list counts every HEAD commit for a base with no shared history, so confirm the winner's
+    # merge base, falling back to the next candidate.
+    for _, _, base, reason in sorted(ranked):
+        try:
+            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
+                           capture_output=True, check=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return {"mode": "affected", "base_ref": base, "reason": reason}
     return {"mode": "full_fallback", "base_ref": None,
-            "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
+            "reason": "No usable local base reference: full static recipe; parse local Swift edits"}
 
 
 def affected_checks(repo, base):

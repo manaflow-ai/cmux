@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextMobile
 
-/// The Swift mirror of cnx-hostd's daemon lane (policy.rs): Clear All
+/// The Swift mirror of cmux-mobile-host's daemon lane (policy.rs): Clear All
 /// Notifications, the person's pins and their sidebar order.
 struct DaemonLanePolicyResourceTests {
     let policy = DaemonLanePolicy(deviceID: "phone")
@@ -21,7 +21,7 @@ struct DaemonLanePolicyResourceTests {
 
     @Test func allowsTheWorkspaceResourceOps() {
         for request in [
-            resource("notification.clear", current, key: "cnx-ios-notification-clear-1"),
+            resource("notification.clear", current, key: "cmux-next-ios-notification-clear-1"),
             resource("sidebar_layout.get", current),
         ] {
             guard case .rewrite(let sent) = policy.evaluate(request) else {
@@ -33,10 +33,10 @@ struct DaemonLanePolicyResourceTests {
     }
 
     /// This lane cannot read the Mac's layout or tree to confirm the phone's object,
-    /// so Unpin and the sidebar order stay refused here (cnx-hostd checks them).
+    /// so Unpin and the sidebar order stay refused here (cmux-mobile-host checks them).
     @Test func ownershipLinesAreRefusedOnThisLane() {
         let unpin = resource("sidebar_layout.update", current.merging(["op": ["kind": "item.remove", "id": "itm_abcdefgh234567ab"]]) { a, _ in a },
-                             key: "cnx-ios-unpin-1")
+                             key: "cmux-next-ios-unpin-1")
         guard case .refuse = policy.evaluate(unpin) else { Issue.record("forwarded an unpin"); return }
         guard case .refuse = policy.evaluate(line(["cmd": "set-personal-workspace", "id": "m2", "session_id": "reg",
                                                    "workspace_key": "k", "index": 3])) else {

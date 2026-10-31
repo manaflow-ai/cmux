@@ -80,7 +80,7 @@ public actor PhoneRecorder {
     public static func load(_ folder: URL) throws -> PhoneRecording {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        decoder.userInfo[.phoneRecordingFolder] = folder
+        if let key = CodingUserInfoKey.phoneRecordingFolder { decoder.userInfo[key] = folder }
         return try decoder.decode(PhoneRecording.self, from: Data(contentsOf: folder.appendingPathComponent("manifest.json")))
     }
 

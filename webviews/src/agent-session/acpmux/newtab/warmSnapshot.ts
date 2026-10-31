@@ -8,6 +8,7 @@
 // The page lists them until its own list arrives, which changes rows in place.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "../model";
+import { activityTime } from "../sessionList";
 import { deviceChats, setDeviceChats, subscribeDeviceChats, type DeviceChat } from "./deviceChats";
 
 /// Enough of the newest chats for every template's cards and their folded children.
@@ -108,7 +109,7 @@ function schedule(): void {
     timer = undefined;
     if (!listed || !post) return;
     // The same chats the live list has (a peer's and Cloud's too), so its arrival changes no row.
-    const sessions = [...listed].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, KEPT);
+    const sessions = [...listed].sort((a, b) => (activityTime(b) ?? 0) - (activityTime(a) ?? 0)).slice(0, KEPT);
     const next = { sessions, device: deviceChats() };
     const text = JSON.stringify(next);
     if (text === posted) return;

@@ -49,6 +49,14 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return feed.items
     }
 
+    /// The verified kill-switch document (`notes/flags.json`, KillSwitchDocument), fresh or cached;
+    /// nil when neither verifies, which turns nothing off.
+    @concurrent
+    public func flags() async -> KillSwitchDocument? {
+        guard let data = await verified("flags.json") else { return nil }
+        return KillSwitchDocument(data: data)
+    }
+
     /// The file and its signature, fetched together from the network (cached
     /// once verified), else the cached pair, verified again. `cacheFirst`
     /// (a build's notes, which never change) answers from the verified cache
@@ -98,11 +106,14 @@ nonisolated public struct ReleaseNotesIndexEntry: Codable, Equatable, Sendable {
     public var shortVersion: String
     public var date: String
     public var highlights: Int
+    /// The commit the build was cut from (`head`; older indexes lack it).
+    public var head: String?
 
-    public init(build: String, shortVersion: String, date: String, highlights: Int) {
+    public init(build: String, shortVersion: String, date: String, highlights: Int, head: String? = nil) {
         self.build = build
         self.shortVersion = shortVersion
         self.date = date
         self.highlights = highlights
+        self.head = head
     }
 }

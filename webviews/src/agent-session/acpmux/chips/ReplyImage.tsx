@@ -2,16 +2,25 @@
 // `img-src data:`, `connect-src 'none'`); the host reads or fetches it (`image.load`) and answers
 // a data URL. A file inside the session's folders loads at once; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
-// its link only (never), or at once (always). Every web load uses the host's network rules.
-// A local image the host will not show (outside the folders, missing, or a failed load) draws as
-// a compact card: its alt text, its file name and Open, the path chip's open with the same
-// outside-folders confirmation. A deny-listed path is its alt text only.
-import { useContext, useState, type ReactNode } from "react";
+// its link only (never), or at once (always). Under click, an image from a site the host names
+// click-free (raw.githubusercontent.com: PR screenshots) loads at once too (`loadsWithoutClick`);
+// if the host refuses that load, its Load image shows. Every web load uses the host's network
+// rules, and the host checks the site again.
+// A local image the host will not show (outside the local image roots, missing, or a failed load)
+// draws as a compact card: its alt text, its file name and Open, the path chip's open with the
+// same outside-root confirmation. A deny-listed path is its alt text only.
+// A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
+// (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
+// opens it whole in the image viewer.
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
-import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+import { ElsewhereChip } from "./LinkChips";
+import { useMessageScope } from "./messageScope";
+import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -36,71 +45,182 @@ export function remoteImageHost(src: string): string | undefined {
   }
 }
 
-const loaded = new Map<string, string>();
+/// Whether the web image at `src` loads without a click under `click`: it is written exactly
+/// `https://<a host the host named>/…` (lowercase, no port, user info, backslash or space before
+/// the path), the same test the host makes on the same string, so the two never disagree.
+export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
+  if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
+  return policy.clickFreeImageHosts.some((host) => typeof host === "string" && src.startsWith(`https://${host}/`));
+}
+
 /// Sources an automatic load started for, so a render twice in a row asks the host once.
 const started = new Set<string>();
+/// Images that loaded on their own (a file in the folders, a web image under "always"), the most
+/// recently drawn first. One it forgets loads again on its own when it draws.
+const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
+/// Images the reader loaded with "Load image". They stay: loading one again would need another
+/// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
+const clicked = new Map<string, string>();
 
-function useImageLoad(src: string, auto: boolean) {
+/// Instances waiting on a load another instance of the same source started (the transcript's tile and
+/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
+const waiting = new Map<string, Set<() => void>>();
+const loadEnded = (src: string) => {
+  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
+  // another instance already retrying, and must hear that retry end too.
+  waiting.get(src)?.forEach((wake) => wake());
+};
+
+/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
+export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
+
+/// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
+/// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
+/// no gesture, and the image then waits for its Load image instead of drawing as unavailable.
+function useImageLoad(src: string, auto: boolean, clickFree = false) {
   const [state, setState] = useState<State>(() => {
-    const known = loaded.get(src);
+    const known = clicked.get(src) ?? loaded.get(src);
     return known ? { kind: "shown", src: known } : { kind: "idle" };
   });
-  const load = () => {
+  const load = (byClick: boolean) => {
     setState({ kind: "loading" });
-    void callChipHost("image.load", { src }).then((reply) => {
+    const asked = !byClick && clickFree;
+    void callChipHost("image.load", asked ? { src, auto: true } : { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
-        loaded.set(src, data);
+        if (byClick) clicked.set(src, data);
+        else loaded.set(src, data);
         setState({ kind: "shown", src: data });
+      } else if (asked) {
+        // `started` keeps it, so it is not asked again by itself; a click loads it as any other.
+        setState({ kind: "idle" });
       } else {
         started.delete(src);
         setState({ kind: "failed" });
       }
+      loadEnded(src);
     });
   };
+  // An instance whose source another one is loading shows what it loaded; if that load failed, this
+  // one asks the host itself (the render below, as `started` is cleared).
+  const waits = auto && state.kind === "idle" && started.has(src);
+  useEffect(() => {
+    if (!waits) return;
+    const wake = () => {
+      const known = clicked.get(src) ?? loaded.get(src);
+      setState(known ? { kind: "shown", src: known } : { kind: "idle" });
+    };
+    // The load may have ended before this effect ran (a fast host answers before the commit): hear it now.
+    if (clicked.has(src) || loaded.get(src) !== undefined || !started.has(src)) return wake();
+    const set = waiting.get(src) ?? new Set<() => void>();
+    waiting.set(src, set.add(wake));
+    return () => {
+      set.delete(wake);
+      if (!set.size && waiting.get(src) === set) waiting.delete(src);
+    };
+  }, [waits, src]);
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
-    queueMicrotask(load);
+    queueMicrotask(() => load(false));
   }
-  return { state, load };
+  return { state, load: () => load(true) };
 }
 
-/// A shown image: a click opens it in the image viewer where the pane has one.
-export function OpenableImage({ src, alt }: { src: string; alt: string }) {
+/// A shown image: a click opens it in the image viewer where the pane has one. `path` is the file
+/// a reply named for it, so the viewer's Show in Finder selects that file.
+export function OpenableImage({
+  src,
+  alt,
+  path,
+  thumb = false,
+}: {
+  src: string;
+  alt: string;
+  path?: string;
+  thumb?: boolean;
+}) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   // Use the shared compositor-only fade for a calm handoff from the placeholder.
   // The motion is disabled under reduced-motion; opacity never affects layout.
-  const image = <img className="cv-img cv-img--enter" src={src} alt={alt} loading="lazy" decoding="async" />;
-  if (!openImage) return image;
+  const image = (
+    <img
+      className={thumb ? "cv-thumb__img cv-img--enter" : "cv-img cv-img--enter"}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+  if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
   return (
     <button
       type="button"
-      className="cv-img-open"
+      className={thumb ? "cv-thumb cv-thumb--open" : "cv-img-open"}
       data-open-image
+      /* The file a reply read the image from: the context menu's Show in Finder selects it. */
+      data-image-path={path || undefined}
+      /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
+      draggable
       title={alt || t("image.view")}
-      onClick={() => openImage(src, alt)}
+      onClick={() => openImage(src, alt, path)}
     >
       {image}
     </button>
   );
 }
 
+/// The thumbnail's box while its image is not shown: the same shape as the shown image.
+function ThumbFrame({ state, children }: { state: "waiting" | "placeholder"; children?: ReactNode }) {
+  return <span className={`cv-thumb is-${state}`}>{children}</span>;
+}
+
 /// `fallback` is how the image draws when the pane will not show it (its name as a link or text).
-export function ReplyImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
+/// `thumb`: draw in the reply's fixed-shape thumbnail (Markdown.tsx), in every state.
+export function ReplyImage({
+  src,
+  alt,
+  fallback,
+  thumb = false,
+}: {
+  src: string;
+  alt: string;
+  fallback: ReactNode;
+  thumb?: boolean;
+}) {
+  const scope = useMessageScope();
   const local = localImageSource(src);
+  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
+  if (local && scope?.host !== undefined)
+    return isDeniedPath(local) ? (
+      <span className="cv-chip-plain">{alt || pathName(local)}</span>
+    ) : (
+      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+    );
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (
-    <LocalImage src={src} path={local} alt={alt} fallback={fallback} />
+    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} />
   ) : (
-    <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} />
+    <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} />
   );
 }
 
-function LocalImage({ src, path, alt, fallback }: { src: string; path: string; alt: string; fallback: ReactNode }) {
+function LocalImage({
+  src,
+  path,
+  alt,
+  fallback,
+  thumb,
+}: {
+  src: string;
+  path: string;
+  alt: string;
+  fallback: ReactNode;
+  thumb: boolean;
+}) {
   const t = useT();
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
@@ -108,12 +228,20 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
   // The host refuses a file outside the folders, so the page asks only for one it may show.
   const loadable = answered && !denied && place !== "outside" && place !== "missing";
   const { state } = useImageLoad(src, loadable);
-  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
+  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   const outside = place === "outside";
-  if (!outside && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
+  if (!outside && place !== "missing" && state.kind !== "failed")
+    return thumb ? (
+      <ThumbFrame state="waiting">
+        <ImageIcon size={18} className="cv-chip__icon" />
+        <span className="cv-thumb__name">{alt || pathName(path)}</span>
+      </ThumbFrame>
+    ) : (
+      <>{fallback}</>
+    );
   const canOpen = outside ? policy.outsideRoots !== "text" : place !== "missing";
-  return (
+  const card = (
     <span className={`cv-image-file${outside ? " is-outside" : ""}`} data-path={path}>
       <ImageIcon size={16} className="cv-chip__icon" />
       {alt && <span className="cv-image-file__alt">{alt}</span>}
@@ -131,15 +259,29 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
       )}
     </span>
   );
+  return thumb ? <ThumbFrame state="placeholder">{card}</ThumbFrame> : card;
 }
 
-function RemoteImage({ src, alt, host, fallback }: { src: string; alt: string; host: string; fallback: ReactNode }) {
+function RemoteImage({
+  src,
+  alt,
+  host,
+  fallback,
+  thumb,
+}: {
+  src: string;
+  alt: string;
+  host: string;
+  fallback: ReactNode;
+  thumb: boolean;
+}) {
   const t = useT();
   const policy = useReplyPolicy();
-  const { state, load } = useImageLoad(src, policy.remoteImages === "always");
-  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
+  const clickFree = loadsWithoutClick(src, policy);
+  const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
+  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
-  return (
+  const placeholder = (
     <span className="cv-image-placeholder">
       <ImageIcon size={16} className="cv-chip__icon" />
       <span className="cv-image-placeholder__host">{host}</span>
@@ -152,4 +294,5 @@ function RemoteImage({ src, alt, host, fallback }: { src: string; alt: string; h
       )}
     </span>
   );
+  return thumb ? <ThumbFrame state="placeholder">{placeholder}</ThumbFrame> : placeholder;
 }

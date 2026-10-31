@@ -52,6 +52,9 @@ public struct PaletteItem: Identifiable {
     /// Real colors drawn in the icon's place (a color setting's value, a
     /// theme's colors; R98). Empty draws `symbol`.
     public var swatches: [ThemeRGB] = []
+    /// A font family the title draws in (a font setting's values show each
+    /// font in its own face). Nil, or a family not installed, draws the body font.
+    public var fontFamily: String?
     /// A group color drawn as a ball in the icon's place, resolved by the row in its window's
     /// theme scope (a room's theme) and again on a theme change (cx-wqn5).
     public var ball: PaletteBall?
@@ -61,6 +64,9 @@ public struct PaletteItem: Identifiable {
     /// The row shows for an empty query only, never as a match (the
     /// picker's Locations).
     public var hidesWhenTyping = false
+    /// The row matches a query but is left out of the empty query's list (a family member that
+    /// its family's row stands for).
+    public var hidesWhenQueryEmpty = false
     /// A row of a secondary kind (a setting): it ranks below a command with
     /// the same match (ten setting rows are titled "Color"), so 200 setting
     /// rows never bury the commands.
@@ -68,6 +74,10 @@ public struct PaletteItem: Identifiable {
     /// The catalog's first-use suggestion order: the row shows in the empty
     /// query's Suggested section (`ActionDescriptor.paletteSuggestionRank`).
     public var suggestedRank: Int?
+    /// Short ids the row is known by, such as a Chief subagent workspace's `a612`: a query that is
+    /// one of them, or its digits (`612`), puts the row first, above every text match. Not keywords,
+    /// so a handle's letters never match other rows' words.
+    public var handles: [String] = []
 
     public init(
         id: String,

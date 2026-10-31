@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// Restart Shell from a phone (`restart-tab`): the dead tab's own shell again on this Mac.
-/// The phone names the tab and nothing else; the Rust mirror (cnx-hostd `policy.rs`) has
+/// The phone names the tab and nothing else; the Rust mirror (cmux-mobile-host `policy.rs`) has
 /// the same rule (`restart_shell_takes_only_the_tab`).
 struct DaemonLanePolicyRestartTests {
     private let policy = DaemonLanePolicy(deviceID: "phone")

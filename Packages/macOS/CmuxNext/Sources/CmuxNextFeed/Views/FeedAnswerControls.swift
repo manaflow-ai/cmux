@@ -3,8 +3,6 @@ import SwiftUI
 
 /// How much room the answer controls get.
 enum FeedDensity {
-    /// One line in the menu bar popover: the primary buttons only.
-    case menubar
     /// Under a request in the list.
     case inline
     /// The inbox detail: every field.
@@ -38,17 +36,9 @@ struct FeedAnswerControls: View {
         case let .approve(prompt):
             FeedApproveControls(item: item, prompt: prompt, model: model, density: density)
         case let .choice(prompt):
-            if density == .menubar && !prompt.isOneTap {
-                buttons(primary: FeedStrings.open) { model.open(item.id) }
-            } else {
-                FeedChoiceControls(item: item, prompt: prompt, model: model, density: density)
-            }
+            FeedChoiceControls(item: item, prompt: prompt, model: model, density: density)
         case let .question(prompt):
-            if density == .menubar {
-                buttons(primary: FeedStrings.open) { model.open(item.id) }
-            } else {
-                FeedQuestionControls(item: item, prompt: prompt, model: model, density: density)
-            }
+            FeedQuestionControls(item: item, prompt: prompt, model: model, density: density)
         case let .confirm(prompt):
             buttons(primary: prompt.confirmLabel ?? FeedStrings.confirm, decline: prompt.cancelLabel,
                     destructive: prompt.destructive) { model.answer(item.id, .confirm(true)) }
@@ -77,9 +67,9 @@ struct FeedAnswerControls: View {
             Button(decline ?? FeedStrings.decline) {
                 if case .confirm = item.prompt { model.answer(item.id, .confirm(false)) } else { model.decline(item.id) }
             }
-            .buttonStyle(FeedButtonStyle(role: .plain, compact: density == .menubar))
+            .buttonStyle(FeedButtonStyle(role: .plain))
             Button(primary, action: action)
-                .buttonStyle(FeedButtonStyle(role: destructive ? .destructive : .primary, compact: density == .menubar))
+                .buttonStyle(FeedButtonStyle(role: destructive ? .destructive : .primary))
         }
     }
 }

@@ -1,4 +1,5 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// One change of layer model values that the render server shows as motion
 /// (perf I7: no main-thread work per frame). The caller writes the new values
@@ -14,7 +15,7 @@ public import QuartzCore
 public struct MotionMove: Sendable {
     enum Curve: Sendable {
         case tween(MotionTween)
-        case spring(MotionSpring)
+        case spring(MotionSpring, MotionGate)
     }
 
     let curve: Curve
@@ -22,17 +23,17 @@ public struct MotionMove: Sendable {
     public let duration: CFTimeInterval
 
     /// A move on tween `token` (Chrome's tab strip tweens: open, close, move), or nil when the change
-    /// applies at once (`Motion.duration(token)` is 0: speed off, Reduce Motion, a live resize, or a
-    /// `ui.animations.newTab` kind that is off).
-    public static func tween(_ token: MotionTween) -> MotionMove? {
-        let duration = Motion.duration(token)
+    /// applies at once (`gate.duration(token)` is 0: the master switch or `gate`'s category off,
+    /// speed off, Reduce Motion, a live resize, or a `ui.animations.newTab` kind that is off).
+    public static func tween(_ token: MotionTween, in gate: MotionGate) -> MotionMove? {
+        let duration = gate.duration(token)
         return duration > 0 ? MotionMove(curve: .tween(token), duration: duration) : nil
     }
 
     /// A move on spring `token`, or nil when movement does not animate.
-    public static func spring(_ token: MotionSpring) -> MotionMove? {
-        guard Motion.animatesMovement else { return nil }
-        return MotionMove(curve: .spring(token), duration: Motion.spring(token).settlingTime(within: 0.002))
+    public static func spring(_ token: MotionSpring, in gate: MotionGate) -> MotionMove? {
+        guard gate.animatesMovement else { return nil }
+        return MotionMove(curve: .spring(token, gate), duration: gate.spring(token).settlingTime(within: 0.002))
     }
 
     /// The additive animation of `keyPath` from `offset` (the old value minus the new) to `zero`.
@@ -44,8 +45,8 @@ public struct MotionMove: Sendable {
             animation = CABasicAnimation(keyPath: keyPath)
             animation.duration = duration
             animation.timingFunction = token.timingFunction
-        case .spring(let token):
-            animation = Motion.springAnimation(token, keyPath, from: offset, to: zero)
+        case .spring(let token, let gate):
+            animation = gate.springAnimation(token, keyPath, from: offset, to: zero)
         }
         animation.fromValue = offset
         animation.toValue = zero

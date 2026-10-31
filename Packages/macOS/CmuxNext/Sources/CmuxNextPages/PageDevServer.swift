@@ -21,10 +21,11 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// This process's server: nil in Release, or without a valid ``variable``.
     public static let current = resolve(environment: ProcessInfo.processInfo.environment, allowsDevServer: allowed)
 
-    /// The pages the server serves: the React pages and the three viewers. The agent pane has its
-    /// own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an app page is never served from it.
+    /// The pages the server serves: one per `webviews/src/pages/<resource>/` (``PageDevServerTests``
+    /// keeps them equal). The agent pane has its own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an
+    /// app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.changelog", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
+        "cmux.apps", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
         "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 
@@ -88,14 +89,14 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     }
 
     /// Whether `response` still comes from this server; a redirect elsewhere is refused.
-    func isOwn(_ response: URL?) -> Bool {
+    public func isOwn(_ response: URL?) -> Bool {
         guard let response else { return false }
         return response.scheme?.lowercased() == "http" && response.host?.lowercased() == root.host
             && response.port == root.port
     }
 
     /// One uncached GET from the server.
-    @concurrent static func fetch(_ url: URL) async -> (Data, HTTPURLResponse)? {
+    @concurrent public static func fetch(_ url: URL) async -> (Data, HTTPURLResponse)? {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }

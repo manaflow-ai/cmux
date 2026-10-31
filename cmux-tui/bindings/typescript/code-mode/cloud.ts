@@ -53,7 +53,7 @@ export class CloudClient {
   delete(vmId: string, idempotencyKey?: string): Promise<CloudValue> { return this.call("vm.delete", { vm_id: id(vmId, "vm.delete") }, idempotencyKey); }
   exec(vmId: string, command: string, timeoutMs?: number): Promise<CloudValue> { return this.call("vm.exec", { vm_id: id(vmId, "vm.exec"), command, ...(timeoutMs === undefined ? {} : { timeoutMs }) }); }
   snapshotList(vmId: string): Promise<CloudValue> { return this.call("vm.snapshot.list", { vm_id: id(vmId, "vm.snapshot.list") }); }
-  snapshotCreate(vmId: string, fields: CloudParams = {}, idempotencyKey?: string): Promise<CloudValue> { return this.call("vm.snapshot.create", { vm_id: id(vmId, "vm.snapshot.create"), ...fields }, idempotencyKey); }
+  snapshotCreate(vmId: string, fields: CloudParams = {}, idempotencyKey: string = randomUUID()): Promise<CloudValue> { return this.call("vm.snapshot.create", { vm_id: id(vmId, "vm.snapshot.create"), ...fields }, idempotencyKey); }
   snapshotRestore(vmId: string, snapshotId: string, idempotencyKey?: string): Promise<CloudValue> { return this.call("vm.snapshot.restore", { vm_id: id(vmId, "vm.snapshot.restore"), snapshot_id: snapshotId }, idempotencyKey); }
   snapshotDelete(vmId: string, snapshotId: string, idempotencyKey?: string): Promise<CloudValue> { return this.call("vm.snapshot.delete", { vm_id: id(vmId, "vm.snapshot.delete"), snapshot_id: snapshotId }, idempotencyKey); }
   fsList(vmId: string, guestPath: string): Promise<CloudValue> { return this.call("vm.fs.list", { vm_id: id(vmId, "vm.fs.list"), path: path(guestPath, "vm.fs.list") }); }

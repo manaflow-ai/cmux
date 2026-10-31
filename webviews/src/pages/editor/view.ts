@@ -19,9 +19,11 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
+import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
+import { MATCH_LIMIT, type FindRange, type FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
@@ -246,7 +248,25 @@ export interface ViewCallbacks {
    * app's key dispatcher lets the next key reach the editor (`cmux.editor.keySequence`).
    */
   onKeySequence?(pending: boolean): void;
+  /**
+   * Find (Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E, and their page commands) runs the shared find pill
+   * (editorFind.ts) instead of Monaco's find widget. Returns false to leave the command to Monaco.
+   */
+  find?(command: FindCommand, text?: string): boolean;
+  /** The document's text changed (find searches again). */
+  onContentChange?(): void;
 }
+
+/** The page commands the shared find pill runs. */
+export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind" | "replace";
+const FIND_COMMANDS: ReadonlySet<string> = new Set<FindCommand>([
+  "find",
+  "findNext",
+  "findPrevious",
+  "useSelectionForFind",
+  "hideFind",
+  "replace",
+]);
 
 export interface ViewStatus {
   line: number;
@@ -325,10 +345,15 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
-      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
-      this.editor.onDidScrollChange(() => {
+      // A right-click opens the app's standard macOS menu, not Monaco's (nativeEditorMenu.ts).
+      installNativeEditorMenu(this.editor, container, {
+        [MONACO_QUICK_COMMAND]: () => this.callbacks.openCommandPalette?.(),
+      }),
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
+      // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
+      this.editor.onDidScrollChange((event) => {
         const node = this.editor.getDomNode();
-        if (node) markScrolling(node);
+        if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
@@ -350,6 +375,28 @@ export class MonacoView implements CodeView {
       // no web view has a palette of its own. Keys and menus run commands through Monaco's command
       // registry, where the latest registration of an id wins, so this replaces Monaco's widget.
       monaco.editor.registerCommand(MONACO_QUICK_COMMAND, () => this.callbacks.openCommandPalette?.()),
+    );
+    this.disposables.push(
+      // The find chords Monaco binds itself open the shared find pill, never Monaco's widget (the
+      // app's dispatcher sends the same commands as page commands; these cover a key that reaches
+      // Monaco first). Registered after Monaco's find contribution, so they win.
+      ...(
+        [
+          ["find", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF],
+          ["findNext", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG],
+          ["findPrevious", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
+          ["useSelectionForFind", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE],
+          ["replace", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+        ] as const
+      ).map(([command, key]) =>
+        this.editor.addAction({
+          id: `cmux.find.${command}`,
+          label: command,
+          keybindings: [key],
+          run: () => void this.callbacks.find?.(command),
+        }),
+      ),
+      this.editor.onDidChangeModelContent(() => this.callbacks.onContentChange?.()),
     );
     this.applyKeybindings();
     this.watchKeySequences(container);
@@ -648,12 +695,88 @@ export class MonacoView implements CodeView {
     if (action?.isSupported()) await action.run();
   }
 
+  /** The selection's text and lines (viewer comments, viewer-comments-DESIGN.md), null with nothing
+   * selected. A selection that ends at the start of a line does not count that line. */
+  selectionQuote(): { text: string; startLine: number; endLine: number } | null {
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model || selection.isEmpty()) return null;
+    const text = model.getValueInRange(selection);
+    if (!text.trim()) return null;
+    let endLine = selection.endLineNumber;
+    if (selection.endColumn === 1 && endLine > selection.startLineNumber) endLine--;
+    return { text, startLine: selection.startLineNumber, endLine };
+  }
+
   focus(): void {
+    this.editor.focus();
+  }
+
+  /** The editor as the shared find pill searches it (editorFind.ts). */
+  findTarget(): FindTarget {
+    const decorations = this.editor.createDecorationsCollection();
+    return {
+      // Monaco's own default stops at 999; the pill takes MATCH_LIMIT, Replace All takes them all.
+      findMatches: (query, matchCase, all) =>
+        this.model
+          ?.findMatches(query, false, false, matchCase, null, false, all ? Number.MAX_SAFE_INTEGER : MATCH_LIMIT)
+          .map((match) => match.range) ?? [],
+      // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
+      // the next letter typed would skip to the match after it.
+      caret: () =>
+        this.editor.getSelection()?.getStartPosition() ?? this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
+      selectedText: () => {
+        const selection = this.editor.getSelection();
+        if (!selection || !this.model || selection.isEmpty()) return "";
+        if (selection.startLineNumber !== selection.endLineNumber) return "";
+        return this.model.getValueInRange(selection);
+      },
+      show: (matches: readonly FindRange[], active: number) => {
+        // Monaco's own find classes, so the theme's find colors paint them.
+        decorations.set(
+          matches.map((range, index) => ({
+            range,
+            options: {
+              className: index === active ? "currentFindMatch" : "findMatch",
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              overviewRuler: { color: "rgba(246, 185, 77, 0.7)", position: monaco.editor.OverviewRulerLane.Center },
+            },
+          })),
+        );
+        const range = matches[active];
+        if (!range) return;
+        this.editor.setSelection(range);
+        this.editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth);
+      },
+      focus: () => this.editor.focus(),
+      readOnly: () => this.documentInfo?.readOnly ?? true,
+      replace: (ranges, text) => {
+        if (!this.model || this.documentInfo?.readOnly) return;
+        // One undo step, as Monaco's Replace All.
+        this.editor.pushUndoStop();
+        this.editor.executeEdits(
+          "cmux.find.replace",
+          ranges.map((range) => ({ range, text, forceMoveMarkers: true })),
+        );
+        this.editor.pushUndoStop();
+      },
+    };
+  }
+
+  /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
+  reveal(position: RevealPosition): void {
+    const model = this.model;
+    if (!model) return;
+    const lineNumber = Math.min(Math.max(1, position.line), model.getLineCount());
+    const column = Math.min(Math.max(1, position.column), model.getLineMaxColumn(lineNumber));
+    this.editor.setPosition({ lineNumber, column });
+    this.editor.revealPositionInCenter({ lineNumber, column });
     this.editor.focus();
   }
 
   /** A page command from the app's key dispatcher. Returns false for an unknown command. */
   command(command: EditorCommand, text?: string): boolean {
+    if (FIND_COMMANDS.has(command) && this.callbacks.find?.(command as FindCommand, text)) return true;
     const id = editorAction(command, text);
     if (!id) return false;
     if (command === "editorAction" && !isEditorAction(id)) return false;

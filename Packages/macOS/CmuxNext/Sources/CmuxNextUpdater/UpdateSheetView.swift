@@ -98,11 +98,13 @@ private struct IndeterminateSymbolEffect: ViewModifier {
     func body(content: Content) -> some View {
         // Read so a change of either re-runs this body; `Motion` reads the live values.
         _ = (systemReducesMotion, overrideChanges)
-        let runs = isActive && Motion.animatesLoops
+        let runs = isActive && Motion.indicators.animatesLoops
         return Group {
             if #available(macOS 15, *) {
+                // motion: allow the effect runs only while Motion.indicators.animatesLoops (`runs`)
                 content.symbolEffect(.rotate, isActive: runs)
             } else {
+                // motion: allow the effect runs only while Motion.indicators.animatesLoops (`runs`)
                 content.symbolEffect(.pulse, isActive: runs)
             }
         }

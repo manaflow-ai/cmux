@@ -30,6 +30,7 @@ public final class ConversationUserDefaultsDraftStorage: ConversationDraftStorag
     }
 }
 
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDraft {
     /// Whether `text` counts as a draft (Messages ignores whitespace-only text).
     public static func isDraft(_ text: String) -> Bool {

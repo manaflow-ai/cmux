@@ -446,11 +446,16 @@ pub(crate) fn shown_text(text: &str, limit: usize) -> String {
 /// Bidi controls, zero-width characters, word joiners, invisible operators,
 /// the BOM and interlinear annotation marks (Unicode Cf characters that can
 /// hide or reorder shown text).
-fn is_invisible_format(character: char) -> bool {
+pub(crate) fn is_invisible_format(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
             | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
             | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
@@ -458,6 +463,13 @@ fn is_invisible_format(character: char) -> bool {
             | '\u{2066}'..='\u{206F}'
             | '\u{FEFF}'
             | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
     )
 }
 

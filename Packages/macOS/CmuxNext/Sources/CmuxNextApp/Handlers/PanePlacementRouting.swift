@@ -26,7 +26,7 @@ enum PanePlacementRouting {
                                  from focused: PaneController) -> PaneController {
         guard !ctx.namesPane(invocation), let content = focused.workspace,
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID),
-              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames,
+              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID),
                                                    recent: content.recentPanes),
               let target = content.panes[pick.pane] else { return focused }
         return target
@@ -55,7 +55,7 @@ enum PanePlacementRouting {
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID) else { return .tab(pane) }
         let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementFallback
         let plan = PanePlacement().plan(layout: screen.layout, focused: focused.layoutPaneID, recent: content.recentPanes,
-                                        frames: content.layoutView.navigationFrames, placement: placement, tiles: tiles)
+                                        frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID), placement: placement, tiles: tiles)
         guard case .split(let target, _) = plan, let controller = content.panes[target],
               let direction = autoLayoutDirection(ctx, controller).fitting else { return .tab(pane) }
         return .split(controller.pane, direction)
@@ -68,8 +68,8 @@ enum PanePlacementRouting {
 
     /// The invocation aimed at `pane`, keeping its arguments and origin. A
     /// new terminal opens where the person works (NEW-TERMINAL-INHERITS-CWD):
-    /// without a `cwd` argument, the folder of `focused`'s selected terminal.
-    /// Any other focused tab leaves the split's own fallback (the target
+    /// without a `cwd` argument, the folder of `focused`'s selected terminal
+    /// or agent chat (NewTerminalStart.folder). Any other focused tab leaves the split's own fallback (the target
     /// pane's folder).
     static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
         var aimed = invocation
@@ -78,7 +78,7 @@ enum PanePlacementRouting {
         // starts it at home).
         if aimed["cwd"]?.stringValue == nil,
            NewTerminalStart.inherits(.split),
-           let tab = focused?.selectedTab, tab.kind == .pty, let cwd = tab.cwd {
+           let focused, let cwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: focused.services) {
             aimed.arguments["cwd"] = .string(cwd)
         }
         return aimed

@@ -1,6 +1,6 @@
 name: cmux-next frame pacing
 
-# Nightly fling bench of the cmux-next agent pane at 120 Hz. The minis' own
+# Fling bench of the cmux-next agent pane at 120 Hz, started by the perf cron on idle fleet time. The minis' own
 # displays are 60 Hz, so the bench adds a 120 Hz virtual display
 # (scripts/ci/frame-pacing/vdisplay.m, the private CGVirtualDisplay API) and
 # measures the pane at both render rates: capped (CMUX_NEXT_AGENT_PANE_FULL_RATE=0,
@@ -11,8 +11,9 @@ name: cmux-next frame pacing
 # warning annotation. It runs on an owned mini or not at all: `gate` asks the
 # E2E pool picker whether an owned Mac is free now (as iroh-release-gate's
 # `runner` does) and skips the run otherwise, and the build and the bench take
-# vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. The bench drives the
-# console session, so it holds the mini's gui token while it measures.
+# the runner selected by that gate. All suites retain the exclusive GUI token:
+# even fling-only runs create a virtual display in the shared console session.
+# A configured session lane is not selected without the pool's availability check.
 #
 # The same bench job then runs the golden interactions (scripts/ci/frame-pacing/golden.sh
 # and golden.py, cx-codh2): New Tab cold and warm, sidebar collapse and expand, transcript
@@ -25,9 +26,9 @@ name: cmux-next frame pacing
 # into feat-cmux-next that touch the measured paths.
 
 on:
-  schedule:
-    # 09:37 UTC, 02:37 in San Francisco: the fleet's quietest hour.
-    - cron: "37 9 * * *"
+  # No schedule (Lawrence 2026-10-23: nothing perf-related slows a nightly or a dev build): the perf cron
+  # (cmux-next-perf-budgets.yml) starts this at most once in 24 h, only when no nightly or dev build waits
+  # for a Mac; cmux-next-motion-golden.yml starts golden-only runs for labeled pull requests.
   workflow_dispatch:
     inputs:
       ref:
@@ -41,7 +42,7 @@ on:
         default: "3"
         type: string
       suites:
-        description: "What to run: fling, golden (the golden interactions), both, or instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded)"
+        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), or perf (cold and warm launch, browser tab memory at 1/10/20 tabs)"
         required: false
         default: fling,golden
         type: string
@@ -54,8 +55,8 @@ concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
   # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
   # supersedes the older run and other branches' runs never cancel its build.
-  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
-  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' }}
+  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' }}
 
 env:
   SUITES: ${{ inputs.suites || 'fling,golden' }}
@@ -68,12 +69,14 @@ jobs:
       ref: ${{ inputs.ref || 'feat-cmux-next' }}
 
   gate:
+    environment: ci-routing-agent
     needs: resolve-ref
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
       tag: ${{ steps.tag.outputs.tag }}
+      runner: ${{ steps.decide.outputs.runner }}
     steps:
       # The tagged app's baked tag (its debug socket is /tmp/cmux-debug-<tag>.sock). A
       # golden-only run's is per ref: reload-build.yml cancels an older build of the same tag.
@@ -84,7 +87,7 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
         run: |
           tag=frame-pacing
-          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ]; then
+          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
             # The checksum keeps two refs that share a 32-character prefix on their own tags.
             sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
@@ -133,6 +136,8 @@ jobs:
       - name: Run only while an owned Mac is free
         id: decide
         env:
+          # Even fling creates a virtual display and needs a drawing console.
+          CMUX_CI_GUI_REQUIRED: 'true'
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -158,7 +163,8 @@ jobs:
           case "$label" in
             glaeda-*)
               echo "run=true" >> "$GITHUB_OUTPUT"
-              echo "An owned Mac is free ($label); the build and bench take $SIDE_LANE." ;;
+              echo "runner=$label" >> "$GITHUB_OUTPUT"
+              echo "An owned Mac is free ($label); the build and bench take the picked runner." ;;
             *)
               echo "run=false" >> "$GITHUB_OUTPUT"
               reason="no owned Mac free now (picker said '${label:-nothing}')"
@@ -181,15 +187,14 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
-    # The gui token wait (15 min) and the bench step (15 min) both fit, so a
-    # busy console skips the bench instead of timing the job out.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # The GUI-token wait and bench step both fit in this job timeout.
     timeout-minutes: 45
     env:
       CMUX_TAG: ${{ needs.gate.outputs.tag }}
@@ -198,10 +203,9 @@ jobs:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_PERF_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
-      # The bench draws in the console session, which every GUI job on the mini
-      # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
-      # does. A busy console after the wait skips the bench, never fails it.
-      - name: Take this Mac's gui token
+      # All suites share the GUI lock: fling still creates a virtual display in the
+      # console session, so it must not overlap pixel-producing suites.
+      - name: Admit only an isolated GUI session
         id: gui
         run: |
           set -uo pipefail
@@ -211,13 +215,13 @@ jobs:
           case "$status" in
             0|2)
               echo "taken=true" >> "$GITHUB_OUTPUT"
-              echo "reason=gui token acquired" >> "$GITHUB_OUTPUT"
-              ;;
+              echo "reason=GUI token acquired for isolated frame-pacing session" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "taken=false" >> "$GITHUB_OUTPUT"
-              echo "reason=the console session stayed busy (take-gui exited $status)" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Agent pane frame pacing::Skipped: the console session stayed busy (take-gui exited $status)."
-              printf '## Agent pane frame pacing\n\nSkipped: the console session stayed busy (take-gui exited %s).\n' "$status" >> "$GITHUB_STEP_SUMMARY" ;;
+              reason="the console stayed busy (take-gui exited $status)"
+              echo "reason=$reason" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Agent pane frame pacing::Skipped: $reason."
+              printf '## Agent pane frame pacing\n\nSkipped: %s.\n' "$reason" >> "$GITHUB_STEP_SUMMARY" ;;
           esac
 
       - name: Checkout the bench
@@ -231,6 +235,9 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/cmux-next/instant-new-surfaces-bench.py
+            scripts/cmux-next/cmd-n-paint-e2e.py
+            scripts/cmux-next/bench-startup.py
+            scripts/cmux-next/bench_memory.py
             scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -289,6 +296,59 @@ jobs:
             --tag "$CMUX_TAG" --app "$app" --runs 10 --budget-frames 1 --budget-key-ms 20 --out "$RUNNER_TEMP/frame-pacing/out" \
             --json "$RUNNER_TEMP/frame-pacing/out/instant-new-surfaces.json"
 
+      # Cmd-N from a workspace split into three panes (Leo 2026-10-20: "the layout shifts"): the new
+      # workspace's New Tab page shows in one step, in its final layout, never a frame of the page
+      # laid out at the split pane's size first. A guard: it fails the job. The frame strips land in
+      # the artifact (cmd-n-split/cmd-n-*/strip.png).
+      - name: Cmd-N from a split workspace paints in one step
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'instant')
+        timeout-minutes: 10
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/cmd-n-paint-e2e.py \
+            --app "$app" --tag "$CMUX_TAG" --split 3 --keys n --runs 3 --duration-ms 900 \
+            --out "$RUNNER_TEMP/frame-pacing/out/cmd-n-split"
+
+      # Ctrl-` (New Terminal Tab) at 10 and 100 workspaces, idle and loaded (ctrl-backtick-instant):
+      # the new tab shows in the first display frame after the key (p95) with under 20 ms of main
+      # thread, whatever the daemon's reply takes. A guard, not a warning: it fails the job.
+      - name: Ctrl-` bench (10 and 100 workspaces)
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'instant')
+        timeout-minutes: 20
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
+            --tag "$CMUX_TAG" --app "$app" --runs 10 --commands new_terminal --workspaces 10,100 \
+            --budget-frames 1 --budget-key-ms 20 --out "$RUNNER_TEMP/frame-pacing/out" \
+            --json "$RUNNER_TEMP/frame-pacing/out/ctrl-backtick.json"
+
+      # Launch, new tab and memory against Ardia/Helium/Dia (perf-launch-memory): cold and warm
+      # launches to the first window frame (empty and realistic profiles), Cmd-T to the New Tab
+      # page's frame, and the footprint of the app and every process it owns (Chromium helpers,
+      # WebKit, cmux-tui) at 1, 10 and 20 Chromium tabs on distinct local sites. Report only.
+      - name: Launch, new tab and memory bench
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'perf')
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          out="$RUNNER_TEMP/frame-pacing/out"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench-startup.py --app "$app" \
+            --profile empty --mode cold --mode warm --runs 5 --timeout 20 --json "$out/launch-empty.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench-startup.py --app "$app" \
+            --profile realistic --mode warm --runs 5 --timeout 20 --json "$out/launch-realistic.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
+            --tag "$CMUX_TAG" --app "$app" --runs 10 --phases idle --out "$out" --json "$out/new-tab.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls local --settle 30 --measure 10 --out "$out/memory-tabs-local.json" || true
+          # The same tabs with candidate Chromium switches (DEBUG builds read CMUX_NEXT_CEF_EXTRA_SWITCHES):
+          # no background networking or component updates, no spare renderer; then same-site tabs
+          # sharing one renderer.
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls local --settle 30 --measure 10 --out "$out/memory-tabs-local-lean.json" \
+            --cef-switches "disable-background-networking:disable-component-update:disable-features=SpareRendererForSitePerProcess,OptimizationHints,MediaRouter" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls real --settle 30 --measure 10 --out "$out/memory-tabs-real.json" || true
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
         if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')

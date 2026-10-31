@@ -10,9 +10,15 @@ import Observation
 /// their reads are refused by their daemons. Keeps the subscription equal to
 /// the local store's terminals by observing the store (re-armed after each
 /// change, no polling) and answers each read from the user's Ghostty
-/// `clipboard-read` setting or a cmux dialog in that terminal's tab.
+/// `clipboard-read` setting or a cmux dialog in that terminal's tab. A local
+/// PTY may contain SSH or another nested transport, so its program origin is
+/// deliberately unproven: `allow` degrades to `ask` and the dialog does not
+/// claim the requester is this Mac.
 @MainActor
 final class TerminalClipboardReadService {
+    /// The daemon is local, but the program behind its PTY may not be.
+    static let requestHost = ClipboardReadHost(kind: .unknown)
+
     private weak var services: AppServices?
     private var broker: TerminalClipboardBroker?
     private var sideEvents: UInt64?
@@ -24,8 +30,8 @@ final class TerminalClipboardReadService {
 
     func start() {
         guard broker == nil, let daemon = services?.daemon else { return }
-        let capability = DaemonCapabilities.shared.terminalClipboardRead
-        broker = TerminalClipboardBroker(host: ClipboardReadHost(kind: .local), environment: .init(
+        let capability = DaemonCapability.terminalClipboardRead.rawValue
+        broker = TerminalClipboardBroker(host: Self.requestHost, environment: .init(
             setting: { ClipboardReadSetting(ghosttyValue: GhosttyRuntime.shared.clipboardReadValue) },
             // Primary and selection have no Mac pasteboard of their own; the
             // general one is what the user copied.
@@ -55,7 +61,7 @@ final class TerminalClipboardReadService {
     /// Hands the broker the connection and the terminal set, then re-arms.
     private func observe() {
         guard !stopped, let broker, let store = services?.daemon.store else { return }
-        let capability = DaemonCapabilities.shared.terminalClipboardRead
+        let capability = DaemonCapability.terminalClipboardRead.rawValue
         let (connected, terminals) = withObservationTracking {
             (Self.isConnected(store.connectionState) && store.supports(capability), Self.terminalIDs(store))
         } onChange: { [weak self] in
@@ -119,7 +125,11 @@ final class TerminalClipboardReadService {
         { prompt, answer in
             guard let placement = place(prompt) else { return {} }
             let title = placement.terminalTitle.flatMap { $0.isEmpty ? nil : $0 } ?? ClipboardReadStrings.untitledTerminal
-            let host = prompt.host.kind == .local ? ClipboardReadStrings.thisMac : (prompt.host.name ?? ClipboardReadStrings.otherMachine)
+            let host: String? = switch prompt.host.kind {
+            case .local: ClipboardReadStrings.thisMac
+            case .remote, .cloud: prompt.host.name ?? ClipboardReadStrings.otherMachine
+            case .unknown: nil
+            }
             let spec = ClipboardReadStrings.spec(terminal: title, host: host)
             let id = center.present(spec, in: placement.scope) { result in
                 answer(result.button == ClipboardReadStrings.allowID)

@@ -10,6 +10,15 @@ public import Foundation
 ///     libcmux_cef_shim.dylib
 ///     <App> Helper.app, <App> Helper (GPU).app, (Renderer), (Plugin), (Alerts)
 public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
+    /// How the runtime's code is trusted when it is loaded.
+    public enum Trust: Hashable, Sendable {
+        /// Code nested in the app bundle is covered by the app's signature.
+        case bundled
+        /// A downloaded runtime must still carry a valid Developer ID
+        /// signature from this team when the app loads it.
+        case downloaded(teamID: String?)
+    }
+
     public static let frameworkName = "Chromium Embedded Framework.framework"
     public static let shimName = "libcmux_cef_shim.dylib"
 
@@ -18,6 +27,8 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
     public var mainBundle: URL
     /// The base helper app (`<App> Helper.app`).
     public var helperApp: URL
+    /// The trust check required immediately before the runtime is loaded.
+    public var trust: Trust
 
     public var frameworkDirectory: URL { frameworksDirectory.appending(path: Self.frameworkName) }
     public var frameworkBinary: URL { frameworkDirectory.appending(path: "Chromium Embedded Framework") }
@@ -26,10 +37,11 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
         helperApp.appending(path: "Contents/MacOS").appending(path: helperApp.deletingPathExtension().lastPathComponent)
     }
 
-    public init(frameworksDirectory: URL, mainBundle: URL, helperApp: URL) {
+    public init(frameworksDirectory: URL, mainBundle: URL, helperApp: URL, trust: Trust = .bundled) {
         self.frameworksDirectory = frameworksDirectory
         self.mainBundle = mainBundle
         self.helperApp = helperApp
+        self.trust = trust
     }
 
     /// Picks the base helper among the entries of a Frameworks directory:
@@ -68,7 +80,8 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
     ///   - fallbackMainBundle: The main bundle when `frameworks` is not inside an `.app`.
     ///   - fileManager: Lists the folder.
     /// - Returns: The layout; its main bundle is the `.app` that holds `frameworks`, else `fallbackMainBundle` (a downloaded pack: the app itself).
-    public static func at(_ frameworks: URL, fallbackMainBundle: URL, fileManager: FileManager = .default) -> CEFRuntimeLayout? {
+    public static func at(_ frameworks: URL, fallbackMainBundle: URL, trust: Trust = .bundled,
+                          fileManager: FileManager = .default) -> CEFRuntimeLayout? {
         guard let entries = try? fileManager.contentsOfDirectory(atPath: frameworks.path),
               entries.contains(frameworkName), entries.contains(shimName),
               let helper = baseHelperName(in: entries) else {
@@ -79,7 +92,8 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
         return CEFRuntimeLayout(
             frameworksDirectory: frameworks,
             mainBundle: main.pathExtension == "app" ? main : fallbackMainBundle,
-            helperApp: frameworks.appending(path: helper)
+            helperApp: frameworks.appending(path: helper),
+            trust: trust
         )
     }
 }

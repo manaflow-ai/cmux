@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 
@@ -17,6 +18,7 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
     private var rows: [FileSidebarRow] = []
     private var current: URL?
     private var applying = false
+    private var fontScale = Typography.userScale
 
     init(actions: FileSidebarActions) {
         self.actions = actions
@@ -46,6 +48,13 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
             self.rows = rows
             table.reloadData()
         }
+        if fontScale != Typography.userScale {
+            fontScale = Typography.userScale
+            table.enumerateAvailableRowViews { [actions] view, index in
+                guard rows.indices.contains(index) else { return }
+                for case let cell as FileSidebarCell in view.subviews { cell.show(rows[index], eject: actions.eject) }
+            }
+        }
         current = folder.standardizedFileURL
         applying = true
         if let index = rows.firstIndex(where: { $0.url?.standardizedFileURL == current }) {
@@ -57,8 +66,7 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
     }
 
     @objc private func clicked() {
-        let row = table.clickedRow
-        guard rows.indices.contains(row), let url = rows[row].url else { return }
+        guard let row = table.clickedRowIfValid, rows.indices.contains(row), let url = rows[row].url else { return }
         actions.open(url)
     }
 

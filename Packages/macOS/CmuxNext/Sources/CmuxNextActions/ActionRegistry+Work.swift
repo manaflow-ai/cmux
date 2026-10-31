@@ -20,6 +20,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
     /// default mapping (``refusal``, a timeout, or `daemon_error`).
     public var code: String?
+    /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
+    /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
+    public var shown = false
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
@@ -64,6 +67,10 @@ public nonisolated enum ActionWorkRefusal: Sendable, Hashable {
 /// tasks the handlers reported with `track(_:)`. Keyboard, menu, and
 /// palette runs capture nothing, so tracking costs them nothing.
 extension ActionRegistry {
+    /// Whether a caller awaits the work handlers report (`capturingWork`). A handler whose
+    /// failure would otherwise go unseen (a palette run) shows it itself when this is false.
+    public var isCapturingWork: Bool { capturedWork != nil }
+
     /// Reports a task a handler started. Ignored unless a caller is capturing.
     public func track(_ task: ActionWork) {
         if capturedWork != nil { capturedWork?.append(task) }

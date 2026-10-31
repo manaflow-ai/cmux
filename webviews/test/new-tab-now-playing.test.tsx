@@ -280,7 +280,8 @@ test("Hide Now Playing turns the setting off and leaves an Undo in its place", a
     expect(commands(calls)).toEqual(["hide"]);
     expect(host.querySelector(".nt-player"), "the card stays after Hide").toBeNull();
     const note = host.querySelector<HTMLElement>(".nt-player-note");
-    expect(note?.getAttribute("role")).toBe("status");
+    // An <output>: the status role is its own (a live region).
+    expect(note?.tagName).toBe("OUTPUT");
     expect(note?.textContent).toContain("You can show it again in Settings.");
     // The host clears the track once the setting is off; the note stays until Undo.
     await act(async () => applyHostEvent({ kind: "nowPlaying", value: null }));

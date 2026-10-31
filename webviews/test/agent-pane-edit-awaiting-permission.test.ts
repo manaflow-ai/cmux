@@ -31,6 +31,7 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
   const ALLOWED = "0190a000-0000-7000-8000-0000000000d2";
   const SECOND = "0190a000-0000-7000-8000-0000000000d3";
   const FIRST_RAN = "0190a000-0000-7000-8000-0000000000d4";
+  const EARLY = "0190a000-0000-7000-8000-0000000000d5";
   const TEST_FILE = "/home/dev/uploader/install_test.sh";
   const START = Date.UTC(2026, 9, 11, 9, 0, 0);
   const FILE = "/home/dev/uploader/install.sh";
@@ -101,6 +102,31 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
       }),
     ],
   ];
+  // acpmux names a call as its block starts (#22402): the test's edit is named before the question
+  // about install.sh opens, and its input (diff included) arrives while that question is open.
+  const early: Step[] = [
+    ["mux", "user_message", { text: "Tighten the retry comment" }],
+    ["mux", "turn_started", {}],
+    asking[2],
+    [
+      "in",
+      "tool_call",
+      update({ sessionUpdate: "tool_call", toolCallId: "e2", title: "Edit", kind: "edit", status: "pending" }),
+    ],
+    asking[3],
+    [
+      "in",
+      "tool_call_update",
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "e2",
+        title: "Edit install_test.sh",
+        kind: "edit",
+        status: "in_progress",
+        content: [{ type: "diff", path: TEST_FILE, oldText: "3\n", newText: "5\n" }],
+      }),
+    ],
+  ];
   // install.sh is allowed and runs; the test's edit has not asked yet.
   const firstRan: Step[] = [
     ...second,
@@ -122,6 +148,7 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
       [ALLOWED, allowed],
       [SECOND, second],
       [FIRST_RAN, firstRan],
+      [EARLY, early],
     ].map(([sessionId, steps]) => {
       const events = (steps as Step[]).map(([dir, kind, msg], index) => ({
         sessionId,
@@ -233,14 +260,29 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
     await page.close();
   });
 
+  test("an edit named early whose input arrives while another waits is not Edited either", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(EARLY));
+    await page.getByText("Tighten the retry comment").waitFor();
+    await page.getByText("Edit install_test.sh").first().waitFor();
+    expect(await page.locator(".acpmux-edited").count()).toBe(0);
+    expect(await page.getByText(/^Edited/).count()).toBe(0);
+    await page.close();
+  });
+
   test("when the first edit runs, only its file reads as Edited", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(FIRST_RAN));
     await page.getByText("Tighten the retry comment").waitFor();
-    const card = page.locator(".acpmux-edited");
-    await card.waitFor();
-    expect(await card.textContent()).toContain("install.sh");
-    expect(await card.textContent()).not.toContain("install_test.sh");
+    // A run with a change still waiting for its permission keeps its tool rows, so the held call
+    // stays in sight (conversation/turns.ts `codexRuns`); the turn's edited-files card comes once
+    // it runs. The edit that ran reads as Edited with its change, the held one as its call.
+    const run = page.locator(".acpmux-activity", { hasText: "install_test.sh" });
+    await run.waitFor();
+    const labels = (await run.locator(".cv-tool__text").allTextContents()).map((label) => label.trim());
+    expect(labels).toContain("Edited install.sh+1-0");
+    expect(labels).toContain("Edit install_test.sh");
+    expect(labels.some((label) => label.startsWith("Edited install_test.sh"))).toBe(false);
     await page.close();
   });
 

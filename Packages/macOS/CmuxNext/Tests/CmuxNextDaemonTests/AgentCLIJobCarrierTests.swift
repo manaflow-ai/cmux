@@ -103,6 +103,26 @@ struct AgentCLIJobCarrierTests {
         }
     }
 
+    @Test(arguments: ["good", "inventory-old"])
+    func inventoryUsesTheCapturedOwnerAndRequiresItsReadCapability(mode: String) async throws {
+        try await withConnection(mode) { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            do {
+                let inventory = try await carrier.inventory()
+                #expect(mode == "good" && inventory.harnesses.isEmpty)
+            } catch DaemonError.missingCapabilities(let capabilities) {
+                #expect(mode == "inventory-old" && capabilities == ["agent-inventory-owner-v1"])
+            }
+            let calls = try #require(try await connection.request(Calls()).arrayValue)
+            #expect(calls.count == (mode == "good" ? 1 : 0))
+            if let call = calls.first {
+                #expect(call["cmd"] == .string("agent-inventory"))
+                #expect(call["expected_machine_id"] == .string(machine.rawValue))
+                #expect(call["cli"] == nil && call["idempotency_key"] == nil)
+            }
+        }
+    }
+
     @Test(arguments: ["empty-key", "control-key", "unknown-cli"])
     func invalidIntentIsRefusedBeforeAnyMutation(mode: String) async throws {
         try await withConnection("good") { connection in
@@ -209,11 +229,15 @@ struct AgentCLIJobCarrierTests {
             cmd = frame.get('cmd')
             if cmd == 'identify':
                 result = {'app':'cmux-tui','protocol':12,'generation':'job-boot','registry_id':'original-registry',
-                    'capabilities':['machine-identity-v1'] + ([] if mode == 'old' else ['agent-cli-update-job-v1']),
+                    'capabilities':['machine-identity-v1'] + ([] if mode == 'old' else ['agent-cli-update-job-v1'])
+                        + ([] if mode == 'inventory-old' else ['agent-inventory-owner-v1']),
                     'machine_id': 'machine_' + 'b'*32 if mode == 'wrong-machine' else machine,
                     'session_resource_id': 'session_' + 'b'*32 if mode == 'wrong-session' else session}
             elif cmd == 'client-hello':
                 result = {'connection_id':'1','user_origin_allowed':mode != 'unverified'}
+            elif cmd == 'agent-inventory':
+                calls.append(frame)
+                result = {'view':'inventory','cached':True,'harnesses':[]}
             elif cmd == 'agent-cli-update-job':
                 calls.append(frame)
                 result = {'machine':machine,'session':session,'cli':'claude','revision':'18446744073709551615',
@@ -240,7 +264,7 @@ struct AgentCLIJobCarrierTests {
             elif cmd == 'test-job-calls': result = calls
             print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
         """#
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", script, mode])
         let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-job-\(UUID().uuidString).sock", bridge: bridge)
         var configuration = DaemonConnection.Configuration(requiredCapabilities: [], terminalEnvironment: nil,
                                                            clientHello: .init(installKey: nil))

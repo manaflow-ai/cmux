@@ -12,6 +12,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-sessions";
@@ -23,7 +24,7 @@ pub const MAX_TASKS: usize = 5;
 fn tools() -> Value {
     json!([{
         "name": "offer_session",
-        "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. Offer only work the user is likely to want, at most a few per task. Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",
+        "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. If the user starts it, it becomes your sub-session (get_session and wait_for_sessions read it) and its reply comes back to this chat as a message when its first turn ends. Offer only work the user is likely to want, at most a few per task (a chat holds at most 8 open offers). Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -38,7 +39,7 @@ fn tools() -> Value {
         }
     }, {
         "name": "suggest_tasks",
-        "description": "At the end of a turn, suggest 2 to 5 follow-up tasks the user may want to run next, each in its own new chat in parallel: independent work your turn led to (tests or docs for what you built, a related bug you saw, the next step of a plan). cmux shows them together as one card in this chat; the user starts any or all of them, or has you do one here. Returns at once: do not do these tasks yourself and do not wait for an answer; end your turn with your usual summary. Suggest only tasks that stand alone and that the user is likely to want, not steps of the current task. Each prompt must carry its own context: a new chat starts with none of this chat's history. When a started task's first turn ends, its reply comes back to this chat as a message. For one suggestion in the middle of a turn, use offer_session instead.",
+        "description": "At the end of a turn, suggest up to 5 follow-up tasks (usually 2 or more) the user may want to run next, each in its own new chat in parallel: independent work your turn led to (tests or docs for what you built, a related bug you saw, the next step of a plan). cmux shows them together as one card in this chat; the user starts any or all of them, or has you do one here. Returns at once: do not do these tasks yourself and do not wait for an answer; end your turn with your usual summary. Suggest only tasks that stand alone and that the user is likely to want, not steps of the current task. Each prompt must carry its own context: a new chat starts with none of this chat's history. A started task becomes your sub-session, and when its first turn ends its reply comes back to this chat as a message. For one suggestion in the middle of a turn, use offer_session instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -89,7 +90,7 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     }
     match params["name"].as_str().unwrap_or_default() {
         "offer_session" => {
-            request["sessionId"] = Value::String(session.to_owned());
+            request.set("sessionId", Value::String(session.to_owned()));
             match daemon.request(method::MUX_OFFER_SESSION, request).await {
                 Ok(result) => {
                     let text = "Offered. The user sees a chip in this chat and can start it as a new chat; carry on with your task.";

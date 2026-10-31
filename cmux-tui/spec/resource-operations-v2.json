@@ -140,6 +140,28 @@
             "name": "uint32"
           },
           "description": "The profile's place in the person's order."
+        },
+        "proxy": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfileProxy"
+          },
+          "description": "The profile's own proxy (#24432); absent when the profile is direct. Never a secret."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileProxy": {
+      "kind": "object",
+      "fields": {
+        "scheme": {"required": true, "type": {"kind": "enum", "values": ["http", "https", "socks5"]}},
+        "host": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+        "port": {"required": true, "type": {"kind": "primitive", "name": "uint32"}},
+        "bypass": {
+          "required": false,
+          "type": {"kind": "array", "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+          "description": "Hosts that skip the proxy (Chromium bypass rules)."
         }
       },
       "extra": false
@@ -525,6 +547,19 @@
             }
           },
           "description": "Every live Chief, the default first, then in creation order."
+        },
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The ids of deleted Chiefs (their tombstones), in deletion order, so a client hides their conversations."
         }
       },
       "extra": false
@@ -3027,7 +3062,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. last_output ({at_ms: decimal}) is when the terminal last printed anything, with or without shell integration (absent until its first output after a daemon starts or adopts the terminal); a read gives the exact time, while output alone pushes a terminal upsert at most once every 5 s, plus once when the system clock is set. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -4582,6 +4617,17 @@
               "name": "LayoutColumnDock"
             }
           }
+        },
+        "rows": {
+          "required": false,
+          "description": "rows-v1: the column's rows, top to bottom. Omitted for a column with one row.",
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "LayoutRow"
+            }
+          }
         }
       },
       "extra": false,
@@ -4589,7 +4635,35 @@
         "column_id is stable for the lifetime of the viewport column.",
         "width is finite and greater than or equal to 0.1 and less than or equal to 1.",
         "dock is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted dock keeps the flag of the column with the same column_id.",
-        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls."
+        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls.",
+        "rows is omitted from a document the daemon returns for a column with one row, and otherwise holds two or more rows. The column's root is the compat chain: the rows folded into vertical splits nested through first, so the root's split_id is the last row's row_id, the split_id of each chain split is the row_id of the row below it, and each row's content is its subtree. The chain ratios follow the heights.",
+        "In workspace.layout.apply an omitted rows keeps the rows of the column with the same column_id; [] leaves the column one row (the chain splits stay as plain splits); two or more rows set the rows and their heights. Row 1's row_id is the column's current row 1 id, or omitted for the current row 1 (a new id when the column has no rows). Rows 2..n must be the compat chain of the document's root; otherwise the document is refused and changes nothing."
+      ]
+    },
+    "LayoutRow": {
+      "kind": "object",
+      "fields": {
+        "row_id": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "split"
+          }
+        },
+        "height": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint16",
+            "minimum": 100,
+            "maximum": 1000
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "height is the row's height in permille of the column's viewport height, from 100 to 1000. The sum is not fixed: at most 1000 fills the column, and more scrolls it.",
+        "row_id is the row's stable id; no row id is reused. A document the daemon returns names every row. In workspace.layout.apply only row 1 may omit it."
       ]
     },
     "LayoutColumnDock": {
@@ -7287,6 +7361,41 @@
       },
       "extra": false
     },
+    "ClosedAgentSessionRecord": {
+      "kind": "object",
+      "fields": {
+        "session": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "The bound acpmux session id; null while an agent tab has not bound one."
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The harness type that owns the session, such as claude or codex."
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "The public record intentionally omits the session host and install identity."
+      ]
+    },
     "ClosedTabRecord": {
       "kind": "object",
       "fields": {
@@ -7296,9 +7405,11 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
-          }
+          },
+          "description": "An agent chat reads as conversation under closed-conversation-tabs-v1; older connections retain browser and safe agent_session metadata."
         },
         "name": {
           "required": true,
@@ -7346,6 +7457,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedAgentSessionRecord"
+          },
+          "description": "The safe public identity of a closed agent chat; host/install metadata is omitted."
         },
         "page": {
           "required": false,
@@ -8936,6 +9055,15 @@
           },
           "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
         },
+        "blob_fingerprint": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The file's git blob identity from its patch's index and mode lines, so a client can tell an unchanged file from a changed one even when the patch is cut. Only with include_patch, and never for an untracked file."
+        },
         "patch_truncated": {
           "required": false,
           "type": {
@@ -8943,6 +9071,56 @@
             "name": "boolean"
           },
           "description": "Present and true when the patch stopped at max_patch_bytes or the reply's patch budget."
+        }
+      },
+      "extra": false
+    },
+    "GitPatchPage": {
+      "kind": "object",
+      "fields": {
+        "offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "total_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "data_base64": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false
@@ -9024,7 +9202,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -9033,6 +9211,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -9946,7 +10141,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -9955,6 +10150,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -11391,10 +11603,12 @@
             "values": [
               "terminal_tab",
               "browser_tab",
+              "conversation_tab",
               "screen",
               "workspace"
             ]
-          }
+          },
+          "description": "conversation_tab requires closed-conversation-tabs-v1; older connections read browser_tab."
         },
         "cwd": {
           "required": false,
@@ -12876,6 +13090,28 @@
             "name": "string"
           },
           "description": "What the Chief logged about the stop."
+        },
+        "restarted": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: the subagents that go on again."
+        },
+        "errors": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: one line per subagent that could not go on."
         }
       },
       "extra": false
@@ -12971,13 +13207,27 @@
           },
           "description": "The member's stable id; stash.restore and stash.delete name members by it."
         },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "workspace"
+            ]
+          },
+          "description": "tab: one web page. workspace: a whole workspace (stash-workspaces-v1), restored as its own workspace."
+        },
         "url": {
           "required": true,
           "type": {
-            "kind": "primitive",
-            "name": "string"
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
           },
-          "description": "The page; secret-looking query keys are stripped."
+          "description": "The page; secret-looking query keys are stripped. Null for a workspace."
         },
         "title": {
           "required": true,
@@ -13010,7 +13260,78 @@
               "resource": "workspace"
             }
           },
-          "description": "The workspace the page was stashed from; null for an imported page."
+          "description": "The workspace the page was stashed from; null for an imported page and for a workspace."
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "A workspace's name."
+        },
+        "tab_count": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many tabs a workspace holds."
+        },
+        "tabs": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashWorkspaceTab"
+            },
+            "max_items": 50
+          },
+          "description": "A workspace's first 50 tabs, in screen and strip order."
+        }
+      },
+      "extra": false
+    },
+    "StashWorkspaceTab": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal",
+              "browser",
+              "conversation",
+              "remote_terminal"
+            ]
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The page title, else the tab's own name."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "A web page's URL (secret-looking query keys stripped); null for any other tab."
         }
       },
       "extra": false
@@ -13034,7 +13355,7 @@
               "name": "string"
             }
           },
-          "description": "The name of the workspace the pages left, or of the imported group."
+          "description": "The name stash.create gave (with workspaces), else of the workspace the pages left, or of the imported group."
         },
         "created_at_ms": {
           "required": true,
@@ -13096,6 +13417,17 @@
             }
           },
           "description": "With workspace: its tabs that stayed open (not web pages, pinned, or incognito)."
+        },
+        "workspace_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "With workspaces: the workspaces that closed into the stash, in member order."
         }
       },
       "extra": false
@@ -15758,7 +16090,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon, index and proxy (absent when direct; never a secret) only: never its import origin, cookies, history or site data."
         ]
       },
       "result": {
@@ -17341,7 +17673,27 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "One subagent to stop (its id, e.g. a3); absent stops the turn and every subagent at work."
+            "description": "One subagent to stop (its id, e.g. a3); absent (with no all or restart) stops the Chief's running turn only, and its subagents go on."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: Stop all agents, the running turn and every subagent at work or queued; the result's subagents names them (for an undo toast's Restart)."
+          },
+          "restart": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 128
+              }
+            },
+            "description": "Subagent ids to bring back after a stop (Restart on the stop-all toast): a started one goes on in its own session, one stopped before it started is queued again. Nothing is stopped."
           }
         },
         "extra": false
@@ -17879,6 +18231,22 @@
             },
             "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
+          "tab": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "tab"
+            },
+            "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
+          },
+          "fallback_pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Where a reopened tab goes when its own pane and workspace are gone, instead of the session's focused pane (a link clicked in Home passes the pane right of Home)."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -17891,7 +18259,8 @@
         "extra": false,
         "constraints": [
           "One close gesture is one group; reopen restores its members in order.",
-          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace, else in `fallback_pane`; a screen reopens in its workspace; a workspace reopens as a new workspace.",
+          "A reopened tab keeps its tab id."
         ]
       },
       "result": {
@@ -19178,6 +19547,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -19744,6 +20140,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -21617,7 +22040,15 @@
               "kind": "resource_id",
               "resource": "terminal"
             },
-            "description": "Clear only this terminal's notifications. Omit to clear every retained notification in the session."
+            "description": "Clear only this terminal's notifications. Omit terminal_id and workspace_id to clear every retained notification in the session."
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Clear only this workspace's notifications: its terminal-less rows (cmux notify --workspace) and those of every terminal and tab it shows. Not with terminal_id."
           },
           "expected_revision": {
             "required": false,
@@ -21721,6 +22152,14 @@
               "kind": "resource_id",
               "resource": "terminal"
             }
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The workspace a terminal-less notification belongs to (cmux notify --workspace ws_…), kept as the row's extra.workspace_id. Not with terminal_id: a terminal's notification already belongs to its workspace."
           },
           "expected_revision": {
             "required": false,
@@ -22310,6 +22749,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22337,7 +22797,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {
@@ -22734,10 +23195,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,
@@ -24646,6 +25108,27 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new screen's first terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -24655,7 +25138,10 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "At most one of argv or shell is present; argv[0] is non-empty."
+        ]
       },
       "result": {
         "kind": "apply",
@@ -25664,7 +26150,8 @@
         "fields": {
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -28338,11 +28825,35 @@
               "resource": "workspace"
             },
             "description": "Stash this workspace's unpinned web pages; its other tabs stay open and are reported as skipped."
+          },
+          "workspaces": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "workspace"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Whole workspaces to stash (stash-workspaces-v1): every tab, terminals included, closes; each becomes one kind workspace member. Name exactly one of tabs, workspace or workspaces."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "With workspaces: the stash's name (trimmed, not empty, at most 1024 UTF-8 bytes). Without it, one workspace names the stash and several leave it unnamed."
           }
         },
         "extra": false,
         "constraints": [
           "The tabs close in one commit and form one stash named after the workspace of the first; they are not recorded in the closed history (closed.list).",
+          "With workspaces, those workspaces close whole in one commit (their terminals end) and are not recorded in the closed history; an incognito workspace refuses the request with validation.invalid and the home workspace with home.not_closable, and nothing closes.",
           "With tabs, a tab that is not a web page (a terminal, a conversation or a remote terminal) or is in an incognito workspace refuses the whole request with validation.invalid; nothing closes.",
           "A workspace the stash leaves without a tab closes, as any last-tab close does."
         ]
@@ -28761,6 +29272,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the tab with when the tab becomes an app-rendered (frontend) tab. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default). A cmux-browser provider renders its own tabs and ignores it."
+          },
           "width_px": {
             "required": false,
             "type": {
@@ -28852,6 +29374,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new tab's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new tab's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "name": {
             "required": false,
             "type": {
@@ -28887,7 +29430,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {
@@ -29417,6 +29961,29 @@
             },
             "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
+          "attention": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            },
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms, request_id} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
+          "attention_request_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 32,
+              "max_length": 32
+            },
+            "description": "tab-attention-request-id-v1: with attention:null, clear only the mark whose extra.attention.request_id equals this opaque 32-byte lowercase hexadecimal identity. A stale identity is a successful no-op and returns the current tab. Requires attention:null; never use at_ms as identity or fall back to an unconditional clear when capability or identity is absent."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -29428,7 +29995,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon and attention apply to every tab kind."
         ]
       },
       "result": {
@@ -31854,6 +32421,14 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -32595,10 +33170,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,

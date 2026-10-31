@@ -111,6 +111,15 @@ enum IPhoneHostStrings {
         }
     }
 
+    /// The WebRTC media session beside a WireGuard link (browser video): "Video over WebRTC (TURN)".
+    static func videoWebRTC(_ wire: String) -> String {
+        switch wire {
+        case "direct": String(localized: "iphone.media.direct", defaultValue: "Video over WebRTC (direct)", table: "IPhone", bundle: .module)
+        case "turn": String(localized: "iphone.media.turn", defaultValue: "Video over WebRTC (TURN)", table: "IPhone", bundle: .module)
+        default: String(localized: "iphone.media.other", defaultValue: "Video over WebRTC", table: "IPhone", bundle: .module)
+        }
+    }
+
     static func path(_ wire: String) -> String {
         switch wire {
         case "direct": String(localized: "iphone.path.direct", defaultValue: "Direct", table: "IPhone", bundle: .module)

@@ -1,7 +1,8 @@
 // The agents pill (after Codex's phone app): while any of the chat's subagents runs, a small pill
 // right above the composer says how many run ("2 agents"). It opens a list of every subagent of
 // the chat split into Active (running, or waiting on the user) and Completed, each with a dot in
-// its color (agentTones.ts), which its name in the transcript shares. A click on an agent opens
+// its color (agentTones.ts), which its name in the transcript shares. An agent another one spawned
+// sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
 import { memo, useId } from "react";
@@ -9,9 +10,35 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
-import { STATUS_LABEL, subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
+
+/// A section's agents in its order, each nested agent moved right under the agent that spawned it
+/// when that one is in the section too, with how deep it then sits. An agent whose parent is in
+/// another section, or unknown, stays at the top level.
+export function nestAgents(agents: readonly Subagent[]): { agent: Subagent; depth: number }[] {
+  const ids = new Set(agents.map((agent) => agent.id));
+  const under = new Map<string | null, Subagent[]>();
+  for (const agent of agents) {
+    const parent = agent.parent !== null && ids.has(agent.parent) ? agent.parent : null;
+    under.set(parent, [...(under.get(parent) ?? []), agent]);
+  }
+  const rows: { agent: Subagent; depth: number }[] = [];
+  const placed = new Set<string>();
+  const visit = (parent: string | null, depth: number) => {
+    for (const agent of under.get(parent) ?? []) {
+      if (placed.has(agent.id)) continue;
+      placed.add(agent.id);
+      rows.push({ agent, depth });
+      visit(agent.id, depth + 1);
+    }
+  };
+  visit(null, 0);
+  // A parent loop never reaches the top level: list those agents flat rather than drop them.
+  for (const agent of agents) if (!placed.has(agent.id)) rows.push({ agent, depth: 0 });
+  return rows;
+}
 
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const AgentsPill = memo(function AgentsPill({
@@ -61,19 +88,22 @@ export const AgentsPill = memo(function AgentsPill({
         <span>{t("subagents.pill", { n: live.length })}</span>
       </button>
       {open && (
-        <dialog ref={popover} id={listId} open className="acpmux-agents-list" aria-label={title}>
+        <dialog ref={popover} id={listId} open className="ui-popup ui-glass acpmux-agents-list" aria-label={title}>
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
               <ul>
-                {section.agents.map((agent) => {
+                {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
-                  const state = status === "running" && agent.action ? agent.action : t(STATUS_LABEL[status]);
+                  const state =
+                    status === "running" && agent.action ? agent.action : t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button
                         type="button"
                         className="acpmux-agents-list__row"
+                        // Past three levels the rows stop moving in, so a name keeps its room.
+                        data-depth={depth > 0 ? Math.min(depth, 3) : undefined}
                         data-agent-tone={tones.get(agent.id)}
                         data-status={status}
                         onClick={() => {

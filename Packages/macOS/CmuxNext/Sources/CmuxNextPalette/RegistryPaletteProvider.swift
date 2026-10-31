@@ -12,6 +12,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public let id = "registry"
     public let registry: ActionRegistry
     public var includeUnbound: Bool
+    /// Only the root curates its empty query; the Commands scope retains the full list.
+    var curatesEmptyRoot = false
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
@@ -52,6 +54,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func makeItems() -> [PaletteItem] {
         var items: [PaletteItem] = []
+        var tiers: [String: PaletteTier] = [:]
         // Localized once per open, not once per action (hundreds of rows).
         let unbound = PaletteStrings.unbound
         let copyActionID = PaletteStrings.copyActionID
@@ -74,7 +77,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
             // its page. Declining there (nothing to rename) falls back to the action itself.
             let override = effectOverrides[descriptor.id]
             guard entry.isBound || override != nil || includeUnbound else { continue }
-            let isEnabled = override != nil || registry.canPerform(descriptor.id)
+            // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
+            let paletteReason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
+            let isEnabled = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
             let fallback = defaultEffect(for: descriptor)
             let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
@@ -83,7 +88,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
                 title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
-                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
+                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID) ?? paletteReason,
                 accessory: entry.isBound || override != nil ? nil : unbound,
                 // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
                 symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
@@ -113,9 +118,13 @@ public final class RegistryPaletteProvider: PaletteProvider {
             item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
             item.ball = PaletteGroupColor.ball(forAction: actionID)
             item.suggestedRank = descriptor.paletteSuggestionRank
+            item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+            item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+            tiers[item.id] = descriptor.paletteTier
             items.append(item)
         }
-        return items
+        let arranged = Self.arranged(items, tiers: tiers)
+        return curatesEmptyRoot ? curatedRootItems(arranged) : arranged
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action

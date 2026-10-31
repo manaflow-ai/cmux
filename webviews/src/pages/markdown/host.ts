@@ -29,8 +29,12 @@
 //     extended attribute, then an app-side copy (MARKDOWN-TABLE-WIDTHS-DESIGN.md). The config sends
 //     them back as `tableWidths`. `cmux.markdown.contextTable {table}` says which table (its index,
 //     or null) a right-click was on, for the native menu's Reset Column Widths;
+//   - `cmux.markdown.history {canBack, canForward}` tells the host after every change of the
+//     page's link history, so the native omnibar's Back and Forward buttons follow it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
-//     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
+//     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `reload` (Cmd-R, the omnibar's
+//     Reload) reads the file from disk again and keeps the scroll, `open` (`text` an absolute
+//     path, a file typed in the omnibar) opens it as a new history entry, `link` (Cmd-K) the link
 //     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
 // `<assetBase><path relative to the file's folder>` for images, `<libBase>ondine.js`, `<libBase>mermaid.js` and
@@ -45,7 +49,14 @@ export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
 /** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
 export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
+/** Host to page: the selection's text and source lines, `{text, startLine?, endLine?}`, or null with
+ * nothing selected (a viewer comment, viewer-comments-DESIGN.md). */
+export const MARKDOWN_SELECTION_OP = "cmux.markdown.selection";
+/** Page to host: `{path, id}` forgets one viewer comment (its card's Delete); the host sends the list again. */
+export const MARKDOWN_DELETE_COMMENT_OP = "cmux.markdown.deleteComment";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
+/** Page to host: `{canBack, canForward}` after every change of the page's link history. */
+export const MARKDOWN_HISTORY_OP = "cmux.markdown.history";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
 /** A user click approves guarded web-image loads for the document currently shown in this tab. */
@@ -106,6 +117,8 @@ export interface MarkdownConfig {
   settings?: unknown;
   /** The file's saved table column widths (`SavedTableWidths`, tables.ts), when it has some. */
   tableWidths?: unknown;
+  /** The file's viewer comments, `{v: 1, comments: [...]}` (comments.ts). */
+  comments?: unknown;
   /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
   themeCSS?: string;
 }
@@ -150,6 +163,10 @@ export interface MarkdownFile {
   readOnly?: boolean;
   readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
+  /** The file's own remote-image grant, saved table widths and viewer comments (as in the config). */
+  remoteImageBase?: string;
+  tableWidths?: unknown;
+  comments?: unknown;
 }
 
 export function isMarkdownConfig(value: unknown): value is MarkdownConfig {

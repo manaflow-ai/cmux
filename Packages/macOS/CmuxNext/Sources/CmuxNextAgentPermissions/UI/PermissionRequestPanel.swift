@@ -25,14 +25,14 @@ public final class PermissionRequestPanel: NSPanel {
         level = .floating
         becomesKeyOnlyIfNeeded = true
         hidesOnDeactivate = false
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
         surface.translatesAutoresizingMaskIntoConstraints = true
         contentView = surface
         card.translatesAutoresizingMaskIntoConstraints = true
         card.autoresizingMask = [.width, .height]
         surface.contentView.addSubview(card)
-        ThemeStore.shared.adopt(self)
+        ThemeScope.app.store.adopt(self)
     }
 
     override public var canBecomeKey: Bool { true }

@@ -62,6 +62,7 @@ nonisolated struct SidebarRowIndex: Sendable {
     /// same id (its row state and machine kept). One walk, for a copy of the
     /// rows that has no index (the App's live rows under pending edits).
     static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
+        guard !rows.isEmpty else { return sections }
         let changed = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         func patched(_ ws: SidebarWorkspace) -> SidebarWorkspace {
             guard var row = changed[ws.id] else { return ws }
@@ -92,7 +93,7 @@ extension SidebarListView {
     /// Shows row content changes of listed workspaces (`SidebarModel.patchWorkspaces`):
     /// each row's new content goes into the shown layout and its realized
     /// view (plus its group header, which draws the members' activity and
-    /// unread total, and its tab rows) is configured again. Only a row whose
+    /// unread total) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
@@ -111,9 +112,11 @@ extension SidebarListView {
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID
+        let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
+            // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
+            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
-            for tab in ws.tabs { tabs[tab.id] = tab }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
@@ -122,21 +125,30 @@ extension SidebarListView {
                 if path.member != nil, case let .group(group) = section.nodes[path.node] {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
+                    // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
+                    if cardChanged, let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                        hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
+                    }
                 }
             }
-            if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
-            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
+            if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
+                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
+                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                continue
+            }
             let o = options ?? self.options(includeGap: true)
             options = o
-            let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
-            let m = o.minimal ? metrics.minimal : metrics
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
+            (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
+            let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
                 continue
             }
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
-            for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
         }
         return heightChanged
     }
@@ -158,11 +170,21 @@ nonisolated extension SidebarLayout {
         return start..<max(start, end)
     }
 
-    /// The computer a workspace row of `section` names on its second line in
-    /// the one-list sidebar (never this Mac), with its status when it cannot
-    /// connect; nil otherwise. The one rule for `make` and a row update.
+    /// Whether `section` keeps its header (and its fold) in the one-list sidebar, where other
+    /// computers' sections draw none: a remote group the person made, and the local Chief's
+    /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
+    /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
+    static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
+        section.isHostGroup
+    }
+
+    /// The computer a workspace row of `section` names in the one-list sidebar
+    /// (an expanded row's meta line, the row's accessibility label) (never this Mac, nor the Chief on it, whose workspaces
+    /// read like this Mac's: their hover card says who started them), with its
+    /// status when it cannot connect; nil otherwise. The one rule for `make` and a row update.
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
-        guard o.flattensMachines, let machine = section.machine, machine.kind != .local else { return nil }
+        guard o.flattensMachines, let machine = section.machine, machine.kind != .local
+        else { return nil }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }
 }

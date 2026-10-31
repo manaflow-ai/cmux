@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextPalette
 import CmuxNextSettings
 
 /// The code editor page's actions (diff-host S7; the markdown page's are PageCommandHandlers').
@@ -27,7 +28,7 @@ enum FilePageHandlers {
         // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
         // in the page of its file type (D11): a markdown file in the markdown page, others in the
         // code editor page. The page compares the file with the draft's base itself.
-        RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
+        services.recoveryDrafts.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft), let services,
@@ -43,6 +44,18 @@ enum FilePageHandlers {
                 }
             }
         }
+        // Open Recovered Draft… (R96): the drafts on disk as a palette page; the page reads them
+        // when it opens, so the handler only shows it.
+        let recoveredDrafts = ActionID(rawValue: RecoveredDraftPage.id)
+        services.palette.sources.actionPages[recoveredDrafts] = { [weak services] in
+            services.map { RecoveredDraftPage(store: $0.recoveryDrafts).spec }
+        }
+        registry.bindEffect(recoveredDrafts, effect: { [weak services] _ in
+            guard let services else { return .done }
+            services.palette.show(page: RecoveredDraftPage(store: services.recoveryDrafts).spec,
+                                  relativeTo: context.activeWindow?.window)
+            return .done
+        })
         for (action, command) in EditorPageCommand.forAction where !sharedFindActions.contains(action) {
             registry.bind(ActionID(rawValue: action), run: { invocation in
                 var arguments: [String: JSONValue] = [:]
@@ -114,11 +127,11 @@ enum FilePageHandlers {
         }.first
     }
 
-    /// Sends a shared find action to an editor page tab; false for any other page.
+    /// Sends a shared find action to a code editor or markdown page tab; false for any other page.
     static func sendFind(_ action: String, _ id: String, _ services: AppServices, text: String? = nil) -> Bool {
         let key = providerKey(id, services)
-        guard LocalPageTab.page(of: key) == .editor, let command = EditorPageCommand.forAction[action],
-              let page = services.viewers.editorPages.pageView(key) else { return false }
+        guard let command = EditorPageCommand.forAction[action], let kind = FilePageKind.allCases.first(where: { LocalPageTab.page(of: key) == $0.page }),
+              let page = service(kind, services).pageView(key) else { return false }
         return page.send(command: command, arguments: text.map { ["text": .string($0)] } ?? [:])
     }
 }

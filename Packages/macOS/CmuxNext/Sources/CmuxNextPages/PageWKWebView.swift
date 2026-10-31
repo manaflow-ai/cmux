@@ -11,6 +11,7 @@ import WebKit
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
 @MainActor
+// webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
     /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
@@ -76,6 +77,11 @@ final class PageWKWebView: WKWebView {
 
     func noteUserEvent(_ event: NSEvent) {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
+    func noteNativeMenuSelection(at uptime: TimeInterval) {
+        noteUserActivation(at: uptime)
     }
 
     /// Drops the recorded activation and the opened menu: the view now shows another document
@@ -145,6 +151,14 @@ final class PageWKWebView: WKWebView {
         menuAutoFill.hidesInputContext() ? nil : super.inputContext
     }
 
+    /// No caret accessory on a cmux page. Since macOS 14 the system draws a small glass bubble
+    /// beside the caret of the focused field (the input source, Caps Lock, dictation); in the
+    /// composer the caret of an empty prompt sits just above the + button, which the bubble covered
+    /// (Leo, 2026-10-21). AppKit asks the focused `NSTextInputClient` (this view) for its placement
+    /// and draws nothing for `.invisible`. Browser tabs use their own views and keep the bubble;
+    /// Chromium's view of a cmux page answers the same (`ChromiumPageTextAccessory`).
+    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu
         menuAutoFill.menuWillOpen()
@@ -183,6 +197,11 @@ final class PageWKWebView: WKWebView {
         pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
     }
 
+    /// Reads every file URL of a drop's pasteboard, once, as the page takes the drop.
+    var readDroppedFileURLs: @MainActor (NSPasteboard) -> [URL] = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
     /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
     /// waits for every `draggingUpdated`, so the file is read once per drag, not on every move.
     private var dragAnswer: (sequence: Int, url: URL?)?
@@ -195,36 +214,64 @@ final class PageWKWebView: WKWebView {
         return url
     }
 
+    /// The `NSDraggingDestination` methods WebKit implements. They are optional and NSView has no
+    /// default for every one (no WKWebView has `draggingEnded:`), so `super` for a missing one throws
+    /// "unrecognized selector" and ends the app. Each override calls `super` only when WebKit has it.
+    private enum WebKitDrag {
+        static let entered = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEntered(_:)))
+        static let updated = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingUpdated(_:)))
+        static let exited = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingExited(_:)))
+        static let ended = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEnded(_:)))
+        static let perform = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.performDragOperation(_:)))
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
-        return droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.entered ? super.draggingEntered(sender) : []
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dragAnswer = nil
-        super.draggingExited(sender)
+        if WebKitDrag.exited { super.draggingExited(sender) }
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         dragAnswer = nil
-        super.draggingEnded(sender)
+        if WebKitDrag.ended { super.draggingEnded(sender) }
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.updated ? super.draggingUpdated(sender) : []
     }
 
-    /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
-    var onFilesDropped: (@MainActor () -> Void)?
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens), with their URLs: a real
+    /// gesture page script can't make. It runs before WebKit hands the files to the page.
+    var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {
-            if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
-            return super.performDragOperation(sender)
+            if let onFilesDropped {
+                let urls = readDroppedFileURLs(sender.draggingPasteboard)
+                if !urls.isEmpty { onFilesDropped(urls) }
+            }
+            return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
         fileDrop.open(url)
         return true
+    }
+
+    // MARK: Paste
+
+    /// A paste (Cmd-V, Edit > Paste, a page's own Paste item) is about to reach the page; WebKit
+    /// pastes right after.
+    var onPaste: (@MainActor () -> Void)?
+
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+        webKitPaste(sender)
     }
 }

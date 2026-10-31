@@ -27,6 +27,8 @@ pub(crate) mod browser_devices;
 mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
+mod churn_tree_events_tests;
+#[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
@@ -71,11 +73,17 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+#[cfg(test)]
+mod new_group_top_tests;
+#[cfg(test)]
+mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
 #[cfg(test)]
 mod palette_usage_protocol_tests;
 pub(crate) mod palette_usage_store;
+#[cfg(test)]
+mod persistent_ids_tests;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
@@ -88,6 +96,8 @@ pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
+#[cfg(test)]
+mod reopen_place_tests;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;
@@ -104,6 +114,8 @@ pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
 #[cfg(test)]
+mod tab_attention_tests;
+#[cfg(test)]
 mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
@@ -119,6 +131,9 @@ mod stash_protocol_tests;
 mod stash_restore_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;
+#[cfg(test)]
+mod stash_workspace_tests;
+pub(crate) mod stash_workspaces;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;

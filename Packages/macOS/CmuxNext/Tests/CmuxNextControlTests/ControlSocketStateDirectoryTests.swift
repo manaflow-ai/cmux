@@ -38,6 +38,44 @@ import Testing
         #expect(lstat(link, &info) != 0, "stop removes its own link")
     }
 
+    @Test func anExistingCanonicalStateDirectoryIsTightenedToOwnerOnly() throws {
+        let home = "/tmp/cnch-\(UUID().uuidString.prefix(8).lowercased())"
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let state = "\(home)/.local/state/cmux"
+        try FileManager.default.createDirectory(atPath: state, withIntermediateDirectories: true)
+        try #require(chmod(state, 0o755) == 0)
+        let (identity, _) = launch(home: home)
+
+        let service = try ControlService.start(
+            registry: ActionRegistry(catalog: []), settings: nil, launch: identity, environment: [:]
+        )
+        defer { service.stop() }
+
+        var info = stat()
+        #expect(lstat(state, &info) == 0)
+        #expect(info.st_mode & 0o777 == 0o700)
+    }
+
+    @Test func anExplicitSocketOverrideDoesNotChangeItsExistingParentMode() throws {
+        let parent = "/tmp/cnco-\(UUID().uuidString.prefix(8).lowercased())"
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        try #require(chmod(parent, 0o755) == 0)
+        let identity = LaunchIdentity(
+            bundleID: "com.cmuxterm.app.debug.override", tag: "override",
+            socketPath: "\(parent)/app.sock"
+        )
+
+        let service = try ControlService.start(
+            registry: ActionRegistry(catalog: []), settings: nil, launch: identity, environment: [:]
+        )
+        defer { service.stop() }
+
+        var info = stat()
+        #expect(lstat(parent, &info) == 0)
+        #expect(info.st_mode & 0o777 == 0o755)
+    }
+
     @Test func aDeletedLinkComesBack() async throws {
         let home = "/tmp/cnch-\(UUID().uuidString.prefix(8).lowercased())"
         defer { try? FileManager.default.removeItem(atPath: home) }
@@ -106,5 +144,16 @@ import Testing
         let home = "/tmp/cnch-" + String(repeating: "h", count: 80)
         let (identity, tag) = launch(home: home)
         #expect(identity.socketPath == "/tmp/cmux-debug-\(tag).sock", "a path sun_path cannot hold keeps the old name")
+    }
+
+    /// The rig's machine id (`CMUX_NEXT_MOBILE_MACHINE_ID`, read by
+    /// `MobileHostLaunch`) survives the launch strip of inherited `CMUX*`
+    /// variables; the host's own `CMUX_MOBILE_MACHINE_ID` would not.
+    @Test func aRigsMachineIDSurvivesTheLaunchStrip() {
+        let environment = ["CMUX_NEXT_MOBILE_MACHINE_ID": "0123456789abcdef0123456789abcdef",
+                           "CMUX_MOBILE_MACHINE_ID": "0123456789abcdef0123456789abcdef"]
+        let stripped = LaunchIdentity.inheritedKeys(processEnvironment: environment, bundledEnvironment: [:])
+        #expect(!stripped.contains("CMUX_NEXT_MOBILE_MACHINE_ID"))
+        #expect(stripped.contains("CMUX_MOBILE_MACHINE_ID"))
     }
 }

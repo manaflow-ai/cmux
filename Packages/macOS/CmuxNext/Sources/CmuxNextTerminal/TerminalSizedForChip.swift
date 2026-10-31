@@ -93,7 +93,7 @@ final class TerminalSizedForChip: NSView {
         label.stringValue = text
         setAccessibilityLabel(text)
         if isHidden, let layer {
-            let seconds = Motion.duration(.fadeIn)
+            let seconds = Motion.overlays.duration(.fadeIn)
             if seconds > 0 {
                 // motion-allow: a fade on Motion's .fadeIn duration and fadeCurve, skipped when Motion says 0
                 let fade = CABasicAnimation(keyPath: "opacity")

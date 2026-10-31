@@ -13,6 +13,7 @@ struct FileTransferJob: Sendable {
         var progress = TransferProgress(itemsDone: 0, itemsTotal: sources.count, bytesDone: 0,
                                         bytesTotal: sources.reduce(0) { $0 + Self.bytes(at: $1) }, current: nil)
         emit(.progress(progress))
+        var gate = TransferProgressGate(bytesTotal: progress.bytesTotal)
         var placed: [URL: URL] = [:]
         var replaced: [TrashedItem] = []
         var standing: ConflictChoice?
@@ -77,11 +78,11 @@ struct FileTransferJob: Sendable {
                         throw FileBrowserError.failed(String(cString: strerror(errno)))
                     }
                 } else {
-                    try copy(source, to: target, base: base, progress: &progress, emit: emit)
+                    try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
                     try? fm.removeItem(at: source)
                 }
             case .copy:
-                try copy(source, to: target, base: base, progress: &progress, emit: emit)
+                try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
             }
             progress.bytesDone = base + size
             placed[source] = target
@@ -92,12 +93,15 @@ struct FileTransferJob: Sendable {
     }
 
     private func copy(_ source: URL, to target: URL, base: Int64, progress: inout TransferProgress,
-                      emit: (TransferEvent) -> Void) throws {
+                      gate: inout TransferProgressGate, emit: (TransferEvent) -> Void) throws {
         var snapshot = progress
+        var open = gate
+        defer { gate = open }
         try FileOperator.copy(source, to: target) { copied in
             if Task.isCancelled { return false }
             snapshot.bytesDone = base + copied
-            emit(.progress(snapshot))
+            // copyfile reports every block; each event re-renders the Files pane on the main actor.
+            if open.admits(snapshot.bytesDone) { emit(.progress(snapshot)) }
             return true
         }
         progress = snapshot
@@ -123,5 +127,24 @@ struct FileTransferJob: Sendable {
         var sa = stat(), sb = stat()
         guard lstat(a.path, &sa) == 0, stat(b.path, &sb) == 0 else { return false }
         return sa.st_dev == sb.st_dev
+    }
+}
+
+/// Lets a file's copy progress through once per `1 / steps` of the transfer's bytes. copyfile
+/// reports each block it copies, so a large copy sent the Files pane tens of thousands of updates.
+/// The progress after each item is always sent; this gates only the reports inside one file.
+struct TransferProgressGate {
+    let step: Int64
+    private var next: Int64 = 0
+
+    init(bytesTotal: Int64, steps: Int64 = 200) {
+        step = max(1, bytesTotal / max(1, steps))
+    }
+
+    /// Whether to send progress at `bytesDone`; true moves the next one a step further.
+    mutating func admits(_ bytesDone: Int64) -> Bool {
+        guard bytesDone >= next else { return false }
+        next = bytesDone + step
+        return true
     }
 }

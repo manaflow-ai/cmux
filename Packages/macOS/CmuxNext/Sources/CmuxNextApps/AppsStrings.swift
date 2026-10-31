@@ -7,9 +7,38 @@ nonisolated enum AppsStrings {
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// An app mount failed and the supervisor gave no reason.
+    static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
+    static var features: String { t("store.tab.features", "Features") }
+    static var noFeatureMatches: String { t("store.empty.noFeatureMatches", "No features match") }
+    static var get: String { t("store.feature.action.get", "Get") }
+    static var featureOn: String { t("store.feature.badge.on", "On") }
+    static var featureNotChanged: String { t("store.feature.notChanged", "Not changed") }
+    static var featureManaged: String { t("store.feature.managed", "Managed by your organization") }
+    static var featureKeptOn: String { t("store.feature.keptOn", "Your organization recommends this, so it stays on") }
+    static func featureSetting(_ key: String) -> String { String(format: t("store.feature.setting", "Setting: %@"), key) }
+    static var featureSettingsLink: String { t("store.feature.settingsLink", "Settings…") }
+    static func featureSettingsHelp(_ name: String) -> String { String(format: t("store.feature.settingsLink.help", "Open %@ in Settings"), name) }
+
+    /// A Features tab category chip.
+    static func featureCategory(_ category: AppFeature.Category) -> String {
+        switch category {
+        case .backgrounds: t("store.feature.category.backgrounds", "Backgrounds")
+        case .appearance: t("store.feature.category.appearance", "Appearance")
+        case .chief: t("store.feature.category.chief", "Chief")
+        case .newTab: t("store.feature.category.newTab", "New Tab")
+        case .sidebar: t("store.feature.category.sidebar", "Sidebar")
+        case .media: t("store.feature.category.media", "Media")
+        case .editor: t("store.feature.category.editor", "Editor")
+        case .devices: t("store.feature.category.devices", "Mac & Phone")
+        case .browser: t("store.feature.category.browser", "Browser")
+        case .layout: t("store.feature.category.layout", "Layout")
+        }
+    }
     static var search: String { t("store.search", "Search apps") }
+    static var searchFeatures: String { t("store.search.features", "Search features") }
     static var allCategories: String { t("store.category.all", "All") }
     static var noMatches: String { t("store.empty.noMatches", "No apps match") }
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
@@ -37,6 +66,12 @@ nonisolated enum AppsStrings {
     static var logs: String { t("store.action.logs", "Logs") }
     static var hideLogs: String { t("store.action.hideLogs", "Hide Logs") }
     static var openRepository: String { t("store.action.repository", "Repository") }
+    static var cloudFeatureEyebrow: String { t("store.cloud.eyebrow", "Featured") }
+    static var cloudFeatureTitle: String { t("store.cloud.title", "Cloud Machines") }
+    static var cloudFeatureBody: String {
+        t("store.cloud.body", "Run agents, builds and tests on your own machine in the cloud. Your Mac stays quick, and the work goes on while it sleeps.")
+    }
+    static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
     static var localBadge: String { t("store.badge.local", "Local") }

@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
+use std::path::Path;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -12,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -22,18 +24,47 @@ const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
     cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
 const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
+/// Runs one request, healing a dropped connection: a request whose
+/// connection failed is sent again on a new connection, with the same
+/// idempotency key for a mutation, so the daemon replays it instead of running
+/// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
+/// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    if !plan.stream
+        && plan.operation.class() == OperationClass::Mutation
+        && plan.idempotency_key.is_none()
+    {
+        // One key for every try: a resend is the same mutation.
+        match random_idempotency_key() {
+            Ok(key) => plan.idempotency_key = Some(key),
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                return 2;
+            }
+        }
+    }
+    let mut tries = retry::Tries::new(&plan);
+    loop {
+        let code = run_once(&global, plan.clone(), &tries);
+        if code != retry::AGAIN {
+            return code;
+        }
+        tries.wait_before_next();
+    }
+}
+
+fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
         return usage_failure(
             global.output,
             "cmux: streams require --jsonl, --quiet, or human output",
         );
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
+    if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
     }
     #[cfg(unix)]
-    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
+    super::status::drop_caller_terminal_when_routed(global, &mut plan);
     if let Err(error) =
         super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
     {
@@ -51,13 +82,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
     let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
-    let (socket, socket_is_derived) = match resolve_socket_or_report(&global) {
+    let (socket, socket_is_derived) = match resolve_socket_or_report(global) {
         Ok(resolved) => resolved,
         Err(code) => return code,
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
+            // An earlier try sent the request: its outcome is still unknown.
+            if tries.sent_before() {
+                eprintln!("transport closed before response");
+                key_report.finish(global.output);
+                return 3;
+            }
             // Only this socket was tried; nothing falls back to another one.
             let error = json!({
                 "code": "socket.unreachable",
@@ -71,36 +108,68 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if let Some(capability) = required_server_capability(&plan) {
-        match require_server_capability(&mut reader, &global, capability) {
+        match require_server_capability(&mut reader, global, capability) {
             Ok(()) => {}
             Err(exit_code) => return exit_code,
         }
     }
+    // Raw operation requests intentionally keep their private wire contract:
+    // the first frame is the caller's request, so they cannot opt into the
+    // public conversation-tab projection.
+    if matches!(&plan.operation, WireOperation::Typed(_))
+        && let Err(failure) = super::tab_capabilities::negotiate(&mut reader)
+    {
+        let reason = match &failure {
+            super::resolve::Failure::Transport(message) => retry::Failure::from_read_error(message),
+            super::resolve::Failure::Refused => retry::Failure::Dropped,
+            _ => retry::Failure::Other,
+        };
+        if tries.may_retry_before_send(reason) {
+            return retry::AGAIN;
+        }
+        let code = match failure {
+            super::resolve::Failure::Resource(mut error) => {
+                if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                    localize_operation_error(&plan, &mut error);
+                }
+                print_operation_error(&error, global.output)
+            }
+            super::resolve::Failure::Refused => {
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
+            }
+            failure => failure.report(global.output),
+        };
+        if tries.sent_before() {
+            key_report.finish(global.output);
+        }
+        return code;
+    }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
-    // A browser tab in a session a cmux app owns is the app's to render.
+    // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
-    if let Some(code) = super::frontend_browser::run_in_app(
-        &global,
-        &plan,
-        &request,
+    match super::beside::run_cli(
+        global,
+        &mut plan,
+        &mut request,
         &mut reader,
-        &socket,
         caller_route,
         &key_report,
     ) {
-        return code;
+        Ok(Some(reencoded)) => encoded = reencoded,
+        Ok(None) => {}
+        Err(code) => return code,
     }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+        let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
             if let super::resolve::Failure::AppAction { action, target } = &failure {
                 let args = ["--target".to_owned(), target.clone()];
                 return match super::app::run_action(action, &args, super::app::ActionName::Any) {
-                    Ok(command) => super::app::run(&global, command),
+                    Ok(command) => super::app::run(global, command),
                     Err(error) => print_local_error(
                         &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
                         global.output,
@@ -110,11 +179,24 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             }
             return failure.report(global.output);
         }
-        request["params"] = plan.params.clone();
+        request.set("params", plan.params.clone());
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
             Err(code) => return code,
         };
+    }
+    // A browser tab in a session a cmux app owns is the app's to render (after the lookups).
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
@@ -138,8 +220,15 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 0;
         }
         if refused_at_connect(&mut reader, &error) {
-            // A refused connection carried no request: nothing applied.
+            // A refused connection carried no request: nothing applied, so a
+            // session that is busy for a moment gets the request again.
+            if tries.may_retry(retry::Failure::Dropped) {
+                return retry::AGAIN;
+            }
             return transport_failure(global.output, "session.busy", hints::session_busy(), true);
+        }
+        if tries.may_retry(retry::Failure::Dropped) {
+            return retry::AGAIN;
         }
         transport_failure(
             global.output,
@@ -151,14 +240,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         key_report.finish(global.output);
         return 3;
     }
-    let code = run_response(&mut reader, &global, &plan, &request_id, &key_report);
-    if code != 0 {
+    let code = run_response(&mut reader, global, &plan, &request_id, &key_report, tries, &socket);
+    if code != 0 && code != retry::AGAIN {
         key_report.finish(global.output);
     }
     code
 }
 
-fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
     super::resolve::encode_request_bytes(request).map_err(|error| {
         eprintln!("cmux: {error}");
         2
@@ -309,6 +398,9 @@ fn require_server_capability(
                 true,
             )
         })?;
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
+        return Err(transport_failure(global.output, "session.busy", hints::session_busy(), true));
+    }
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -408,8 +500,11 @@ pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     });
     match class {
         OperationClass::Mutation => {
-            request["idempotency_key"] = Value::String(
-                plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+            request.set(
+                "idempotency_key",
+                Value::String(
+                    plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+                ),
             );
         }
         _ if plan.idempotency_key.is_some() => {
@@ -434,7 +529,11 @@ fn run_response(
     plan: &RequestPlan,
     request_id: &str,
     key_report: &KeyReport,
+    tries: &retry::Tries,
+    daemon_socket: &Path,
 ) -> i32 {
+    #[cfg(not(unix))]
+    let _ = daemon_socket;
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
         &plan.operation,
@@ -449,6 +548,9 @@ fn run_response(
             Ok(Some(value)) => value,
             Ok(None) if plan.stream && accepted_stream => return 0,
             Ok(None) => {
+                if !accepted_stream && tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
                 return transport_failure(
                     global.output,
                     "transport.closed",
@@ -459,6 +561,9 @@ fn run_response(
             Err(error) => {
                 if plan.stream && crate::shutdown_requested() {
                     return 0;
+                }
+                if !accepted_stream && tries.may_retry(retry::Failure::from_read_error(&error)) {
+                    return retry::AGAIN;
                 }
                 return transport_failure(global.output, envelope_error_code(&error), &error, true);
             }
@@ -486,6 +591,22 @@ fn run_response(
                 if !response.ok {
                     let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
+                    // A browser the cmux app draws: the app runs the verb.
+                    #[cfg(unix)]
+                    if let Some(routed) =
+                        super::app_browser_route::run(global, plan, &error, daemon_socket)
+                    {
+                        return match routed {
+                            Ok(result) => {
+                                key_report.succeeded();
+                                print_result(global, plan, result)
+                            }
+                            Err(mut error) => {
+                                key_report.annotate(&mut error, global.output);
+                                print_operation_error(&error, global.output)
+                            }
+                        };
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -509,8 +630,20 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
+                    // The app's Cloud machines and the team's joined machines join the
+                    // daemon's machine list.
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::MachineList,
+                        ) => super::machine_join::merge(
+                            global,
+                            super::cloud_machines::merge(global, result),
+                        ),
+                        _ => result,
+                    };
                     let result = agent_roster::with_terminals(reader, plan, result);
-                    return print_result(global, plan, result);
+                    return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     return protocol_failure(
@@ -594,6 +727,10 @@ fn run_response(
                 return 1;
             }
             Some("refused") => {
+                // Refused at the connection limit: the request never ran.
+                if tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
                 return transport_failure(
                     global.output,
                     "session.busy",
@@ -631,7 +768,7 @@ fn run_response(
 /// Whether a write that failed because the session closed the socket met
 /// the refusal line a session at its connection limit sends before closing
 /// (`type: "refused"`), so the error says "busy", not "broken pipe".
-fn refused_at_connect(
+pub(super) fn refused_at_connect(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     error: &io::Error,
 ) -> bool {
@@ -805,6 +942,14 @@ fn localize_operation_error_with_catalog(
         }
     }
 
+    // A browser the cmux app draws, with no app method for the verb (or no
+    // app owning the session): name the tab verbs that work.
+    let extra = &error["details"]["extra"];
+    if error["code"] == "operation.failed" && extra["code"] == "browser_rendered_by_app" {
+        let tab = extra["tab_id"].as_str().unwrap_or("tab_…").to_owned();
+        error["message"] = Value::String(catalog.browser.rendered_by_app.replace("{tab}", &tab));
+    }
+
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
@@ -959,6 +1104,7 @@ mod hints;
 mod human;
 mod list_order;
 mod notify_desktop;
+mod retry;
 mod sanitize;
 mod socket;
 pub(super) use agent_roster::across as agent_roster_across;
