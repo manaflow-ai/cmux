@@ -33,6 +33,7 @@ mod batch;
 mod call;
 mod classic;
 mod events;
+mod group_create;
 mod keybinding;
 mod open;
 mod open_link;
@@ -169,6 +170,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return right::parse(&args[2..]).map(Some);
     }
     if let Some(command) = agent_open::parse(args)? {
+        return Ok(Some(command));
+    }
+    if let Some(command) = group_create::parse(args)? {
         return Ok(Some(command));
     }
     if scope == "version" {

@@ -21,7 +21,7 @@ import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
@@ -177,7 +177,7 @@ import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
-import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
@@ -4985,6 +4985,8 @@ function AcpmuxPane() {
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
+  const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
@@ -8413,6 +8415,7 @@ function AcpmuxPane() {
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
           machineName?: unknown;
+          localMachineName?: unknown;
           cloudMachineID?: unknown;
           cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
@@ -8475,6 +8478,9 @@ function AcpmuxPane() {
           }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        setLocalMachineName(
+          typeof host.localMachineName === "string" && host.localMachineName ? host.localMachineName : undefined,
+        );
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
@@ -10551,13 +10557,8 @@ function AcpmuxPane() {
     // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
-      projects: [
-        ...projectRows(
-          newTabProjects.filter((project) => !isAgentHome(project.cwd)),
-          cwd?.replace(/(.)\/+$/, "$1"),
-        ),
-        ...remote.values(),
-      ],
+      // Every folder: the chooser lists one row per repository and finds the rest by search.
+      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -11421,7 +11422,7 @@ function AcpmuxPane() {
                       ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                     })
             }
-            localName={machineName}
+            localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments={preview}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
