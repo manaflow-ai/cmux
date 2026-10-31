@@ -1,5 +1,8 @@
 // The real transcript controls share a trailing chevron column through hover, keyboard focus,
 // nested expansion and a Shell block's own Copy. The obsolete floating row Copy is not a fixture.
+// The steps of an opened run inside its card (`.cv-steps`, #27896) are the exception: each step's
+// caret sits inline right after its label, as Leo asked of the transcript's carets ("we can fit
+// stuff closer", #28018), within the same 4.5px #28018 checks.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";

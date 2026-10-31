@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemote
@@ -32,7 +33,20 @@ extension AddMachineServices {
                     return candidate
                 }
             },
-            run: { command in cli?.lines(command.arguments) ?? AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } },
+            run: { command in
+                // A joined machine's Check runs only while the switch is on: one left open across the
+                // switch turning off fetches no token and runs nothing.
+                if command.needsAccount, services.settings?.snapshot.machineJoin != true {
+                    return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: JoinedMachineAction.labsOff)) }
+                }
+                #if DEBUG
+                if command.needsAccount, services.debugFixtures.joinedMachines != nil {
+                    return AsyncThrowingStream { for line in DebugAddDevice.joinedDoctorLines { $0.yield(line) }; $0.finish() }
+                }
+                #endif
+                guard let cli else { return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } }
+                return command.needsAccount ? accountRun(cli, command, auth: services.cloud.auth) : cli.lines(command.arguments)
+            },
             install: { host, name in
                 await .attempt { let session = try connect(host, name); try await ssh.install(session); return session.machineID }
             },
@@ -40,6 +54,30 @@ extension AddMachineServices {
             record: { health.record($0, $1) },
             openWorkspace: { id in registry.perform("remote.newWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: id))) },
             copy: { CloudPresenter.copy($0) })
+    }
+
+    /// A run that reads the signed-in account's cmux access token on stdin (a joined machine's
+    /// Check): its stdout lines once it ends. A failure says the app's words, never the CLI's
+    /// stderr.
+    private static func accountRun(_ cli: HostCLI, _ command: HostCommand, auth: CloudAuth) -> AsyncThrowingStream<String, any Error> {
+        // concurrency-allow: bounded by one finished run: it holds the lines of a single doctor run's stdout
+        // (its checklist, about a dozen), yielded once after the process ended; dropping one would drop a step.
+        AsyncThrowingStream { continuation in
+            // task-owner: one CLI run; the stream's end cancels it (SSHProcessRunner stops the process).
+            let run = Task { @MainActor in
+                guard auth.isSignedIn, let access = try? await auth.tokens().access else {
+                    return continuation.finish(throwing: HostCLIStop(status: nil, message: RemoteStrings.signInToCheck))
+                }
+                guard let result = await cli.run(command.arguments, secret: access, deadline: .seconds(30), label: "machine doctor") else {
+                    return continuation.finish(throwing: HostCLIStop(status: nil, message: RemoteStrings.checkStopped))
+                }
+                for line in result.stdout.split(whereSeparator: \.isNewline) { continuation.yield(String(line)) }
+                if result.status == 0 { continuation.finish() } else {
+                    continuation.finish(throwing: HostCLIStop(status: result.status, message: RemoteStrings.checkStopped))
+                }
+            }
+            continuation.onTermination = { _ in run.cancel() }
+        }
     }
 
     /// The field read as ssh takes it, for enroll and the app's connect alike. No port: enroll's ssh

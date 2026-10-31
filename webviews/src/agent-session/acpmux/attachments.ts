@@ -2,6 +2,7 @@
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
+import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
@@ -282,7 +283,10 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
   return text.includes(INLINE_ATTACHMENT_MARK) ? wordsOf(inlineRuns(text, known)) : text;
 }
 
-export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
+/// `strip`: an attachment the person left in the strip, which goes after the text, not in it.
+export type OrderedDraftPart =
+  | { type: "text"; text: string }
+  | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -441,7 +445,8 @@ export function orderedDraftParts(
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
-    for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
+    for (const attachment of chips)
+      if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment, strip: true });
     return parts;
   }
   if (!legacyMarks(input, chips)) {
@@ -467,7 +472,7 @@ export function orderedDraftParts(
   const tail = input.slice(start);
   if (tail) parts.push({ type: "text", text: tail });
   // The attachments not placed in the text (the strip's) go after it, in their order.
-  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment, strip: true });
   return parts;
 }
 
@@ -614,10 +619,51 @@ export function audioAttachment(
   };
 }
 
+/// A finished session's recording for the composer. One that fits a prompt goes as an audio
+/// block; a longer one, the WAV the host wrote on this Mac, goes as a saved original the chat's
+/// agent opens (`local`). Undefined for a chat on another computer, which cannot open that file:
+/// the host sends it there (`remoteRecordingAttachment`).
+export function recordingAttachment(
+  audio: DictationRecording,
+  name: string,
+  local: boolean,
+): ComposerAttachment | undefined {
+  if (audio.path)
+    return local ? { ...savedAttachment(audio.path, `${name}.wav`), size: audio.byteCount ?? 0 } : undefined;
+  return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
+}
+
+/// A long recording for a chat on another computer (an ssh peer's, a Cloud chat's): the host sends
+/// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
+/// takes only a recording the host itself gave this page), and the chip links the copy there, so
+/// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
+/// it (an older host, an upload that failed or a stager that refused it): the composer's pending
+/// chip for it (Composer.tsx `attachLater`) then fails with Retry, and a prompt sent meanwhile keeps
+/// waiting for it until Retry makes it or its × takes the recording out.
+export async function remoteRecordingAttachment(
+  audio: DictationRecording,
+  name: string,
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): Promise<ComposerAttachment | undefined> {
+  if (!audio.path) return undefined;
+  try {
+    const path = ((await call("dictation.recording.upload", { path: audio.path })) as { path?: unknown } | null)?.path;
+    if (typeof path !== "string" || !path.startsWith("/")) return undefined;
+    return { ...savedAttachment(path, `${name}.wav`), size: audio.byteCount ?? 0 };
+  } catch {
+    return undefined;
+  }
+}
+
 /// The notice for a recording that goes no further than its transcript: the host left it out
-/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
-/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
-export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+/// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
+/// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
+/// not save it (`writeFailed`: a full disk, a folder it cannot write).
+export function recordingLeftOutNotice(
+  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
+): StringKey {
+  if (reason === "elsewhere") return "dictation.recordingElsewhere";
+  if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 

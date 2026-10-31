@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[path = "host_auto_update.rs"]
 mod host_auto_update;
 #[path = "host_hold.rs"]
-mod host_hold;
+pub(crate) mod host_hold;
 #[path = "host_lock.rs"]
 mod host_lock;
 #[path = "host_migrate.rs"]
@@ -35,7 +35,9 @@ pub(crate) use host_hold::hold;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{
+    CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
+};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -113,14 +115,26 @@ impl Remote for SshRemote<'_> {
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // scp takes a path without `~/` as one under the remote home.
         let remote = remote.strip_prefix("~/").unwrap_or(remote);
-        let status = Command::new("scp")
+        let out = Command::new("scp")
             .args(scp_push_argv(self.0, &local.to_string_lossy(), remote)?)
-            .status()
+            .stdin(Stdio::null())
+            .output()
             .context("scp")?;
-        if !status.success() {
-            return Err(anyhow!("scp to {} failed", self.0));
+        if !out.status.success() {
+            return Err(scp_failed(self.0, &String::from_utf8_lossy(&out.stderr)));
         }
         Ok(())
+    }
+}
+
+/// A failed push, with scp's own words (ssh's, when the connection failed or dropped): the
+/// app reads them to tell an offline peer from a broken one (`AcpmuxPeerUpdateReply`).
+fn scp_failed(host: &str, stderr: &str) -> anyhow::Error {
+    let why = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    if why.is_empty() {
+        anyhow!("scp to {host} failed")
+    } else {
+        anyhow!("scp to {host} failed: {why}")
     }
 }
 
@@ -307,11 +321,9 @@ fn restart_detached(json: bool) -> String {
     format!("{SHUTDOWN_KEEPING_AGENTS}; {start}")
 }
 
-/// `daemon shutdown --keep-agents` on the remote. A CLI older than the flag
-/// rejects it (clap's usage error names it); its plain `daemon shutdown`
-/// already keeps hosted agents, so only then it runs again without the flag.
-/// Any other failure (no daemon runs) is not retried.
-const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
+/// Explicit update handoff on the remote. Older CLIs fall back only when clap rejects
+/// a new flag; their plain shutdown already keeps hosted agents. Other failures do not retry.
+const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents --restart 2>&1) || case \"$out\" in *\"unexpected argument '--restart'\"*) out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac ;; *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is
 /// still not running is an error, not a status line.
@@ -414,7 +426,10 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// full disk is started again until it stays up. huge-blue (2026-10-25)
 /// shows why: a full disk failed the daemon five times in a minute, the old
 /// limit (5 in 60 s) left the unit failed, and acpmux stayed down for 33
-/// minutes until someone started it by hand. The delay grows from
+/// minutes until someone started it by hand. A start that loses a handover
+/// because another daemon still owns `daemon.lock` exits with status 75;
+/// `RestartPreventExitStatus` makes that a clean handover instead of a
+/// restart loop. The delay grows from
 /// `RestartSec=3` to `RestartMaxDelaySec=60` over `RestartSteps=5`
 /// (systemd 254+; Ubuntu 24.04 has 255). An older systemd logs "Unknown key
 /// name ... ignoring" once per load and restarts every 3 s. A daemon that
@@ -434,6 +449,7 @@ Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/
 ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
 Restart=always
+RestartPreventExitStatus=75
 RestartSec=3
 RestartSteps=5
 RestartMaxDelaySec=60
@@ -448,7 +464,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-const OLD_SYSTEMD_UNITS: [&str; 1] = [
+const OLD_SYSTEMD_UNITS: [&str; 2] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -463,6 +479,29 @@ ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
 Restart=on-failure
 RestartSec=3
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // #24232: the daemon was always restarted, including when a second
+    // process still held daemon.lock. Keep this exact text migratable so an
+    // existing lane receives the lock handover guard.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
 
@@ -520,12 +559,18 @@ fi; fi
 const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
 /// Sets `$p` to the running daemon's pid (from `daemon status`) and `$u` to
-/// the acpmux systemd unit it runs under, if any. A daemon some other service
-/// started (`ssh.service`, a CI runner, `tmux.service`, or
+/// the acpmux systemd unit it runs under, if any. Prefer the user manager's
+/// `MainPID`: it is authoritative even when `/proc/$p/cgroup` is hidden from
+/// the update service. Fall back to the cgroup for older managers. A daemon
+/// some other service started (`ssh.service`, a CI runner, `tmux.service`, or
 /// `acpmux-update.service` when the self-update had to start it detached) has
 /// no `$u`: it is shut down keeping its agents like a detached one.
 const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
-if [ -n "$p" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+if [ -n "$p" ]; then
+  acpmux_main=$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null) || acpmux_main=
+  [ "$acpmux_main" = "$p" ] && u=acpmux.service
+  if [ -z "$u" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+fi
 if [ "$u" = acpmux-update.service ]; then u=; fi
 "#;
 
@@ -585,9 +630,9 @@ fn linux_restart(install: bool, json: bool) -> String {
         "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
-if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
+if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
-if systemctl --user enable --now acpmux.service; then acpmux_auto_update; echo {SYSTEMD_STARTED}; else {detached}; fi; fi
+systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
 else {detached}; fi"
     )
 }
@@ -803,6 +848,17 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_push_carries_scps_words_on_one_line() {
+        // The app tells an offline peer from a broken one by them (`AcpmuxPeerUpdateReply`).
+        let e = scp_failed("h", "client_loop: send disconnect: Broken pipe\r\nlost connection\n");
+        assert_eq!(
+            e.to_string(),
+            "scp to h failed: client_loop: send disconnect: Broken pipe lost connection"
+        );
+        assert_eq!(scp_failed("h", " \n").to_string(), "scp to h failed");
+    }
+
+    #[test]
     fn a_remote_script_runs_the_same_under_zsh_bash_and_sh_login_shells() {
         // macOS logs in with zsh, where an unmatched glob aborts the whole command
         // ("no matches found"): enroll's probe saw no daemon and no config on a Mac
@@ -922,10 +978,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         let fake = home.join(".local/bin/acpmux");
-        std::fs::write(&fake, format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"))
-            .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &fake,
+            format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"),
+        );
         std::process::Command::new("sh")
             .args(["-c", SHUTDOWN_KEEPING_AGENTS])
             .env("HOME", &home)
@@ -996,19 +1052,16 @@ mod tests {
     /// `linux_restart(install, true)` in a fake home on `host`.
     #[cfg(unix)]
     fn linux_restart_run(tag: &str, install: bool, host: LinuxHost) -> LinuxRun {
-        use std::os::unix::fs::PermissionsExt;
         let home = std::env::temp_dir().join(format!("acpmux-lx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let bin = home.join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = |name: &str, body: &str| {
             let file = bin.join(name);
-            std::fs::write(
+            crate::test_exec::write_executable(
                 &file,
                 format!("#!/bin/sh\necho \"{name} $*\" >> \"$HOME/calls\"\n{body}\n"),
-            )
-            .unwrap();
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            );
         };
         let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
         // The daemon answers `daemon status` until a shutdown it does not survive.
@@ -1124,7 +1177,7 @@ mod tests {
                 "systemctl --user daemon-reload",
                 "systemctl --user cat acpmux.service",
                 "systemctl --user is-active --quiet acpmux.service",
-                "acpmux daemon shutdown --keep-agents",
+                "acpmux daemon shutdown --keep-agents --restart",
                 "systemctl --user enable --now acpmux.service",
                 // The self-update timer (host_auto_update.rs), once the unit runs.
                 "systemctl --user daemon-reload",
@@ -1298,10 +1351,12 @@ mod tests {
         let run = linux_restart_run("linger-on", true, LinuxHost { linger: false, ..LINGERING });
         assert!(run.calls.contains(&"loginctl enable-linger".to_owned()));
         assert!(run.started_by_systemd());
-        // A unit that does not start: the detached start, so a daemon runs.
+        // A managed unit that fails to start is reported to the caller; do not
+        // spawn a second daemon outside the unit (the lock would loop).
         let run =
             linux_restart_run("enable-fails", true, LinuxHost { enables: false, ..LINGERING });
-        assert!(run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
+        assert!(!run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
+        assert_ne!(run.code, Some(0));
     }
 
     #[test]
@@ -1312,7 +1367,14 @@ mod tests {
             let run = linux_restart_run(tag, install, host);
             assert_eq!(run.code, Some(3));
             assert!(run.err.contains("acpmux-agent-huge-blue.service"), "{}", run.err);
-            assert_eq!(run.calls, ["acpmux --json daemon status"], "nothing else may run");
+            assert_eq!(
+                run.calls,
+                [
+                    "acpmux --json daemon status",
+                    "systemctl --user show acpmux.service -p MainPID --value",
+                ],
+                "only read-only ownership probes may run"
+            );
             assert!(run.unit.is_empty());
         }
         // The daemon under acpmux.service itself, in a session scope, or in a
@@ -1372,15 +1434,26 @@ mod tests {
     #[cfg(unix)]
     fn a_restart_keeps_agents_and_falls_back_only_for_a_cli_without_the_flag() {
         // A current CLI: one call, with the flag.
-        assert_eq!(remote_shutdown_calls("new", "exit 0"), ["daemon shutdown --keep-agents"]);
+        assert_eq!(
+            remote_shutdown_calls("new", "exit 0"),
+            ["daemon shutdown --keep-agents --restart"]
+        );
         // A CLI older than the flag: clap refuses it; the plain call detaches.
         let old = r#"case "$*" in *--keep-agents*) echo "error: unexpected argument '--keep-agents' found" >&2; exit 2;; esac"#;
         assert_eq!(
             remote_shutdown_calls("old", old),
-            ["daemon shutdown --keep-agents", "daemon shutdown"]
+            ["daemon shutdown --keep-agents --restart", "daemon shutdown"]
+        );
+        let previous = r#"case "$*" in *--restart*) echo "error: unexpected argument '--restart' found" >&2; exit 2;; esac"#;
+        assert_eq!(
+            remote_shutdown_calls("previous", previous),
+            ["daemon shutdown --keep-agents --restart", "daemon shutdown --keep-agents"]
         );
         // Any other failure (no daemon answered) is not retried.
         let down = "echo 'acpmux: runtime: daemon not running' >&2; exit 1";
-        assert_eq!(remote_shutdown_calls("down", down), ["daemon shutdown --keep-agents"]);
+        assert_eq!(
+            remote_shutdown_calls("down", down),
+            ["daemon shutdown --keep-agents --restart"]
+        );
     }
 }

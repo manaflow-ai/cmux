@@ -120,7 +120,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy"):
+        legacy = re.search(r"^    runs-on: (.+)$", text[text.index("\n  sign-nightly-identity-legacy:"):], re.MULTILINE).group(1)
+        self.assertNotIn("blacksmith", legacy)
+        self.assertTrue(legacy.endswith("|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"), legacy)
+        for name in ("build-sign-notarize-nightly",):
             job = text[text.index(f"\n  {name}:"):]
             match = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE)
             with self.subTest(job=name):
@@ -140,13 +143,16 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         jobs = document["jobs"]
-        owned = "vars.LINUX_RUNNER || "
+        runner_set = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || "
         self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
-                         + "'blacksmith-4vcpu-ubuntu-2404' }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + runner_set
+                         + "'blacksmith-32vcpu-ubuntu-2404' }}")
         self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
-                         + "'blacksmith-8vcpu-ubuntu-2404' }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                         "needs.prepare-nightly-variant-primary.result == 'success' && "
+                         "(" + runner_set + "'blacksmith-32vcpu-ubuntu-2404') || "
+                         "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || "
+                         "'blacksmith-16vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -189,7 +195,11 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
-                self.assertIn("vars.LINUX_RUNNER || ", runs_on)
+                # A member of the declared set: 16 vCPU when LINUX_RUNNER names it, else 32; a job
+                # holding a secret takes the literal (the signing-keychain guard).
+                self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
+                                or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on, runs_on)
+                self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER \|\|")
                 self.assertNotIn("macos", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
                                                             "LINUX_RUNNER": sorted(linux)})

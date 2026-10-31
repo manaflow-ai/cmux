@@ -129,15 +129,20 @@ public struct CloudWorkspaceSetupWizard {
     }
 
     /// Presents the starting-point choice; dismissal has no side effects.
+    /// `suggested`: the repository of the chat it was asked from (``CloudWorkPick/repo``), offered
+    /// as the starting point; the person may still pick an empty VM or another repository.
     /// `environments` and `supportsEnvironments`: the team's Cloud environments, on the cmux-next
     /// Cloud path only (the classic path has none and its answers never name one).
     public func choosePlan(availability: CredentialAvailability,
                            scopeIsCurrent: () -> Bool,
                            supportsRepository: Bool = true,
+                           suggested: CloudMachineRepo? = nil,
                            environments: [EnvironmentOption] = [],
                            supportsEnvironments: Bool = false,
                            present: (CmuxDialogSpec) async -> CmuxDialogAnswer) async throws -> Plan? {
-        let answer = await present(Self.setupDialogSpec(availability: availability, supportsRepository: supportsRepository,
+        let suggestion = supportsRepository ? suggested : nil
+        let answer = await present(Self.setupDialogSpec(availability: availability, source: suggestion == nil ? .empty : .repository,
+                                                        repository: suggestion?.spec ?? "", supportsRepository: supportsRepository,
                                                         environments: environments, supportsEnvironments: supportsEnvironments))
         guard scopeIsCurrent(), answer.button == "create", !answer.isDismissal,
               let choice = answer.text(Field.source) else { return nil }

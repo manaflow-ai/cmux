@@ -22,8 +22,8 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number; preview?: boolean };
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenInspector"
+> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,17 +38,31 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
       data-tab-row={tabRowHeight ? "" : undefined}
-      style={{ height: "100%", "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px` } as CSSProperties}
+      data-inspector-chat-placement={inspectorPush ? "push" : undefined}
+      style={
+        {
+          height: "100%",
+          "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px`,
+          ...(inspectorPush
+            ? {
+                "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+                // ChatInspector.tsx writes this as a measured shell px value. The fixture is 1000px
+                // wide, with Preview's 46vw artifact resolving to 460px at that width.
+                "--acpmux-header-room": preview ? "540px" : "1000px",
+              }
+            : {}),
+        } as CSSProperties
+      }
     >
       <div className="acpmux-main" data-summary="inline">
-        {tabRowHeight && (
+        {tabRowHeight !== undefined && (
           <div className="acpmux-stage">
-            <header className="acpmux-header" data-tab-row="">
+            <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
               <div />
               <div className="acpmux-header-tools">
                 <SummaryButton card={card} />
@@ -57,12 +71,31 @@ function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
           </div>
         )}
       </div>
+      {inspectorPush && (
+        <aside
+          className="ui-glass ui-glass-floats acpmux-chat-inspector"
+          data-placement="push"
+          data-presence="shown"
+          aria-label="Session Info"
+          style={
+            {
+              width: "220px",
+              "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+            } as CSSProperties
+          }
+        >
+          <div className="acpmux-chat-inspector__head">Session Info</div>
+          <div className="acpmux-chat-inspector__body">
+            <div className="acpmux-chat-inspector-section">Pushed Session Info</div>
+          </div>
+        </aside>
+      )}
       {preview ? (
         <ArtifactPanel
           artifact={{ kind: "markdown", lang: "markdown", code: "# Preview\nA document beside the chat." }}
           onClose={none}
         />
-      ) : (
+      ) : inspectorPush ? null : (
         <SummaryCard
           card={card}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
@@ -101,12 +134,31 @@ const processes: InspectorProcess[] = [
   record("e2e", "bun test e2e --watch", 18, "killed", 9),
 ];
 
+/// A busy chat: eight commands running and three finished, more than the card used to show before
+/// "View all".
+const manyProcesses: InspectorProcess[] = [
+  ...processes.slice(0, 3),
+  record("api", "bun run api --watch", 23),
+  record("queue", "bun run worker:queue", 22),
+  record("tunnel", "cloudflared tunnel run dev", 21),
+  record("storybook", "bun run storybook", 19),
+  record("db", "docker compose up postgres", 17),
+  ...processes.slice(3),
+];
+
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Migrate the settings store to SQLite", state: "running", createdAt: minutesAgo(20) },
   { sessionId: "child-2", title: "Port the history page to React Aria", state: "running", createdAt: minutesAgo(19) },
   { sessionId: "child-3", title: "Rename the settings keys", state: "waiting", createdAt: minutesAgo(18) },
   { sessionId: "child-4", title: "Fix the flaky sidebar drag test", state: "failed", createdAt: minutesAgo(17) },
   { sessionId: "child-5", title: "Draft the release notes for 0.42", state: "idle", createdAt: minutesAgo(16) },
+];
+
+/// Seven started chats: more than the card used to show before "View all".
+const manySessions: StartedSession[] = [
+  ...sessions,
+  { sessionId: "child-6", title: "Profile the transcript scroll", state: "running", createdAt: minutesAgo(15) },
+  { sessionId: "child-7", title: "Audit the composer menus", state: "running", createdAt: minutesAgo(14) },
 ];
 
 const workflow: WorkflowSummary = {
@@ -166,6 +218,18 @@ export default componentEntry<Props>({
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
+    },
+    "preview-pushed-inspector-tab-row": {
+      note: "Preview and a pushed Session Info card share the pane; the native tools span both side-panel terms.",
+      props: { tabRowHeight: 32, preview: true, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-tab-row": {
+      note: "A pushed Session Info card keeps the native tools at the pane edge.",
+      props: { tabRowHeight: 32, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-no-tab-row": {
+      note: "A pushed Session Info card keeps ordinary header tools in place when no native row is active.",
+      props: { tabRowHeight: 0, inspectorPush: true, rows: [] },
     },
     "shared-tab-row": {
       note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
@@ -230,6 +294,15 @@ export default componentEntry<Props>({
         sessions: { list: sessions, onOpen: none },
         workflow: realWorkflow,
         workflowActions,
+      },
+    },
+    "long-lists": {
+      note: "Every row of a long list is drawn and scrolls in the card, with no View all; Background tasks and Subagents end with Open in right pane, which opens that Session Info section beside the chat.",
+      props: {
+        rows,
+        background: background(manyProcesses),
+        sessions: { list: manySessions, onOpen: none },
+        onOpenInspector: none,
       },
     },
     "finished-open": {

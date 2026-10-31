@@ -476,6 +476,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_resource_close_with(
         &self,
         operation: ResourceOperation,

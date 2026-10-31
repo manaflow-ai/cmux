@@ -184,17 +184,18 @@ pub(crate) fn one_sentence(text: &str) -> String {
     // A closing quote or bracket right after the mark ends with it ("expired." Please).
     let closers = ['"', '\'', '\u{201d}', '\u{2019}', ')', ']'];
     let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find_map(|i| {
-        let word = flat[..i].rsplit(' ').next().unwrap_or_default().to_lowercase();
+        let word =
+            flat.get(..i).unwrap_or_default().rsplit(' ').next().unwrap_or_default().to_lowercase();
         let word = word.trim_start_matches(|c: char| !c.is_alphanumeric());
         let short = word.chars().count() <= 2;
-        let rest = flat[i..].trim_start_matches(closers);
+        let rest = flat.get(i..).unwrap_or_default().trim_start_matches(closers);
         let end = flat.len() - rest.len();
         (rest.starts_with(' ')
             && !short
             && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word))
         .then_some(end)
     });
-    let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
+    let sentence = end.map_or(flat.as_str(), |i| flat.get(..i).unwrap_or(&flat));
     if sentence.chars().count() <= DETAIL_CHARS {
         return sentence.to_owned();
     }
@@ -204,16 +205,6 @@ pub(crate) fn one_sentence(text: &str) -> String {
 
 /// The longest `detail`, in characters.
 const DETAIL_CHARS: usize = 200;
-
-/// `VAR=<home> <command>` when the chat runs in an account home of its own.
-fn login_command(command: Option<String>, home: Option<(&str, &Path)>) -> Option<String> {
-    let command = command?;
-    let Some((var, home)) = home else { return Some(command) };
-    let home = home.display().to_string();
-    let safe = home.chars().all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c));
-    let home = if safe { home } else { format!("'{}'", home.replace('\'', r"'\''")) };
-    Some(format!("{var}={home} {command}"))
-}
 
 impl Hub {
     /// `_acpmux/session/auth` for this daemon's chat `session`, or for `target` (a chat with
@@ -274,7 +265,7 @@ impl Hub {
         let mut facts = Facts {
             harness: harness.clone(),
             route_id: route_id.clone(),
-            login: login_command(
+            login: route_account::login_command(
                 notes
                     .as_ref()
                     .and_then(|n| n.login.clone())
@@ -664,9 +655,15 @@ mod tests {
     fn a_chat_in_its_own_account_home_signs_in_there() {
         let home = Path::new("/Users/me/claude two");
         assert_eq!(
-            login_command(Some("claude auth login".into()), Some(("CLAUDE_CONFIG_DIR", home))),
+            route_account::login_command(
+                Some("claude auth login".into()),
+                Some(("CLAUDE_CONFIG_DIR", home))
+            ),
             Some("CLAUDE_CONFIG_DIR='/Users/me/claude two' claude auth login".into())
         );
-        assert_eq!(login_command(Some("codex login".into()), None), Some("codex login".into()));
+        assert_eq!(
+            route_account::login_command(Some("codex login".into()), None),
+            Some("codex login".into())
+        );
     }
 }

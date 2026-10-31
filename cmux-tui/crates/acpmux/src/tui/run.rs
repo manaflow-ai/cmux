@@ -16,7 +16,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         .await
         .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
-    let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
+    let watch = client.whole_list(method::MUX_WATCH, json!({"enabled": true})).await?;
     let mut app = make_app(
         client.clone(),
         tx.clone(),
@@ -45,11 +45,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         });
     }
     if let Some(id) = initial {
-        if let Some(i) = app
-            .sessions
-            .iter()
-            .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
-        {
+        if let Some(i) = app.sessions.iter().position(|s| initial_session_matches(s, &id)) {
             app.select(i);
         }
     } else if !app.sessions.is_empty() {
@@ -165,7 +161,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                 match n {
                     Some(Message::Notification { method: m, params }) if m != method::MUX_DISCONNECTED => {
                         let p = params.unwrap_or(Value::Null);
-                        let selected = p.get("sessionId").and_then(Value::as_str) == app.selected_id().as_deref();
+                        let selected = session_route_id(&p) == app.selected_id();
                         let visible = match m.as_str() {
                             method::SESSION_UPDATE => selected,
                             method::MUX_EVENT => selected || matches!(p.get("kind").and_then(Value::as_str), Some("turn_end" | "turn_error")),
@@ -197,10 +193,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             }
         }
         if let Some(id) = app.pending_select.take() {
-            if let Some(i) = app
-                .sessions
-                .iter()
-                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            if let Some(i) =
+                app.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
             {
                 app.drafts.retain(|d| !d.creating);
                 app.select(i + app.drafts.len());
@@ -227,6 +221,10 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         println!("acpmux: agents keep running. Web dashboard: {u}");
     }
     result
+}
+
+fn initial_session_matches(session: &Value, id: &str) -> bool {
+    session_route_id(session).as_deref() == Some(id)
 }
 
 pub(super) fn make_app(
@@ -356,7 +354,7 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
         match crate::daemon::connect(true).await {
             Ok(c) => {
                 c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-                let sessions = c.request(method::MUX_SESSIONS, json!({})).await?;
+                let sessions = c.whole_list(method::MUX_SESSIONS, json!({})).await?;
                 let notes = c
                     .notifications()
                     .await
@@ -382,5 +380,31 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                 delay = (delay * 2).min(std::time::Duration::from_secs(3));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_session_matches;
+    use serde_json::json;
+
+    #[test]
+    fn initial_selection_accepts_a_peer_qualified_id() {
+        let session = json!({"sessionId": "raw", "peer": "peer", "qualifiedSessionId": "peer/raw"});
+        assert!(initial_session_matches(&session, "peer/raw"));
+        assert!(!initial_session_matches(&session, "raw"));
+        assert!(!initial_session_matches(&session, "other/raw"));
+    }
+
+    #[test]
+    fn initial_selection_keeps_the_local_owner_when_a_peer_reuses_its_id() {
+        // The more recent peer row precedes the requested local row in the sidebar.
+        let sessions = [
+            json!({"sessionId": "raw", "peer": "peer", "qualifiedSessionId": "peer/raw"}),
+            json!({"sessionId": "raw", "qualifiedSessionId": "local/raw"}),
+        ];
+        let initial = |id| sessions.iter().position(|s| initial_session_matches(s, id));
+        assert_eq!(initial("raw"), Some(1), "a peer must not capture the local attach target");
+        assert_eq!(initial("peer/raw"), Some(0));
     }
 }

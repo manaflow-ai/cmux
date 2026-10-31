@@ -15,6 +15,7 @@ use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
+use cmux_json::JsonSet as _;
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
@@ -196,10 +197,10 @@ impl TabDragDestination {
                 });
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 if let Some(around) = around {
-                    fingerprint["around"] = serde_json::json!(around);
+                    fingerprint.set("around", serde_json::json!(around));
                 }
                 fingerprint
             }
@@ -212,7 +213,7 @@ impl TabDragDestination {
                     "dock": dock,
                 });
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }

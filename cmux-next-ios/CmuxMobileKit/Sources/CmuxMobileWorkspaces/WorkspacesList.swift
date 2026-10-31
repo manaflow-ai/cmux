@@ -38,7 +38,8 @@ public struct WorkspacesList: View {
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
     @State private var filter: MacFilter
-    @State private var isRetrying = false
+    /// Reloads the failed team/Mac discovery, not just already-connected workspaces.
+    var retryLoad: (() async -> Void)?
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
@@ -77,7 +78,7 @@ public struct WorkspacesList: View {
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
-                refresh: (() async -> Void)? = nil,
+                refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
                 open: @escaping (Workspace) -> Void) {
@@ -87,6 +88,7 @@ public struct WorkspacesList: View {
         self.reconnect = reconnect
         self.linking = linking
         self.refresh = refresh
+        self.retryLoad = retryLoad
         self.switchTeam = switchTeam
         self.openAccount = openAccount
         _filter = State(initialValue: filter)
@@ -173,6 +175,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
                     .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                    .keyboardShortcut(.defaultAction)
             } message: { _ in
                 Text("One emoji.")
             }
@@ -185,6 +188,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
     }
 
@@ -200,6 +204,7 @@ public struct WorkspacesList: View {
                 Button("Create") {
                     withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
@@ -210,6 +215,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
                     .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
             .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
                                 presenting: deletingGroup) { (target: GroupTarget) in
@@ -303,14 +309,9 @@ public struct WorkspacesList: View {
         case .loading where store.activeWorkspaces.isEmpty || macs.isEmpty:
             skeleton
         case .failed:
-            EmptyState(
-                symbol: "cloud",
-                title: "Couldn't load workspaces",
-                message: "Check your connection and try again.",
-                primaryTitle: "Retry",
-                isPrimaryLoading: isRetrying,
-                primary: retry
-            )
+            EmptyState(symbol: "cloud", title: "Couldn't load workspaces",
+                       retry: retryLoad == nil ? nil : retry)
+                .accessibilityIdentifier("workspaces.retry")
         case .loading, .loaded:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -540,13 +541,73 @@ public struct WorkspacesList: View {
                    systemImage: group.isCollapsed ? "chevron.down" : "chevron.right") {
                 withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
             }
+            groupOptions(group, macID: macID)
         }
         Section {
             Button("Ungroup Workspaces", systemImage: "rectangle.stack.badge.minus") {
                 withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
             }
+            groupCloses(group, macID: macID)
             Button("Delete Group", systemImage: "trash", role: .destructive) {
                 deletingGroup = GroupTarget(group: group, macID: macID)
+            }
+        }
+    }
+
+    /// The Mac's group Options folder: Collapse Others, Collapse All Groups, Expand All Groups,
+    /// and Remove All Workspace Colors.
+    @ViewBuilder private func groupOptions(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        let groups = creator.shownGroups(on: macID)
+        let canCollapseOthers = groups.count > 1 && creator.canCollapseOthers(keeping: group, on: macID)
+        let canCollapseAll = groups.contains { !$0.isCollapsed }, canExpandAll = groups.contains(where: \.isCollapsed)
+        if canCollapseOthers || canCollapseAll || canExpandAll || creator.hasColors(on: macID) {
+            Menu {
+                if canCollapseOthers {
+                    Button("Collapse Others", systemImage: "arrow.down.forward.and.arrow.up.backward") {
+                        withAnimation(theme.motion.smooth.animation) { creator.collapseOtherGroups(keeping: group, on: macID) }
+                    }
+                }
+                if canCollapseAll {
+                    Button("Collapse All Groups", systemImage: "rectangle.compress.vertical") {
+                        withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, true) }
+                    }
+                }
+                if canExpandAll {
+                    Button("Expand All Groups", systemImage: "rectangle.expand.vertical") {
+                        withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, false) }
+                    }
+                }
+                removeAllColorsButton(macID)
+            } label: {
+                Label("Options", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+
+    /// Remove All Workspace Colors: every workspace of the Mac (the Mac also clears its groups'
+    /// colors; a phone may not, see `WorkspaceCreator.removeAllColors`).
+    @ViewBuilder private func removeAllColorsButton(_ macID: String) -> some View {
+        if creator.hasColors(on: macID) {
+            Button("Remove All Workspace Colors", systemImage: "circle.slash") {
+                withAnimation(theme.motion.smooth.animation) { creator.removeAllColors(on: macID) }
+            }
+        }
+    }
+
+    /// Close All in Group and Close Other Groups. The phone asks first, as for every close of
+    /// several workspaces.
+    @ViewBuilder private func groupCloses(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        let members = creator.members(of: [group], on: macID)
+        if let first = members.first {
+            Button("Close All in Group", systemImage: "xmark.square", role: .destructive) {
+                bulkClosing = BulkClose(kind: .all, workspace: first, targets: members, groups: [group])
+            }
+        }
+        let others = creator.shownGroups(on: macID).filter { $0.id != group.id }
+        let closing = creator.members(of: others, on: macID)
+        if let first = closing.first {
+            Button("Close Other Groups", systemImage: "xmark.circle", role: .destructive) {
+                bulkClosing = BulkClose(kind: .others, workspace: first, targets: closing, groups: others)
             }
         }
     }
@@ -640,7 +701,13 @@ public struct WorkspacesList: View {
                                 titleVisibility: .visible, presenting: bulkClosing) { bulk in
                 Button(bulk.targets.count == 1 ? "Close Workspace" : "Close Workspaces", role: .destructive) {
                     theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) { creator.close(bulk.targets) }
+                    withAnimation(theme.motion.smooth.animation) {
+                        if bulk.groups.isEmpty {
+                            creator.close(bulk.targets)
+                        } else {
+                            creator.closeGroups(bulk.groups, on: bulk.workspace.macID)
+                        }
+                    }
                 }
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
@@ -744,6 +811,7 @@ public struct WorkspacesList: View {
                 if ws.icon != nil {
                     Button("Remove Icon", systemImage: "minus.circle") { creator.setIcon(ws, nil) }
                 }
+                removeAllColorsButton(ws.macID)
             } label: {
                 Label("Appearance", systemImage: "paintbrush")
             }
@@ -760,16 +828,40 @@ public struct WorkspacesList: View {
                 Label("Options", systemImage: "ellipsis.circle")
             }
             groupFolder(ws)
-            if order.count > 1 {
+            let container = creator.container(of: ws)
+            let sortable = creator.containers(on: ws.macID).contains { $0.count > 1 }
+            if order.count > 1 || container.count > 1 || sortable {
                 Menu {
-                    Button("Move Workspace Up", systemImage: "arrow.up") {
-                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                    if order.count > 1 {
+                        Button("Move Workspace Up", systemImage: "arrow.up") {
+                            withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                        }
+                        .disabled(order.first?.id == ws.id)
+                        Button("Move Workspace Down", systemImage: "arrow.down") {
+                            withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                        }
+                        .disabled(order.last?.id == ws.id)
                     }
-                    .disabled(order.first?.id == ws.id)
-                    Button("Move Workspace Down", systemImage: "arrow.down") {
-                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                    if container.count > 1 {
+                        ForEach(WorkspaceEdge.allCases, id: \.self) { edge in
+                            Button(edge.title(grouped: ws.group != nil), systemImage: edge == .top ? "arrow.up.to.line" : "arrow.down.to.line") {
+                                withAnimation(theme.motion.smooth.animation) { creator.move(ws, to: edge) }
+                            }
+                            .disabled(edge.anchor(of: ws, in: container) == nil)
+                        }
                     }
-                    .disabled(order.last?.id == ws.id)
+                    if sortable {
+                        Menu {
+                            ForEach(WorkspaceSortKey.allCases, id: \.self) { key in
+                                Button(key.shortTitle, systemImage: key.systemImage) {
+                                    withAnimation(theme.motion.smooth.animation) { creator.sortWorkspaces(on: ws.macID, by: key) }
+                                }
+                                .accessibilityLabel(key.title)
+                            }
+                        } label: {
+                            Label("Sort Workspaces", systemImage: "arrow.up.arrow.down.square")
+                        }
+                    }
                 } label: {
                     Label("Move", systemImage: "arrow.up.arrow.down")
                 }
@@ -781,8 +873,8 @@ public struct WorkspacesList: View {
     /// this workspace's Mac. The phone asks first (the Mac closes at once).
     @ViewBuilder private func bulkCloseMenu(_ ws: Workspace, inbox: WorkspaceInbox) -> some View {
         let order = inbox.macSidebar(ws.macID).filter { creator.canManage($0) }
-        // The Mac's Close folder order: Other, Below, Above.
-        let kinds = [WorkspaceBulkClose.others, .below, .above].filter { !$0.targets(of: ws, in: order).isEmpty }
+        // The Mac's Close folder order: Other, Other in Group, Below, Above, All.
+        let kinds = [WorkspaceBulkClose.others, .othersInGroup, .below, .above, .all].filter { !$0.targets(of: ws, in: order).isEmpty }
         if !kinds.isEmpty {
             Menu {
                 ForEach(kinds, id: \.self) { kind in
@@ -924,7 +1016,7 @@ public struct WorkspacesList: View {
         } else if let target {
             EmptyState(
                 symbol: "macwindow",
-                title: "No workspaces yet",
+                title: "No workspaces",
                 message: "New workspaces open right away on \(displayName(target)).",
                 primaryTitle: "New Workspace",
                 primary: { create(.terminal, directory: nil, on: target.id) }
@@ -953,11 +1045,11 @@ public struct WorkspacesList: View {
                 message: "\(RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.offline")
-        case .failed(let reason):
+        case .failed:
             EmptyState(
                 symbol: "bolt.horizontal.circle",
                 title: "Can't connect to \(displayName(mac))",
-                message: "\(displayName(mac)) is online, but this iPhone can't reach it: \(reason).",
+                message: "\(displayName(mac)) is online, but this iPhone can't reach it.",
                 primaryTitle: reconnect == nil ? nil : "Retry",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -966,7 +1058,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "link",
                 title: "\(displayName(mac)) isn't connected",
-                message: "This iPhone shows one Mac's workspaces at a time.",
+                message: "Connect to this Mac to view its workspaces.",
                 primaryTitle: reconnect == nil ? nil : "Connect",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -975,7 +1067,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "person.crop.circle.badge.questionmark",
                 title: "\(displayName(mac)) belongs to a teammate",
-                message: "Only the iPhones of the person who signed in on \(displayName(mac)) can connect to it. Its workspaces show here, but this iPhone can't open them."
+                message: "Only the account that added \(displayName(mac)) can open its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
@@ -992,7 +1084,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "macwindow",
                 title: "No workspaces on \(displayName(mac))",
-                message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone yet.",
+                message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone.",
                 primaryTitle: canCreate ? "New Workspace" : nil,
                 primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
             )
@@ -1041,13 +1133,8 @@ public struct WorkspacesList: View {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
-    private func retry() {
-        isRetrying = true
-        Task {
-            await Task.yield()
-            store.teamDataState = .loaded
-            isRetrying = false
-        }
+    func retry() async {
+        await retryLoad?()
     }
 }
 
@@ -1189,7 +1276,9 @@ struct BulkClose: Identifiable {
     var kind: WorkspaceBulkClose
     var workspace: Workspace
     var targets: [Workspace]
-    var id: String { "\(kind.rawValue)-\(workspace.id)" }
+    /// Close All in Group / Close Other Groups: the groups that close with their workspaces.
+    var groups: [MacWorkspaceGroup] = []
+    var id: String { "\(kind.rawValue)-\(workspace.id)-\(groups.map(\.id).joined(separator: ","))" }
 
     /// "a, b and c close on <Mac>, with their tabs."
     func message(macName: String) -> String {
@@ -1489,7 +1578,7 @@ struct ConnectMacEmptyState: View {
                     .padding(.top, 16)
                     .padding(.bottom, 20)
                 if let teamName {
-                    Text("No Macs in \(teamName) yet.")
+                    Text("No Macs in \(teamName).")
                         .font(theme.type.rowSubtitle)
                         .foregroundStyle(theme.colors.label2)
                         .multilineTextAlignment(.center)
@@ -1557,8 +1646,9 @@ struct NewWorkspaceButton: View {
             Button("Cancel", role: .cancel) {}
             Button("Open") { openFolder() }
                 .disabled(WorkspaceFolderPath(folderText) == nil)
+                .keyboardShortcut(.defaultAction)
         } message: {
-            Text(target.map { "A folder on \(displayName($0)). The new workspace's terminal opens there." } ?? "")
+            Text(target.map { "The new workspace's terminal opens in this folder on \(displayName($0))." } ?? "")
         }
         .alert("Can't open this folder", isPresented: Binding(get: { folderRefusal != nil }, set: { if !$0 { folderRefusal = nil } })) {
             Button("OK", role: .cancel) {}
