@@ -169,15 +169,23 @@ impl Transport {
         }
     }
 
-    pub async fn shutdown(&self) {
+    /// Stop by `deadline`, delivering first what this daemon's listener sent each peer before
+    /// it closed (the WebSocket close 1012 of a restart): each bridge forwards its listener's
+    /// side to its end, and the mesh closes each tunnel connection after those bytes
+    /// (`WgMesh::close`). Only what is left at `deadline` is reset.
+    pub async fn shutdown(&self, deadline: tokio::time::Instant) {
         self.stop.send_replace(true);
         let bridge = self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-        if let Some(bridge) = bridge {
+        if let Some(mut bridge) = bridge
+            && tokio::time::timeout_at(deadline, &mut bridge).await.is_err()
+        {
+            tracing::warn!("WireGuard bridges did not finish before the shutdown deadline");
+            bridge.abort();
             let _ = bridge.await;
         }
         let mesh = self.mesh.write().await.take();
         if let Some(mesh) = mesh {
-            mesh.shutdown().await;
+            mesh.close(deadline).await;
         }
     }
 }
@@ -237,20 +245,50 @@ async fn bridge(mut listener: WgMeshListener, target: SocketAddr, mut stop: watc
             _ = stopping(&mut stop) => break,
             Some(_) = connections.join_next(), if !connections.is_empty() => {},
             accepted = listener.accept() => {
-                let Some((mut stream, _authenticated_key)) = accepted else { break };
+                let Some((stream, _authenticated_key)) = accepted else { break };
                 if connections.len() >= MAX_BRIDGES { continue; }
+                let stop = stop.clone();
                 connections.spawn(async move {
-                    let Ok(Ok(mut local)) = tokio::time::timeout(CONNECT_BOUND, TcpStream::connect(target)).await
+                    let Ok(Ok(local)) = tokio::time::timeout(CONNECT_BOUND, TcpStream::connect(target)).await
                         else { return };
                     let _ = local.set_nodelay(true);
                     // This is the authenticated WS listener, never the local RPC socket.
-                    let _ = tokio::io::copy_bidirectional(&mut stream, &mut local).await;
+                    bridge_one(stream, local, stop).await;
                 });
             }
         }
     }
-    connections.abort_all();
+    // Each connection forwards the rest its listener sent; `Transport::shutdown` bounds this.
+    drop(listener);
     while connections.join_next().await.is_some() {}
+}
+
+/// One tunnel connection to the listener, both ways, until both ends finished. Once the
+/// transport stops, only the listener's side goes on: the daemon's listener closed its clients
+/// before the transport stops (`daemon.rs`), and its last bytes (a close frame) must reach the
+/// peer before the tunnel's end; what the peer still sends has no reader left.
+async fn bridge_one(stream: WgStream, local: TcpStream, mut stop: watch::Receiver<bool>) {
+    use tokio::io::AsyncWriteExt;
+    let (mut from_peer, mut to_peer) = tokio::io::split(stream);
+    let (mut from_local, mut to_local) = local.into_split();
+    let to_peer = async move {
+        let _ = tokio::io::copy(&mut from_local, &mut to_peer).await;
+        let _ = to_peer.shutdown().await;
+    };
+    let to_local = async move {
+        let _ = tokio::io::copy(&mut from_peer, &mut to_local).await;
+        let _ = to_local.shutdown().await;
+    };
+    tokio::pin!(to_peer, to_local);
+    let (mut peer_done, mut local_done) = (false, false);
+    while !(peer_done && local_done) {
+        tokio::select! {
+            () = &mut to_peer, if !peer_done => peer_done = true,
+            () = &mut to_local, if !local_done => local_done = true,
+            // The peer's side is given up; the listener's goes on to its end.
+            _ = stopping(&mut stop), if !local_done => local_done = true,
+        }
+    }
 }
 
 #[cfg(test)]

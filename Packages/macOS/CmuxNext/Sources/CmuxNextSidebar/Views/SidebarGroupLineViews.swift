@@ -187,15 +187,25 @@ final class GroupLineView: NSView {
     }
 
     private func updateShape() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let connected = SidebarStyle.groupChromeShape
+        // The clipping layer owns the terminal cap, so it follows the presentation bounds through a fold.
+        // Rounding the oversized body's bottom instead would clip the cap off the visible rail.
+        layer?.cornerRadius = connected ? bounds.width / 2 : 0
+        layer?.maskedCorners = layer?.contentsAreFlipped() == true
+            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        railShape.path = SidebarGroupLineShape.line(width: bounds.width, height: height)
+        railShape.path = connected ? SidebarGroupLineShape.connected(width: bounds.width, height: height)
+            : SidebarGroupLineShape.line(width: bounds.width, height: height)
     }
 
     /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
     /// observation at a time.
     private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = { _ = SidebarTunables.groupChromeShape.value; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

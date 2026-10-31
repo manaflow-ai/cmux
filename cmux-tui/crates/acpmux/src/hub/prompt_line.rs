@@ -76,7 +76,7 @@ fn senders<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
     }
     match senders.len() {
         0 => None,
-        n if n > 3 => Some(format!("{} +{}", senders[..3].join(", "), n - 3)),
+        n if n > 3 => senders.get(..3).map(|first| format!("{} +{}", first.join(", "), n - 3)),
         _ => Some(senders.join(", ")),
     }
 }

@@ -90,7 +90,7 @@ public final class MacFilterMemo {
         cachedEntries = MacScope.menuOrder(input.macs).map { mac in
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
-            let detail = [status, input.linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+            let detail = input.linkStatus[mac.id] ?? status
             return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
         }
         entriesKey = input

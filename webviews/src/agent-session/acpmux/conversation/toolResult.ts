@@ -16,6 +16,15 @@ export type ToolResult = {
   lang: "json" | "markdown" | "text";
 };
 
+export type ToolResultOptions = {
+  /// A web reader may return prose without Markdown punctuation. It still gets the readable
+  /// renderer; JSON and line-oriented logs remain mono even when the caller opts in.
+  markdown?: boolean;
+  kind?: string;
+  title?: string;
+  description?: string;
+};
+
 /// Outputs longer than this are shown as they are: parsing them would stall the pane.
 const MAX_PARSE_CHARS = 2_000_000;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
@@ -217,7 +226,11 @@ export function peelEnvelope(value: unknown, depth = 0, images?: ReadonlySet<str
   // A list of content blocks, or one block. Blocks with no text to read (audio alone) stay JSON.
   if (isBlocks(value) || isBlock(value)) {
     const blocks = Array.isArray(value) ? value : [value];
-    const peeled: Peeled = { texts: [], rest: [], images: images ? stripImages(blocks, images) : undefined };
+    const peeled: Peeled = {
+      texts: [],
+      rest: [],
+      images: images ? stripImages(blocks, images) : undefined,
+    };
     for (const block of blocks) peelBlock(block, peeled);
     return says(peeled) || Boolean(peeled.images?.length) ? peeled : undefined;
   }
@@ -230,7 +243,11 @@ export function peelEnvelope(value: unknown, depth = 0, images?: ReadonlySet<str
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
     const blocks = value.content as Block[];
-    const peeled: Peeled = { texts: [], rest: [], images: images ? stripImages(blocks, images) : undefined };
+    const peeled: Peeled = {
+      texts: [],
+      rest: [],
+      images: images ? stripImages(blocks, images) : undefined,
+    };
     for (const block of blocks) peelBlock(block, peeled);
     const structured = value.structuredContent;
     if (structured !== undefined && structured !== null) {
@@ -251,7 +268,10 @@ export function peelEnvelope(value: unknown, depth = 0, images?: ReadonlySet<str
       const { message, ...others } = error;
       if (!onlyKeys(others, ["code", "data"])) return { texts: [message], rest: [others] };
       // A `data` the error names, even null, follows it: only an absent one is left out.
-      return { texts: [message], rest: "data" in error && error.data !== undefined ? [error.data] : [] };
+      return {
+        texts: [message],
+        rest: "data" in error && error.data !== undefined ? [error.data] : [],
+      };
     }
     const result = value.result;
     if (result === undefined || result === null) return { texts: [], rest: [] };
@@ -307,18 +327,109 @@ export function losesNumbers(printed: string): boolean {
   return false;
 }
 
-/// Markdown structure in a result's text: a heading, a fence, a list, a table or a quote line.
-const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S)/m;
+/// Markdown structure in a result's text: a heading, a fence, a list, a table, a quote line or
+/// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
+const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
+const LOG_LINE = [
+  /^\s*\[(?:debug|info|warn|error|trace)\]/i,
+  /^\s*(?:\[[^\]]+\]\s*)?(?:debug|info|warn|error|trace)\b/i,
+  /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i,
+  // A timestamp leading the line, bracketed or not: an ISO date and time, or a time of day.
+  /^\s*\[?(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?\s/,
+];
+const CODE_DECLARATION = new RegExp(
+  String.raw`^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|` +
+    String.raw`try|except|async|await|export)\b`,
+  "m",
+);
+const CODE_ASSIGNMENT = /^\s*[A-Za-z_]\w*\s*=\s*[^=]/m;
+const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
+
+/// A fence line: up to three spaces, then three or more backticks or tildes (CommonMark).
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/// `text` without the contents of its closed fenced code blocks, so a snippet a Markdown document
+/// quotes (a fenced `const` or `import`) is not read as the result being source. An unclosed fence
+/// keeps its lines: a file that merely starts with backticks is still checked as code.
+function outsideFences(text: string): string {
+  const lines = text.split("\n");
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const open = FENCE.exec(lines[index]!)?.[1];
+    if (!open) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    const close = new RegExp(`^ {0,3}${open[0] === "`" ? "`" : "~"}{${open.length},}\\s*$`);
+    let end = index + 1;
+    while (end < lines.length && !close.test(lines[end]!)) end += 1;
+    if (end === lines.length) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    index = end;
+  }
+  return kept.join("\n");
+}
+
+/// A stack frame or cause under a log line, indented or not.
+const LOG_FRAME = /^\s*(?:at\s|Caused by:|\.\.\.)/;
+
+/// Log output: the first line is a log line, every other line is one, a frame, or indented detail,
+/// and at least half are log lines or frames, so Markdown with indented code is not read as a log.
+function isLog(lines: string[]): boolean {
+  const isLine = (line: string) => LOG_LINE.some((pattern) => pattern.test(line));
+  if (!isLine(lines[0]!)) return false;
+  let logged = 0;
+  for (const line of lines) {
+    if (isLine(line) || LOG_FRAME.test(line)) logged += 1;
+    else if (!/^\s/.test(line)) return false;
+  }
+  return logged * 2 >= lines.length;
+}
+
+function isMarkdownText(text: string, web = false): boolean {
+  if (text.length > MAX_MARKDOWN_CHARS) return false;
+  const lines = text.split("\n").filter((line) => line.trim());
+  if (!lines.length || isLog(lines)) return false;
+  const prose = outsideFences(text);
+  if (CODE_DECLARATION.test(prose) || CODE_ASSIGNMENT.test(prose) || DUNDER.test(prose)) return false;
+  return web || MARKDOWN.test(text);
+}
 
 /// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
 /// (mcpCalls.ts `cleanText`), once it is out of its envelope. `strip`: whether the call's strip
 /// shows its envelope's images (toolImages.ts `stripsEnvelopeImages`), so its text leaves them out.
-export function toolResult(output: string, clean: (text: string) => string = identity, strip = false): ToolResult {
+export function toolResult(
+  output: string,
+  clean: (text: string) => string = identity,
+  strip = false,
+  options: ToolResultOptions = {},
+): ToolResult {
   const { text, lang } = read(output, clean, strip);
-  return { text, lang };
+  return formatResult({ text, lang }, options);
+}
+
+/// Text already cleaned by a caller (the MCP request/response reader): classify its format
+/// without peeling or rewriting it again. All output surfaces share this one format rule.
+export function formatToolText(text: string, options: ToolResultOptions = {}): ToolResult {
+  return formatResult({ text, lang: parseJSONValue(text) === undefined ? "text" : "json" }, options);
+}
+
+function formatResult({ text, lang }: ToolResult, options: ToolResultOptions): ToolResult {
+  if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
+  if (options.kind === "execute") return { text, lang: "text" };
+  const webRead =
+    options.markdown ||
+    options.kind === "fetch" ||
+    /^\s*(?:fetch|web[\s._:-]*read)(?:\s|:|$)/i.test(options.title ?? "");
+  return {
+    text,
+    lang: isMarkdownText(text, lang === "markdown" || webRead) ? "markdown" : "text",
+  };
 }
 
 const identity = (text: string) => text;
@@ -387,13 +498,17 @@ function fromJSON(
       const nested = fromJSON(inner, text, depth + 1, clean, allowed);
       return { ...nested, images: orderedImages([...nested.images, ...images], allowed) };
     }
-    const markdown = text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text);
+    const markdown = isMarkdownText(text);
     return { text, lang: markdown ? "markdown" : "text", images: orderedImages(images, allowed) };
   }
   // JSON the tool returned. On one line it is indented, unless that would change it (a number a
   // double rounds) or it is nested too deep; printed on lines (a file it read) it stays as printed.
   const asPrinted = !oneLine(printed) || losesNumbers(printed) || deeperThan(value, MAX_PRETTY_DEPTH);
-  return { text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2), lang: "json", images: [] };
+  return {
+    text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2),
+    lang: "json",
+    images: [],
+  };
 }
 
 const imagesCache = new Map<string, string[]>();

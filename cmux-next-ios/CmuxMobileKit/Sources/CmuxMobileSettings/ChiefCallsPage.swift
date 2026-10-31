@@ -82,7 +82,7 @@ struct ChiefCallsPage: View {
             } header: {
                 Text("Voice")
             } footer: {
-                Text("Changes apply to the next call. Marin and Cedar sound most natural.")
+                Text("Changes apply to the next call.")
             }
 
             Section {
@@ -133,7 +133,11 @@ struct ChiefCallsPage: View {
                     ProgressView()
                         .accessibilityLabel("Checking with OpenAI")
                 } else {
-                    Button("Save Key", action: save)
+                    // The page's neutral tint is the label color (white in dark mode):
+                    // the title takes the background color so it never sits white on white.
+                    Button(action: save) {
+                        Text("Save Key").foregroundStyle(Color(uiColor: .systemBackground))
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(!keys.isPlausible(draft))
                         .accessibilityIdentifier("settings.chiefCalls.save")

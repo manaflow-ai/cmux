@@ -1,5 +1,5 @@
 {
-  "title": "The tab right-click menu with More open (debug.object_menu); needs --whole-host for the menu shot",
+  "title": "The tab right-click menu with Copy open (debug.object_menu); needs --whole-host for the menu shot",
   "steps": [
     {
       "title": "Launch",
@@ -39,12 +39,12 @@
       "optional": "debug.object_menu is DEBUG only"
     },
     {
-      "title": "Its More",
+      "title": "Its Copy",
       "rpc": {
         "method": "debug.object_menu",
         "params": {
           "folders": [
-            "More"
+            "Copy"
           ]
         }
       },
