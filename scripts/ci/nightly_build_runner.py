@@ -22,6 +22,13 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   reading the runners every 30 s; offline, unread or still busy after that, it is skipped.
   Leo, 2026-10-27: "what if we just dedicatd one, only, always, and it just
   incrementally... did the thing?"
+  A builder that refused its newest build-nightly-app job at "Set up runner" within
+  REFUSAL_HOLD (30 min) is skipped too, however idle GitHub lists it: its admission hook
+  (nightly_builder.py admit, glaeda's --min-free-gib) refuses below the disk floor, and GitHub
+  only sees an idle runner. On 2026-10-27/28 cmux7 sat at 27 to 35 GiB free under a 40 GiB
+  floor and refused every push's attempt 1 for hours (run 40614043040), each push losing an
+  attempt and a rescue re-run before it reached another pool (#25708). After the hold one run
+  probes it again, so a builder with its disk back is used again without anyone's say.
 - `owned`: the first of OWNED_LABELS (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, then
   vars.CI_SIDE_LANE_RUNNER) that the rescue watches, or the same label on a wider class
   (side_lane_placement.compatible_labels()), while an online runner carrying it
@@ -112,6 +119,73 @@ DEDICATED_LOOK_SECONDS = 30
 # The builder admits only a push to nightly-next (nightly_builder.py admit). A dispatched run sent
 # there is refused at "Set up runner" (run 40594111618, 2026-10-27: "event workflow_dispatch is not push").
 DEDICATED_EVENTS = frozenset({"push"})
+
+# A refusal at "Set up runner" holds the builder off this long; the next run after it probes it again.
+# Inspect the newest RECENT_RUNS nightly-next runs together: an older-created run can execute later
+# through a full rerun or delayed dependencies, so run creation order is not admission order.
+BUILD_JOB = "build-nightly-app"
+SETUP_STEP = "Set up runner"
+REFUSAL_HOLD = dt.timedelta(minutes=30)
+RECENT_RUNS = 6
+JOB_PAGES = 4
+
+
+def _stamp(value: Any) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _setup(job: Mapping[str, Any]) -> str:
+    """The conclusion of the job's "Set up runner" step: 'success', 'failure', or '' while undecided."""
+    for step in job.get("steps") or []:
+        if isinstance(step, Mapping) and step.get("name") == SETUP_STEP:
+            return str(step.get("conclusion") or "")
+    return ""
+
+
+def latest_admission(label: str, jobs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """The newest build-nightly-app job on `label` whose "Set up runner" was decided (admitted or refused)."""
+    decided = [job for job in jobs if isinstance(job, Mapping) and job.get("name") == BUILD_JOB
+               and label in (job.get("labels") or []) and _setup(job) in ("success", "failure")
+               and _stamp(job.get("started_at"))]
+    return max(decided, key=lambda job: _stamp(job["started_at"]), default=None)
+
+
+def refusal(label: str, job: Mapping[str, Any] | None, now: dt.datetime,
+            hold: dt.timedelta = REFUSAL_HOLD) -> str:
+    """Why the builder is held off: `job` (latest_admission()) was refused within `hold`; else ''."""
+    if not job or _setup(job) != "failure":
+        return ""
+    at = _stamp(job.get("completed_at")) or _stamp(job.get("started_at"))
+    if at is None or now - at > hold:
+        return ""
+    where = f" on {job['runner_name']}" if job.get("runner_name") else ""
+    return (f"`{label}` refused run {job.get('run_id') or '?'}'s {BUILD_JOB} at \"{SETUP_STEP}\"{where} "
+            f"{max(0, round((now - at).total_seconds() / 60))} min ago (its admission: disk floor or job shape); "
+            f"held off for {round(hold.total_seconds() / 60)} min")
+
+
+def read_admission(github: Any, label: str, runs: int = RECENT_RUNS) -> Mapping[str, Any] | None:
+    """latest_admission() across the newest `runs` nightly-next runs of nightly.yml."""
+    listed = github.get(f"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page={runs}")
+    admissions: list[Mapping[str, Any]] = []
+    for run in (listed or {}).get("workflow_runs") or []:
+        if not isinstance(run, Mapping) or not run.get("id"):
+            continue
+        # Every attempt's jobs (filter=all): a run on attempt 3 has more than one page of them.
+        jobs: list[Mapping[str, Any]] = []
+        for page in range(1, JOB_PAGES + 1):
+            batch = (github.get(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100&page={page}")
+                     or {}).get("jobs") or []
+            jobs.extend(batch)
+            if len(batch) < 100:
+                break
+        found = latest_admission(label, jobs)
+        if found is not None:
+            admissions.append(found)
+    return latest_admission(label, admissions)
 
 
 def dedicated_builder(runner: Mapping[str, Any]) -> bool:
@@ -244,7 +318,8 @@ def main(env: Mapping[str, str] = os.environ,
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None,
          now: dt.datetime | None = None, argv: Sequence[str] = (),
-         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> int:
+         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+         read_admission_fn: Callable[[str, str], Mapping[str, Any] | None] | None = None) -> int:
     now = now or dt.datetime.now(dt.timezone.utc)
     repo = env.get("GITHUB_REPOSITORY", "")
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
@@ -270,9 +345,23 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
 
+    # Before the busy wait: a builder that is refusing jobs is skipped at once, not waited on.
+    refused_why = ""
+    if pool.nightly_dedicated(dedicated_label) and env.get("SNAPSHOT_TOKEN") and repo:
+        try:
+            latest = (read_admission_fn or (lambda token, name: read_admission(pool.GitHub(token, name),
+                                                                               dedicated_label)))(
+                env["SNAPSHOT_TOKEN"], repo)
+            refused_why = refusal(dedicated_label, latest, now)
+        except Exception as error:  # noqa: BLE001 - an unread refusal leaves the builder offered
+            print(f"::warning title=nightly build runner::could not read the dedicated builder's recent "
+                  f"admissions ({str(error)[:200]})")
     waited_from = clock()
-    dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
-                                               wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
+    if refused_why:
+        dedicated, dedicated_why = "", refused_why
+    else:
+        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
+                                                   wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
     if off_event:
         dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"
     # The Blacksmith pick below reads queue ages against `now`: move it past the wait.
