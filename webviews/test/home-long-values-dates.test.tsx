@@ -132,3 +132,35 @@ test("Home's rows give a cut title and project their whole value", async () => {
   await act(async () => root.unmount());
   host.remove();
 });
+
+test("Home's folder name cuts with an ellipsis instead of pushing the age and chevron off the row", async () => {
+  // JSDOM has no layout: check that the folder span is the shrinkable, ellipsized one. The gallery's
+  // agent-pane.home-lists#long-values state shows the row itself.
+  const css = await Bun.file(new URL("../src/agent-session/acpmux/styles.css", import.meta.url)).text();
+  const rule = css.match(/\.acpmux-home-project\{([^}]*)\}/)?.[1] ?? "";
+  for (const declaration of ["min-width:0", "overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"])
+    expect(rule).toContain(declaration);
+  expect(rule).not.toContain("flex:none");
+
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const sessions = [
+    session({ sessionId: "home", updatedAt: NOW }),
+    session({
+      sessionId: "long",
+      title: "Payments",
+      cwd: LONG_CWD,
+      updatedAt: NOW,
+      pullRequest: { number: 19031, title: "Retry", state: "open", reviewReady: true },
+    }),
+  ];
+  await act(async () =>
+    root.render(
+      <HomeLists sessions={sessions} currentId="home" onSelect={() => {}} onAnswer={async () => "answered"} />,
+    ),
+  );
+  expect(host.querySelector(".acpmux-home-project")?.getAttribute("title")).toBe(LONG_CWD);
+  await act(async () => root.unmount());
+  host.remove();
+});
