@@ -44,6 +44,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     var followsBottom: () -> Bool = { true }
     /// Rows measured by a cell (tests and the rig's log).
     private(set) var measurements = 0
+    /// Heights drawn now instead of the measured ones: a held disclosure's row while its height
+    /// moves on the disclosure's spring (`ChatTranscriptList.beginHold`).
+    private var displayed: [String: CGFloat] = [:]
+    /// A cell measured a held row (`id`, its height drawn now, the measured one): true when the
+    /// list moves it there itself, on the disclosure's spring, so the layout does not jump to it.
+    var heldResize: ((String, CGFloat, CGFloat) -> Bool)?
 
     // MARK: Rows
 
@@ -79,6 +85,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func height(for item: Item) -> CGFloat {
+        if let shown = displayed[item.id] { return shown }
         guard !item.exact, let known = measured[item.id] else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
     }
@@ -86,7 +93,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// Text size changed: every measured height is stale.
     func forgetHeights() {
         measured = [:]
-        heights = items.map(\.estimate)
+        heights = items.map { displayed[$0.id] ?? $0.estimate }
         markDirty(0)
         invalidateLayout()
     }
@@ -96,6 +103,28 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// Drops heights of rows no longer in the transcript.
     func retainMeasured(_ ids: Set<String>) {
         measured = measured.filter { ids.contains($0.key) }
+        displayed = displayed.filter { ids.contains($0.key) }
+    }
+
+    /// Draws row `id` at `height` until `clearDisplayed` (the next layout pass places it).
+    func setDisplayed(_ id: String, _ height: CGFloat) {
+        displayed[id] = height
+        guard let row = index[id], row < heights.count, heights[row] != height else { return }
+        heights[row] = height
+        markDirty(row)
+    }
+
+    /// What a cell measured for row `id` now (the held row, measured by the list each frame).
+    func recordMeasured(_ id: String, _ height: CGFloat) {
+        guard let row = index[id], row < items.count else { return }
+        measured[id] = Measured(revision: items[row].revision, width: width, height: height)
+    }
+
+    /// Row `id` takes its measured height again.
+    func clearDisplayed(_ id: String) {
+        guard displayed.removeValue(forKey: id) != nil, let row = index[id], row < items.count, row < heights.count else { return }
+        heights[row] = height(for: items[row])
+        markDirty(row)
     }
 
     /// The height a cell measured for this row's current revision at this width, if any:
@@ -204,6 +233,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         measurements += 1
         let item = items[row]
         measured[item.id] = Measured(revision: item.revision, width: width, height: preferred.size.height)
+        if displayed[item.id] != nil, let heldResize, heldResize(item.id, heights[row], preferred.size.height) { return false }
         return abs(preferred.size.height - heights[row]) > 0.25
     }
 
@@ -214,6 +244,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         guard row < items.count, let collectionView else { return context }
         let delta = preferred.size.height - heights[row]
         heights[row] = preferred.size.height
+        if displayed[items[row].id] != nil { displayed[items[row].id] = preferred.size.height }
         markDirty(row)
         // A row above what the reader sees grew or shrank: keep what they see in place.
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
@@ -259,6 +290,33 @@ final class ChatRowCell: UICollectionViewCell {
     #if DEBUG
     var costKind = "?"
     #endif
+    /// The row's disclosure opens or closes under its held line (`ChatTranscriptList.beginHold`):
+    /// the cell's frame moves on the disclosure's spring and clips what it draws to that edge,
+    /// while the content keeps its own height from the cell's top (the body revealed by the
+    /// growing edge, or drawn closing under the shrinking one). Rows below never draw over it.
+    var folding = false {
+        didSet {
+            guard folding != oldValue else { return }
+            clipsToBounds = folding
+            if folding { known = nil }
+            setNeedsLayout()
+        }
+    }
+    /// The content's room while folding: taller than any disclosure's body, so SwiftUI places
+    /// the row at the top (`foldableRow`) instead of centering it in the moving frame.
+    static let foldContentHeight: CGFloat = 4096
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard folding else { return }
+        let room = CGRect(x: 0, y: 0, width: bounds.width, height: max(bounds.height, Self.foldContentHeight))
+        if contentView.frame != room { contentView.frame = room }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        folding = false
+    }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         if let known, abs(known.width - attributes.size.width) < 0.5, abs(known.height - attributes.size.height) < 0.5 {
@@ -381,6 +439,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         super.init()
         lookup.showAll = { [weak self] id in self?.showAll(id) }
+        wireFold(lookup.context)
+        layout.heldResize = { [weak self] id, drawn, measured in self?.heldRowMeasured(id, drawn: drawn, measured: measured) ?? false }
         collectionView.prefetchDataSource = self
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
         collectionView.backgroundColor = .clear
@@ -397,8 +457,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The tab's session was replaced: show the new store's turns.
     func show(store: AgentChatStore) {
         guard store !== self.store else { return }
+        cancelHold()
         self.store = store
         lookup.context = ChatRowContext(store: store, surface: surface)
+        wireFold(lookup.context)
         builder = ChatTranscriptBuilder(diffs: store.diffs)
         rows = [:]
         revisions.removeAll()
@@ -655,7 +717,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         applies += 1
         lastReconfigured = changed.count
-        let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        // A held disclosure's line is the anchor: rows above it that change do not move it.
+        let anchor: (id: String, top: CGFloat)? = if let held = lookup.heldRow, let top = layout.top(of: held) {
+            (held, top)
+        } else if surface.following || !loaded {
+            nil
+        } else {
+            layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        }
         layout.setItems(items)
         // A row whose cell type changes (native and SwiftUI) is reloaded; reconfiguring one
         // must dequeue the same cell type.
@@ -693,10 +762,243 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if let anchor, let top = layout.top(of: anchor.id), abs(top - anchor.top) > 0.5 {
             collectionView.contentOffset.y += top - anchor.top
         }
+        // The held row's disclosure changed: its cell measures its SwiftUI content again (the
+        // change lands as the height the spring moves to).
+        if let held = lookup.heldRow { hostedCell(held)?.invalidateIntrinsicContentSize() }
         loaded = true
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(ids)
     }
+
+    // MARK: Disclosure hold
+
+    /// A tapped row asks for its line to be held (`ChatTranscriptController.holdForDisclosure(row:)`),
+    /// and lets go when its animation completes (`ChatTranscriptController.endFoldHold`).
+    var holdRequested: ((String) -> Void)?
+    var releaseRequested: (() -> Void)?
+    /// Reduce Motion: a held row takes its new height at once (the controller's seam).
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+    /// The held row's height moving on the disclosure's spring.
+    private var fold: ChatFoldSpring?
+    private var foldLink: CADisplayLink?
+    /// The hold ended while the row's height still moves: it lets go when that lands.
+    private var releasePending = false
+    /// The held row's height is moving (the controller's offset follows it frame by frame).
+    var isFolding: Bool { fold != nil }
+    var heldRow: String? { lookup.heldRow }
+
+    private func wireFold(_ context: ChatRowContext) {
+        context.beginFold = { [weak self] id in self?.holdRequested?(id) }
+        context.endFold = { [weak self] in self?.releaseRequested?() }
+    }
+
+    /// Holds row `id`'s line while its disclosure opens or closes. The row is drawn by its SwiftUI
+    /// view for the whole change (a native line is swapped for it, drawn closed, before the change
+    /// lands, so its body opens with `DisclosureReveal`), keeps its top (the reload anchor), and its
+    /// height moves to what its cell measures on the disclosure's spring: the rows below move with
+    /// its growing edge and the cell clips its body to that edge (`ChatRowCell.folding`).
+    func beginHold(_ id: String) {
+        // Another row's hold hands over to this one (the controller keeps holding).
+        if let held = lookup.heldRow, held != id {
+            onRelease = nil
+            finishHold()
+        }
+        onRelease = nil
+        releasePending = false
+        guard rows[id] != nil else { return }
+        if lookup.heldRow != id {
+            lookup.heldRow = id
+            if let frame = layout.frame(of: id) { layout.setDisplayed(id, frame.height) }
+        }
+        if lookup.shownPool[id]?.hasPrefix("N:") == true {
+            if let row = rows[id] { shownTurns[row.turnID] = nil }
+            forced.insert(id)
+            reload()
+            // The SwiftUI row draws its closed state now, so the change that follows animates.
+            collectionView.layoutIfNeeded()
+        }
+        hostedCell(id)?.folding = true
+        startFoldLink()
+    }
+
+    /// The hold ended. `now` (a drag, a jump, a store swap): the row lands at once. Otherwise it
+    /// lets go once its height has landed, never from inside the animation's completion (a SwiftUI
+    /// update): the display link's next frames. `released` runs when the row has let go.
+    func endHold(now: Bool, released: @escaping () -> Void) {
+        guard lookup.heldRow != nil else {
+            released()
+            return
+        }
+        onRelease = released
+        if now {
+            finishHold()
+            return
+        }
+        releasePending = true
+        startFoldLink()
+    }
+    private var onRelease: (() -> Void)?
+    /// Heights closer than this are the same while a row is held.
+    static let foldTolerance: CGFloat = 1
+    /// The held row's height changed outside the spring (Reduce Motion): lay it out next frame.
+    private var foldDirty = false
+
+    /// The row takes its measured height and its resting cell again (a closed tool row or group
+    /// goes back to its native line).
+    private func finishHold() {
+        guard let id = lookup.heldRow else { return }
+        if let fold, fold.id == id { layout.setDisplayed(id, fold.target) }
+        stopFold()
+        // What the row measures now is what it rests at (and what a reused cell is sized by).
+        if let fitted = measureHeld(id) { layout.recordMeasured(id, fitted) }
+        releasePending = false
+        lookup.heldRow = nil
+        hostedCell(id)?.folding = false
+        layout.clearDisplayed(id)
+        if let row = rows[id] { shownTurns[row.turnID] = nil }
+        forced.insert(id)
+        UIView.performWithoutAnimation {
+            reload()
+            collectionView.layoutIfNeeded()
+        }
+        let released = onRelease
+        onRelease = nil
+        released?()
+    }
+
+    /// The tab's session was replaced: nothing is held any more.
+    private func cancelHold() {
+        stopFold()
+        releasePending = false
+        onRelease = nil
+        if let id = lookup.heldRow { layout.clearDisplayed(id) }
+        lookup.heldRow = nil
+    }
+
+    /// A cell measured the held row: its height moves there on the disclosure's spring (Reduce
+    /// Motion: at once, through the layout's own path).
+    private func heldRowMeasured(_ id: String, drawn: CGFloat, measured: CGFloat) -> Bool {
+        guard id == lookup.heldRow else { return false }
+        if reducesMotion() {
+            guard abs(drawn - measured) >= Self.foldTolerance else { return true }
+            // At once, with no implicit animation (a collection view animates a cell's own
+            // self-sizing change): laid out on the display link's next frame.
+            layout.setDisplayed(id, measured)
+            foldDirty = true
+            startFoldLink()
+            return true
+        }
+        let now = CACurrentMediaTime()
+        // Under a point is the same height: the cell's own sizing and `measureHeld` round apart
+        // by a fraction, and a spring retargeted every frame never lands.
+        if let fold, fold.id == id {
+            if abs(fold.target - measured) >= Self.foldTolerance { fold.retarget(to: measured, at: now) }
+        } else if abs(drawn - measured) >= Self.foldTolerance {
+            fold = ChatFoldSpring(id: id, from: drawn, to: measured, at: now)
+        }
+        startFoldLink()
+        return true
+    }
+
+    /// The held row's SwiftUI content measured at the cell's width, as the cell sizes itself
+    /// (`ChatRowCell.preferredLayoutAttributesFitting`).
+    private func measureHeld(_ id: String) -> CGFloat? {
+        guard let cell = hostedCell(id), cell.bounds.width > 0 else { return nil }
+        let size = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+        let scale = collectionView.traitCollection.displayScale > 0 ? collectionView.traitCollection.displayScale : 3
+        return max(1, (size.height * scale).rounded(.up) / scale)
+    }
+
+    /// Runs `foldFrame` every display frame while a row is held or its height moves.
+    private func startFoldLink() {
+        guard foldLink == nil else { return }
+        let link = CADisplayLink(target: FoldLinkTarget(self), selector: #selector(FoldLinkTarget.tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        foldLink = link
+    }
+
+    /// One display frame of a hold. The held row is measured (its SwiftUI content changes on
+    /// the disclosure's animation; a cell does not always size itself again when it does) and its
+    /// height moves on the disclosure's spring: its height, the rows below and the content size
+    /// move together (the controller keeps the offset in range in the same pass).
+    fileprivate func foldFrame(_ link: CADisplayLink) {
+        var moved = foldDirty
+        foldDirty = false
+        if let held = lookup.heldRow, let fitted = measureHeld(held) {
+            let drawn = layout.frame(of: held)?.height ?? fitted
+            let goal = fold.map { $0.id == held ? $0.target : drawn } ?? drawn
+            if abs(fitted - goal) >= Self.foldTolerance {
+                layout.recordMeasured(held, fitted)
+                if reducesMotion() {
+                    layout.setDisplayed(held, fitted)
+                    moved = true
+                } else {
+                    _ = heldRowMeasured(held, drawn: drawn, measured: fitted)
+                }
+            }
+        }
+        if let fold {
+            let (height, done) = fold.sample(at: link.targetTimestamp)
+            layout.setDisplayed(fold.id, height)
+            moved = true
+            if done { self.fold = nil }
+        }
+        if moved {
+            // The spring is the motion: no implicit animation on top of it.
+            UIView.performWithoutAnimation {
+                layout.invalidateLayout()
+                collectionView.layoutIfNeeded()
+            }
+        }
+        guard fold == nil else { return }
+        if releasePending {
+            finishHold()
+        } else if lookup.heldRow == nil {
+            stopFold()
+        }
+    }
+
+    private func stopFold() {
+        fold = nil
+        foldLink?.invalidate()
+        foldLink = nil
+    }
+
+    private func hostedCell(_ id: String) -> ChatRowCell? {
+        guard let path = dataSource.indexPath(for: id) else { return nil }
+        return collectionView.cellForItem(at: path) as? ChatRowCell
+    }
+
+    #if DEBUG
+    /// The list rig's disclosure (`CMUX_MOBILE_LIST_TOGGLE=1`): the tool row or group whose line is
+    /// nearest content y `y` among the rows on screen, and its disclosure key.
+    func demoDisclosure(nearContentY y: CGFloat) -> (id: String, key: String)? {
+        var best: (id: String, key: String, distance: CGFloat)?
+        for path in collectionView.indexPathsForVisibleItems {
+            guard let id = dataSource.itemIdentifier(for: path), let row = rows[id], let top = layout.top(of: id) else { continue }
+            let key: String
+            switch row.kind {
+            case .tool(let call): key = "tool-\(call.id)"
+            case .toolGroup(let calls, _): key = "group-\(calls.first?.id ?? "")"
+            default: continue
+            }
+            let distance = abs(top - y)
+            if distance < best?.distance ?? .infinity { best = (id, key, distance) }
+        }
+        return best.map { ($0.id, $0.key) }
+    }
+
+    /// Row `id`'s frame in content coordinates (the rig's log, tests).
+    func rowFrame(_ id: String) -> (top: CGFloat, height: CGFloat)? { layout.frame(of: id) }
+
+    /// The cell drawing row `id` (tests).
+    func cell(for id: String) -> UICollectionViewCell? {
+        dataSource.indexPath(for: id).flatMap { collectionView.cellForItem(at: $0) }
+    }
+    #endif
 
     // MARK: Warm-up
 
@@ -763,6 +1065,54 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 }
 
+/// A held disclosure row's height on `Animation.cmuxMobileSmooth`'s spring (0.35 s, no bounce),
+/// the spring the body's `DisclosureReveal` plays on, so the cell's edge and the body's reveal
+/// move together. A new measurement mid-way retargets it from where it is, with its velocity.
+@MainActor
+final class ChatFoldSpring {
+    static let spring = Spring(duration: 0.35, bounce: 0)
+    let id: String
+    private(set) var target: CGFloat
+    private var from: CGFloat
+    private var velocity: CGFloat = 0
+    private var start: CFTimeInterval
+    private var settle: TimeInterval
+
+    init(id: String, from: CGFloat, to: CGFloat, at time: CFTimeInterval) {
+        self.id = id
+        self.from = from
+        target = to
+        start = time
+        settle = Self.spring.settlingDuration(target: to - from, initialVelocity: 0, epsilon: 0.1)
+    }
+
+    /// The height at `time`, and whether it has landed.
+    func sample(at time: CFTimeInterval) -> (CGFloat, Bool) {
+        let t = max(0, time - start)
+        guard t < settle else { return (target, true) }
+        return (from + Self.spring.value(target: target - from, initialVelocity: velocity, time: t), false)
+    }
+
+    func retarget(to new: CGFloat, at time: CFTimeInterval) {
+        let t = max(0, time - start)
+        let (current, landed) = sample(at: time)
+        let moving = landed ? 0 : Self.spring.velocity(target: target - from, initialVelocity: velocity, time: t)
+        from = current
+        target = new
+        velocity = moving
+        start = time
+        settle = Self.spring.settlingDuration(target: new - current, initialVelocity: moving, epsilon: 0.1)
+    }
+}
+
+/// Breaks the display link's retain of the list.
+@MainActor
+private final class FoldLinkTarget: NSObject {
+    weak var owner: ChatTranscriptList?
+    init(_ owner: ChatTranscriptList) { self.owner = owner }
+    @objc func tick(_ link: CADisplayLink) { owner?.foldFrame(link) }
+}
+
 /// One SwiftUI cell registration per row kind (separate reuse pools).
 @MainActor
 final class ChatHostedRegistrations {
@@ -820,6 +1170,9 @@ final class ChatRowLookup {
     var shownPool: [String: String] = [:]
     /// The row holding Find in Chat's current match: SwiftUI, which draws the mark.
     var markedRow: String?
+    /// The tapped disclosure's row while its line is held: SwiftUI, whose body opens and closes
+    /// on the disclosure's animation (`ChatTranscriptList.beginHold`).
+    var heldRow: String?
 
     /// The pool the data source dequeues `id` from now.
     func pool(for id: String) -> String {
@@ -842,7 +1195,7 @@ final class ChatRowLookup {
     /// Drawn natively: a native kind in its resting state (an open tool row, group or thought
     /// shows its SwiftUI view).
     func eligible(_ row: ChatRow) -> Bool {
-        guard row.id != markedRow else { return false }
+        guard row.id != markedRow, row.id != heldRow else { return false }
         let disclosures = context.surface.disclosures
         return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false) {
             disclosures.isOpen($0)
@@ -897,6 +1250,7 @@ final class ChatRowLookup {
         shownNative[id] = false
         shownPool[id] = "H:" + row.hostedReuseKey
         cell.known = layout?.knownHeight(of: id)
+        cell.folding = id == heldRow
         #if DEBUG
         let start = CACurrentMediaTime()
         if ChatRowCost.isEnabled { cell.costKind = row.costKind }

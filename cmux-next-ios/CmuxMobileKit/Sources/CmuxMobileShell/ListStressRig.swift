@@ -52,6 +52,11 @@ final class ListStressRig: NSObject {
         }
         await rig.open(screen)
         try? await Task.sleep(for: .seconds(settings.settle))
+        if settings.toggles {
+            await rig.toggleDisclosures()
+            rig.finish()
+            return
+        }
         guard settings.passes > 0 else {
             // A still: hold the screen (optionally panned) for a screenshot.
             if let x = settings.holdX, let scroll = rig.findScrollView(horizontal: true) {
@@ -201,6 +206,28 @@ final class ListStressRig: NSObject {
             case 1: WorkspaceTab(id: "t-g\(index)", kind: .terminal, title: "zsh \(index)", subtitle: "~/Development/cmux")
             default: WorkspaceTab(id: "t-g\(index)", kind: .browser, title: "Docs \(index)", subtitle: "developer.apple.com",
                                   url: URL(string: "https://developer.apple.com/documentation/swiftui"))
+            }
+        }
+    }
+
+    // MARK: Disclosures
+
+    /// `CMUX_MOBILE_LIST_TOGGLE=1`: rests in the middle of the transcript, then opens and closes the
+    /// tool row nearest the screen's middle twice, with pauses (the transcript logs its line each frame).
+    private func toggleDisclosures() async {
+        guard let scroll = findScrollView(horizontal: false) else {
+            log.error("FRAMELOG list-stress toggle no scroll view")
+            return
+        }
+        let top = -scroll.adjustedContentInset.top
+        let bottom = max(top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+        scroll.contentOffset.y = top + (bottom - top) / 2
+        try? await Task.sleep(for: .seconds(1.5))
+        for round in 0..<2 {
+            for open in [true, false] {
+                log.notice("FRAMELOG list-stress toggle tap round=\(round, privacy: .public) open=\(open, privacy: .public)")
+                DemoDirector.shared.post(.chatToggleDisclosure)
+                try? await Task.sleep(for: .seconds(1.8))
             }
         }
     }

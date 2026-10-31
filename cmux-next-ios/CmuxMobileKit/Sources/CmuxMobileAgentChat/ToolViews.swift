@@ -27,6 +27,7 @@ struct ToolRowView: View {
     @State private var localExpanded = false
     @Environment(\.openSessionFile) private var openFile
     @Environment(\.chatDisclosures) private var disclosures
+    @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
 
     /// Kept by the transcript when it has a store (its rows are reused cells), else here.
@@ -35,7 +36,7 @@ struct ToolRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                toggleDisclosure(holdFold) {
                     if let disclosures { disclosures.set("tool-\(call.id)", !expanded) } else { localExpanded.toggle() }
                 }
             } label: {
@@ -45,8 +46,9 @@ struct ToolRowView: View {
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
             if expanded {
+                // Grows down from under the row, never slides in over it.
                 ToolOutputView(call: call)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.disclosureReveal)
             }
         }
         .accessibilityElement(children: .contain)
@@ -135,6 +137,7 @@ struct ToolGroupView: View {
     let turnRunning: Bool
     @State private var userExpanded: Bool?
     @Environment(\.chatDisclosures) private var disclosures
+    @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
 
     private var key: String { "group-\(calls.first?.id ?? "")" }
@@ -143,7 +146,7 @@ struct ToolGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                toggleDisclosure(holdFold) {
                     if let disclosures { disclosures.set(key, !expanded) } else { userExpanded = !expanded }
                 }
             } label: {
@@ -187,7 +190,7 @@ struct ToolGroupView: View {
                 .overlay(alignment: .leading) {
                     Rectangle().fill(Color(uiColor: .separator)).frame(width: 1).padding(.leading, 8).padding(.vertical, 6)
                 }
-                .transition(.opacity)
+                .transition(.disclosureReveal)
             } else if let live = calls.last(where: \.isRunning) {
                 ToolRowView(call: live)
                     // Each running call is its own row: one call's expansion
@@ -215,6 +218,7 @@ struct ThoughtRow: View {
     var id: String?
     @State private var localChoice = DisclosureChoice()
     @Environment(\.chatDisclosures) private var disclosures
+    @Environment(\.transcriptFoldHold) private var holdFold
 
     private var choice: DisclosureChoice {
         get {
@@ -232,7 +236,7 @@ struct ThoughtRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { choice.toggle(automatic: isLive) }
+                toggleDisclosure(holdFold) { choice.toggle(automatic: isLive) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
@@ -263,7 +267,7 @@ struct ThoughtRow: View {
                     // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
                     .truncationMode(.head)
                     .padding(.leading, 26)
-                    .transition(.opacity)
+                    .transition(.disclosureReveal)
             }
         }
     }

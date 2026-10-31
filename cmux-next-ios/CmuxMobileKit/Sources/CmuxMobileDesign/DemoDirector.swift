@@ -22,6 +22,8 @@ public final class DemoDirector {
         case feedOpen(event: String)
         case chatSend(String)
         case chatScroll(toTop: Bool)
+        /// Opens or closes the transcript's tool row nearest the middle of the screen, as a tap does.
+        case chatToggleDisclosure
         case chatPermission(optionKind: String)
         case chatOpenChanges
         case chatOpenFirstFile

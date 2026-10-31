@@ -232,6 +232,8 @@ public final class AgentChatSurface {
             } else {
                 withAnimation(.smooth(duration: 0.9)) { position.scrollTo(edge: toTop ? .top : .bottom) }
             }
+        case .chatToggleDisclosure:
+            (scroller as? ChatTranscriptController)?.demoToggleDisclosure()
         case .chatPermission(let kind):
             if let permission = store.pendingPermission,
                let option = permission.request.options.first(where: { $0.kind.rawValue == kind }) {

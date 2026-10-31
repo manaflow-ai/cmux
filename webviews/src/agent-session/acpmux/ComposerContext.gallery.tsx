@@ -10,6 +10,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import type { Project } from "./ProjectChooser";
 import { fleetPeers } from "../../gallery/fixtures/acpmux";
+import { thisMacName } from "./environments";
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -596,6 +597,34 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-cloud-chat": {
+      // The whole list, down to the Cloud section, past the entry's 180px stage.
+      height: 420,
+      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac keeps this Mac's own name (office-mac, the host's `localMachineName`) and the Cloud machine is listed under Cloud and VMs, never under This Mac (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
+      props: {
+        ...baseProps,
+        environments: true,
+        summary: { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" as const },
+        sessions: [
+          {
+            sessionId: "gallery-sandpiper",
+            displayTitle: "Set up the repo",
+            cwd: "/root/work",
+            host: "kind-aqua-sandpiper",
+            hostKind: "cloud" as const,
+            updatedAt: 0,
+          },
+        ],
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        localName: thisMacName("office-mac", "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileSupport
+import OSLog
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -108,6 +109,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let jumpHostSize: CGFloat = 44
     /// The external stack's bottom with the keyboard down, view coordinates.
     private var externalRest: CGFloat?
+    /// A disclosure the person tapped is opening or closing (`holdForDisclosure`): until its
+    /// animation completes, the tapped line stays where it is drawn.
+    private var foldHolding = false
+    /// A safety cap on the hold, should the animation's completion never come (a view torn down
+    /// mid-animation). The hold normally ends on that completion (`toggleDisclosure`).
+    private var foldHoldCap: Task<Void, Never>?
+    static let foldHoldCapSeconds: Double = 1.5
     #if DEBUG
     private var trace: ChatKeyboardTrace?
     #endif
@@ -129,6 +137,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         shownIdentity = ObjectIdentifier(store)
         super.init(nibName: nil, bundle: nil)
         list.collectionView.didLayout = { [weak self] in self?.transcriptLaidOut() }
+        // A tapped disclosure holds its line (`holdForDisclosure`) until its animation completes.
+        list.holdRequested = { [weak self] row in self?.holdForDisclosure(row: row) }
+        list.releaseRequested = { [weak self] in self?.endFoldHold() }
+        list.reducesMotion = { [weak self] in self?.reducesMotion() ?? UIAccessibility.isReduceMotionEnabled }
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
         }
@@ -159,6 +171,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     /// The rows' environment (open a diff or a file, attachments, links).
     var rowContext: ChatRowContext { list.context }
+    /// The transcript's rows (tests).
+    var transcriptList: ChatTranscriptList { list }
 
     /// The hosted views observe the store and the surface themselves, so
     /// their roots are set once: replacing a root on every update put each
@@ -169,6 +183,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func update(store: AgentChatStore, empty: AnyView, dock: AnyView?, jump: AnyView?) {
         let identity = ObjectIdentifier(store)
         if let shown = shownIdentity, shown != identity {
+            // A store swap ends a disclosure's hold.
+            endFoldHold(now: true)
             list.show(store: store)
             emptyHost.rootView = empty
             if let dock {
@@ -456,6 +472,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let headerBottom = self.headerBottom
         let visible = view.bounds.height - headerBottom - bottom
         let top = max(headerBottom, headerBottom + visible - contentHeight)
+        if foldHolding {
+            holdFoldLine(top: top, bottom: bottom, headerBottom: headerBottom)
+            return
+        }
         let old = scrollView.contentInset
         let bottomDelta = positionedInitially ? bottom - old.bottom : 0
         if old.top != top || old.bottom != bottom {
@@ -505,7 +525,127 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let height = list.layout.contentHeight
         guard abs(height - contentHeight) > 0.25 else { return }
         contentHeight = height
-        UIView.performWithoutAnimation { updateInsets() }
+        if foldHolding {
+            // Not inside performWithoutAnimation: the glide into range (`holdFoldLine`) can be an
+            // animation. The content height itself never snaps during the hold: the list moves the
+            // held row's height on the disclosure's spring, frame by frame.
+            updateInsets()
+        } else {
+            UIView.performWithoutAnimation { updateInsets() }
+        }
+    }
+
+    // MARK: Disclosures
+
+    /// A disclosure in the transcript was tapped (a tool group, a tool call, a thought): its line
+    /// stays where it is drawn while the body opens or closes under it, as in ChatGPT. Opening
+    /// pushes what is below down, so a reader on the newest row stops following it (the jump
+    /// button shows); closing at the end lets the rows above come down with the same spring.
+    /// `row`: the tapped row, which the list anchors (not the newest row) and whose height it
+    /// moves on the disclosure's spring (`ChatTranscriptList.beginHold`).
+    func holdForDisclosure(row: String) {
+        guard isViewLoaded, positionedInitially, !scrollView.isTracking else { return }
+        foldHolding = true
+        surface.following = false
+        list.beginHold(row)
+        foldHoldCap?.cancel()
+        // A bounded safety cap only; the animation's completion ends the hold.
+        foldHoldCap = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.foldHoldCapSeconds))
+            guard !Task.isCancelled else { return }
+            // The safety net lets go at once (the row lands where it was measured).
+            self?.endFoldHold(now: true)
+        }
+    }
+
+    /// The disclosure's animation completed (or the safety cap): the line is held until the
+    /// row's height lands, then let go (`foldReleased`). `now`: the reader's own scroll, a jump,
+    /// or a store swap, which end it at once.
+    func endFoldHold(now: Bool = false) {
+        guard foldHolding else { return }
+        foldHoldCap?.cancel()
+        foldHoldCap = nil
+        list.endHold(now: now) { [weak self] in self?.foldReleased() }
+    }
+
+    private func foldReleased() {
+        guard foldHolding else { return }
+        foldHolding = false
+        foldHoldCap?.cancel()
+        foldHoldCap = nil
+        UIView.performWithoutAnimation { view.layoutIfNeeded() }
+        guard !scrollView.isTracking, !scrollView.isDecelerating, surface.find?.currentMatch == nil else { return }
+        // Resting on the newest row follows it again. Otherwise the view stays where the reader
+        // put it: an open pushed the newest row down, or one streamed in meanwhile, and the jump
+        // button shows (as the Mac transcript does, foldAnchor.ts). Snapping back here would
+        // move the line the reader just opened.
+        if abs(distanceFromBottom) < 2 {
+            surface.following = true
+        }
+    }
+
+    /// A disclosure's line is held (tests).
+    var isHoldingFold: Bool { foldHolding }
+
+    #if DEBUG
+    /// The list rig's disclosure (`CMUX_MOBILE_LIST_TOGGLE=1`), chosen on its first tap.
+    private var demoFold: (id: String, key: String)?
+
+    /// The list rig taps a disclosure: the tool row or group nearest the middle of the screen
+    /// (the same one each time), through the path its line's own tap takes
+    /// (`ChatRowContext.toggleFold`). Logs where its line is drawn each frame for a second.
+    func demoToggleDisclosure() {
+        let middle = scrollView.contentOffset.y + scrollView.bounds.height / 2
+        let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+        guard let fold = demoFold ?? list.demoDisclosure(nearContentY: middle) else {
+            log.error("FRAMELOG list-stress toggle no disclosure on screen")
+            return
+        }
+        demoFold = fold
+        let open = surface.disclosures.isOpen(fold.key) != true
+        let start = CACurrentMediaTime()
+        list.context.toggleFold(row: fold.id, key: fold.key, open: open)
+        ChatFoldTrace.run(seconds: 1.2) { [weak self] in
+            guard let self, let frame = self.list.rowFrame(fold.id) else { return }
+            // As drawn this frame: the scroll position's presentation value.
+            let offset = self.scrollView.layer.presentation()?.bounds.origin.y ?? self.scrollView.contentOffset.y
+            let top = self.view.convert(CGPoint(x: 0, y: self.scrollView.frame.minY + frame.top - offset), to: nil).y
+            let line = String(format: "open=%d t=%.3f top=%.2f height=%.2f offset=%.2f following=%d holding=%d folding=%d",
+                              open ? 1 : 0, CACurrentMediaTime() - start, top, frame.height, offset,
+                              self.surface.following ? 1 : 0, self.foldHolding ? 1 : 0, self.list.isFolding ? 1 : 0)
+            log.notice("FRAMELOG list-stress toggle \(fold.key, privacy: .public) \(line, privacy: .public)")
+        }
+    }
+    #endif
+
+    /// The hold's layout pass: no following and no snap. A keyboard that moves meanwhile (a tap
+    /// that dismisses it) keeps the line too; the offset only stays in range. Only when the change leaves the view
+    /// past what the content now allows (a body closing at the end, a short chat that sits on the
+    /// stack) does the offset glide into range, on the disclosure's spring.
+    private func holdFoldLine(top: CGFloat, bottom: CGFloat, headerBottom: CGFloat) {
+        let lowest = -top
+        let highest = max(lowest, contentHeight + bottom - view.bounds.height)
+        let y = scrollView.contentOffset.y
+        let target = min(max(lowest, y), highest)
+        if abs(target - y) > 0.5 {
+            // The model offset is the target at once, so the insets below never clamp it. While the
+            // list moves the held row's height on the spring, the range moves with it frame by
+            // frame: following it at once is the glide on that spring.
+            if reducesMotion() || list.isFolding {
+                scrollView.contentOffset.y = target
+            } else {
+                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                    self.scrollView.contentOffset.y = target
+                }
+            }
+        }
+        let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        if scrollView.contentInset != insets {
+            scrollView.contentInset = insets
+            scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: headerBottom, left: 0, bottom: bottom, right: 0)
+        }
+        lastOffsetY = scrollView.contentOffset.y
+        updateJump()
     }
 
     /// The stack's height as drawn this frame, from the stack itself
@@ -620,7 +760,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     // MARK: Scrolling
 
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { followDraggedKeyboard(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // The person's own scroll ends a disclosure's hold.
+        endFoldHold(now: true)
+        followDraggedKeyboard(true)
+    }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
 
@@ -630,6 +774,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         lastOffsetY = y
         updateJump()
         let away = scrolledDistanceFromBottom > 80
+        // A disclosure's glide is not the reader's scroll: following is settled when it ends.
+        if foldHolding, !scrollView.isTracking { return }
         if scrollView.isTracking || scrollView.isDecelerating {
             surface.following = !away
         } else if !away, surface.find?.currentMatch == nil {
@@ -657,6 +803,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        endFoldHold(now: true)
         surface.following = !toTop
         view.layoutIfNeeded()
         scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
@@ -666,6 +813,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        endFoldHold(now: true)
         surface.following = false
         view.layoutIfNeeded()
         scroll(to: findTarget(contentY: y), animated: animated)
@@ -673,6 +821,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     func scrollTranscript(toFindBlock key: String, position: Double, animated: Bool) -> Bool {
         guard list.findFrame(key) != nil else { return false }
+        endFoldHold(now: true)
         surface.following = false
         view.layoutIfNeeded()
         // Rows the reader has not reached are estimated until their cells measure them: the
@@ -800,6 +949,37 @@ private final class NextFrame: NSObject {
         block = nil
     }
 }
+
+#if DEBUG
+/// Runs a block every display frame for a while (the list rig's disclosure log).
+@MainActor
+private final class ChatFoldTrace: NSObject {
+    private var block: (() -> Void)?
+    private var link: CADisplayLink?
+    private var end: CFTimeInterval = 0
+    private static var running: Set<ChatFoldTrace> = []
+
+    static func run(seconds: Double, _ block: @escaping () -> Void) {
+        let trace = ChatFoldTrace()
+        trace.block = block
+        trace.end = CACurrentMediaTime() + seconds
+        let link = CADisplayLink(target: trace, selector: #selector(tick))
+        trace.link = link
+        link.add(to: .main, forMode: .common)
+        running.insert(trace)
+        block()
+    }
+
+    @objc private func tick() {
+        block?()
+        guard CACurrentMediaTime() >= end else { return }
+        link?.invalidate()
+        link = nil
+        block = nil
+        Self.running.remove(self)
+    }
+}
+#endif
 
 /// Takes touches only in its bottom `interactiveHeight` (the stack); the
 /// empty space above lets them through to the transcript. (SwiftUI handles

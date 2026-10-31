@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
@@ -312,12 +313,15 @@ public struct RootView: View {
             accountUserID = nil
         }
         store.resetForSignOut()
+        // The chats loaded in this launch go too: the next background would save them again.
+        AgentSessionDirectory.shared.removeAll()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
-        // The App Group is resolved and emptied off the main thread.
+        // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
+        let snapshotsCleared = PushSnapshots.clearForSignOut()
         Task.detached(priority: .utility) {
+            await snapshotsCleared.value
             let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
-            PushSnapshotStore(group: group)?.removeAll()
             PushOutbox(group: group)?.removeAll()
         }
         welcomeCut = false

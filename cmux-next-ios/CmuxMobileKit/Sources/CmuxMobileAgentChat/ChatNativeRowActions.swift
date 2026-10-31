@@ -100,8 +100,16 @@ enum ChatNativeRowActions {
         default:
             break
         }
+        let rowID = row.id
         actions.hit = { hit in
-            if case .toggle(let key) = hit { ChatMotion.set { disclosures.set(key, true) } }
+            guard case .toggle(let key) = hit else { return }
+            // A tool row, group or thought opens as its SwiftUI row's own button opens it: the
+            // line held where it is drawn, the body growing down from under it.
+            if key.hasPrefix("tool-") || key.hasPrefix("group-") || key.hasPrefix("thought-") {
+                context.toggleFold(row: rowID, key: key, open: true)
+            } else {
+                ChatMotion.set { disclosures.set(key, true) }
+            }
         }
     }
 

@@ -18,9 +18,26 @@ final class ChatRowContext {
     var attachmentLoader = AttachmentLoader { _ in nil }
     var openURL = OpenURLAction { _ in .systemAction }
 
+    /// The transcript's hold of a tapped disclosure's line, set by the list
+    /// (`ChatTranscriptList.beginHold`, `ChatTranscriptController.holdForDisclosure(row:)`).
+    var beginFold: (String) -> Void = { _ in }
+    var endFold: () -> Void = {}
+
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
         self.surface = surface
+    }
+
+    /// Row `rowID`'s `transcriptFoldHold`: a disclosure tapped in it holds that row's line.
+    func foldHold(_ rowID: String) -> TranscriptFoldHold {
+        TranscriptFoldHold(begin: { [weak self] in self?.beginFold(rowID) }, end: { [weak self] in self?.endFold() })
+    }
+
+    /// A disclosure tap on row `rowID` from its native line (or the list rig): the same hold and
+    /// spring as the SwiftUI row's own button (`toggleDisclosure`).
+    func toggleFold(row rowID: String, key: String, open: Bool) {
+        let disclosures = surface.disclosures
+        toggleDisclosure(foldHold(rowID)) { disclosures.set(key, open) }
     }
 
     /// The agent message's whole text now (a block's Copy and Share take the message).
@@ -53,6 +70,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.transcriptFoldHold, context.foldHold(row.id))
     }
 
     @ViewBuilder
@@ -78,14 +96,14 @@ struct ChatRowView: View {
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block, findKey: row.findKey, surface: context.surface) { context.messageText(messageID) }
         case .thought(let text, let isLive):
-            ThoughtRow(text: text, isLive: isLive, id: row.id)
+            ThoughtRow(text: text, isLive: isLive, id: row.id).foldableRow()
         case .tool(let call):
-            ToolRowView(call: call)
+            ToolRowView(call: call).foldableRow()
         case .toolGroup(let calls, let turnRunning):
-            ToolGroupView(calls: calls, turnRunning: turnRunning)
+            ToolGroupView(calls: calls, turnRunning: turnRunning).foldableRow()
         case .edit(let call, let files):
             if call.isRunning {
-                ToolRowView(call: call)
+                ToolRowView(call: call).foldableRow()
             } else {
                 let turnID = row.turnID
                 DiffSnippet(call: call, previews: files) { context.changeSet(turnID: turnID, fallbackID: call.id) }
@@ -129,6 +147,16 @@ struct ChatRowView: View {
                 store.retry(turn)
             }
         }
+    }
+}
+
+extension View {
+    /// A row with a disclosure: its own height from the cell's top, however tall the cell is
+    /// drawn while the disclosure opens or closes (`ChatRowCell.folding`). At rest the cell is that
+    /// height, so nothing changes; measured, it is the row's ideal height either way.
+    func foldableRow() -> some View {
+        fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

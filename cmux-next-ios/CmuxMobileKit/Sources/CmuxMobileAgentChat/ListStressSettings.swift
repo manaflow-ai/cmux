@@ -20,6 +20,9 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_WRAP=1`, `CMUX_MOBILE_LIST_SPLIT=1`: the diff screen wraps lines, or shows Split
 ///   (where the width allows it: an iPad). `CMUX_MOBILE_LIST_HOLD_X=PT` with `LIST_PASSES=0`: pans the
 ///   widest scroll view to PT and holds (screenshots of the pinned gutter).
+/// - `CMUX_MOBILE_LIST_TOGGLE=1` (chat): instead of the passes, rest in the middle of the transcript and
+///   open then close the tool row nearest the screen's middle, twice, as a tap does
+///   (`list-stress toggle` lines log where its line is drawn each frame).
 /// - `CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1`: exit after the last pass (the rig waits for the exit).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
@@ -35,6 +38,7 @@ public struct ListStressSettings: Equatable, Sendable {
     public var speed: Double
     public var settle: Double
     public var exitsWhenDone: Bool
+    public var toggles: Bool
     /// `CMUX_MOBILE_LIST_LARGE_DIFF=0`: no 2400-line file rewrite in the newest replayed turn
     /// (the chat without the diff screen's load).
     public var largeDiff: Bool
@@ -60,6 +64,7 @@ public struct ListStressSettings: Equatable, Sendable {
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
         settle = environment["CMUX_MOBILE_LIST_SETTLE"].flatMap(Double.init) ?? 4
         exitsWhenDone = environment["CMUX_MOBILE_LIST_EXIT_WHEN_DONE"] == "1"
+        toggles = environment["CMUX_MOBILE_LIST_TOGGLE"] == "1"
         largeDiff = environment["CMUX_MOBILE_LIST_LARGE_DIFF"] != "0"
         pans = environment["CMUX_MOBILE_LIST_PAN"] == "1"
         wraps = environment["CMUX_MOBILE_LIST_WRAP"] == "1"

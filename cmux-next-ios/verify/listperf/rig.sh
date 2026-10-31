@@ -103,7 +103,7 @@ case "${1:-}" in
       $rec_start; $launch; $rec_stop; \
       cat \$caches/framelog.jsonl; \
       xcrun simctl spawn \$udid log show --last 6m --predicate 'subsystem == \"dev.cmux.mobile\" AND category == \"frames\"' --style compact 2>/dev/null \
-        | grep -E 'list-stress (memory|pass|tabs|rowcost|axtree)' | sed 's/^/# /'" > "$out/$label.jsonl"
+        | grep -E 'list-stress (memory|pass|tabs|rowcost|axtree|toggle)' | sed 's/^/# /'" > "$out/$label.jsonl"
     [[ -n "${SAMPLE:-}" ]] && remote "cat $DIR/$label.sample.txt" > "$out/$label.sample.txt" && echo "sample: $out/$label.sample.txt"
     [[ -n "${VIDEO:-}" ]] && remote "cat $DIR/$label.mp4" > "$out/$label.mp4" && echo "video: $out/$label.mp4"
     if [[ -n "${TRACE:-}" ]]; then
