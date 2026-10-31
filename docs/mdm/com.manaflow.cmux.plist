@@ -1741,7 +1741,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>suggest</string>
+			<string>manual</string>
 			<key>pfm_description</key>
 			<string>What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.</string>
 			<key>pfm_name</key>

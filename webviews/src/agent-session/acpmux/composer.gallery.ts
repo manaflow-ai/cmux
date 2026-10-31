@@ -6,6 +6,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
+import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
@@ -611,7 +612,7 @@ export default agentPaneEntry({
     },
     "agent-home-path": {
       note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
-      ready: { cwd: AGENT_HOME, chooseFolder: true },
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
@@ -863,6 +864,8 @@ export default agentPaneEntry({
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
@@ -897,16 +900,18 @@ export default agentPaneEntry({
           Object.defineProperty(event, "clipboardData", { value: data });
           ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
         };
+        // The Pasted text chip: in the prompt's line (the default inline view), or in the strip.
+        const PASTED = '.acpmux-md-inline-chip[data-kind="file"], .acpmux-attachment-pasted';
         paste();
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        await ctx.waitFor(() => ctx.document.querySelector(PASTED));
         paste();
         // Either way the second paste went: its text in the prompt with no chip, or a second chip.
         await ctx.waitFor(() => {
-          const chips = ctx.document.querySelectorAll(".acpmux-attachment-pasted").length;
+          const chips = ctx.document.querySelectorAll(PASTED).length;
           const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
           return chips > 1 || (chips === 0 && prompt.includes("step 40: compiling"));
         });
-        if (ctx.document.querySelector(".acpmux-attachment-pasted"))
+        if (ctx.document.querySelector(PASTED))
           throw new Error("the same long paste again must open its chip, never add a second");
       },
     },
@@ -1005,6 +1010,8 @@ export default agentPaneEntry({
         "chat.upload": { nativeError: { code: "unsupported" } },
       },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
           type: "application/zip",
@@ -1144,13 +1151,152 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
+        // Inline (the default) spins in the text at the caret; the strip spins in its chip.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            ".acpmux-md-inline-chip[data-state='loading'] .acpmux-md-inline-spinner, .acpmux-attachment-pending .acpmux-attachment-spinner",
+          ),
+        );
+      },
+    },
+    "attachment-inline-caret": {
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot is pasted between words at the caret. Backspace removes the atom in one press; undo restores it. The strip remains available in Settings.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+        const handle = field.acpmuxMarkdownField!;
+        handle.setCaret(13);
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 180;
+        const drawing = canvas.getContext("2d")!;
+        drawing.fillStyle = "#5783b5";
+        drawing.fillRect(0, 0, 320, 180);
+        drawing.fillStyle = "white";
+        drawing.font = "24px system-ui";
+        drawing.fillText("Before and after", 36, 96);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", {
+          value: {
+            files: [new view.File([blob], "comparison.png", { type: "image/png" })],
+            types: ["Files"],
+            getData: () => "",
+          },
+        });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+      },
+    },
+    "attachment-inline-image-and-file": {
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot pasted after "Compare this" and a notes file pasted after "the notes in" sit in the text where they were pasted, as iMessage places them. With the strip view, both sit above the text.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the notes in and summarize." },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+        const handle = field.acpmuxMarkdownField!;
+        const paste = (file: File) => {
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", {
+            value: { files: [file], types: ["Files"], getData: () => "" },
+          });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 180;
+        const drawing = canvas.getContext("2d")!;
+        drawing.fillStyle = "#5783b5";
+        drawing.fillRect(0, 0, 320, 180);
+        drawing.fillStyle = "white";
+        drawing.font = "24px system-ui";
+        drawing.fillText("Before and after", 36, 96);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+        handle.setCaret("Compare this".length);
+        paste(new view.File([blob], "comparison.png", { type: "image/png" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        // An atom in the text is one position of the paragraph; the strip view adds none.
+        const atoms = ctx.document.querySelectorAll("[data-inline-attachment]").length;
+        handle.setCaret("Compare this with the notes in".length + atoms);
+        paste(new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
+    // #26545's review at 2b4ccd42: in the prompt, a PDF, a video and an image that cannot be drawn
+    // keep the strip chip's preview, open, play and fallback (composer/inlineAttachments.tsx).
+    "attachment-inline-pdf": {
+      note: "Inline view: a kept draft's PDF in the prompt's text is the strip's PDF card (sheet, name, page count), and a click on its sheet opens the PDF viewer.",
+      snapshot: chat(finished),
+      ready: { draft: "Summarize the design notes." },
+      native: { "chat.draftAttachments.get": [KEPT_PDF] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const card = "[data-inline-attachment] .acpmux-attachment-document[data-page-count='2']";
+        await ctx.waitFor(() => ctx.document.querySelector(card));
+        if (ctx.find({ selector: `${card} .acpmux-attachment-document-name` }).textContent !== "design-notes.pdf")
+          throw new Error("the inline PDF card must name its file");
+        await ctx.click({ selector: "[data-inline-attachment] .acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
+    "attachment-inline-video": {
+      note: "Inline view: a dropped screen recording in the prompt's text is the strip's video tile, its poster with a play glyph and 0:42; a click plays it in Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        dropScreenshotAndVideo(ctx);
+        // Both in the text and drawn (the screenshot's thumbnail is made off the main thread).
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-inline-attachment] img").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-inline-attachment] .acpmux-attachment-video img"));
+        if (ctx.find({ selector: "[data-inline-attachment] .acpmux-attachment-video-length" }).textContent !== "0:42")
+          throw new Error("the inline video tile must show its length");
+        // The screenshot's loading tile became its narrower thumbnail as the waits ended: let that
+        // frame's shift report before the hover is measured.
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await ctx.hover({ selector: "[data-inline-attachment] .acpmux-attachment-video" });
+      },
+    },
+    "attachment-inline-image-failed": {
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      ready: { draft: "What is in this screenshot?" },
+      native: { "chat.draftAttachments.get": [KEPT_BROKEN_IMAGE] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const tile = "[data-inline-attachment] .acpmux-attachment-image-failed";
+        await ctx.waitFor(() => ctx.document.querySelector(tile));
+        const chip = ctx.find({ selector: tile });
+        if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
+          throw new Error("an inline image that cannot be drawn must say Couldn't load image");
+        if (!chip.querySelector("button.acpmux-attachment-retry"))
+          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
+          throw new Error("an inline image that cannot be drawn must keep its remove button");
+        await ctx.hover({ selector: tile });
       },
     },
     "attachment-reorder": {
       note: "Leo, 2026-10-24: \"we ought to be able to drag and reorder images if we're seeing the non-inline attachment composer\". Three pasted screenshots; the first is being dragged past the second (it lifts and moves as the pointer goes), and the prompt sends them in the strip's order. Option-Left/Right moves a focused chip.",
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = await Promise.all(
           ["#5b8def", "#e0a84f", "#62b67a"].map(async (color, index) => {
@@ -1167,8 +1313,11 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 3);
-        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-image")];
+        // The strip's chips: the text keeps each one's place in a hidden atom of its own.
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment-image img").length === 3,
+        );
+        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment-image")];
         const from = chips[0]!.getBoundingClientRect();
         const to = chips[1]!.getBoundingClientRect();
         const at = (x: number) => ({
@@ -1190,6 +1339,8 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = [
           // Not a picture after all: it goes as a file, and the app refuses it.
@@ -1202,6 +1353,32 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+      },
+    },
+    "image-original-failed": {
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+        );
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        if (!badge.getAttribute("title")?.includes("The disk is full."))
+          throw new Error("the Retry badge's tooltip must say why the original failed");
       },
     },
     draft: {

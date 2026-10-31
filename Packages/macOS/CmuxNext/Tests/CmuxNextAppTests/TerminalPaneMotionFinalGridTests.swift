@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 /// The IO's grid requests come through the session's ordered input stream. A focus report sent after
 /// a step is a marker: once the IO has it, every request sent before it has arrived, so the test reads
 /// what was sent by each point without waiting on a clock.
-@MainActor @Suite(.serialized) struct TerminalPaneMotionFinalGridTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalPaneMotionFinalGridTests {
     final class Panes: LayoutPaneContentProvider {
         var views: [PaneID: NSView] = [:]
         func makeContentView(for pane: PaneID) -> NSView { views[pane] ?? NSView() }

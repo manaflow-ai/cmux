@@ -78,7 +78,7 @@ struct CloudAppLinkOwnerAnswerTests {
     /// so a reconnect or a revoke between them refuses the call.
     @Test func theTabsOwnerClosureFollowsTheAppLinkAcrossAReconnectAndARevoke() async throws {
         let appLink = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
-        let ownerLink = AgentTabRemoteHost.ownerLink(appLink: appLink, link: nil)
+        let ownerLink = CloudMachineLinks(appLink: appLink, link: nil).ownerLink
         #expect(await ownerLink() == nil, "not connected: refused")
         _ = try await appLink.connect(origin: .user)
         let before = try #require(await ownerLink())
@@ -90,7 +90,7 @@ struct CloudAppLinkOwnerAnswerTests {
 
         let team = CloudLinkSession(key: Self.key, resolver: Self.resolver("team"))
         _ = try await team.connect(origin: .user)
-        #expect(await AgentTabRemoteHost.ownerLink(appLink: team, link: nil)() == nil, "a teammate: refused")
+        #expect(await CloudMachineLinks(appLink: team, link: nil).ownerLink() == nil, "a teammate: refused")
     }
 
     @Test func aConnectThatDoesNotSayOwnerGivesNoOwnerAnswer() async throws {
