@@ -67,6 +67,9 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// header its group's level, a member one more. The list indents each level below the first by one
     /// gutter (`SidebarStyle.groupOffset`).
     public var depth: Int = 0
+    /// A workspace row that is its group's one row (`SidebarLayout.soleMember`): a group of one member titled as the
+    /// group draws no header, so this row carries the group's line and its menu the group's actions.
+    public var standsForGroup = false
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.

@@ -186,6 +186,14 @@ enum SidebarStyle {
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
     static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// A group header bar's left edge over members at `membersMinX`: the rail's x less the line layout's overhang,
+    /// never past the list's edge padding nor right of the members (`SidebarListView.railReach(for:)`). `inside` uses
+    /// Chrome's corner geometry all the way to the list edge: the general header padding would clamp that overhang and
+    /// put the line back under a member row.
+    static func groupBarX(membersMinX: CGFloat) -> CGFloat {
+        let edgePadding = groupLineLayout == .inside ? 0 : groupEdgePadding
+        return min(membersMinX, max(max(0, groupLineX(membersMinX: membersMinX) - groupHeaderOverhang), edgePadding))
+    }
     /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
     /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the

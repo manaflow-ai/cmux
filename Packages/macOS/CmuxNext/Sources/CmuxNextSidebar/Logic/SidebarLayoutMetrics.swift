@@ -184,7 +184,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
-    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
+    /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
+    public var foldsArchived = true
+    /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
+    /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
     public var rowLimit = 0
