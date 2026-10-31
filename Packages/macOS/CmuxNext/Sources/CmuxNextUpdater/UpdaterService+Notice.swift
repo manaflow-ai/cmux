@@ -19,7 +19,7 @@ extension UpdaterService {
                 shown.detail = changelog.detail ?? shown.detail
                 shown.lines = changelog.lines
             }
-        case .checking, .downloading, .installing, .note, .pulled:
+        case .checking, .downloading, .installing, .note, .gettingNewest:
             break
         }
         return shown
@@ -32,7 +32,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .installing, .note, .pulled, nil: return nil
+        case .checking, .downloading, .installing, .note, .gettingNewest, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -46,7 +46,6 @@ extension UpdaterService {
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .releaseNotes: break
-        case .rollBack, .waitForFix: pulledWatch.perform(action)
         }
     }
 
@@ -58,12 +57,10 @@ extension UpdaterService {
             closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
-        case .pulled:
-            pulledWatch.perform(.waitForFix)
         case .installing:
             // Only the card of an install that never relaunched has an x.
             if installStatus?.stage == .stalled { installCardDismissed = true }
-        case .checking, .downloading, nil:
+        case .checking, .downloading, .gettingNewest, nil:
             break
         }
         followCardExpiry()

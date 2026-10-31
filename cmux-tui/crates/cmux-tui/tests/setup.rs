@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 mod browser_import;
 #[path = "setup/cloud_machine.rs"]
 mod cloud_machine;
+#[path = "setup/harness_auth.rs"]
+mod harness_auth;
 #[path = "setup/notifications.rs"]
 mod notifications;
 #[path = "setup/tailnet.rs"]

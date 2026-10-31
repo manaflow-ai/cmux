@@ -74,7 +74,6 @@ export async function intakeFiles(
     : Promise.resolve(undefined);
   const images: (ComposerAttachment | undefined)[] = [];
   const links: (ComposerAttachment | undefined)[] = [];
-  const waiting: { index: number; file: File; image?: ComposerAttachment }[] = [];
   let error: IntakeError | undefined;
   const fail = (index: number, reason: IntakeError) => {
     error ??= reason;
@@ -84,28 +83,41 @@ export async function intakeFiles(
     links[index] = chip;
     events.ready?.(index, chip);
   };
-  await Promise.all(
-    files.map(async (file, index) => {
-      const result = isImageFile(file)
-        ? await readAttachment(file, options.allowImages).catch(() => undefined)
-        : undefined;
-      const image = result && !("reason" in result) ? result : undefined;
+  // Each image's preview, made beside the batch's transport: no file's upload waits for a sibling
+  // image to be decoded, and a send waits only for the image itself.
+  const prepared = files.map(async (file, index) => {
+    const result = isImageFile(file)
+      ? await readAttachment(file, options.allowImages).catch(() => undefined)
+      : undefined;
+    const image = result && !("reason" in result) ? result : undefined;
+    if (image) {
       const path = (await known)?.[index];
-      if (image) {
-        if (path) {
-          image.originalPath = path.path;
-          image.originalName = file.name;
-        }
-        images[index] = image;
-        events.ready?.(index, image);
-      }
       if (path) {
-        if (!image)
-          link(index, {
-            ...linkAttachment(path.path, path.folder),
-            mimeType: file.type || "application/octet-stream",
-            size: file.size,
-          });
+        image.originalPath = path.path;
+        image.originalName = file.name;
+      }
+      images[index] = image;
+      events.ready?.(index, image);
+    }
+    return { result, image };
+  });
+  /// What each file becomes once its own preview is made (a link, or its failure): never awaited
+  /// before the batch's upload starts.
+  const outcomes: Promise<void>[] = [];
+  const once = (index: number, then: (made: Awaited<(typeof prepared)[number]>) => void) =>
+    outcomes.push(prepared[index]!.then(then));
+  const entries = await Promise.all(
+    files.map(async (file, index) => {
+      const path = (await known)?.[index];
+      if (path) {
+        once(index, ({ image }) => {
+          if (!image)
+            link(index, {
+              ...linkAttachment(path.path, path.folder),
+              mimeType: file.type || "application/octet-stream",
+              size: file.size,
+            });
+        });
       } else if (options.upload) {
         // WebKit exposes folders as unreadable zero-byte Files. Do not let one prevent real files
         // in the batch from uploading. Files with bytes are left unread here for the streaming host.
@@ -116,45 +128,63 @@ export async function intakeFiles(
             () => false,
           ))
         ) {
-          if (!image) fail(index, { name: file.name, reason: "unsupported" });
+          once(index, ({ image }) => {
+            if (!image) fail(index, { name: file.name, reason: "unsupported" });
+          });
           return;
         }
-        waiting.push({ index, file, ...(image ? { image } : {}) });
-      } else if (!image) {
-        fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
+        return { index, file };
+      } else {
+        once(index, ({ result, image }) => {
+          if (!image)
+            fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
+        });
       }
     }),
   );
+  // One upload for the batch, in the order the files came (the host's batch token covers them),
+  // without the files cancelled meanwhile.
+  const waiting = entries.filter(
+    (entry): entry is { index: number; file: File } => entry !== undefined && !options.cancelled?.(entry.index),
+  );
   if (waiting.length) {
-    // One upload for the batch, in the order the files came (the host's batch token covers them),
-    // without the files cancelled meanwhile.
-    waiting.sort((a, b) => a.index - b.index);
-    for (let at = waiting.length - 1; at >= 0; at--) if (options.cancelled?.(waiting[at]!.index)) waiting.splice(at, 1);
-  }
-  if (waiting.length) {
-    for (const { index } of waiting) events.uploading?.(index);
-    const files = waiting.map(({ file }) => file);
+    let sending = true;
+    // An image's tile holds a send until its preview is made; a file's (or an image that made none)
+    // streams from then on.
+    for (const { index } of waiting)
+      void prepared[index]!.then(() => {
+        if (sending) events.uploading?.(index);
+      });
     const sent = await options
-      .upload?.(files, (at) => options.cancelled?.(waiting[at]!.index) ?? false)
+      .upload?.(
+        waiting.map(({ file }) => file),
+        (at) => options.cancelled?.(waiting[at]!.index) ?? false,
+      )
       .catch((failure: unknown): UploadResult => ({
         error: failure instanceof Error ? failure.message : String(failure),
       }));
-    for (const [at, { index, file, image }] of waiting.entries()) {
-      const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
-      if (path && image) {
-        image.originalPath = path;
-        image.originalName = file.name;
-        events.original?.(index, path, file.name);
-      } else if (path)
-        link(index, {
-          ...savedAttachment(path, file.name),
-          mimeType: file.type || "application/octet-stream",
-          size: file.size,
-        });
-      else if (!image && !options.cancelled?.(index))
-        fail(index, sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" });
-    }
+    sending = false;
+    // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
+    await Promise.all(
+      waiting.map(async ({ index, file }, at) => {
+        const { image } = await prepared[index]!;
+        const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
+        if (path && image) {
+          image.originalPath = path;
+          image.originalName = file.name;
+          events.original?.(index, path, file.name);
+        } else if (path)
+          link(index, {
+            ...savedAttachment(path, file.name),
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+          });
+        else if (!image && !options.cancelled?.(index))
+          fail(index, sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" });
+      }),
+    );
   }
+  await Promise.all([...prepared, ...outcomes]);
   const attachments = [...images, ...links].filter((chip): chip is ComposerAttachment => Boolean(chip));
   return { attachments, ...(error ? { error } : {}) };
 }

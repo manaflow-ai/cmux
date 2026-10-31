@@ -6,7 +6,7 @@ import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
 import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
-import { agentMessage, type AgentMessage } from "./agentMessages";
+import { agentMessage, messageDelivery, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
@@ -34,9 +34,68 @@ export type ToolGroup =
     }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
+  /// Two or more messages to other agents in a row (a SendMessage, an `acpmux send`, a sub-session's
+  /// send_message, in any mix): one line that sums them up over a card with a row per message
+  /// (MessageGroupRow.tsx). `items` are the members' calls, in order.
+  | { type: "messages"; members: MessageEntry[]; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// One message to another agent, as `toolGroups` draws it on its own: what a `messages` group lists.
+export type MessageEntry =
+  | Extract<ToolGroup, { type: "message" | "send" }>
+  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
+
+/// Whether an entry is one message to another agent, which groups with the messages next to it.
+export function isMessageEntry(group: ToolGroup): group is MessageEntry {
+  return (
+    group.type === "message" || group.type === "send" || (group.type === "subsession" && group.call.tool === "send")
+  );
+}
+
+/// A message that did not go out, or whose call ended without saying it went: it draws on its own,
+/// with its own failed or not-delivered status, never summed up under "Messaged …". A sub-session
+/// call that failed is no sub-session call at all (subsessionCalls.ts), so it never gets here.
+function messageWentOut(entry: MessageEntry): boolean {
+  switch (entry.type) {
+    case "send":
+      return entry.send.state === "sending" || entry.send.state === "sent";
+    case "message":
+      return messageDelivery(entry.item.tool!, entry.message) !== "failed";
+    case "subsession":
+      return true;
+  }
+}
+
+/// Consecutive messages to other agents as one `messages` group, from two (Leo 2026-10-29, on
+/// Claude desktop's "Messaged agent 3 times": "this would be decent ui for cmux-next"). One pass
+/// over the run's entries, so it adds no work beyond the grouping itself. A message that failed ends
+/// the run and keeps its own row (`messageWentOut`).
+function withMessageGroups(groups: ToolGroup[]): ToolGroup[] {
+  const out: ToolGroup[] = [];
+  let members: MessageEntry[] = [];
+  const close = () => {
+    if (members.length >= 2) out.push({ type: "messages", members, items: members.map((member) => member.item) });
+    else out.push(...members);
+    members = [];
+  };
+  for (const group of groups) {
+    if (isMessageEntry(group) && messageWentOut(group)) members.push(group);
+    else {
+      close();
+      out.push(group);
+    }
+  }
+  close();
+  return out;
+}
+
+/// A `messages` group's disclosure key, shared by its row (TurnRows.tsx) and the live line
+/// (turns.ts `ownRow`).
+export function messageGroupKey(items: readonly AcpmuxActivity[], rowId: string, at: number): string {
+  return `group:messages:${items[0]?.tool?.id || `${rowId}:${at}`}`;
+}
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -62,7 +121,9 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// Consecutive calls of one kind form a group; a call of another kind ends it. A thought between
 /// two commands, reads or searches stays inside their group, in its place, so thinking between
 /// calls never splits one run of reads into many small groups (Leo 2026-10-21: "it can consolidate
-/// a ton of these tool calls"); a thought before any other entry ends the group. Commands, reads
+/// a ton of these tool calls"). The thoughts that lead into a run of commands, reads or searches
+/// open its group, as Claude Code desktop draws a run's thinking first inside it; they keep their
+/// own rows when the run stays one call. A thought before any other entry ends the group. Commands, reads
 /// and searches group from two calls; an edit with a diff groups alone, so it still reads "Edited
 /// App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone one reads as what it
 /// did. A lone call of any other kind keeps its own row and title. Consecutive thoughts are one
@@ -77,7 +138,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   // aliases, and leave provenance unknown while any preceding mutation has no proven end.
   let mutationEndedAt = -Infinity;
   let mutationUnsettled = false;
-  let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
+  let run: { kind: ToolGroupKind; items: AcpmuxActivity[]; lead: number } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   let subsessionGroup:
     | {
@@ -87,7 +148,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
   let held: AcpmuxActivity[] = [];
-  const close = () => {
+  // Thoughts no run holds yet: they lead the next run of commands, reads or searches, or draw on
+  // their own before whatever else comes.
+  let lead: AcpmuxActivity[] = [];
+  const flushLead = () => {
+    for (const thought of lead) groups.push({ type: "item", item: thought });
+    lead = [];
+  };
+  /// `keep`: the open run's trailing thoughts wait to lead whatever comes next.
+  const close = (keep = false) => {
     if (subsessionGroup) {
       if (subsessionGroup.calls.length === 1)
         groups.push({ type: "subsession", item: subsessionGroup.items[0]!, call: subsessionGroup.calls[0]! });
@@ -97,17 +166,24 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
     if (run) {
-      const lone = run.items[0]!.tool!;
-      if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
-      else groups.push({ type: "item", item: run.items[0]! });
+      const lone = run.items[run.lead]!.tool!;
+      if (run.items.length - run.lead >= 2 || (run.kind === "edits" && lone.diffs?.length))
+        groups.push({ type: "group", kind: run.kind, items: run.items });
+      else for (const item of run.items) groups.push({ type: "item", item });
       run = undefined;
     }
-    for (const thought of held) groups.push({ type: "item", item: thought });
+    if (keep) lead.push(...held);
+    else for (const thought of held) groups.push({ type: "item", item: thought });
     held = [];
   };
   for (const item of mergeThoughts(items)) {
     if (run && run.kind !== "edits" && isThought(item)) {
       held.push(item);
+      continue;
+    }
+    if (isThought(item)) {
+      close(true);
+      lead.push(item);
       continue;
     }
     const tool = item.tool;
@@ -213,6 +289,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         subsessionGroup.calls.push(subsession);
       } else {
         close();
+        flushLead();
         subsessionGroup = { items: [item], calls: [subsession] };
       }
       rememberMessageFiles();
@@ -230,18 +307,32 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    close();
+    close(true);
+    if (kind && kind !== "edits") {
+      run = { kind, items: [...lead, item], lead: lead.length };
+      lead = [];
+      rememberMessageFiles();
+      continue;
+    }
+    flushLead();
     if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
     else if (send) groups.push({ type: "send", item, send });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
-    else if (kind) run = { kind, items: [item] };
+    else if (kind) run = { kind, items: [item], lead: 0 };
     else groups.push({ type: "item", item });
     rememberMessageFiles();
   }
   close();
-  return groups;
+  flushLead();
+  return withMessageGroups(groups);
+}
+
+/// The id a group is known by: its first call's, since thoughts that led into the run may come
+/// before it (the same id the group had before a thought joined it).
+export function groupId(items: readonly AcpmuxActivity[]): string | undefined {
+  return items.find((item) => item.tool)?.tool?.id;
 }
 
 /// A group's calls, without the thoughts between them.

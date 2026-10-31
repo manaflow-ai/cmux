@@ -62,11 +62,23 @@ import SwiftUI
         #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
     }
 
+    private func waitForPendingCloseMessage(_ source: WorkspaceTabsSource, _ message: String) async {
+        while source.pendingClose?.message != message {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = source.pendingClose?.message
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
         let close = Task { await source.close("t-zsh") }
-        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
+        await waitForPendingCloseMessage(source, "Still running: sleep.")
         let pending = try #require(source.pendingClose)
         #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
         #expect(pending.message == "Still running: sleep.")
@@ -124,7 +136,7 @@ import SwiftUI
         #expect(source.pendingTabTitle == nil)
         #expect(source.openedTab == nil)
         #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
-        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone yet.") == true)
+        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone.") == true)
     }
 
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
@@ -175,7 +187,7 @@ import SwiftUI
         #expect(source.toastText?.contains("your Mac") == false)
         // Agents not connected yet: the entry stays, the chooser does not.
         older.kinds = [.terminal]
-        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment.")]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected. Try again in a moment.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
     }
 
