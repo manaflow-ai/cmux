@@ -284,7 +284,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             head: {
               time: rect(".acpmux-running-tray__time", head),
               status: rect(".acpmux-running-tray__status", head),
-              chevron: rect(".acpmux-running-tray__status > svg", head),
+              chevron: rect(".acpmux-agent-line__chevron", head),
             },
           };
         });
@@ -383,9 +383,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
-        expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
-        expect(initial.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
-        expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.summary.right <= row.status.left + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.time.left >= row.status.right - 0.5)).toBe(true);
+        expect(initial.rows.every((row) => !row.chevron || row.chevron.left >= row.time.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
         expect(
@@ -457,11 +457,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
           ).toBe(true);
           expect(narrow.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
-          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => !row.chevron || row.chevron.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
-          expect(narrow.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.left >= row.status.right - 0.5)).toBe(true);
           expect(narrow.head.time.right).toBe(narrowFirst!.time.right);
           expect(narrow.head.status.left).toBe(narrowFirst!.status.left);
           expect(narrow.head.status.right).toBe(narrowFirst!.status.right);
@@ -483,7 +483,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ).toBe(true);
           expect(
             ticked.rows.every(
-              (row) => row.summary.bottom <= row.time.top + 0.5 && row.status.left >= row.time.right - 0.5,
+              (row) => row.summary.bottom <= row.time.top + 0.5 && row.time.left >= row.status.right - 0.5,
             ),
           ).toBe(true);
           expect(

@@ -660,7 +660,7 @@ button.cv-subagent > :last-child {
     justify-self: end;
   }
   .acpmux-running-tray__stop-slot {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 2;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
