@@ -112,6 +112,11 @@ enum DebugWindowSnapshot {
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if params["webviews"]?.boolValue == false { return await capture(params, services: services) }
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
+#if DEBUG || CMUX_BENCH_HOOKS
+        // An inactive floating palette can have a blank standalone window-server image.
+        // Its existing renderer captures the panel's content without Screen Recording.
+        if services.palette.owns(window) { return DebugPaletteCapture.capture(params, services: services) }
+#endif
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
@@ -211,6 +216,31 @@ enum DebugWindowSnapshot {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.capture_backdrop` (DEBUG builds): shows `pattern` (`checker`, `stripes`,
+    /// `image:/absolute/path`; `none` removes it) just behind the window `window` or `kind` names,
+    /// as for a snapshot, so a snapshot of that window composites it behind the window and its
+    /// translucency and glass show (``CaptureBackdropPanel``). Returns `pattern`, `window_number`
+    /// and `backdrop_number` (null after `none`).
+    @MainActor
+    static func captureBackdrop(_ params: [String: JSONValue], pattern: CaptureBackdropPattern?, image: Data?,
+                                services: AppServices) -> JSONValue {
+        let name = params["pattern"]?.stringValue ?? ""
+        guard name == "none" || pattern != nil else {
+            return .object(["error": .string("pattern must be checker, stripes, image:/absolute/path or none")])
+        }
+        guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
+        var picture: NSImage?
+        if case .image(let url) = pattern {
+            guard let image, let decoded = NSImage(data: image) else { return .object(["error": .string("no image at \(url.path)")]) }
+            picture = decoded
+        }
+        let backdrop = window.setCaptureBackdrop(pattern, image: picture)
+        return .object(["pattern": .string(name), "window_number": JSONValue(window.windowNumber),
+                        "backdrop_number": backdrop.map { JSONValue($0.windowNumber) } ?? .null])
+    }
+    #endif
 
     /// The refusal HUD's message while it shows, else null.
     static func hudMessage(_ services: AppServices) -> JSONValue {

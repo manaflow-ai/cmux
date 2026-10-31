@@ -97,12 +97,29 @@ public final class TabModel: Identifiable {
     /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
     /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
     /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
-    public internal(set) var attention: TabAttention?
-    /// This app's own view state, never sent to the daemon: the `at_ms` of the newest
-    /// ``attention`` request whose ring the person hid (went into the tab, or Dismiss
-    /// Highlight). A newer request rings again. It lives on the model, which belongs to one
-    /// machine's store, so tabs on two machines that share an id never share it.
+    public private(set) var attention: TabAttention?
+    @ObservationIgnored private var recordAttention: TabAttention?
+    @ObservationIgnored private var pendingAttentionClear: TabAttention?
+
+    /// Hide the request in the action's own turn. The returned token identifies this clear.
+    public func expectAttentionClear() -> TabAttention? {
+        guard let attention, let requestID = attention.requestID, TabAttention.validRequestID(requestID) else { return nil }
+        pendingAttentionClear = attention
+        self.attention = nil
+        return attention
+    }
+
+    /// A failed old clear never restores over a newer request or a newer clear.
+    public func dropExpectedAttentionClear(_ request: TabAttention) {
+        guard pendingAttentionClear == request else { return }
+        pendingAttentionClear = nil
+        attention = recordAttention
+    }
+    /// Client-local generation of the request whose ring the person hid. This never stores time.
     public var attentionRingHiddenThrough: UInt64?
+    /// A local render identity changes when the owner request changes; TabAttention equality
+    /// includes requestID, so identical reason/time replacements are still distinct.
+    public private(set) var attentionGeneration: UInt64 = 0
 
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
     /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
@@ -327,7 +344,11 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
-        if attention != record.attention { attention = record.attention }
+        if recordAttention != record.attention { attentionGeneration &+= 1 }
+        recordAttention = record.attention
+        if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
+        let shownAttention = pendingAttentionClear == nil ? record.attention : nil
+        if attention != shownAttention { attention = shownAttention }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()

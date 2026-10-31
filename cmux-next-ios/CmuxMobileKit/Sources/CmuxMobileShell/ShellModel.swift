@@ -10,6 +10,7 @@ import CmuxMobileModel
 import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileVoice
+import CmuxMobileWorkspaces
 import Observation
 import OSLog
 import SwiftUI
@@ -65,6 +66,19 @@ final class ShellModel {
     var toast: CmuxMobileToast?
     var editingTeam: Team?
     /// Live data (signed in for real with a `cmux-mobile-api` base URL); nil in mock mode.
+    /// The same load is retried from Workspaces; mock recovery reloads its fixture.
+    func retryWorkspaces() async {
+        if let live { live.retry(); return }
+        #if DEBUG
+        if mockMode {
+            let loaded = AppStore.mock()
+            store.teams = loaded.teams
+            store.workspaces = loaded.workspaces
+            store.teamDataState = .loaded
+        }
+        #endif
+    }
+
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
@@ -108,6 +122,7 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
+        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
@@ -189,6 +204,7 @@ final class ShellModel {
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
             // its session uses that Mac's link only.
+            terminalTabs.reconnect = { [weak live] macID in live?.retry(macID: macID) }
             terminalTabs.sessionProvider = { [weak live] tab, macID in
                 live?.terminalSession(tabID: tab.id, programName: tab.title, macID: macID)
             }
@@ -225,12 +241,16 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
+            // Browser tabs opened on this iPhone follow the Macs' tab lists.
+            StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
+            StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
             FeedRouting.shared.replyToTerminal = nil
+            terminalTabs.reconnect = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
@@ -375,15 +395,35 @@ final class ShellModel {
         lastOpen.save(location)
     }
 
-    /// The drawer pan only opens from a tab root (stack depth 1).
-    private func updateInteractiveOpen() {
-        let depth = switch tab {
+    /// How many screens are pushed on `tab`'s stack.
+    private func depth(of tab: RootTab) -> Int {
+        switch tab {
         case .home: homePath.count
         case .workspaces: workspacesPath.count
         case .feed: feedPath.count
         case .settings: settingsPath.count
         }
-        sidebar.allowsInteractiveOpen = depth == 0
+    }
+
+    /// Whether the root tab bar shows while `tab` is selected: the only place
+    /// that decides it (`ShellTabs` applies it to each tab). A screen pushed on
+    /// Home, Workspaces or the Feed (a workspace and its pages, a chat, a
+    /// conversation) owns the bottom edge (SPEC 3.1), so the bar hides while
+    /// that stack is not at its root; Settings pages keep it.
+    ///
+    /// Pushed screens never hide it themselves: SwiftUI applied a pushed
+    /// screen's `.toolbar(.hidden, for: .tabBar)` only when it was pushed on
+    /// the tab already on screen, so a workspace opened from another tab in
+    /// one update (a link, a notification, the Feed, the launch restore)
+    /// showed over the bar, and a screen that hid it in some branches only
+    /// (a conversation still loading) showed it in the others.
+    func showsTabBar(on tab: RootTab) -> Bool {
+        tab == .settings || depth(of: tab) == 0
+    }
+
+    /// The drawer pan only opens from a tab root (stack depth 1).
+    private func updateInteractiveOpen() {
+        sidebar.allowsInteractiveOpen = depth(of: tab) == 0
     }
 
     /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
@@ -415,8 +455,11 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset`.
+        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        case "connected"?: return .connected
+        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
+        case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         default: break
@@ -425,10 +468,10 @@ final class ShellModel {
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
-        case .waiting(let mac)?: return .waitingForPairing(on: mac)
-        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
-        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
-        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        case .waiting(let mac)?: return .waitingForPairing(on: mac, identity: live?.focusedMacID)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac, identity: live?.focusedMacID)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone", identity: live?.focusedMacID)
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
     }
@@ -519,7 +562,7 @@ final class ShellModel {
                 theme.haptics.success()
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Creating teams isn't available for this account yet")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")

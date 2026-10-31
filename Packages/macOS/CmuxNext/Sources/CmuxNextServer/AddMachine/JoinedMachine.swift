@@ -41,6 +41,9 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
         self.mintedBy = mintedBy
     }
 
+    /// The Machines section's id of a joined machine (its row, its last check in ``MachineHealthStore``).
+    public static func healthID(_ id: String) -> String { "joined:\(id)" }
+
     /// The joined rows of `cmux machine list --json` (a JSON array of rows of every kind); nil when
     /// the output is not that array. Rows of other kinds, and joined rows with no id, are skipped.
     public static func list(from data: Data) -> [JoinedMachine]? {

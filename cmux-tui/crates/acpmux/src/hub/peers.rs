@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::session_identity::SessionReceipt;
+use cmux_json::JsonSet as _;
 
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
@@ -385,12 +386,12 @@ impl Hub {
         let mut v: Vec<Value> = listed
             .into_iter()
             .map(|(name, mut s)| {
-                s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
+                s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
                 if leased.contains(&name) {
-                    s["leased"] = Value::Bool(true);
+                    s.set("leased", Value::Bool(true));
                 }
                 if brokers.contains(&name) {
-                    s["githubBroker"] = Value::Bool(true);
+                    s.set("githubBroker", Value::Bool(true));
                 }
                 s
             })
@@ -440,6 +441,12 @@ impl Hub {
             .collect()
     }
 
+    /// Integration-test stand-in for an older peer (`Peer::forget_session_messages_for_tests`).
+    #[doc(hidden)]
+    pub fn forget_peer_session_messages_for_tests(&self, name: &str) -> bool {
+        self.peer(name).map(|p| p.forget_session_messages_for_tests()).is_some()
+    }
+
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
         self.peers.lock().unwrap().get(name).cloned()
     }
@@ -461,16 +468,18 @@ impl Hub {
                 summary.get("agentSessionId").and_then(Value::as_str).map(str::to_owned),
                 generation,
             );
-            summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-            summary["sessionReceipt"] = receipt.to_value();
+            summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+            summary.set("sessionReceipt", receipt.to_value());
         }
         if let Some(name) = summary.get("name").and_then(Value::as_str)
             && !name.starts_with(&format!("{peer}/"))
         {
             let full = format!("{peer}/{name}");
-            summary["name"] = Value::String(full);
+            summary.set("name", Value::String(full));
+            // Its warnings' commands name the peer's session (`usage_warnings.rs`).
+            super::usage_warnings::for_name(&mut summary);
         }
-        summary["peer"] = Value::String(peer.to_owned());
+        summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
         let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
@@ -514,24 +523,21 @@ impl Hub {
         });
     }
 
-    pub(super) async fn peer_notice_loop(self: Arc<Self>) {
-        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
-        use crate::peer::PeerNotice;
-        while let Some((peer, generation, notice)) = rx.recv().await {
-            // Only the registered instance speaks for a name: a replaced or
-            // removed peer's queued notices are stale.
-            let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
-                continue;
-            };
-            let settles = matches!(
-                notice,
-                PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
-            );
-            self.apply_peer_notice(&peer, generation, notice);
-            if settles {
-                current.mark_settled();
-                self.watches.peer_settled();
+    /// The row transition after a continuous outage's grace has elapsed.
+    pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
+        let changed = {
+            let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if !self.is_current(peer, generation) {
+                return;
             }
+            let last_seen = self.peer(peer).and_then(|p| p.link().last_seen);
+            map.mark_peer_stale(peer, last_seen)
+        };
+        if !changed.is_empty() {
+            self.save_peer_cache(peer, generation, true);
+        }
+        for summary in changed {
+            self.announce_remote(peer, summary, "status");
         }
     }
 
@@ -550,7 +556,17 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
-                PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Connected => {
+                    tracing::info!(peer = %peer, "peer ready");
+                    // Sessions can be saved before the handshake marks the link ready.
+                    // Persist its cleared outage once, without rewriting an already-clear cache.
+                    if self.peer(&peer).is_some_and(|p| {
+                        p.generation == generation
+                            && p.cache_saved_outage.load(std::sync::atomic::Ordering::SeqCst)
+                    }) {
+                        self.save_peer_cache(&peer, generation, true);
+                    }
+                }
                 PeerNotice::Restarting => {
                     // A planned restart never enters the disconnect/flap-grace path. Keep
                     // every row unchanged, but retire the old link's purge tombstones.
@@ -564,30 +580,12 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
-                    let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
-                    // One line per drop, not per failed attempt while it is down.
-                    if link.attempts <= 1 {
-                        tracing::warn!(peer = %peer, "peer disconnected: {e}");
-                    } else {
-                        tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
-                    }
-                    // Keep the last known list, but flag it.
-                    let changed: Vec<Value> = {
-                        let mut map = self.remote_sessions.lock().unwrap();
-                        if !self.is_current(&peer, generation) {
-                            return;
-                        }
-                        self.with_tombstones(&peer, generation, |t| t.link_ended());
-                        map.mark_peer_stale(&peer, link.last_seen)
-                    };
-                    if !changed.is_empty() {
-                        self.save_peer_cache(&peer, generation, true);
-                    }
-                    // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).
-                    self.peer_snapshots.flush(Some(&peer));
-                    for summary in changed {
-                        self.announce_remote(&peer, summary, "status");
-                    }
+                    // Called directly, with no grace: this drop is its outage's first
+                    // when the link counts one failed attempt.
+                    self.note_peer_drop(&peer, generation, &e);
+                    let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
+                    self.save_after_drop(&peer, generation, first);
+                    self.mark_peer_unreachable(&peer, generation);
                 }
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an
@@ -630,6 +628,8 @@ impl Hub {
                         self.peer_snapshots.listed(&peer, listed.collect(), true);
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
+                    // A notice before this list may have changed a row while its
+                    // cache save was throttled. A full list also persists that change.
                     self.save_peer_cache(&peer, generation, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
@@ -933,7 +933,6 @@ impl Hub {
         !is_permission_ask(kind) || self.peer_ask_counts(peer, id, msg)
     }
 
-    /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
     /// How many sessions the peers list that `key` names, as [`Hub::resolve_remote`] matches
     /// them: 0 none, 1 the one it resolves, more when it is ambiguous.
     pub fn remote_matches(&self, key: &str) -> usize {
@@ -941,25 +940,107 @@ impl Hub {
         if map.get(key).is_some() {
             return 1;
         }
+        // One pass: whole names and prefixes, else short names (closed ones only when no live
+        // one has it, as `resolve_remote` matches them).
+        let (mut strict, mut live, mut closed) = (0, 0, 0);
+        for (id, r) in map.iter() {
+            if names_remote(id, r, key) {
+                strict += 1;
+            } else if strict == 0 && remote_segment(r, key) {
+                if remote_closed(r) { closed += 1 } else { live += 1 }
+            }
+        }
+        match (strict, live) {
+            (0, 0) => closed,
+            (0, live) => live,
+            (strict, _) => strict,
+        }
+    }
+
+    /// [`Self::remote_matches`] without short names: how many peer sessions `key` names by id,
+    /// id prefix, whole name or `PEER/NAME`. A local short name gives way to any of them
+    /// (`Hub::resolve_here`).
+    pub(super) fn remote_strict_matches(&self, key: &str) -> usize {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(key).is_some() {
+            return 1;
+        }
         map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
     }
 
+    /// The names (with their ids) of the peer sessions whose short name is `key`
+    /// ([`remote_segment`]), each with whether it is closed, for `Hub::resolve_here`'s tie.
+    pub(super) fn remote_segment_names(&self, key: &str) -> Vec<(String, bool)> {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .filter(|r| remote_segment(r, key))
+            .map(|r| {
+                let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+                (format!("{name} ({}/{})", r.peer, r.receipt.mux_session_id), remote_closed(r))
+            })
+            .collect()
+    }
+
+    /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name or id prefix;
+    /// failing those, the one peer session whose short name `key` is ([`remote_segment`]):
+    /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
+    /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
-        let hit = if let Some(r) = map.get(key) {
-            Some((r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
+        let row = |r: &RemoteSession| {
+            (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone())
+        };
+        let (hit, by_short_name) = if let Some(r) = map.get(key) {
+            (Some(row(r)), false)
         } else {
-            let mut matches: Vec<_> = map
-                .iter()
-                .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
-                .collect();
-            if matches.len() == 1 { matches.pop() } else { None }
+            // One pass over the rows, as before short names: whole names and prefixes, and the
+            // short-name candidates beside them as references (kept only while no whole name or
+            // prefix matched). Only the one row picked is cloned, never a candidate dropped later.
+            let (mut strict, mut shorts) = (Vec::new(), Vec::new());
+            for (id, r) in map.iter() {
+                if names_remote(id, r, key) {
+                    strict.push(&**r);
+                } else if strict.is_empty() && remote_segment(r, key) {
+                    shorts.push(&**r);
+                }
+            }
+            let short = strict.is_empty();
+            let mut matches: Vec<&RemoteSession> = if short {
+                // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
+                let live = shorts.iter().any(|r| !remote_closed(r));
+                shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
+            } else {
+                strict
+            };
+            (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
         };
         drop(map);
         let (peer_name, id, summary) = hit?;
+        // A bare short name gives way to any session here `key` names by id, name or prefix, to
+        // a live one here with the short name, and, when this one is closed, to a closed one
+        // here too (`Hub::resolve_here` refuses those ties). Read only now, with the peers' rows
+        // unlocked and a candidate in hand, so no other lookup scans this daemon's sessions a
+        // second time.
+        if by_short_name && !key.contains('/') {
+            let [other, live_here, closed_here] = self.local_match_counts(key);
+            let closed = summary.get("status").and_then(Value::as_str) == Some("closed");
+            if other > 0 || live_here > 0 || (closed && closed_here > 0) {
+                return None;
+            }
+        }
         let peer = self.peer(&peer_name)?;
         Some((peer, id, summary))
+    }
+
+    /// The names of the peer sessions whose name contains `lower` (any case), for a refusal's
+    /// list (`Hub::unknown_session`).
+    pub(super) fn remote_names_containing(&self, lower: &str) -> Vec<String> {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
+            .filter(|n| n.to_ascii_lowercase().contains(lower))
+            .map(str::to_owned)
+            .collect()
     }
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
@@ -1019,16 +1100,20 @@ impl Hub {
             .collect();
         for r in rows {
             let mut summary = r.summary.clone();
-            summary["stale"] = Value::Bool(summary["stale"] == true);
+            summary.set("stale", Value::Bool(summary["stale"] == true));
             if let Some(state) = states.get(&r.peer) {
-                summary["peerState"] = Value::String((*state).to_owned());
+                summary.set("peerState", Value::String((*state).to_owned()));
             }
             visit(summary);
         }
     }
 
-    /// Each summary once, local before remote, without retaining the JSON trees.
-    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
+    /// This daemon's own sessions' summaries, without retaining the JSON trees.
+    pub(super) fn visit_own_session_summaries(
+        &self,
+        with_tools: bool,
+        mut visit: impl FnMut(Value),
+    ) {
         for session in self.sessions() {
             visit(if with_tools {
                 self.session_summary(&session)
@@ -1036,6 +1121,11 @@ impl Hub {
                 self.session_list_summary(&session)
             });
         }
+    }
+
+    /// Each summary once, local before remote, without retaining the JSON trees.
+    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
+        self.visit_own_session_summaries(with_tools, &mut visit);
         self.visit_remote_rows(
             |_| true,
             |row| {
@@ -1078,6 +1168,28 @@ impl Hub {
         }
         out
     }
+}
+
+/// Whether peer session `r` is closed (its row's `status`).
+fn remote_closed(r: &RemoteSession) -> bool {
+    r.summary.get("status").and_then(Value::as_str) == Some("closed")
+}
+
+/// Whether `key` is peer session `r`'s short name, its name's last segment: a bare
+/// `mac-ci-3` for `PEER/claude-sr2/mac-ci-3` on any peer, or `PEER/mac-ci-3` on that peer only.
+fn remote_segment(r: &RemoteSession, key: &str) -> bool {
+    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+    if !key.contains('/') {
+        return crate::session_name::ends_with_segments(name, key);
+    }
+    let peer = format!("{}/", r.peer);
+    key.strip_prefix(&peer).is_some_and(|rest| {
+        !rest.contains('/')
+            && crate::session_name::ends_with_segments(
+                name.strip_prefix(&peer).unwrap_or(name),
+                rest,
+            )
+    })
 }
 
 /// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,

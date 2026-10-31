@@ -24,12 +24,12 @@ struct AttentionSnapshotTests {
 
     private static func state(_ store: DaemonStore, mark: UInt64?) {
         var mirror = SessionStateMirror()
-        if let mark { mirror.tabs["tab_test"] = .init(attention: .init(reason: "Sign in", atMs: mark)) }
+        if let mark { mirror.tabs["tab_test"] = .init(attention: .init(reason: "Sign in", atMs: mark, requestID: String(format: "%032llx", mark))) }
         store.session.apply(.snapshot(mirror), in: store)
     }
 
     private static func mark(_ store: DaemonStore, at: UInt64) {
-        store.session.apply(.delta([.tab("tab_test", .init(attention: .init(reason: "Sign in again", atMs: at)))]), in: store)
+        store.session.apply(.delta([.tab("tab_test", .init(attention: .init(reason: "Sign in again", atMs: at, requestID: String(format: "%032llx", at))))]), in: store)
     }
 
     @Test(arguments: [false, true])
@@ -56,6 +56,28 @@ struct AttentionSnapshotTests {
         let current = AttentionTabsWatch.Snapshot(machine: "local", store: store).items
         #expect(AttentionBannerLifecycle.attentionChanges(previous: before, current: current).post.map(\.tabId) == Array(eligible))
         #expect(eligible.count == 1, "the first new request after baseline was swallowed")
+    }
+
+    @Test func distinctRequestsWithTheSameTimestampPostAndWithdrawIndependently() throws {
+        let store = try Self.connectedStore()
+        Self.tree(store)
+        Self.state(store, mark: 1_000)
+        var baseline = AttentionTabsWatch.SnapshotBaseline()
+        let first = AttentionTabsWatch.Snapshot(machine: "local", store: store)
+        #expect(baseline.eligibleRequests([first]).isEmpty)
+        store.session.apply(.delta([.tab("tab_test", .init(attention: .init(
+            reason: "A different request", atMs: 1_000, requestID: String(repeating: "f", count: 32))))]), in: store)
+        let second = AttentionTabsWatch.Snapshot(machine: "local", store: store)
+        #expect(baseline.eligibleRequests([second]).count == 1,
+                "the new request reused a timestamp and was mistaken for the launch baseline")
+        let changes = AttentionBannerLifecycle.attentionChanges(previous: first.items, current: second.items)
+        #expect(changes.post == second.items)
+        #expect(changes.withdraw == first.items.map(AttentionBannerLifecycle.attentionBannerID))
+        #expect(baseline.eligibleRequests([second]).isEmpty)
+        var reordered = try #require(second.items.first)
+        reordered.atMs += 1
+        #expect(AttentionBannerLifecycle.attentionChanges(previous: second.items, current: [reordered]) == ([], []),
+                "a display timestamp must never replace request identity")
     }
 
     @Test func emptyReadySnapshotAndOfflineRemoteDoNotSwallowFirstLocalRequest() throws {

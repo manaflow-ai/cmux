@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 import { listUserTeams } from "../src/user-teams.ts"
-import { call, PROJECT, stackWorld, teamIdOf, useStack } from "./team-stack-support.ts"
+import { call, PROJECT, stackWorld, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
+import { inDO as runIn } from "./team-ssh-support.ts"
 import { sessionToken } from "./team-ssh-support.ts"
 
 const workerEnv = env as unknown as Env
@@ -43,6 +44,13 @@ describe("user.teams.list mirrors a Stack team the webhook never synced", { time
     const after = await members(s.token, s.team)
     expect(after.status, JSON.stringify(after.body)).toBe(200)
     expect((after.body.value.members as Array<{ display_name: string }>).map((m) => m.display_name).sort()).toEqual(["Aziz", "Lawrence"])
+  })
+
+  it("a person's own list is never put in the low lane of the Stack pace (that lane may be full of visitors' teams)", async () => {
+    const s = await setup("Busy")
+    await runIn(teamStub(s.team), async (instance) => void (instance.stackLowPace = async () => false))
+    const r = await listUserTeams(workerEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => Date.now() })
+    expect((r as { value: { teams: Array<{ id: string }> } }).value.teams.map((t) => t.id)).toContain(s.team)
   })
 
   it("asks Stack once per person per window, and not at all without a pace token", async () => {

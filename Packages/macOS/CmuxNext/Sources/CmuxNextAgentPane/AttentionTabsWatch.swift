@@ -34,8 +34,8 @@ public final class AttentionTabsWatch {
                 && (!store.servesStateResources || store.session.hasCurrentSnapshot)
             items = AttentionTabsWatch.items(in: store.workspaces.map { ($0, machine: machine) })
             baselineRequests = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
-                guard let resource = tab.resourceID, let at = store.session.snapshotAttention[resource] else { return nil }
-                return AttentionTabsWatch.key(machine: machine, tab: tab.id, atMs: at)
+                guard let resource = tab.resourceID, let requestID = store.session.snapshotAttention[resource] else { return nil }
+                return AttentionTabsWatch.key(machine: machine, tab: resource.rawValue, requestID: requestID)
             })
         }
     }
@@ -98,18 +98,16 @@ public final class AttentionTabsWatch {
 
     /// The marked tabs of `workspaces` (each with the id of the machine that holds it), newest
     /// mark first: the agent's reason, the workspace and tab titles the person knows them by (never
-    /// an id), and when it was marked. Each row's key is ``key(machine:tab:)``.
+    /// an id), and when it was marked. Each row's key is ``key(machine:tab:requestID:)``.
     public static func items(in workspaces: [(WorkspaceModel, machine: String)]) -> [AgentPaneAttentionTabs.Item] {
         var items: [AgentPaneAttentionTabs.Item] = []
         for (workspace, machine) in workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs {
-                        guard let attention = tab.attention else { continue }
-                        let tabKey = key(machine: machine, tab: tab.id, atMs: attention.atMs)
-                        guard !tabKey.isEmpty else { continue }
+                        guard let attention = tab.attention, let requestID = attention.requestID else { continue }
                         items.append(AgentPaneAttentionTabs.Item(
-                            tabId: tabKey, reason: attention.reason, workspaceTitle: workspace.displayName,
+                            tabId: key(machine: machine, tab: tab.resourceID?.rawValue ?? tab.id, requestID: requestID), reason: attention.reason, workspaceTitle: workspace.displayName,
                             tabTitle: tab.displayTitle, atMs: attention.atMs))
                     }
                 }
@@ -118,34 +116,24 @@ public final class AttentionTabsWatch {
         return items.sorted { $0.atMs > $1.atMs }
     }
 
-    /// A bounded opaque key for one request on one tab. Hashing both identities keeps even
-    /// unusually long daemon IDs within the bridge's byte bound without truncating identity.
-    public static func key(machine: String, tab: String, atMs: UInt64 = 0) -> String {
-        "\(digest(machine))/\(digest(tab))/\(atMs)"
+    /// A marked tab's row key (`Item.tabId`, what a page's Go to sends back): a short digest of
+    /// its machine's id, the attention generation, and its durable tab id, since tabs on two machines can share an id. The
+    /// digest keeps the key inside ``AgentPaneAttentionTabs/maximumTabID`` however long the
+    /// machine id is, and a tab id holds no `/`.
+    public static func key(machine: String, tab: String, requestID: String) -> String { "\(machineDigest(machine))/\(requestID)/\(tab)" }
+
+    /// The first 8 bytes of SHA-256 of `machine`, in hex.
+    public static func machineDigest(_ machine: String) -> String {
+        SHA256.hash(data: Data(machine.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func digest(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Resolves a row against the live store, including its generation. Even before the watch
-    /// publishes a clear or replacement, a stale row cannot open that tab's new request.
-    public static func locate<Daemon>(_ key: String, in daemons: [Daemon],
-                                      machine: (Daemon) -> String, store: (Daemon) -> DaemonStore,
-                                      expectedAtMs: UInt64? = nil) -> (daemon: Daemon, tab: String)? {
-        guard key.utf8.count <= AgentPaneAttentionTabs.maximumTabID else { return nil }
+    /// The machine (of `daemons`) and tab id that row key `key` names; nil for a key that names
+    /// no connected machine.
+    public static func locate<Daemon>(_ key: String, in daemons: [Daemon], machineID: (Daemon) -> String) -> (daemon: Daemon, tab: String, requestID: String)? {
         let parts = key.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 3, let atMs = UInt64(parts[2]), expectedAtMs == nil || expectedAtMs == atMs,
-              let daemon = daemons.first(where: { digest(machine($0)) == parts[0] }) else { return nil }
-        for workspace in store(daemon).workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { digest($0.id) == parts[1] && $0.attention?.atMs == atMs }) {
-                        return (daemon, tab.id)
-                    }
-                }
-            }
-        }
-        return nil
+        guard parts.count == 3, TabAttention.validRequestID(String(parts[1])) else { return nil }
+        let digest = parts[0], tab = String(parts[2])
+        guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest(machineID($0)) == digest }) else { return nil }
+        return (daemon, tab, String(parts[1]))
     }
 }

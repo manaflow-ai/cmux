@@ -25,7 +25,7 @@ struct AttentionBannerTests {
         #expect(AttentionBannerLifecycle.attentionChanges(previous: [], current: [login]) == ([login], []))
         #expect(AttentionBannerLifecycle.attentionChanges(previous: [login], current: [login]) == ([], []),
                 "the same request never posts twice")
-        let again = Self.item("tab_1", at: 2_000, reason: "Approve the scopes")
+        let again = Self.item("tab_1-next-request", at: 2_000, reason: "Approve the scopes")
         let replaced = AttentionBannerLifecycle.attentionChanges(previous: [login], current: [again])
         #expect(replaced.post == [again], "a new request on the tab posts again")
         #expect(replaced.withdraw == [AttentionBannerLifecycle.attentionBannerID(login)])
@@ -35,9 +35,9 @@ struct AttentionBannerTests {
 
     @Test func theBannerNamesItsTabAndNothingElse() {
         let id = AttentionBannerLifecycle.attentionBannerID(Self.item("tab_0f3c", at: 42))
-        #expect(id == "cmux-attention.42.tab_0f3c")
+        #expect(id == "cmux-attention.tab_0f3c")
         #expect(AttentionBannerLifecycle.attentionTab(banner: id) == "tab_0f3c")
-        for other in ["cmux-notification-7", "cmux-attention.", "cmux-attention.x.tab_1", "cmux-attention.42.", "attention.42.tab_1"] {
+        for other in ["cmux-notification-7", "cmux-attention.", "attention.42.tab_1"] {
             #expect(AttentionBannerLifecycle.attentionTab(banner: other) == nil, "\(other)")
         }
     }
@@ -50,7 +50,7 @@ struct AttentionBannerTests {
         defer { shared.items = items; shared.onOpen = onOpen }
         var shown: [String] = []
         shared.onOpen = { id in shown.append(id); return true }
-        let key = AttentionTabsWatch.key(machine: "local", tab: "tab_1")
+        let key = AttentionTabsWatch.key(machine: "local", tab: "tab_1", requestID: String(repeating: "a", count: 32))
         let first = Self.item(key, at: 1_000)
         shared.items = [first]
         let service = services.notifications
@@ -65,7 +65,7 @@ struct AttentionBannerTests {
         #expect(service.showAttention(banner: banner))
         #expect(shown == [key])
         // A newer request on the same tab replaces the banner's: the old banner opens nothing.
-        shared.items = [Self.item(key, at: 2_000, reason: "Approve the scopes")]
+        shared.items = [Self.item(key + "-next-request", at: 2_000, reason: "Approve the scopes")]
         #expect(service.showAttention(banner: banner), "the banner is still the attention kind")
         #expect(shown == [key], "a replaced request's banner went to the tab")
         // A cleared mark, or a banner from an earlier launch, opens nothing either.
@@ -85,7 +85,7 @@ struct AttentionBannerTests {
         defer { shared.items = items; shared.onOpen = onOpen }
         var shown: [String] = []
         shared.onOpen = { id in shown.append(id); return true }
-        let live = Self.item(AttentionTabsWatch.key(machine: "local", tab: "tab_1"), at: 1_000)
+        let live = Self.item(AttentionTabsWatch.key(machine: "local", tab: "tab_1", requestID: String(repeating: "a", count: 32)), at: 1_000)
         shared.items = [live]
         let restarted = services.notifications
         restarted.desktopPostingEnabled = false
@@ -114,15 +114,15 @@ struct AttentionBannerTests {
             store.apply(snapshot: DaemonTree(workspaces: [snapshot]))
             let workspace = try #require(store.workspaces.first)
             let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
-            tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Log in to GitHub", atMs: 1_000)), progress: nil)
+            tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Log in to GitHub", atMs: 1_000, requestID: String(repeating: "a", count: 32))), progress: nil)
             return (workspace, tab)
         }
         let (hereWorkspace, hereTab) = try marked(services.daemon.store, WorkspaceSnapshot(id: 1, key: nil, name: "here", screens: [screen]))
         let (labWorkspace, labTab) = try marked(ssh.daemon.store, WorkspaceSnapshot(id: 1, key: nil, name: "lab", screens: [screen]))
         #expect(hereTab.id == labTab.id && hereWorkspace.id == labWorkspace.id)
         let items = AttentionTabsWatch.items(in: [(hereWorkspace, machine: "local"), (labWorkspace, machine: ssh.machineID)])
-        let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: hereTab.id, atMs: 1_000) })
-        let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: labTab.id, atMs: 1_000) })
+        let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: "tab_forked", requestID: String(repeating: "a", count: 32)) })
+        let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: "tab_forked", requestID: String(repeating: "a", count: 32)) })
         let notifications = services.notifications
         notifications.preferences.mutedWorkspaces = [NotificationWorkspaceKey.qualified(machine: ssh.machineID, workspace: labWorkspace.id)]
         #expect(notifications.attentionArrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")

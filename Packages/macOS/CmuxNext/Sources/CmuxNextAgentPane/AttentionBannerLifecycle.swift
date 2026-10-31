@@ -23,16 +23,14 @@ public struct AttentionBannerLifecycle {
 
     /// One banner per request: a new request on the same tab is a new banner.
     public nonisolated static func attentionBannerID(_ item: AgentPaneAttentionTabs.Item) -> String {
-        "\(attentionBannerPrefix)\(item.atMs).\(item.tabId)"
+        "\(attentionBannerPrefix)\(item.tabId)"
     }
 
     /// The tab a Needs you banner names, nil for any other banner.
     public nonisolated static func attentionTab(banner: String) -> String? {
         guard banner.hasPrefix(attentionBannerPrefix) else { return nil }
-        let rest = banner.dropFirst(attentionBannerPrefix.count)
-        guard let dot = rest.firstIndex(of: "."), UInt64(rest[..<dot]) != nil else { return nil }
-        let tab = rest[rest.index(after: dot)...]
-        return tab.isEmpty ? nil : String(tab)
+        let tab = banner.dropFirst(attentionBannerPrefix.count)
+        return tab.isEmpty || tab.utf8.count > 256 ? nil : String(tab)
     }
 
     public nonisolated static let attentionBannerPrefix = "cmux-attention."

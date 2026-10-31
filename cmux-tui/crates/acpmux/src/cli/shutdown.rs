@@ -15,6 +15,7 @@ use crate::config::Config;
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -110,7 +111,7 @@ async fn run_on(
     let client = connect(false).await?;
     let mut params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
     if restart {
-        params["restart"] = json!(true);
+        params.set("restart", json!(true));
     }
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep

@@ -4,7 +4,7 @@
 // answers, Go to source and Ask about this. While asks are open, Jump to latest is the Needs your
 // input pill (JumpPill.tsx), for this chat's asks and its started chats' only. Both are Debug
 // Settings toggles; `before` is the pane with both off, as it drew before. Light and dark come from
-// the gallery's appearance control. `marked-tab` adds a tab an agent marked (tab-attention-v1).
+// the gallery's appearance control.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, session, SESSION_ID, tool, user } from "../../../gallery/fixtures/acpmux";

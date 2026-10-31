@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from "react";
 
 export type AttentionTab = {
-  /// The host's key for one marked request (machine, tab and generation); Go to only echoes it.
+  /// The host's key for the tab (its machine and tab id); the page only echoes it back to Go to.
   tabId: string;
   /// The agent's one line: what the person must do in the tab.
   reason: string;
@@ -23,7 +23,6 @@ export const ATTENTION_OPEN_OP = "chat.attention.open";
 
 /// Longest text a pushed field keeps (the daemon caps a reason at 200 bytes).
 const MAX_TEXT = 512;
-const MAX_TAB_ID_BYTES = 256;
 
 const EMPTY: readonly AttentionTab[] = [];
 let tabs: readonly AttentionTab[] = EMPTY;
@@ -42,8 +41,7 @@ export function parseAttentionTabs(value: unknown): AttentionTab[] {
     const reason = text(entry.reason).trim();
     // `atMs` is the daemon's whole, nonnegative epoch ms: anything else is no mark, as on the host.
     const atMs = entry.atMs;
-    if (entry.kind !== "tab" || !tabId || new TextEncoder().encode(tabId).length > MAX_TAB_ID_BYTES || !reason)
-      continue;
+    if (entry.kind !== "tab" || !tabId || !reason) continue;
     if (typeof atMs !== "number" || !Number.isSafeInteger(atMs) || atMs < 0) continue;
     parsed.push({
       tabId,

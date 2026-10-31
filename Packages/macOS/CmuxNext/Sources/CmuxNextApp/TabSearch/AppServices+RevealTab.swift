@@ -18,23 +18,7 @@ extension AppServices {
     ///     key window alone (a link opened in the background).
     @discardableResult
     func revealTab(_ id: String, intent: WindowActivation.Intent = .raise) -> Bool {
-        reveal(locateTab(id), id: id, intent: intent)
-    }
-
-    /// ``revealTab(_:intent:)`` for tab `id` on machine `machineID` only, never a tab of
-    /// another machine that shares the id (Go to What Needs Me's rows name their machine).
-    /// Windows find a workspace by its id alone, so a workspace whose id another machine's
-    /// workspace also has (a cloned machine's) is refused rather than shown as the other one.
-    @discardableResult
-    func revealTab(_ id: String, onMachine machineID: String, intent: WindowActivation.Intent = .raise) -> Bool {
-        guard let daemon = machines.daemons.first(where: { $0.machineID == machineID }),
-              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab),
-              let workspace = daemon.store.workspace(containing: pane.handle),
-              machines.workspace(id: workspace.id)?.1 === daemon else { return false }
-        return reveal((tab, pane), id: id, intent: intent)
-    }
-
-    private func reveal(_ located: (TabModel, PaneModel)?, id: String, intent: WindowActivation.Intent) -> Bool {
+        let located = locateTabOnAnyMachine(id)
         // A `tab_` link names a tab the strip may know by its first id.
         let tabID = located?.0.id ?? id
         guard let paneModel = located?.1,
@@ -43,6 +27,23 @@ extension AppServices {
         window.state.selection.select(tabID, in: paneModel.id)
         window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
         paneController(for: paneModel)?.select(StripTabID(tabID))
+        if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }
+        return true
+    }
+
+    /// Shows tab `id` on the named machine, refusing a same-id tab on another machine.
+    @discardableResult
+    func revealTab(_ id: String, onMachine machineID: String, intent: WindowActivation.Intent = .raise) -> Bool {
+        guard let daemon = machines.daemons.first(where: { $0.machineID == machineID }),
+              let tab = daemon.store.tab(idOrResource: id),
+              let pane = daemon.store.pane(holding: tab),
+              let workspace = daemon.store.workspace(containing: pane.handle),
+              machines.workspace(id: workspace.id)?.1 === daemon else { return false }
+        let tabID = tab.id
+        guard let window = windows.reveal(workspaceID: workspace.id) else { return false }
+        window.state.selection.select(tabID, in: pane.id)
+        window.focus.send(.selectTab(pane: pane.id, tab: tabID, workspace: workspace.id, source: .intent))
+        paneController(for: pane)?.select(StripTabID(tabID))
         if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }
         return true
     }

@@ -152,7 +152,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
     });
     if let Some(control) = &control {
-        ready["control"] = serde_json::json!(control.path().display().to_string());
+        ready.set("control", serde_json::json!(control.path().display().to_string()));
     }
     println!("{}", serde_json::to_string(&ready)?);
     let _ = io::stdout().flush();

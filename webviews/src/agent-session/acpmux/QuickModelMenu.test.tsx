@@ -5,7 +5,8 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily, QuickModel, QuickSearchField } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -361,15 +362,20 @@ test("inline effort picks a different model and its level together; model names 
     await settle();
   };
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(4);
+  // The running Model A lists its own two levels and the session-only Ultracode (3); Model B only
+  // its one (the menu held 4 levels across both rows before each got its own dropdown).
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
   expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
+  expect((await openEffort(document, "Model B")).map((item) => item.getAttribute("aria-label"))).toEqual([
+    "Model B · Low",
+  ]);
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
-  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(effortPicks).toEqual(["ultracode"]);
   expect(picks).toEqual([]);
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model B · Low"))!.click());
   expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
   await settle();
   await open();
@@ -383,7 +389,7 @@ test("inline effort picks a different model and its level together; model names 
   expect(picks.at(-1)?.effort).toBeUndefined();
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Low"))!.click());
   expect(effortPicks).toEqual(["ultracode", "low"]);
   expect(picks.at(-1)?.id).toBe("b");
   expect(picks).toHaveLength(2);
@@ -391,11 +397,11 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
   await act(async () => root!.render(<InlineHarness omitInlineEffort />));
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
 });
 
@@ -457,7 +463,7 @@ test.each([
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  await act(async () => (document.querySelector(`[aria-label="Model A · ${name}"]`) as HTMLElement).click());
+  await act(async () => (await effortLevel(document, `Model A · ${name}`))!.click());
   // The level goes through the reported option (Ultracode is no catalog effort a combo could land);
   // Fast goes through the combo, which maps it onto the option's plain tier, never the toggle, which
   // would restore a remembered ultrafast.
@@ -530,4 +536,274 @@ test("provider submenu and expanded rows keep the current model's Effort fallbac
       root = undefined;
     });
   }
+});
+
+test("the running model keeps session-only effort levels and calls effort.onPick", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const picked: string[] = [];
+  function CurrentModel() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [{ id: "a", name: "Model A", efforts: ["low", "high"] }],
+          current: "a",
+          onModel() {},
+          // A menu without families opts into inline rows only with the combined callback.
+          onModelEffort() {},
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+              { id: "ultracode", name: "Ultracode" },
+            ],
+            current: "high",
+            onPick: (value) => picked.push(value),
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CurrentModel />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
+  expect(picked).toEqual(["ultracode"]);
+});
+
+test("the fallback Effort submenu remains when the running model is folded away", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  function FoldedModel() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [{ id: "top", name: "Top model", efforts: ["low", "high"] }],
+          current: "folded",
+          onModel() {},
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            current: "high",
+            onPick() {},
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<FoldedModel />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  expect(
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-sub")].some((row) =>
+      row.textContent?.startsWith("Effort"),
+    ),
+  ).toBe(true);
+});
+
+for (const location of ["top", "more", "provider"] as const) {
+  for (const capability of ["absent", "empty"] as const) {
+    test(`the current ${location} model respects ${capability} effort capability in every control`, async () => {
+      const container = installDom();
+      await loadQuickModelMenu();
+      const current: QuickModel = {
+        id: "current",
+        name: "Current model",
+        family: "claude",
+        ...(capability === "empty" ? { efforts: [] } : {}),
+      };
+      const top: QuickModel = { id: "top", name: "Top model", family: "claude" };
+      function CapabilityMenu() {
+        const trigger = useRef<HTMLButtonElement | null>(null);
+        const [open, setOpen] = useState(false);
+        return (
+          <QuickModelMenu
+            open={open}
+            onOpenChange={setOpen}
+            trigger={trigger}
+            chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+            onMore={() => {}}
+            menu={{
+              inlineEffort: true,
+              models: [],
+              current: "current",
+              onModel() {},
+              effort: {
+                levels: [
+                  { id: "low", name: "Low" },
+                  { id: "high", name: "High" },
+                  { id: "ultracode", name: "Ultracode" },
+                ],
+                current: "high",
+                onPick() {},
+              },
+              families: {
+                current: "claude",
+                onPick() {},
+                list: [
+                  {
+                    id: "claude",
+                    name: "Claude",
+                    models:
+                      location === "top"
+                        ? [current]
+                        : location === "provider"
+                          ? [{ ...top, offers: [{ ...current, provider: "Route" }] }]
+                          : [top],
+                    more: location === "more" ? [current] : [],
+                  },
+                ],
+              },
+            }}
+          >
+            Model
+          </QuickModelMenu>
+        );
+      }
+      await act(async () => {
+        root = createRoot(container);
+        root.render(<CapabilityMenu />);
+      });
+      await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+      await settle();
+      const segments = await openEffort(document);
+      const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
+        row.textContent?.startsWith("Effort"),
+      );
+      if (capability === "empty") {
+        expect(segments).toHaveLength(0);
+        expect(fallback).toBeUndefined();
+      } else {
+        expect(segments.length > 0 || Boolean(fallback)).toBe(true);
+      }
+      expect(document.querySelectorAll('[role^="menuitem"] [role^="menuitem"]')).toHaveLength(0);
+    });
+  }
+}
+
+test.each(["submenu", "expanded"] as QuickProviderLook[])(
+  "provider %s controls never nest menu items",
+  async (providers) => {
+    const container = installDom();
+    await loadQuickModelMenu();
+    function ProviderMenu() {
+      const trigger = useRef<HTMLButtonElement | null>(null);
+      const [open, setOpen] = useState(false);
+      return (
+        <QuickModelMenu
+          open={open}
+          onOpenChange={setOpen}
+          trigger={trigger}
+          chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+          onMore={() => {}}
+          menu={{
+            inlineEffort: true,
+            models: [
+              {
+                id: "a",
+                name: "Shared model",
+                efforts: ["low", "high"],
+                offers: [
+                  { id: "a", name: "Shared model", family: "", provider: "Route A" },
+                  { id: "b", name: "Shared model", family: "", provider: "Route B" },
+                ],
+              },
+            ],
+            providers,
+            current: "a",
+            onModel() {},
+            effort: {
+              levels: [
+                { id: "low", name: "Low" },
+                { id: "high", name: "High" },
+              ],
+              current: "high",
+              onPick() {},
+            },
+          }}
+        >
+          Model
+        </QuickModelMenu>
+      );
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<ProviderMenu />);
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+    await settle();
+    if (providers === "submenu") {
+      const row = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-sub")].find((node) =>
+        node.textContent?.includes("Shared model"),
+      )!;
+      await act(async () => row.click());
+      await settle();
+    }
+    expect(
+      [...document.querySelectorAll('[role="menuitemradio"]')].some((row) => row.textContent?.includes("Route B")),
+    ).toBe(true);
+    expect(document.querySelectorAll('[role^="menuitem"] [role^="menuitem"]')).toHaveLength(0);
+  },
+);
+
+test("an empty harness list does not claim an empty search had no matches", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <QuickModelMenu
+        open
+        onOpenChange={() => undefined}
+        trigger={{ current: null }}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => undefined}
+        menu={{
+          models: [],
+          current: undefined,
+          onModel: () => undefined,
+          families: {
+            list: [{ id: "claude", name: "Claude Code", models: [], more: [] }],
+            current: "claude",
+            onPick: () => undefined,
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>,
+    );
+  });
+  await settle();
+  const text = document.querySelector(".acpmux-quick-note")?.textContent?.trim();
+  expect(text).toBe("No models yet. Refresh to ask the agent again.");
+  expect(text).not.toBe("No matching models");
 });

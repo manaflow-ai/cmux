@@ -4,8 +4,9 @@ import { useMemo, useRef } from "react";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
-import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
+import type { AttentionTab } from "./attentionTabs";
+import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
 
@@ -43,7 +44,13 @@ export function useNeedsYou({
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
-}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
+}): {
+  mode: NeedsYouMode;
+  items: NeedsYouItem[];
+  actions: NeedsYouActions;
+  attentionTabs: readonly AttentionTab[];
+  pill?: TranscriptNeedsYou;
+} {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows } = snapshot;
@@ -58,10 +65,14 @@ export function useNeedsYou({
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
   /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
-  const openElsewhere = (item: NeedsYouItem) =>
-    callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  const openElsewhere = (item: NeedsYouItem) => {
+    // Peer sessions stay in the header list; they are not local chats that this pane can open.
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return Promise.resolve();
+    return callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  };
   const goTo = (item: NeedsYouItem) => {
-    // A tab an agent marked: the app shows it as Search Tabs does (AgentPaneAttentionTabs).
+    // A tab an agent marked: the app shows it as Search Tabs does.
     if (item.kind === "tab") {
       if (item.tabId) void callNative(ATTENTION_OPEN_OP, { tabId: item.tabId }).catch(() => undefined);
       return;
@@ -91,10 +102,8 @@ export function useNeedsYou({
     },
     goTo,
     ask: async (item, question) => {
-      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens that chat on the
-      // side, asked about there.
       // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
-      // tab, asked about there. A marked tab names no chat to ask.
+      // tab, asked about there. A marked tab names no chat.
       if (item.kind === "tab") throw new Error("no chat");
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
@@ -106,9 +115,14 @@ export function useNeedsYou({
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
   // The pill speaks for this chat and the chats it started only (JumpPill.tsx `pillAsks`); the
-  // header's list keeps every ask.
+  // header's list keeps every ask. Peer and missing sessions remain header-only.
   const ours = useMemo(
-    () => (pillOn ? pillAsks(items, sessions, sessionId) : []),
+    () =>
+      (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
+        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        if (target?.peer) return false;
+        return item.sessionId === sessionId || target !== undefined;
+      }),
     [pillOn, items, sessions, sessionId],
   );
   const elsewhere = ours.filter((item) => item.sessionId !== sessionId).length;
@@ -125,5 +139,5 @@ export function useNeedsYou({
           },
         }
       : undefined;
-  return { mode, items, actions, ...(pill ? { pill } : {}) };
+  return { mode, items, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
 }

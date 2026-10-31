@@ -24,17 +24,16 @@ import CmuxNextFeed
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences()
-    /// Highlights the user dismissed (Dismiss Highlight, cx-epgo): per
-    /// workspace id, the newest notification id whose attention ring is
-    /// hidden. A newer notification rings again. Presentation only: the
-    /// notifications stay unread in the daemon.
-    var dismissedHighlights: [String: UInt64] = [:]
-    /// The daemon session the dismissed ids belong to: ids restart with a
-    /// new session, so the dismissals apply only within this one.
-    var dismissedHighlightSession: String?
-    /// Marked-unread rings the user dismissed: per tab id, the
-    /// ``TabModel/markedUnreadGeneration`` hidden. Marking the tab again rings again.
-    var dismissedMarks: [String: UInt64] = [:]
+    /// A dismissal belongs to one daemon session, never another machine with the same IDs.
+    struct HighlightKey: Hashable {
+        let machine: String
+        let session: String?
+        let id: String
+    }
+
+    /// Newest notification / manual-mark generation dismissed for each owning resource.
+    var dismissedHighlights: [HighlightKey: UInt64] = [:]
+    var dismissedMarks: [HighlightKey: UInt64] = [:]
     /// The marked tabs at the last change, for their banners (`+Attention`); nil before the first list.
     @ObservationIgnored var attentionSeen: [AgentPaneAttentionTabs.Item]?
     /// The Needs you banners this launch posted and has not withdrawn: only these may Show.
@@ -166,7 +165,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
-            if self?.services?.agentTabs.pageChats.runNotices?.open(banner: id) == true { return }
+            if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             if self?.showAttention(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
@@ -259,11 +258,10 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
         interacted(.click, tabID: press.tab, in: window)
-
     }
 
     /// The selected tab of the pane under `location` in `window`. A child
@@ -349,14 +347,29 @@ final class NotificationCenterService {
         interacted(trigger, tab: tab)
     }
 
-    /// A click or a key in `window` went into tab `tabID`: the tab is found in the workspace that
-    /// window shows, on the machine that owns it, never by id alone (tabs on two machines can
-    /// share an id). A window that shows no workspace reads this Mac's tab, as does a tab outside
-    /// a local workspace; a tab outside a remote one reads nothing rather than a guess.
+    func interactionTarget(tabID: String, in window: NSWindow?) -> TabInteractionTarget? {
+        guard let services else { return nil }
+        let content = content(of: window)
+        let daemon = content?.daemon ?? services.daemon
+        guard let tab = daemon.store.tab(idOrResource: tabID) else { return nil }
+        // Typing reaches this on every keystroke; use the store's identity indexes to check
+        // ownership without allocating and walking the workspace's entire tab tree.
+        if let content {
+            guard let pane = daemon.store.pane(holding: tab),
+                  daemon.store.workspace(containing: pane.handle) === content.workspace else { return nil }
+        }
+        return TabInteractionTarget(tab: tab, store: daemon.store, local: daemon.isLocal)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
+        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
+        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
+        interacted(trigger, tab: target.tab, local: target.local)
+    }
+
     func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
-        guard let content = content(of: window) else { return interacted(trigger, tabID: tabID) }
-        let local = content.daemon.isLocal
-        if !interacted(trigger, tabID: tabID, in: content.workspace, local: local), local { interacted(trigger, tabID: tabID) }
+        guard let target = interactionTarget(tabID: tabID, in: window) else { return }
+        interacted(trigger, target: target)
     }
 
     /// The workspace content `window` shows (a Chromium page window resolves to its cmux window);
@@ -366,8 +379,8 @@ final class NotificationCenterService {
         return services?.windows.controllers.first(where: { $0.window === host })?.content
     }
 
-    /// Tab `tabID` of `workspace` (held by this Mac's daemon when `local`); false when the
-    /// workspace has no such tab.
+    /// Resolve `tabID` within the shown workspace. Return false when that workspace has no tab by
+    /// that id so callers can apply the local fallback only on a local workspace.
     @discardableResult
     func interacted(_ trigger: NotificationTrigger, tabID: String, in workspace: WorkspaceModel, local: Bool) -> Bool {
         let tabs = workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs)
@@ -376,10 +389,8 @@ final class NotificationCenterService {
         return true
     }
 
-    /// `tab` on the machine that holds it: this Mac's tab reads per policy. A remote (Cloud or
-    /// SSH) tab only hides its attention ring, this app's own state (an agent's mark rings there
-    /// too, ``attentionMarks(for:shownTab:)`` reads every machine); its notifications and Mark
-    /// as Unread stay with their daemon's own paths.
+    /// A tab on this machine follows the normal notification policy. A remote tab only hides its
+    /// attention ring, which is local view state on the owning model.
     private func interacted(_ trigger: NotificationTrigger, tab: TabModel, local: Bool) {
         if local { interacted(trigger, tab: tab) } else { dismissAttention(trigger, tab: tab) }
     }
@@ -404,11 +415,14 @@ final class NotificationCenterService {
         acknowledge(tab)
     }
 
-    /// The person went into a tab an agent marked (a click or a key): its ring has done its job,
+    /// The person went into a tab an agent marked (a click, a key or opening it): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
-        guard let attention = tab.attention, trigger == .click || trigger == .keystroke else { return }
-        tab.attentionRingHiddenThrough = attention.atMs
+        // Hiding the ring is this client's view state, so a mark without a request id (an older
+        // daemon's) hides it too, by its generation; only the owner's clear needs the id.
+        // Opening it (jump to unread, a banner) goes into the tab as a click does.
+        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
+        tab.attentionRingHiddenThrough = tab.attentionGeneration
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
@@ -726,9 +740,17 @@ extension NotificationCenterService {
         return decision
     }
 
+    /// A request key resolves only while that same owner-issued request is still live.
+    private func liveAttention(_ item: AgentPaneAttentionTabs.Item) -> (DaemonService, TabModel)? {
+        guard let services,
+              let located = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons, machineID: { $0.machineID }),
+              let tab = located.daemon.store.tab(idOrResource: located.tab),
+              tab.attention?.requestID == located.requestID else { return nil }
+        return (located.daemon, tab)
+    }
+
     private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
-        guard let services, AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons,
-                                                      machine: { $0.machineID }, store: { $0.store }, expectedAtMs: item.atMs) != nil else { return }
+        guard liveAttention(item) != nil else { return }
         let decision = attentionDecision(item)
         note("attention \(item.tabId) \(decision)")
         if decision.desktop {
@@ -749,12 +771,11 @@ extension NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
         // The row key names the tab's machine (tabs on two machines can share an id).
-        if let services, let (daemon, tab) = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons,
-                                                                        machine: { $0.machineID }, store: { $0.store },
-                                                                        expectedAtMs: item.atMs) {
+        if let services, let (daemon, model) = liveAttention(item) {
+            let tab = model.id
             arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
             arrival.typedAgo = typedAgo(tabID: tab, onMachine: daemon.machineID)
-            if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
+            if let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
                 arrival.workspaceMuted = preferences.workspaceMuted(machine: daemon.machineID, workspace: workspace.id,
                                                                     localMachine: services.machines.local.machineID)
