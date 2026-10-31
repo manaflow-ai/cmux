@@ -1,5 +1,5 @@
 import Foundation
-import CmuxNextBrowserAutomation
+public import CmuxNextBrowserAutomation
 public import CmuxNextControl
 
 /// A ``ProviderScriptGate`` from a tab lookup and the guard's four answers, so the app passes its
