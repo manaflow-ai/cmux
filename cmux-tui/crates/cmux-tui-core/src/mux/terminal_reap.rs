@@ -335,7 +335,9 @@ impl Mux {
     /// ends, so neither the host's exit nor the next owner's reconciliation
     /// detaches it: the next owner shows the same screens, splits and tabs,
     /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
-    /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    /// there: on the workspace's first show (`on_show`), or at connect for a
+    /// terminal that ran an agent session, so the agent resumes. Terminals
+    /// without a tab end as in [`Self::end_all_terminals`].
     pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(true)
     }
@@ -348,8 +350,15 @@ impl Mux {
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
         // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
-        let kept =
-            if keep_layout { self.record_kept_tabs(&terminals, false)? } else { HashSet::new() };
+        // A kept plain shell or command starts on its workspace's first show:
+        // restarting all at the next connect took a PTY for every workspace
+        // nobody opens (a913). A kept agent still restarts at connect, so it
+        // resumes.
+        let kept = if keep_layout {
+            self.record_kept_tabs(&terminals, KeptStart::OnShowUnlessAgent)?
+        } else {
+            HashSet::new()
+        };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         let mut to_close = Vec::new();
@@ -439,11 +448,11 @@ impl Mux {
     /// host's fact: the foreground process's directory, else the OSC 7 or
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
-    /// `on_show`: parked (`park-tabs`), started when first shown.
+    /// `start`: when a frontend starts each kept tab again.
     fn record_kept_tabs(
         &self,
         terminals: &[RegistryTerminal],
-        on_show: bool,
+        start: KeptStart,
     ) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
@@ -462,12 +471,19 @@ impl Mux {
                     continue;
                 }
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
-                placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
+                let on_show = match start {
+                    KeptStart::OnShow => true,
+                    // A failed read keeps the old start at connect: an agent is never left unresumed.
+                    KeptStart::OnShowUnlessAgent => registry
+                        .terminal_relaunch_record(&terminal.terminal_id)
+                        .is_ok_and(|record| record.is_none_or(|record| record.agent.is_none())),
+                };
+                placed.push((terminal.terminal_id.clone(), tab_ids, runtime, on_show));
             }
         }
         let mut rows = Vec::new();
         let mut kept = HashSet::new();
-        for (terminal_id, tab_ids, runtime) in placed {
+        for (terminal_id, tab_ids, runtime, on_show) in placed {
             let cwd = runtime.as_ref().and_then(|surface| {
                 surface
                     .process_id()
@@ -540,7 +556,7 @@ impl Mux {
             }
         }
         // Every tab is recorded before any shell is asked to exit, so no exit removes one.
-        let kept = self.record_kept_tabs(&chosen, true)?;
+        let kept = self.record_kept_tabs(&chosen, KeptStart::OnShow)?;
         let mut failures = Vec::new();
         for terminal in chosen.iter().filter(|terminal| kept.contains(&terminal.terminal_id)) {
             if let Err(error) = self.end_terminal_keeping_tabs(terminal) {
@@ -614,6 +630,17 @@ impl Mux {
         }
         registry.any_kept_tab(&tab_ids)
     }
+}
+
+/// When a frontend starts a kept tab (`kept_tabs`) again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeptStart {
+    /// When its workspace is first shown (`relaunch.on_show`): `park-tabs`.
+    OnShow,
+    /// On first show, except a terminal whose relaunch record names an agent
+    /// session: that one restarts when a frontend connects, so the agent
+    /// resumes (End Sessions, Keep Layout).
+    OnShowUnlessAgent,
 }
 
 /// Longest `end_all_terminals` waits for a progressing host-close pool
