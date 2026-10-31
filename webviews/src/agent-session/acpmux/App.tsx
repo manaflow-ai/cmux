@@ -3123,6 +3123,7 @@ export function VirtualTranscript({
     const stack = bottomStackFold.current;
     if (!stack) return;
     bottomStackFold.current = undefined;
+    foldAnchor.current = undefined;
     if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
     stack.rowObserver?.disconnect();
     if (stack.animation) {
@@ -3681,6 +3682,7 @@ export function VirtualTranscript({
             if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
             stack.rowObserver?.disconnect();
             bottomStackFold.current = undefined;
+            foldAnchor.current = undefined;
           };
           animation.onfinish = finished;
           animation.oncancel = finished;
