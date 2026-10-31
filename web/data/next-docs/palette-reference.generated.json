@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1242,
+    "entries": 1243,
     "shortcuts": 189
   },
   "sections": [
@@ -6374,6 +6374,12 @@
           "title": "Hand Off Cloud Machine",
           "shortcut": null,
           "command": "cmux cloud hand-off-machine"
+        },
+        {
+          "id": "cloudSetNetworkAccess",
+          "title": "Internet Access…",
+          "shortcut": null,
+          "command": "cmux cloud set-network-access"
         },
         {
           "id": "cloudKillMachine",

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 774,
-    "mcp": 690
+    "verbs": 775,
+    "mcp": 691
   },
   "nouns": [
     {
@@ -1476,6 +1476,13 @@
           "id": "cloudSetIdlePause",
           "mcp": true,
           "mcpTool": "app_cloud_set_idle_pause"
+        },
+        {
+          "command": "cmux cloud set-network-access",
+          "title": "Internet Access…",
+          "id": "cloudSetNetworkAccess",
+          "mcp": true,
+          "mcpTool": "app_cloud_set_network_access"
         },
         {
           "command": "cmux cloud setup-github",
