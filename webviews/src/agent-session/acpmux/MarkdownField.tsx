@@ -18,6 +18,7 @@ import {
   sliceHoldsInline,
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
+import { caretInView } from "./composer/caretInView";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
@@ -863,6 +864,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
       .use(keepCaret)
+      // A rewrap with no edit (the actions' width, a resize) keeps the caret in view too.
+      .use($prose(() => caretInView(FADE_BAND_PX)))
       .use(blockKeys)
       .use(commonmark)
       .use(gfm)
