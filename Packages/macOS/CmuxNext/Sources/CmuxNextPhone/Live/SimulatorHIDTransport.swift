@@ -169,6 +169,7 @@ final class SimulatorHIDTransport {
         typealias Connect = @convention(c) (xpc_object_t) -> xpc_connection_t?
         typealias Enable = @convention(c) (xpc_connection_t) -> Void
         let lookup = privateSelector("lookup:error:")
+        // concurrency-allow: dlopen(nil) returns the main program's handle; it maps nothing
         guard let process = dlopen(nil, RTLD_NOW),
               let endpointSymbol = dlsym(process, "xpc_endpoint_create_mach_port_4sim"),
               let connectSymbol = dlsym(process, "xpc_connection_create_from_endpoint"),

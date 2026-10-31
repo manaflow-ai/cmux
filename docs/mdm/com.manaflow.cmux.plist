@@ -229,18 +229,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.</string>
-			<key>pfm_name</key>
-			<string>tabs.terminalFirst</string>
-			<key>pfm_title</key>
-			<string>cmux Classic Mode</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
@@ -1753,7 +1741,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>suggest</string>
+			<string>manual</string>
 			<key>pfm_description</key>
 			<string>What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.</string>
 			<key>pfm_name</key>
@@ -4638,18 +4626,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Lists tabs beneath each workspace in the sidebar.</string>
-			<key>pfm_name</key>
-			<string>sidebar.showWorkspaceTabs</string>
-			<key>pfm_title</key>
-			<string>Show Workspace Tabs</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.</string>
@@ -6564,6 +6540,18 @@
 			<string>browser.import.enabled</string>
 			<key>pfm_title</key>
 			<string>Import from Other Browsers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.</string>
+			<key>pfm_name</key>
+			<string>browser.import.cookieBanner</string>
+			<key>pfm_title</key>
+			<string>Offer to Import Cookies</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

@@ -300,10 +300,8 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              <pre className="cv-tool-output selectable">{raw}</pre>
             </div>
           )}
         </div>

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 764,
-    "mcp": 680
+    "verbs": 769,
+    "mcp": 685
   },
   "nouns": [
     {
@@ -886,6 +886,13 @@
           "mcpTool": "app_browser_set_site_permission"
         },
         {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
+        },
+        {
           "command": "cmux browser split-down",
           "title": "Split Browser Down",
           "id": "splitBrowserDown",
@@ -1122,6 +1129,20 @@
     {
       "noun": "cloud",
       "verbs": [
+        {
+          "command": "cmux cloud api-key-list",
+          "title": "List Cloud API Keys",
+          "id": "cloudAPIKeyList",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_list"
+        },
+        {
+          "command": "cmux cloud api-key-revoke",
+          "title": "Revoke Cloud API Key",
+          "id": "cloudAPIKeyRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_revoke"
+        },
         {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
@@ -1394,6 +1415,13 @@
           "id": "palette.cloud.promoteTemplate",
           "mcp": true,
           "mcpTool": "app_cloud_promote_machine_to_template"
+        },
+        {
+          "command": "cmux cloud provision-api",
+          "title": "Provision API on Machine…",
+          "id": "cloudProvisionAPI",
+          "mcp": true,
+          "mcpTool": "app_cloud_provision_api"
         },
         {
           "command": "cmux cloud publication-list",
@@ -1741,6 +1769,13 @@
           "id": "file.open",
           "mcp": true,
           "mcpTool": "app_file_open"
+        },
+        {
+          "command": "cmux file open-as-page",
+          "title": "Open as Page",
+          "id": "file.openAsPage",
+          "mcp": true,
+          "mcpTool": "app_file_open_as_page"
         }
       ]
     },

@@ -45,20 +45,29 @@ struct PasswordManagerRouteTests {
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-pwroute-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: root.appendingPathComponent("state")),
+                                 stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: owner.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        // Registered before restore can suspend or fail, including before the test body starts.
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+            let panels = NSApp.windows.filter { services.palette.owns($0) }
+            services.palette.hide()
+            for panel in panels { panel.close() }
+        }
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
@@ -70,13 +79,7 @@ struct PasswordManagerRouteTests {
             try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
-        // Stop the app's connection first: on the daemon's EOF it would start a
-        // fresh daemon that outlives the test. The shutdown uses its own socket.
-        if let connection = services.daemon.connection {
-            services.daemon.shutdownConnection()
-            await connection.close()
-            _ = try? await connection.shutdownDaemon(endTerminals: true)
-        }
+        reaped = await owner.stop(services)
         try result.get()
     }
 }
