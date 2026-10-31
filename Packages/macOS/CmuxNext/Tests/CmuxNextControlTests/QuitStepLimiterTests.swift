@@ -70,20 +70,37 @@ import Testing
     /// cache were saved. A Cloud step that never ends must not hold a single save.
     @Test func aHungCloudStepHoldsNoSave() async throws {
         let clock = ManualClock()
+        let reached = Reached()
         var order: [String] = []
         let limiter = QuitStepLimiter(mark: { _ in }, clock: clock)
         let (release, releaser) = AsyncStream<Void>.makeStream()
         let run = Task { @MainActor in
-            await Self.steps({ order.append($0) }, cloud: { for await _ in release { break } }).run(limiter)
+            await Self.steps({ order.append($0); reached.saw($0) }, cloud: { for await _ in release { break } }).run(limiter)
         }
         // No time passes: every save must run while Cloud's step still hangs.
-        for _ in 0..<500 where !order.contains("remote_snapshots") { try await Task.sleep(for: .milliseconds(2)) }
+        await reached.wait(for: "remote_snapshots")
         #expect(Set(order).isSuperset(of: ["browser_records", "windows", "sidebar", "home_cache", "agent_composers"]),
                 "a hung Cloud step held the saves: \(order)")
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(5))
         await run.value
         releaser.finish()
+    }
+
+    /// Resumes a waiter when a step name is seen (no polling, no real-time sleep).
+    @MainActor final class Reached {
+        private var seen: Set<String> = []
+        private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+
+        func saw(_ name: String) {
+            seen.insert(name)
+            waiters.removeValue(forKey: name)?.resume()
+        }
+
+        func wait(for name: String) async {
+            if seen.contains(name) { return }
+            await withCheckedContinuation { waiters[name] = $0 }
+        }
     }
 
     /// Review of #22919 at c0756ab, finding 1: if every step hangs, the quit mark (500 ms), the
@@ -224,5 +241,36 @@ import Testing
         releaser.finish()
         await quit.value
         #expect(order == ["windows_written", "end_agents", "end_sessions", "engines_stopped"], "\(order)")
+    }
+
+    /// Review of #22919 at 6f77b0a, note 2: the wait for a late save ran until 200 ms before the
+    /// deadline, so a hung save left Chromium no time to close its pages and CefShutdown's last cookie
+    /// and storage flush was lost. The engines start to stop with `QuitDeadline.engineCloseWait`
+    /// still left.
+    @Test func aHungSaveLeavesTheEnginesTheirCloseWait() async throws {
+        let clock = ManualClock()
+        let marks = Marks()
+        let limiter = QuitStepLimiter(mark: { marks.record($0) }, clock: clock)
+        var order: [String] = []
+        let timeLeft = TimeLeft(.seconds(3))
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, timeLeft: timeLeft, step: "windows", order: { order.append($0) },
+                            save: { for await _ in release { break } }).run(ends: false, remember: nil)
+            order.append("replied")
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        #expect(await marks.nextLimit() == "quit.windows.limit")
+        try await clock.waitForSleeper()
+        // What the deadline leaves less the engines' close wait: then the engines must stop.
+        clock.advance(by: .seconds(3) - QuitDeadline.engineCloseWait)
+        try await clock.waitForSleeper()
+        #expect(order == ["engines_stopped"], "the engines got less than their close wait: \(order)")
+        timeLeft.value = .zero
+        clock.advance(by: .seconds(3))
+        await quit.value
+        #expect(order == ["engines_stopped", "replied"])
+        releaser.finish()
     }
 }

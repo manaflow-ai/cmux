@@ -38,6 +38,22 @@ import Testing
         #expect(saved.entries[saved.current].scrollY == nil)
     }
 
+    /// Review of #22919 at ce9cd46, note 3, and at 6f77b0a, note 2: a quit's late browser-records
+    /// save can read a page whose engine already closed it. A closed page has no back/forward list,
+    /// so its session would keep only the shown page and replace the good record the daemon holds
+    /// (written after each navigation). A closed page has no session to save.
+    @Test func aClosedPageHasNoSessionToSave() async throws {
+        var machine = Self.loaded(Self.tall)
+        machine.apply(.pageScrolled(1500))
+        let host = Host(state: machine.state)
+        let session = BrowserRestoredSession { host }
+        #expect(await session.savedSession(measuringScroll: false) != nil, "a live page had no session")
+        host.closed = true
+        #expect(await session.savedSession(measuringScroll: true) == nil, "a closed page's session would replace its good record")
+        #expect(await session.savedSession(measuringScroll: false) == nil)
+        #expect(host.measured == 0, "a closed page was asked for its scroll")
+    }
+
     @Test(arguments: ["1500", " 12.6 "]) func aReportPayloadIsAPosition(_ payload: String) {
         #expect(BrowserScrollReport.y(fromPayload: payload) == Double(payload.trimmingCharacters(in: .whitespaces))?.rounded())
     }
@@ -59,8 +75,9 @@ import Testing
     private final class Host: BrowserRestoredSessionHost {
         let state: BrowserTabState
         var measured = 0
+        var closed = false
         init(state: BrowserTabState) { self.state = state }
-        var isClosed: Bool { false }
+        var isClosed: Bool { closed }
         var nativeHistory: (back: Bool, forward: Bool) { (false, false) }
         func nativeNavigationList() -> BrowserNavigationList? { nil }
         func goToNativeEntry(offset: Int) -> Bool { false }
