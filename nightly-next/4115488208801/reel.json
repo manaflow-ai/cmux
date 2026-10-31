@@ -1,0 +1,395 @@
+{
+  "version": 1,
+  "build": "4115488208801",
+  "notes": "notes/4115488208801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28331,
+      "title": "fix(next): Ctrl-`, Cmd-D and New Row always give a terminal; a refusal is never silent; no stand-in id reaches the daemon (P0)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28508,
+      "title": "cmux NEXT: feature tips, one anchored callout per launch from a What's New highlight",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27012,
+      "title": "NEXT: removing a pending dictation recording stops its upload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28232,
+      "title": "carry of #27729: tolerate non-object WebSocket frames",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28285,
+      "title": "fix(next): prevent SIGPIPE from remote stdin writes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28098,
+      "title": "acpmux: restore older Claude chat history after restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28495,
+      "title": "fix(next): one guard before NWEndpoint.unix; a socket path past sun_path is refused, not a crash (#28492)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28614,
+      "title": "acpmux: lane-place rotate has landed; the usage warnings drop its pending mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28612,
+      "title": "Cloud agent start: a new machine's first chat asks the owner answer again on the live link instead of failing closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28588,
+      "title": "fix(acpmux): link to a paced old peer in byte-sized pages, inside a progress-based deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28423,
+      "title": "fix(agent-chat): Edit message keeps a queued prompt whose images cannot be read back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27895,
+      "title": "cmux-tui: a Cloud clone's template workspace gets its own key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27732,
+      "title": "fix(release): Sparkle appcast fails closed when the signing key is not the app's SUPublicEDKey",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28510,
+      "title": "cmux NEXT sidebar: a workspace row has no second line of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28551,
+      "title": "fix(settings): the hidden native select behind each menu is not a Tab stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28351,
+      "title": "fix(acpmux): a current-mode write over non-object modes no longer panics under the meta lock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28168,
+      "title": "Fix App Store initials for Unicode names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28041,
+      "title": "cmux-tui hook: one queue and one connection per agent; a busy daemon never costs a hook event",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27632,
+      "title": "ci(cmux-next): a PR's sidebar sweep warns on base commits; its own commits stay errors",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27500,
+      "title": "fix(cmux-next pages): a failed subscribe releases its early-event list on every exit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27777,
+      "title": "ci(cmux-next): the generated files verdict says 'catalog failure, not stale' when fresh exports fail too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27468,
+      "title": "fix(cmux-next pages): a provider's state sent inside subscribe reaches the page",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28253,
+      "title": "arch layers: place CmuxNextAppCore, CmuxNextSessionTransfer and CmuxNextUiLayerPreview (layer_unplaced 3 -> 0)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28266,
+      "title": "arch: active-look glass scope, batch-close set and kill-switch reader become instances",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28512,
+      "title": "agent-pane: Swift test of the fork scope rule, live in the policy cases, live peer-fork message (#28332 re-review)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27406,
+      "title": "ci: check-objc-selectors.sh, so the selector probe runs as a cmux-ci step",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27532,
+      "title": "test(guards): the fixture git config turns receive.autogc off",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28321,
+      "title": "fix(app): AppServices takes the key window and app activity from the composition root, never the global NSApp",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26976,
+      "title": "ci: swift package resolve retries a network fetch failure; every try failed is 75, fetch failed, no test ran",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27475,
+      "title": "test(next-batch): landing tests write the reviewed file 0600, not by the umask",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27548,
+      "title": "fix(ci): a fork pull request never reads CI_SESSION_LANE_RUNNER",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28344,
+      "title": "feat-parity-check.sh: notices mode (the rust-notices-tree generation as a fleet step)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28267,
+      "title": "fix(arch): DEBUG fixtures, the launch recorder and space-defaults runs are instances AppServices owns",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27432,
+      "title": "cmux-next: journey and perceived-speed runners take an exclusive capture lease",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27375,
+      "title": "prepush-gate: judge a push over the integration branch it was cut from",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27728,
+      "title": "ci(macos): compile admission holds no CEF R2 key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26305,
+      "title": "prepush-gate: lint throwaway trees with no SwiftFormat cache",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28262,
+      "title": "arch: lower observer_sites and a deinit assumeIsolated (motion subscription, update hold, wallpaper windows, feed)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27805,
+      "title": "plans(cmux-next): place AppCore, SessionTransfer and UiLayerPreview in the layer map",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27783,
+      "title": "perf(cmux-next): a hover refresh walks the views under the pointer instead of every target (full-suite layout hang)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27543,
+      "title": "merge-main: --base <branch> so feat-cmux-next PRs can use it (default main)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28259,
+      "title": "fix(home): PaletteBox and FixtureTheme are checked Sendable; the expiring PaletteBox waiver goes away",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27363,
+      "title": "fix(ci): run toolchain-less Rust workspaces under the pinned toolchain",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27420,
+      "title": "ci(fleet): cmux-tui-rust-check api-compat and api-compat-write modes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28263,
+      "title": "arch-ratchet: 12 independently reviewed exceptions for the tip rises; capture backdrop is DEBUG/bench only",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28195,
+      "title": "arch-ratchet: an exception needs an independent receipt, an owner and an expiry; app_lines ratchets; blocking escapes need a review record",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28119,
+      "title": "cmux-tui: git diff and checkpoint diff take --after-path, --patch-offset and --patch-revision (base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28274,
+      "title": "cmux-tui: enforce the scrollback memory budget when the total crosses it, not on the 30 s snapshot timer",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28221,
+      "title": "benches: warm, two-quick-presses and cold arms in six felt benches; the headline is the worst arm",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28077,
+      "title": "scripts(cmux-next): Austin's day, the P-AUSTIN load scenario (fleet bench)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28590,
+      "title": "cmux NEXT project picker: one icon column, one text inset, even rows, no repeated path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28071,
+      "title": "cmux-tui: an oversized launch snapshot keeps the window state and says what it left out",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28056,
+      "title": "cmux-tui: put-session stores a session's whole capability list, so launches restore machines again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28083,
+      "title": "cmux NEXT: never restart acpmux because it answered late; a waiting pane offers Restart agent service",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28576,
+      "title": "ci(test-ios): mobile-core-package keeps its SwiftPM builds on the owned Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28599,
+      "title": "ci(ios-app-store): restore the iOS SwiftPM cache before the archive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27706,
+      "title": "cmux NEXT screen sharing host: modified clicks, button drags and pixel scrolling",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28601,
+      "title": "webviews: fix the react-apps-check (1) base red (six tests, four causes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28517,
+      "title": "carry of #28257: cmux NEXT Cloud: a new machine gets a readable default name, not its raw id",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28358,
+      "title": "cmux-next: signing out of Cloud keeps Cloud workspaces in their windows",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28365,
+      "title": "fix(next): the package dependency check reads code only and counts .target(name:)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28114,
+      "title": "release notes: two highlights get a try-it action (release-notary base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28416,
+      "title": "base red: acpmux: a cmux agent message is not an inbox item (agents_chat_tools, reply in place)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28417,
+      "title": "base red: acpmux: the chat index cache and the unattended folder are not written under a lost home",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
