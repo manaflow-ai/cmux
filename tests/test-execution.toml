@@ -198,11 +198,6 @@ path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_fast_tier_anchor.py"
-lane = "manual"
-reason = "Run explicitly with cmux-ci when changing fast-tier anchoring; repository policy keeps new regression tests out of automatic CI."
-
-[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
@@ -1315,7 +1310,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_objc_selectors_step.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins the argument allowlist of the fleet step wrapper scripts/cmux-next/check-objc-selectors.sh (#27406); run python3 tests/test_check_objc_selectors_step.py yourself after changing the wrapper or check-objc-selectors.py (about 25 s, bash and python3, no build)."
 
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
