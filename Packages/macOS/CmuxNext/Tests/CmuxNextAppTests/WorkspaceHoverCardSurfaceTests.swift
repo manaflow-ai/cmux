@@ -43,6 +43,7 @@ import Testing
         panel.glass.contentView.addSubview(body)
         scope.adopt(panel)
         body.configure(Self.content)
+        body.detailsToggle.performClick(nil)
         panel.themeDidChange()
         body.applyColors()
         return (panel, body)

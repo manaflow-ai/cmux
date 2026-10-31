@@ -186,15 +186,25 @@ enum SidebarStyle {
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
     static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// A group header bar's left edge over members at `membersMinX`: the rail's x less the line layout's overhang,
+    /// never past the list's edge padding nor right of the members (`SidebarListView.railReach(for:)`). `inside` uses
+    /// Chrome's corner geometry all the way to the list edge: the general header padding would clamp that overhang and
+    /// put the line back under a member row.
+    static func groupBarX(membersMinX: CGFloat) -> CGFloat {
+        let edgePadding = groupLineLayout == .inside ? 0 : groupEdgePadding
+        return min(membersMinX, max(max(0, groupLineX(membersMinX: membersMinX) - groupHeaderOverhang), edgePadding))
+    }
     /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
     /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
-    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
-    /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
-    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupBarWidth) }
+    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. The rows' inset less the rail and
+    /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at
+    /// `horizontalInset - groupBarWidth` the rail sat flush against its members' fills (Lawrence 2026-10-30, "alignment
+    /// here is bad").
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupRailReach) }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }

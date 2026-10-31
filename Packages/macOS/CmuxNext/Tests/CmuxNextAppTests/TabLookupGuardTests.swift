@@ -20,7 +20,7 @@ import Testing
     // Paths are relative to Sources/CmuxNextApp; this legacy allowance only shrinks.
     static let legacyAllowed: [String: [String: Int]] = [
         "AgentCursor/AgentCursorSnapshotBuilder.swift": ["locateTabOnAnyMachine(id)": 1],
-        "AgentTabs+Wiring.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(chat)": 2, "locateTabOnAnyMachine(key)": 14],
+        "AgentTabs+Wiring.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(chat)": 2, "locateTabOnAnyMachine(key)": 13],
         "AppServices+Hibernation.swift": ["locateTabOnAnyMachine(key)": 1],
         "AppServices+Incognito.swift": ["locateTabOnAnyMachine(key)": 1],
         "AppServices+WorkContext.swift": ["locateTabOnAnyMachine(tab)": 1],
