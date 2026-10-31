@@ -152,7 +152,9 @@ pub(super) async fn handle(
                 "a remote WebSocket connection reads harness health only as last checked (no refresh, rescan, checkLatest or autoUpdate)",
             ));
         }
-        return Ok(json!({"harnesses": hub.health.rows()}));
+        // Binding a login command reads current configuration only; it starts no probes.
+        let rows = hub.health.rows_for_subjects(&hub.health_subjects().await);
+        return Ok(json!({"harnesses": rows}));
     }
     if origin.web_class() {
         return Err(RpcError::invalid_params(

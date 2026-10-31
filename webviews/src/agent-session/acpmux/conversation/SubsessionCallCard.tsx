@@ -3,26 +3,52 @@
 // cut to three lines; a wait or a list as each one's card, a finished one's reply under it; a
 // message as "Sent message to tests" and its first line (SentMessageLine.tsx, the row a shell
 // `acpmux send` draws too), which opens to all of it. Each card reads its state live from
-// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
+// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw"; the prompt or
+// reply a card shows copies from its top-right corner (CardCopy.tsx).
 import type { ReactNode } from "react";
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
-import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
+import { DisclosureRow } from "../subagents/DisclosureRow";
+import {
+  SubsessionContext,
+  useSenderChat,
+  useSubsessionInfo,
+  useSubsessionInfos,
+  waitingLine,
+} from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { useFindReveal } from "./chatFind";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
+import { CardCopy } from "./CardCopy";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
 
-export function SubsessionCallCard({ call, tool }: { call: SubsessionCall; tool: Tool }) {
+export type StartedGroupEntry = {
+  call: Extract<SubsessionCall, { tool: "start" }>;
+  tool: Tool;
+};
+
+export function SubsessionCallCard({
+  call,
+  tool,
+  group,
+}: {
+  call?: SubsessionCall;
+  tool?: Tool;
+  group?: readonly StartedGroupEntry[];
+}) {
+  if (group) return <StartedGroup entries={group} />;
+  if (!call || !tool) return null;
   switch (call.tool) {
     case "start":
       return <StartedCard call={call} tool={tool} />;
@@ -32,6 +58,56 @@ export function SubsessionCallCard({ call, tool }: { call: SubsessionCall; tool:
     case "list":
       return <SessionCards call={call} tool={tool} />;
   }
+}
+
+function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
+  const t = useT();
+  const names = entries.map(
+    ({ call }) => call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare")),
+  );
+  const ids = useMemo(() => entries.map(({ call }) => call.sessionId), [entries]);
+  const children = useSubsessionInfos(ids);
+  const findItems = useMemo(() => entries.map(({ tool }) => toolActivity(tool)), [entries]);
+  let working = false;
+  let waiting = 0;
+  let failed = 0;
+  let done = 0;
+  for (const [index, child] of children.entries()) {
+    const phase = child && sessionRetry(child);
+    if (child?.slot || child?.state === "input") waiting++;
+    else if (phase?.kind === "retrying" || phase?.kind === "settling" || child?.state === "working") working = true;
+    else if (child?.state === "failed") failed++;
+    else if (child?.state === "done") done++;
+    else if (entries[index]?.call.running) working = true;
+  }
+  const status = [
+    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
+    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
+    working ? t("subsession.state.working") : undefined,
+    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <DisclosureRow
+      disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
+      findItems={findItems}
+      icon={<Icon name="agent.session" size={16} />}
+      label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
+      status={
+        status ? (
+          <>
+            {working && <Spinner size={12} loading />}
+            {status}
+          </>
+        ) : undefined
+      }
+    >
+      {entries.map(({ call, tool }, index) => (
+        <StartedCard key={tool.id || index} call={call} tool={tool} />
+      ))}
+    </DisclosureRow>
+  );
 }
 
 /// A call still running: one line with the working spinner.
@@ -87,14 +163,19 @@ function startsPrompt(line: string, prompt: string): boolean {
 
 /// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
 function SessionCard({
+  tool,
   sessionId,
   name,
   harness,
   model,
   fallback,
   shown,
+  disclosure = false,
+  disclosureKey,
+  started = false,
   children,
 }: {
+  tool: Tool;
   /// The prompt the card shows under its header (a start's preview): a `doing` line that only
   /// repeats its start is left out, so the same words never show twice (Leo 2026-10-29).
   shown?: string;
@@ -104,10 +185,14 @@ function SessionCard({
   model?: string;
   /// Its state as the call read it, for a session the list does not have.
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
+  disclosure?: boolean;
+  disclosureKey?: string;
+  started?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
   const live = useSubsessionInfo(sessionId);
+  const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
@@ -129,6 +214,10 @@ function SessionCard({
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
+      disclosure={disclosure}
+      disclosureKey={disclosureKey}
+      findItems={findItems}
+      disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -138,14 +227,10 @@ function SessionCard({
 
 function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "start" }>; tool: Tool }) {
   const t = useT();
-  if (call.running && !call.prompt)
-    return (
-      <RunningLine>
-        {call.name ? t("subsession.starting", { name: call.name }) : t("subsession.startingBare")}
-      </RunningLine>
-    );
+  const promptFindId = useId();
   return (
     <SessionCard
+      tool={tool}
       sessionId={call.sessionId}
       name={call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare"))}
       harness={call.harness}
@@ -153,9 +238,17 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       // Until the call returns, the sub-session is starting: the working spinner.
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
+      disclosure={true}
+      disclosureKey={`subsession-start:${tool.id}`}
+      started
     >
-      {call.prompt && <Cut text={call.prompt} prompt />}
-      <Raw tool={tool} />
+      {call.prompt && <CardCopy text={call.prompt} />}
+      {call.prompt && (
+        <div className="cv-subsession__markdown selectable" data-find-primary={promptFindId}>
+          <Markdown commits="quiet">{call.prompt}</Markdown>
+        </div>
+      )}
+      <Raw tool={tool} promptFindId={call.prompt ? promptFindId : undefined} />
     </SessionCard>
   );
 }
@@ -167,6 +260,10 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
+  useFindReveal(
+    useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
+    () => setOpen(true),
+  );
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayoutEffect(() => {
@@ -206,15 +303,24 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 }
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
-function Raw({ tool }: { tool: Tool }) {
+function Raw({ tool, promptFindId }: { tool: Tool; promptFindId?: string }) {
+  const [open, setOpen] = useState(false);
+  const [reveal, setReveal] = useState(0);
+  useFindReveal(
+    useMemo(() => [toolActivity(tool)], [tool]),
+    () => {
+      setOpen(true);
+      setReveal((value) => value + 1);
+    },
+  );
   return (
-    <RawToggle>
-      <McpDetails tool={tool} />
+    <RawToggle open={open} onOpenChange={setOpen}>
+      <McpDetails tool={tool} reveal={reveal} promptFindId={promptFindId} />
     </RawToggle>
   );
 }
 
-function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
+function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: number; promptFindId?: string }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
@@ -226,6 +332,7 @@ function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
       output={tool.output}
       strip={false}
       reveal={reveal}
+      requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}
     />
   );
 }
@@ -283,12 +390,16 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
     <div className="cv-subsession__cards">
       {call.sessions.map((session) => (
         <SessionCard
+          tool={tool}
           key={session.sessionId}
           sessionId={session.sessionId}
           name={session.name ?? shortId(session.sessionId)}
           harness={session.harness}
           fallback={session}
+          disclosure
+          disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
+          {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
           {session.reply && session.state !== "working" && <Cut text={session.reply} />}
         </SessionCard>
       ))}

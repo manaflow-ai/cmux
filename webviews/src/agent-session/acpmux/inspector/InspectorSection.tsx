@@ -89,7 +89,9 @@ export function InspectorSection({
 }) {
   const head = (foldable: boolean) => (
     <>
-      {icon && <Icon name={icon} size={ROW_ICON} row className="acpmux-chat-inspector-section__icon" />}
+      {icon && (
+        <Icon name={icon} size={ROW_ICON} row className="acpmux-chat-inspector-section__icon acpmux-row-glyph" />
+      )}
       <span className="acpmux-chat-inspector-section__title">{title}</span>
       {foldable && (
         <Icon

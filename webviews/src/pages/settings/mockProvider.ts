@@ -8,6 +8,8 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { MockTeams } from "./mockTeams";
+import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
@@ -23,12 +25,14 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesJoinState,
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type IntegrationsRun,
@@ -62,6 +66,8 @@ export type MockOptions = {
   connected?: boolean;
   /** Ops that fail with this code, to test read failures. */
   failing?: Partial<Record<string, string>>;
+  /** Whether the native action registry accepts an invocation. */
+  actionRan?: boolean;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
@@ -72,6 +78,28 @@ export type MockOptions = {
   workspaceBackgrounds?: WorkspaceBackground[];
   /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
   themeOverrides?: ThemeOverride[];
+  /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
+  devicesJoin?: DevicesJoinState;
+};
+
+/** This Mac joined to a team with the one-line join, both consent switches off. */
+export const mockDevicesJoin: DevicesJoinState = {
+  title: "This Mac on Your Team",
+  joined: "Joined to Example Team as studio",
+  help: "Your team's machines reach this Mac through the mesh. They cannot see or control it until you allow it here.",
+  error: null,
+  busy: false,
+  known: true,
+  revoke_all: null,
+  switches: [
+    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "control",
+      title: "Control",
+      help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+  ],
 };
 
 export const mockDomains: Domains = {
@@ -150,6 +178,7 @@ export class MockSettingsProvider {
   importable: GhosttyTheme | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
+  private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -174,9 +203,11 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
+    if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -199,7 +230,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
-      "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -220,6 +251,18 @@ export class MockSettingsProvider {
         const devices = this.host.devices;
         if (devices)
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
+        return {};
+      },
+      "cmux.settings.devices.join_consent": (params) => {
+        const join = this.host.devices_join;
+        if (join)
+          this.setHost({
+            ...this.host,
+            devices_join: {
+              ...join,
+              switches: join.switches.map((s) => (s.surface === params.surface ? { ...s, on: params.on === true } : s)),
+            },
+          });
         return {};
       },
       "cmux.settings.devices.full_access": (params) => {
@@ -272,6 +315,16 @@ export class MockSettingsProvider {
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.context_menus.set": (params) => {
+        const menus = this.host.context_menus;
+        if (menus) this.setHost({ ...this.host, context_menus: setMockMenuLayout(menus, params.menu as string, (params.layout as MenuLayout | null) ?? null) });
+        return {};
+      },
+      "cmux.settings.context_menus.show_item": (params) => {
+        const menus = this.host.context_menus;
+        if (menus) this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        return {};
+      },
       "cmux.settings.voice_input.set": (params) => {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
@@ -486,12 +539,13 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,
           (params.args ?? {}) as Params,
           params.target as string | undefined,
         );
-        return {};
+        return { ran: true };
       },
     };
     const native = new Set([
@@ -501,6 +555,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.devices.join_consent",
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
@@ -937,6 +992,7 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
@@ -1037,6 +1093,14 @@ export class MockSettingsProvider {
   };
   /** Accounts gestures the page sent (secrets included, so tests can check they were sent once). */
   readonly accountRuns: AccountsRun[] = [];
+  /** The Teams part (roles, details, create, rename, delete); tests edit its teams and flags. */
+  readonly teams = new MockTeams();
+
+  /** The Accounts part with the Teams part while signed in, unless a test set `teamList` itself. */
+  private accountsState(): AccountsState {
+    if (this.accounts.teamList !== undefined || !this.accounts.teams) return this.accounts;
+    return { ...this.accounts, teamList: this.teams.state() };
+  }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
   private runAccounts(run: AccountsRun): { error?: string } {
@@ -1071,6 +1135,20 @@ export class MockSettingsProvider {
         ...this.accounts,
         teams: { ...teams, options: teams.options.map((team) => ({ ...team, active: team.id === run.team })) },
       };
+      if (run.team) this.teams.active = run.team;
+    } else if (run.action.startsWith("team.")) {
+      error = this.teams.run(run) ?? undefined;
+      // The Active Team menu lists the same teams and follows a create or delete.
+      if (this.accounts.teams) {
+        const active = this.teams.active;
+        this.accounts = {
+          ...this.accounts,
+          teams: {
+            ...this.accounts.teams,
+            options: this.teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === active })),
+          },
+        };
+      }
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
@@ -1078,7 +1156,7 @@ export class MockSettingsProvider {
     } else if (run.action === "cmux.signIn") {
       this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signingIn };
     }
-    for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
+    for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
   }
 
@@ -1138,6 +1216,10 @@ export class MockSettingsProvider {
   }
 
   /** Simulates the daemon going away or coming back. */
+  setActionRan(actionRan: boolean): void {
+    this.actionRan = actionRan;
+  }
+
   setConnected(connected: boolean): void {
     this.connected = connected;
     for (const ctx of this.connection) ctx.emit({ connected });

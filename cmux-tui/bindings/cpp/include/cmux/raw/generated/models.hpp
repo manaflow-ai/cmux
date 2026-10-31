@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1";
+inline constexpr std::string_view kProtocolIrSha256 = "d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -159,6 +159,7 @@ struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
+struct ServerStatsHookQueue;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
@@ -1804,6 +1805,7 @@ struct CloudInboxChangedEvent {
 };
 
 struct CloudInboxListRequest {
+    Field<std::string> cursor{};
     std::optional<bool> include_archived{};
     Field<std::uint32_t> limit{};
     friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
@@ -2399,6 +2401,7 @@ struct ConversationRunResult {
 };
 
 struct ConversationRunsRequest {
+    Field<std::vector<std::string>> answers{};
     Field<std::uint64_t> before_started_at{};
     std::string conversation{};
     Field<std::uint32_t> limit{};
@@ -4849,6 +4852,13 @@ struct ServerStatsHistogram {
     friend bool operator==(const ServerStatsHistogram&, const ServerStatsHistogram&) = default;
 };
 
+struct ServerStatsHookQueue {
+    std::uint64_t queued_events{};
+    std::uint64_t reset_dropped_events{};
+    std::uint64_t undeliverable_events{};
+    friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
+};
+
 enum class ServerStatsWriterPhase {
     idle,
     waiting_lock,
@@ -4941,6 +4951,7 @@ struct ServerStatsWritePath {
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
+    std::optional<ServerStatsHookQueue> hook_queue{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
@@ -6870,6 +6881,12 @@ template <>
 struct Codec<ServerStatsHistogram> {
     static Result<Json> encode(const ServerStatsHistogram& value);
     static Result<ServerStatsHistogram> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHookQueue> {
+    static Result<Json> encode(const ServerStatsHookQueue& value);
+    static Result<ServerStatsHookQueue> decode(const Json& value);
 };
 
 template <>

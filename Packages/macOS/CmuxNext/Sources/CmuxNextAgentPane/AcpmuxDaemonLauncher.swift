@@ -78,12 +78,25 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
     /// with an error only after that long with no write to the daemon's log, or at its exit.
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
+        try await launch(environment, deadline: deadline, onSpawn: { _ in }).endpoint
+    }
+
+    /// A launch's endpoint, and whether this launch started the daemon behind it. A launch that
+    /// lost the lock race relays the winner's readiness (`lockHeld`): that daemon is another
+    /// client's, and the app treats it as a found one, never as its own to hand off.
+    struct Launched: Equatable, Sendable {
+        var endpoint: AcpmuxWebEndpoint
+        var startedHere: Bool
+    }
+
+    /// ``launch(_:deadline:)`` with whether this launch started the daemon (``Launched``).
+    @concurrent static func launchReporting(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> Launched {
         try await launch(environment, deadline: deadline, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
-                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> Launched {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
@@ -183,7 +196,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         // The shell exits as soon as it has put the daemon in the background (the daemon
         // goes to launchd). Reap it on every path out, or each launch leaves a zombie child
         // in this process (cx-xqng).
-        let ready: Result<AcpmuxWebEndpoint, any Error>
+        let ready: Result<Launched, any Error>
         do {
             ready = .success(try await readReadyLine(&outputPipe, environment: environment, deadline: deadline))
         } catch {
@@ -194,7 +207,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
-                                      deadline: Duration) async throws -> AcpmuxWebEndpoint {
+                                      deadline: Duration) async throws -> Launched {
         // Only the spawned shell and daemon may hold the write end. The CLOEXEC
         // default above closes every inherited descriptor; the shell creates
         // descriptor 3 explicitly for the ready line.
@@ -226,7 +239,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         guard let webURL = ready.webUrl, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
             throw Failure.noWebSocket(logPath: environment.logPath)
         }
-        return endpoint
+        return Launched(endpoint: endpoint, startedHere: ready.lockHeld != true)
     }
 
     /// Collects the launch shell's exit status without blocking a thread while it runs.
