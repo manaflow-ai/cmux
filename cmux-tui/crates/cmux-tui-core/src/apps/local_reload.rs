@@ -53,7 +53,15 @@ impl Supervisor {
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
-        let catalog = catalog::load(&self.config.sources);
+        self.reload_local_apps_with(prints, catalog::load)
+    }
+
+    pub(super) fn reload_local_apps_with(
+        &self,
+        prints: &Prints,
+        read: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> Prints {
+        let catalog = read(&self.config.sources);
         let next = local_prints(catalog.packages.values());
         let changed: Vec<String> = next
             .iter()

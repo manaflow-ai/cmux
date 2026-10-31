@@ -368,6 +368,62 @@ fn an_app_store_bundle_lands_only_when_its_hash_and_package_check_out() {
 }
 
 #[test]
+fn a_local_reload_preserves_a_completed_registry_update() {
+    let f = web_fixture(json!({}));
+    let first = bundle("1.0.0");
+    put(&f, "octo/board", "1.0.0", &hash(&first), &first).unwrap();
+    write_web_app(&f.state.join("apps/local"), "board", BOARD, "0.2.0", json!({}));
+
+    let (captured, captured_rx) = channel();
+    let (resume, resume_rx) = channel();
+    let supervisor = Arc::clone(&f.supervisor);
+    let reload = std::thread::spawn(move || {
+        supervisor.reload_local_apps_with(&Default::default(), |sources| {
+            let catalog = super::super::catalog::load(sources);
+            captured.send(()).unwrap();
+            resume_rx.recv_timeout(Duration::from_secs(10)).expect("resume catalog read");
+            catalog
+        });
+    });
+    captured_rx.recv_timeout(Duration::from_secs(10)).expect("local snapshot captured");
+
+    // Drive whichever ordering the supervisor permits. Without coordination,
+    // complete the put while the local snapshot still holds the old version.
+    // With coordination, let that snapshot commit before starting the put.
+    // The oracle below is the resulting catalog, not whether a mutex is held.
+    let put_can_run = match f.supervisor.registry_puts.try_lock() {
+        Ok(guard) => {
+            drop(guard);
+            true
+        }
+        Err(std::sync::TryLockError::WouldBlock) => false,
+        Err(error) => panic!("catalog update guard poisoned: {error}"),
+    };
+    let second = bundle("2.0.0");
+    if put_can_run {
+        put(&f, "octo/board", "2.0.0", &hash(&second), &second).unwrap();
+        resume.send(()).unwrap();
+        reload.join().unwrap();
+    } else {
+        resume.send(()).unwrap();
+        reload.join().unwrap();
+        put(&f, "octo/board", "2.0.0", &hash(&second), &second).unwrap();
+    }
+    let listed = f.supervisor.list();
+    assert_eq!(app_entry(&listed, BOARD)["version"], "0.2.0", "local edit applied");
+    assert_eq!(
+        app_entry(&listed, "octo/board")["version"],
+        "2.0.0",
+        "a successful registry update must remain in the catalog"
+    );
+    let manifest: Value = serde_json::from_slice(
+        &std::fs::read(f.state.join("apps/registry/octo.board/cmux-app.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["version"], "2.0.0");
+}
+
+#[test]
 fn a_web_call_admitted_before_a_revoke_does_not_run() {
     let f = web_fixture(json!({ "workspace:read": "r", "storage:local": "s" }));
     f.install(BOARD);
