@@ -10158,6 +10158,7 @@ function AcpmuxPane() {
           onContinueWithoutFolder={
             healthLocal &&
             !remoteChat &&
+            Boolean(snapshot.sessionId) &&
             !directClient.current?.startsOnSend &&
             trustAsk.ask?.state === "decided" &&
             trustAsk.ask.level === "untrusted" &&
