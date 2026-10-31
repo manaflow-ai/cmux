@@ -315,6 +315,15 @@ async fn dispatch_brief(
         }
         Some(selected.clone())
     };
+    // A lane that starts here is checked here too, whoever sent it (`place::here_refusal`).
+    if host.is_none()
+        && let Some(why) = super::place::here_refusal(super::place::brief_work(&brief))
+    {
+        return Err(RpcError::invalid_params(format!(
+            "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+        ))
+        .with_data(json!({"reason": "dispatch.host_refused"})));
+    }
     if let Some(peer_name) = host {
         let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
             RpcError::not_found(format!(

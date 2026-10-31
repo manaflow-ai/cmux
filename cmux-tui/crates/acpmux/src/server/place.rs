@@ -180,9 +180,21 @@ fn named_refusal(registry: &Value, host: &str, work: Work) -> Option<String> {
     if let Some(r) = v.pointer("/hosts/0/refused").and_then(Value::as_str) {
         return Some(format!("{host}: {r}"));
     }
-    // design/agent-dispatch.md: an explicit target of the last-resort host "is rejected unless
-    // its work kind is `capture` or `build`."
-    (work == Work::Agent && crate::placement::last_resort(Some(registry), host)).then(|| {
+    last_resort_refusal(Some(registry), host, work)
+}
+
+/// Why a dispatch that runs on this machine (`--host local`, a peer's dispatch, a forwarded
+/// one, or `auto` placed here) may not: an agent lane on a last-resort host
+/// (`last_resort_refusal`), checked where the lane would start, whatever the sender checked.
+pub(super) fn here_refusal(work: Work) -> Option<String> {
+    let registry = crate::placement::load_registry();
+    last_resort_refusal(registry.as_ref(), crate::hub::host_label(), work)
+}
+
+/// design/agent-dispatch.md: an explicit target of the last-resort host "is rejected unless its
+/// work kind is `capture` or `build`": an agent lane on a `lanes.last_resort` host.
+fn last_resort_refusal(registry: Option<&Value>, host: &str, work: Work) -> Option<String> {
+    (work == Work::Agent && crate::placement::last_resort(registry, host)).then(|| {
         format!(
             "{host}: a last-resort host (lanes.last_resort) takes a dispatched capture or build, never an agent lane"
         )
@@ -361,5 +373,12 @@ mod tests {
         let refusal = named_refusal(&reg, "air", Work::Build).unwrap();
         assert!(refusal.contains("no builds here"), "{refusal}");
         assert_eq!(named_refusal(&reg, "unlisted", Work::Agent), None);
+        // The same rule where the lane would start (`here_refusal`): a peer's or a local
+        // dispatch on the last-resort host itself.
+        let here = last_resort_refusal(Some(&reg), "spare", Work::Agent).unwrap();
+        assert!(here.starts_with("spare: a last-resort host"), "{here}");
+        assert_eq!(last_resort_refusal(Some(&reg), "spare", Work::Build), None);
+        assert_eq!(last_resort_refusal(Some(&reg), "lane", Work::Agent), None);
+        assert_eq!(last_resort_refusal(None, "spare", Work::Agent), None);
     }
 }
