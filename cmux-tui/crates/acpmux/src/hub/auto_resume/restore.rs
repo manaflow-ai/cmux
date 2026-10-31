@@ -824,6 +824,7 @@ mod tests {
                     control: Control::Local,
                     trust_gate: false,
                     error: "stream disconnected",
+                    not_before: None,
                 },
                 1,
                 &[],
