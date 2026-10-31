@@ -1927,8 +1927,9 @@ mark {
 }
 
 /* A row lights on hover, but never while the pointer is on one of its own buttons: then only that
-   button lights (a hover covers only its control). */
-.menu-row:hover:not(:has(.icon-button:hover)),
+   button lights (a hover covers only its control). The exclusion sits in :where() so the rule keeps
+   .menu-row:hover's weight and a dragged row's opaque fill (below) still wins. */
+.menu-row:where(:hover:not(:has(.icon-button:hover))),
 .menu-row:focus-within {
   background: var(--input-bg);
 }
