@@ -232,6 +232,8 @@ extension CmuxSettingsFileStore {
         "fileEditor.currentLineHighlight",
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
+        "fileExplorer.sortBy",
+        "fileExplorer.sortOrder",
         "agentMessages.enabled",
         "chief.enabled",
         "chief.harness",
