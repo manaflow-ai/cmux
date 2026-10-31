@@ -278,6 +278,9 @@ extension GhosttyNSView {
     }
 }
 
+/// Returns whether deferred focus recovery may activate the target window.
+///
+/// A miniaturized window remains under the user's control until they restore it.
 func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
@@ -286,7 +289,9 @@ func shouldAllowEnsureFocusWindowActivation(
     targetWindow: NSWindow,
     applicationIsActive: Bool
 ) -> Bool {
-    guard applicationIsActive else {
+    // Minimizing the last window can leave the app active with no key window.
+    // Automatic terminal focus recovery must wait for an explicit user restore.
+    guard applicationIsActive, !targetWindow.isMiniaturized else {
         return false
     }
 
