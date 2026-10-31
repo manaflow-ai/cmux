@@ -241,6 +241,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ pane.pane.tabs.contains { $0.surface == chat.surface } })
             try await connection.closeTab(terminal)
             try await PinnedPageTests.until({ pane.pane.tabs.count == 1 && pane.pane.tabs.first?.surface == chat.surface })
+            let chatID = try #require(pane.pane.tabs.first?.id)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             let asked = content.focus.state.generation
@@ -253,8 +254,11 @@ struct ClickedLinkFocusTests {
                                                                     in: model.handle, activate: false)
             placed(agents.surface)
             @MainActor func dock() -> PaneModel? { store.workspaces.flatMap(\.screens).flatMap(\.panes).first { $0.tabs.contains { $0.surface == chat.surface } } }
-            try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() },
-                                            report: { "the chat did not dock with the focus: " + Self.describe(content, chat.surface.description) })
+            try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() }, report: {
+                let docked = dock().map { $0 !== model ? "docked in \($0.id)" : "still in its pane \($0.id)" } ?? "gone"
+                return "the chat did not dock with the focus: the chat \(chatID) is \(docked), focus generation \(content.focus.state.generation) (asked \(asked)); "
+                    + Self.describe(content, chatID)
+            })
             #expect(content.focus.state.generation == asked, "the app's refocus of the chat counted as the person acting")
         }
     }
