@@ -27,31 +27,45 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
     await vite?.close();
   });
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: narrow authentication footer keeps both recovery actions inside the row`, async () => {
+    // Sign in again leads the failure card; the footer row keeps a Cloud chat's credential transfer.
+    // At a narrow width every recovery action, on the card or the row, stays inside the row and wraps.
+    test(`${theme}: narrow authentication failure keeps every recovery action inside the row`, async () => {
       const page = await browser.newPage({ viewport: { width: 320, height: 480 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&narrow`);
+        await page.locator(".cv-turn-error__actions .cv-turn-auth-action").first().waitFor();
         await page.locator(".cv-turn-actions .cv-turn-auth-action").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         const recovery = await page.evaluate(() => {
           const row = document.querySelector("[data-auth-footer]")!.getBoundingClientRect();
-          return [...document.querySelectorAll(".cv-turn-actions .cv-turn-auth-action")].map((button) => {
-            const box = button.getBoundingClientRect();
-            return {
-              left: box.left - row.left,
-              right: box.right - row.right,
-              whiteSpace: getComputedStyle(button).whiteSpace,
-            };
-          });
+          const measure = (selector: string) =>
+            [...document.querySelectorAll(selector)].map((button) => {
+              const box = button.getBoundingClientRect();
+              return {
+                left: box.left - row.left,
+                right: box.right - row.right,
+                width: box.width,
+                whiteSpace: getComputedStyle(button).whiteSpace,
+                primary: button.classList.contains("cv-turn-error__primary"),
+              };
+            });
+          return {
+            card: measure(".cv-turn-error__actions > .cv-turn-auth-action"),
+            footer: measure(".cv-turn-actions .cv-turn-auth-action"),
+          };
         });
-        console.log(`AUTH_FOOTER_METRICS ${JSON.stringify({ theme, recovery })}`);
-        expect(recovery).toHaveLength(2);
-        for (const button of recovery) {
+        console.log(`AUTH_FAILURE_METRICS ${JSON.stringify({ theme, recovery })}`);
+        // The card leads with its one filled button, Sign in again; the row keeps only the transfer.
+        expect(recovery.card.length).toBeGreaterThanOrEqual(1);
+        expect(recovery.card.filter((button) => button.primary)).toHaveLength(1);
+        expect(recovery.footer).toHaveLength(1);
+        for (const button of [...recovery.card, ...recovery.footer]) {
+          expect(button.width).toBeGreaterThan(0);
           expect(button.left).toBeGreaterThanOrEqual(0);
           expect(button.right).toBeLessThanOrEqual(0.5);
-          expect(button.whiteSpace).toBe("normal");
         }
+        for (const button of recovery.footer) expect(button.whiteSpace).toBe("normal");
       } finally {
         await page.close();
       }
