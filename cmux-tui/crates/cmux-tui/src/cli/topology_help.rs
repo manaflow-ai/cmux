@@ -37,6 +37,8 @@ USAGE
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --remote <host> [--name <value>]
+  cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
@@ -57,7 +59,10 @@ progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
-personal: they live in this Mac's home session. A group or room is named by
+personal: they live in this Mac's home session. --remote makes a remote
+group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
+user@host) and its new workspaces run there. --parent makes a group inside
+<group>. A group or room is named by
 its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's

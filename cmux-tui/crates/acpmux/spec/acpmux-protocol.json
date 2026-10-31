@@ -361,6 +361,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/native_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workflows",
       "params": true,
       "result": true
@@ -1109,6 +1115,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/chat_projects",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/chat_changed",
       "params": true
@@ -1116,6 +1128,23 @@
     {
       "kind": "notification",
       "name": "_acpmux/chats_lagged",
+      "params": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chats_window",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chats_window_close",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/chats_window_changed",
       "params": true
     },
     {
@@ -1778,6 +1807,13 @@
         },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "waitLogs": {
+          "description": "Wait for restart-time log restoration before answering; false serves the page immediately.",
           "type": [
             "boolean",
             "null"

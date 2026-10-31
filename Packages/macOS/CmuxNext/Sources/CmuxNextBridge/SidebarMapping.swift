@@ -8,6 +8,20 @@ import Foundation
 /// may interleave with `personal-mixed-order-v1`).
 public struct SidebarMapping {
     public static let shared = Self()
+    /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
+    /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
+    /// NIGHTLY hang in a row flush, 2026-10-29).
+    private let home: String
+    /// `home` followed by "/".
+    private let homeFolderPrefix: String
+
+    /// A mapping that shortens `home` (this Mac's home folder by default) to `~`.
+    init(home: String = NSHomeDirectory()) {
+        var native = home
+        native.makeContiguousUTF8()
+        self.home = native
+        homeFolderPrefix = native + "/"
+    }
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
@@ -469,9 +483,8 @@ public struct SidebarMapping {
     }
 
     func abbreviate(_ path: String) -> String {
-        let home = NSHomeDirectory()
         if path == home { return "~" }
-        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        if path.hasPrefix(homeFolderPrefix) { return "~" + path.dropFirst(home.count) }
         return path
     }
 
