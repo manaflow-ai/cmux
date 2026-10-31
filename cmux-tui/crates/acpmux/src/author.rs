@@ -38,6 +38,15 @@ pub const MAX_FIELD_BYTES: usize = 256;
 pub const MAX_NAME_CHARS: usize = 64;
 /// The one `approval` value: the owner approves each of the person's prompts.
 pub const APPROVAL_OWNER: &str = "owner";
+/// A link guest's id: on no tailnet and with no account (`cmux-tui-core`
+/// `agent_session_shares.rs` binds `guest:<share_id>.<guest_id>`). Every prompt of theirs waits
+/// for the owner, `approval` or not: a guest's prompt never runs unapproved.
+pub const GUEST_PREFIX: &str = "guest:";
+
+/// Whether `id` is a link guest's (`GUEST_PREFIX`).
+pub fn is_guest(id: &str) -> bool {
+    id.starts_with(GUEST_PREFIX)
+}
 
 /// A person who sent a request (`_meta.acpmux.author`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,12 +79,14 @@ impl Author {
     }
 }
 
-/// Whether a prompt's provenance says each version of it waits for the owner (`approval`): an
-/// edit by its author waits again (`hub/queue_approve.rs`).
+/// Whether a prompt's provenance says each version of it waits for the owner (`approval`, or a
+/// link guest's `from`): an edit by its author waits again (`hub/queue_approve.rs`).
 pub fn awaits_owner(provenance: Option<&Value>) -> bool {
-    of_provenance(provenance).is_some()
-        && provenance.and_then(|p| p.get("approval")).and_then(Value::as_str)
-            == Some(APPROVAL_OWNER)
+    of_provenance(provenance).is_some_and(|from| {
+        is_guest(from)
+            || provenance.and_then(|p| p.get("approval")).and_then(Value::as_str)
+                == Some(APPROVAL_OWNER)
+    })
 }
 
 /// The `initialize` feature of a daemon that holds a prompt for the owner: a peer forwards one,
@@ -145,8 +156,11 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         Some(Value::String(value)) if value == APPROVAL_OWNER => true,
         _ => return Err(value_refused("approval")),
     };
+    let id = required("id")?;
+    // A link guest's prompt waits for the owner even when its sender left `approval` off.
+    let awaits_owner = awaits_owner || is_guest(&id);
     Ok(Some(Author {
-        id: required("id")?,
+        id,
         name: required("name")?,
         login: field("login")?,
         node: field("node")?,
@@ -182,7 +196,7 @@ fn valid(key: &str, value: &str) -> bool {
         _ => value.len() <= MAX_FIELD_BYTES,
     };
     let id_shape = key != "id"
-        || ["tailnet:", "user_", "guest:"].iter().any(|prefix| {
+        || ["tailnet:", "user_", GUEST_PREFIX].iter().any(|prefix| {
             value.strip_prefix(prefix).is_some_and(|rest| !rest.is_empty()) && !value.contains(' ')
         });
     fits && id_shape && !value.trim().is_empty() && !value.chars().any(unshown)
