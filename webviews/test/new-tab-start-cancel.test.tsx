@@ -153,6 +153,20 @@ async function mountNewTab(
   return { field, ask };
 }
 
+/// Picks the `devbox` machine in the page's location picker (the mock lists it as a connected peer).
+async function pickRemote() {
+  const machine = host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  await act(async () => machine.click());
+  await until(
+    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    "devbox pick",
+  );
+  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  await act(async () => remote.click());
+}
+
 const alerts = () => [...host.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "");
 
 // #28543 review (P2): a New Tab send whose folder request went stale (a newer folder request
@@ -217,15 +231,17 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
 
 // #28543 review (P2): a cancelled New Tab start (Not now on the folder's Trust question, or the
 // start aborted because the page moved on) showed a failure notice beside the field. A cancel is
-// no failure: no notice, and the prompt stays. A local start becomes its chat at once (#28965), so
-// the Trust question and the kept prompt are in that chat. A real refusal still says why
-// (new-tab-start-refusal.test.tsx).
+// no failure: no notice, the draft stays, and Return can start it again. A local start becomes its
+// chat at once (#28965), so this drives a start on another machine, which keeps the page. A real
+// refusal still says why (new-tab-start-refusal.test.tsx).
 test("Not now on a New Tab start's Trust question shows no failure notice and keeps the draft", async () => {
   let trusted = false;
   const starts: Record<string, any>[] = [];
-  const { ask } = await mountNewTab(
+  const { field, ask } = await mountNewTab(
     () => undefined,
     (method, params, answer) => {
+      if (method === "_acpmux/status")
+        return answer().then((result) => ({ ...result, peers: [{ name: "devbox", kind: "ssh", connected: true }] }));
       if (method === "acp.trust.set") trusted = params.level === "trusted";
       if (method !== "session/new") return undefined;
       starts.push(params);
@@ -237,10 +253,9 @@ test("Not now on a New Tab start's Trust question shows no failure notice and ke
       );
     },
   );
-  // The direct no-project route: its start waits through the Trust answer (direct.ts create).
-  const actions = (dom.window as any).cmuxAcpmuxActions;
-  const start = actions["chat.new"];
-  actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "", noProject: true });
+  // A start on another machine keeps the page until it has started, so its Trust question and any
+  // notice show beside the field.
+  await pickRemote();
   await ask("inspect the cancelled start");
   await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "the Trust question");
   const notNow = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask button")].find(
@@ -256,11 +271,13 @@ test("Not now on a New Tab start's Trust question shows no failure notice and ke
   );
   await tick();
   await tick();
-  // Not now is no failure: nothing says the start failed or was cancelled, and the prompt is kept
-  // (its queued row or the chat's composer).
   expect(alerts().filter((text) => text.includes(t("switch.cancelled")))).toEqual([]);
   expect(host.querySelector('.acpmux-switch-notice[role="alert"]')).toBeNull();
-  expect(kept("inspect the cancelled start")).toBe(true);
+  expect(host.querySelector(".nt-field")).toBe(field);
+  expect(field.value).toBe("inspect the cancelled start");
+  // The cancelled start settled: Return starts it again.
+  await act(async () => field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await until(() => starts.length === 2, "Return starts the chat again");
 }, 20_000);
 
 /// The prompt is still on the page: its queued row in the chat, or the chat's composer.
@@ -275,9 +292,7 @@ test("a refused New Tab start still shows its failure notice", async () => {
     (method) =>
       method === "session/new" ? Promise.reject(new Error("devbox refused session/new: agent unavailable")) : undefined,
   );
-  const actions = (dom.window as any).cmuxAcpmuxActions;
-  const start = actions["chat.new"];
-  actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "", noProject: true });
+  // A named local harness: the start becomes its chat at once (#28965), which says why it failed.
   await ask("inspect the failed build");
   await until(() => !!host.textContent?.includes("agent unavailable"), "the refusal says why");
   expect(kept("inspect the failed build")).toBe(true);
