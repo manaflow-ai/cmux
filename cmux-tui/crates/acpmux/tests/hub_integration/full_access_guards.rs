@@ -135,16 +135,19 @@ async fn switching_to_full_access_resolves_a_tool_already_waiting() {
         };
         let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
         let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+        let mut changer = connect(&hub).await;
         let mode = if through_option { "full-access" } else { "bypassPermissions" };
         if through_option {
-            c.request(
-                method::SESSION_SET_CONFIG_OPTION,
-                json!({"sessionId": id, "configId": "mode", "value": mode}),
-            )
-            .await
-            .unwrap();
+            changer
+                .request(
+                    method::SESSION_SET_CONFIG_OPTION,
+                    json!({"sessionId": id, "configId": "mode", "value": mode}),
+                )
+                .await
+                .unwrap();
         } else {
-            c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": mode}))
+            changer
+                .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": mode}))
                 .await
                 .unwrap();
         }
@@ -169,7 +172,9 @@ async fn approve_all_resolves_a_tool_already_waiting_without_a_mode_change() {
     let id = chat_in(&mut c, "default").await;
     let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
     c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
-    c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "approve-all"}))
+    let mut changer = connect(&hub).await;
+    changer
+        .request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "approve-all"}))
         .await
         .unwrap();
     assert!(c.response(rid).await.0.is_ok());
