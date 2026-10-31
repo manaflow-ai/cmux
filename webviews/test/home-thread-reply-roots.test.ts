@@ -72,6 +72,14 @@ test("a reply that arrives before the thread reply it answers moves into the thr
   expect(replies(merged, "msg_6")).toEqual(["msg_7", "msg_9"]);
 });
 
+test("a two-level chain loaded newest page first moves wholly into the thread once the root loads", () => {
+  // 9 -> 8 -> 7 -> 6 with 7, 8 and 9 naming only reply_to: the newest page brings 8 and 9 first.
+  const newest = window(raw(8, "agent_chief", replyTo("msg_7")), raw(9, "user_local", replyTo("msg_8")));
+  const merged = mergeMessages(newest, [raw(6, "user_local"), raw(7, "agent_chief", replyTo("msg_6"))].map(wire), 200);
+  expect(shown(merged)).toEqual([["msg_6", 3]]);
+  expect(replies(merged, "msg_6")).toEqual(["msg_7", "msg_8", "msg_9"]);
+});
+
 test("a reply to a top-level message and a reply loop keep their threads", () => {
   const top = window(raw(1, "user_local"), raw(2, "agent_chief", replyTo("msg_1")));
   expect(shown(top)).toEqual([["msg_1", 1]]);
