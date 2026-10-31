@@ -659,7 +659,7 @@ const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-c
 
 export default componentEntry<Props>({
   id: "agent-pane.chat-inspector",
-  title: "Inspector",
+  title: "Session Info",
   area: "Agent pane",
   pane: true,
   height: 900,

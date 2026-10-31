@@ -119,7 +119,8 @@ final class AgentPageChats {
             guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
                 return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
             }
-            guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
+            // Not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs"): the
+            // person picked Sandboxed and sent, Cloud is allowed and they are signed in.
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).
