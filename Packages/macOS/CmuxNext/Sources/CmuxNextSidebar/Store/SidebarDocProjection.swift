@@ -259,7 +259,8 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
+        // The pending record writes (`shownRecords`), then a Chief dragged in before its echo.
+        let projection = SidebarDocProjection(rows: rows, records: shownRecords.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
                                               revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
