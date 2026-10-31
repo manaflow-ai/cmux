@@ -211,6 +211,8 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
+    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1466,6 +1468,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        cancel_refusals: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 

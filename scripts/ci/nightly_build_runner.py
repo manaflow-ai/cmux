@@ -36,6 +36,12 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   past any stalled one). Never empty. EXCLUDE (a label another leg already
   waits on) is skipped while another candidate moves.
 
+- `helper`: the owned route for build-nightly-ghostty-cli-helper, which the dedicated
+  builder never admits: `owned` when that is not the dedicated builder, else a fresh
+  owned_route() read (an idle side or nightly-slot Mac), else empty. Until 2026-10-30 the
+  helper took `blacksmith` whenever the app build took the dedicated builder, and run
+  40990112293 (373ec0cfaa2f, the first green tip after a two-hour Release compile red) queued
+  its helper on blacksmith-6vcpu-macos-26 for 39 minutes until the run was cancelled unpublished.
 - `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for.
 
 `owned` is `dedicated` when that is set. The workflow takes `owned` only while
@@ -221,7 +227,8 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
     label, why = blacksmith_picker.pick(variable, snapshot, now)
     if exclude and label == exclude:
         others = [other for other in blacksmith_picker.candidates(variable) if other != exclude]
-        stuck = blacksmith_picker.stalled(snapshot, others, now) or set()
+        # A stale snapshot still shows a dead label (blacksmith_picker.dead()): it is no moving alternative.
+        stuck = (blacksmith_picker.stalled(snapshot, others, now) or set()) | blacksmith_picker.dead(snapshot, now)
         moving = [other for other in others if other not in stuck]
         if moving:
             return moving[0], f"`{moving[0]}`, since `{exclude}` already holds a waiting leg"
@@ -307,11 +314,19 @@ def main(env: Mapping[str, str] = os.environ,
                                              f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
         return 0
 
+    # The Ghostty helper never takes the dedicated builder (its hook admits only build-nightly-app),
+    # so while the app build holds it the helper gets its own owned pick, as the verify jobs do.
+    helper, helper_why = owned, owned_why
+    if dedicated:
+        helper_runners = read() if any(owned_label(label) for label in labels) else None
+        helper, helper_why = owned_route(labels, helper_runners)
     runner = owned or blacksmith
     write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,
-                       "attempt": attempt or "1"},
+                       "helper": helper, "attempt": attempt or "1"},
                  [f"dedicated: {dedicated or 'none'} ({dedicated_why})", f"owned: {owned or 'none'} ({owned_why})",
-                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}", f"attempt: {attempt or '1'}"])
+                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}",
+                  f"helper: {helper or blacksmith} ({helper_why if helper else 'no idle owned Mac besides the dedicated builder, so Blacksmith'})",
+                  f"attempt: {attempt or '1'}"])
     return 0
 
 
