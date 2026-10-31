@@ -118,12 +118,17 @@ async fn switching_to_full_access_resolves_a_tool_already_waiting() {
             claude_hub().await
         };
         let id = if through_option {
-            let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
-                .await.unwrap();
+            let s = c
+                .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+                .await
+                .unwrap();
             let id = s["sessionId"].as_str().unwrap().to_owned();
-            c.request(method::SESSION_SET_CONFIG_OPTION,
-                json!({"sessionId": id, "configId": "mode", "value": "normal"}))
-                .await.unwrap();
+            c.request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": id, "configId": "mode", "value": "normal"}),
+            )
+            .await
+            .unwrap();
             id
         } else {
             chat_in(&mut c, "default").await
@@ -132,11 +137,16 @@ async fn switching_to_full_access_resolves_a_tool_already_waiting() {
         let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
         let mode = if through_option { "full-access" } else { "bypassPermissions" };
         if through_option {
-            c.request(method::SESSION_SET_CONFIG_OPTION,
-                json!({"sessionId": id, "configId": "mode", "value": mode})).await.unwrap();
+            c.request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": id, "configId": "mode", "value": mode}),
+            )
+            .await
+            .unwrap();
         } else {
             c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": mode}))
-                .await.unwrap();
+                .await
+                .unwrap();
         }
         assert!(c.response(rid).await.0.is_ok());
         let session = hub.resolve(&id).unwrap();
@@ -146,8 +156,10 @@ async fn switching_to_full_access_resolves_a_tool_already_waiting() {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["permissionId"], pending["permissionId"]);
         assert_eq!(records[0]["fullAccess"], mode);
-        assert!(hub.events(&id, 0, 10_000).unwrap().iter().any(|e|
-            e.kind == "permission_decision" && e.msg["permissionId"] == pending["permissionId"]));
+        assert!(
+            hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "permission_decision"
+                && e.msg["permissionId"] == pending["permissionId"])
+        );
     }
 }
 
@@ -158,7 +170,8 @@ async fn approve_all_resolves_a_tool_already_waiting_without_a_mode_change() {
     let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
     c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "approve-all"}))
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(c.response(rid).await.0.is_ok());
     let session = hub.resolve(&id).unwrap();
     assert!(session.pending_permissions().is_empty());
@@ -178,16 +191,25 @@ async fn switching_to_full_access_keeps_interactive_and_explicit_asks_pending() 
         let id = chat_in(&mut c, "default").await;
         if !rules.is_null() {
             c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": rules}))
-                .await.unwrap();
+                .await
+                .unwrap();
         }
         let rid = c.send(method::SESSION_PROMPT, prompt(&id, prompt_text, None)).await;
         let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
-        c.request(method::SESSION_SET_MODE,
-            json!({"sessionId": id, "modeId": "bypassPermissions"})).await.unwrap();
+        c.request(
+            method::SESSION_SET_MODE,
+            json!({"sessionId": id, "modeId": "bypassPermissions"}),
+        )
+        .await
+        .unwrap();
         assert_eq!(hub.resolve(&id).unwrap().pending_permissions().len(), 1);
         assert!(autos(&hub, &id).is_empty());
-        c.request(method::MUX_PERMISSION_RESPOND,
-            json!({"sessionId": id, "permissionId": pending["permissionId"]})).await.unwrap();
+        c.request(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": id, "permissionId": pending["permissionId"]}),
+        )
+        .await
+        .unwrap();
         assert!(c.response(rid).await.0.is_ok());
     }
 }
