@@ -107,7 +107,7 @@ fn vt_replay_edge_the_shrunk_tail_at_a_row_end() {
     );
 }
 
-/// Probe (prints, never fails): the shortest prefix of the E2 stream whose replay differs, and the replay's text
+/// Probe (always fails, with its findings; diagnosis only, removed with the fix): the shortest prefix of the E2 stream whose replay differs, and the replay's text
 /// after its palette and mode prefix, for the diagnosis.
 #[test]
 fn vt_replay_edge_probe_e2_prefix() {
@@ -125,7 +125,7 @@ fn vt_replay_edge_probe_e2_prefix() {
         }
     }
     let Some(len) = first else {
-        println!("PROBE no differing prefix");
+        panic!("PROBE no differing prefix");
         return;
     };
     let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
