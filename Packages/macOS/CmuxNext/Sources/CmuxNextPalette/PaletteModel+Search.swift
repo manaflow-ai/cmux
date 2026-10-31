@@ -281,7 +281,10 @@ extension PaletteModel {
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
-        if shownLevelID == state.levelID { display(sections) }
+        if shownLevelID == state.levelID {
+            queryFrames.delivered(final: complete && !provisional, answerRows: 0)
+            display(sections)
+        }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
                       isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
                       provisional: provisional))
