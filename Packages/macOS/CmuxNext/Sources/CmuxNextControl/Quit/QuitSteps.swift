@@ -20,6 +20,7 @@ public enum QuitFailureAnswer: Equatable, Sendable {
 /// process with exit code 2 when CefShutdown runs past 10 s (a loaded
 /// machine), so nothing the user asked for may come after it.
 public struct QuitSteps {
+    /// Writes "Don't ask again"'s setting; run under ``QuitSaveSteps/rememberLimit``.
     public var remember: @MainActor (QuitBehavior) async -> Void
     public var prepareWindows: @MainActor () async -> Void
     /// Ends the local sessions as the quit's choice says; returns every step that failed.
@@ -65,7 +66,7 @@ public struct QuitSteps {
     /// "Don't ask again" writes, nil when it was not asked for.
     @MainActor
     public func run(ends: Bool, remember remembered: QuitBehavior?) async {
-        if let remembered { await remember(remembered) }
+        if let remembered { await limiter.run("remember", limit: QuitSaveSteps.rememberLimit) { await remember(remembered) } }
         await prepareWindows()
         if ends {
             // A late save to the daemon lands before the daemon stops (Cloud's step ends no local data).

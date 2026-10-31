@@ -174,14 +174,12 @@ final class QuitCoordinator {
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await QuitSteps(
-            remember: { [steps] behavior in
-                _ = await steps.run("remember", limit: QuitSaveSteps.rememberLimit) {
-                    guard let settings = services.settings,
-                          let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
-                    do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
-                        Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                            .error("quit setting write failed: \(String(describing: error), privacy: .public)")
-                    }
+            remember: { behavior in
+                guard let settings = services.settings,
+                      let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
+                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                        .error("quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
             },
             prepareWindows: { [steps] in
