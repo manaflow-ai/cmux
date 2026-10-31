@@ -1014,7 +1014,11 @@ Object.assign(variants, {
         },
       ],
     },
-    steps: [wait('[data-harness-auth="expired"]')],
+    steps: [
+      wait('[data-harness="codex"]'),
+      // Scrolls the Codex row into view; the control exists before and after the change.
+      { selector: '[data-harness="codex"] [data-harness-action="check"]', action: "focus" },
+    ],
     note: "Codex's sign-in expired: Agents gets its badge and the row says Signed out, as for a signed-out harness.",
   }),
   "agents-harness-update-manual": variant("agents", {
