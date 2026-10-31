@@ -3890,6 +3890,7 @@ export function VirtualTranscript({
     sessionId,
     seekExpired,
     canLoadOlder,
+    dropFoldRoom,
     followResume,
   ]);
   // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
