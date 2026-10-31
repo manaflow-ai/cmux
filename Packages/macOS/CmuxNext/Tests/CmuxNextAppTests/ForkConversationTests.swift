@@ -125,7 +125,7 @@ struct ForkConversationTests {
                       "palette.forkAgentConversationNewRow"])
     func aStripDestinationIsOfferedOnEverySurface(id: String) throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == ActionID(rawValue: id) })
-        #expect(descriptor.cliName?.hasPrefix("agent fork-conversation-to-new-") == true)
+        #expect(descriptor.cliName.hasPrefix("agent fork-conversation-to-new-"))
         #expect(descriptor.surfacePlan.cli == .offered)
         #expect(descriptor.surfacePlan.mcp == .offered)
         #expect(descriptor.surfacePlan.palette == .offered)
