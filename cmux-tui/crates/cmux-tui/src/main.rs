@@ -2508,7 +2508,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = restoring_server.attach(mux.clone());
+    let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
     // From here the restoring server's waiting clients get answers.
     startup_timings.lap("server.attach");
     mux.record_startup_timings(&startup_timings);
