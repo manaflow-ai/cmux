@@ -413,6 +413,29 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
             ),
+            // u18673: a fork in a new strip column on either side of the chat's column, or a new row
+            // below it, as New Column Right / New Column Left / New Row open a terminal.
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnRight",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module),
+                keywords: ["agent", "fork", "column", "right"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-right"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnLeft",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-left"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewRow",
+                title: String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module),
+                keywords: ["agent", "fork", "row", "below"], category: .agents, symbol: "rectangle.grid.1x2",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-row"
+            ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
                 title: String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module),
