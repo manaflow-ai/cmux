@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -240,14 +240,31 @@ export function ComposerContext({
       : undefined;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
+  const loadWarnings = showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings;
+  const warningText = useCallback(
+    (resources: MachineResources | undefined) => {
+      const warning = machineLoadWarning(resources, loadWarnings);
+      if (!warning) return undefined;
+      return warning.kind === "load"
+        ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
+        : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) });
+    },
+    [loadWarnings, t],
+  );
+  // The environment picker shows the same warning on a ready machine's row as the plain menu does.
+  const pickerComputers = useMemo(
+    () =>
+      computers.map((computer) => {
+        const warning = environmentReady(computer) ? warningText(computer.resources) : undefined;
+        return warning ? { ...computer, warning } : computer;
+      }),
+    [computers, warningText],
+  );
   const menuComputers = useMemo(() => {
     const sections = environmentSections(computers);
     return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
       const ready = environmentReady(computer);
-      const warning = machineLoadWarning(
-        computer.resources,
-        showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings,
-      );
+      const warning = warningText(computer.resources);
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
@@ -258,18 +275,10 @@ export function ComposerContext({
               ...(isCloudMachineRow(computer) ? {} : { disabled: true }),
               detail: environmentStateLabel(computer),
             }),
-        ...(ready && warning
-          ? {
-              warning: true,
-              detail:
-                warning.kind === "load"
-                  ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
-                  : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) }),
-            }
-          : {}),
+        ...(ready && warning ? { warning: true, detail: warning } : {}),
       };
     });
-  }, [computers, composerSettings.showMachineLoadWarnings, showMachineLoadWarnings, t]);
+  }, [computers, t, warningText]);
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
   // own computer shows in the render that shows it (it followed in an effect, a frame late: the
@@ -527,7 +536,7 @@ export function ComposerContext({
                   />
                 )
               }
-              environments={offload && currentComputer ? [currentComputer] : computers}
+              environments={offload && currentComputer ? [currentComputer] : pickerComputers}
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
