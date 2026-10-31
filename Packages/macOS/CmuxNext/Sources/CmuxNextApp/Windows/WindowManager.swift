@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -89,7 +90,7 @@ final class WindowManager {
     var seenMachine: [String: String] = [:]
     /// What `isDead` reads of the Cloud's sign-in and machine list: `CloudService.listFacts`; a test
     /// gives its own account state, which it cannot sign in to reach.
-    var cloudList: (CloudService) -> CloudService.ListFacts = \.listFacts
+    var cloudList: (CloudService) -> CloudMachineListFacts = \.listFacts
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false

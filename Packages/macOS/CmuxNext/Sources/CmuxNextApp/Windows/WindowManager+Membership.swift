@@ -535,27 +535,9 @@ extension WindowManager {
             guard MachineRegistry.isCloudMachineID(machine) else { return cloudSettled }
             // A Cloud machine with no daemon this run is gone only if it left the account, never because
             // the Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
-            return Self.remoteMachineLeft(listed: services.machines.anyDaemon(machine: machine) != nil,
-                                          accountListLoaded: accountMachineListLoaded)
+            return cloudList(services.cloud).machineLeft(listed: services.machines.anyDaemon(machine: machine) != nil)
         }
         return services.machines.local.store.isLoaded && cloudSettled
-    }
-
-    /// Whether a saved workspace whose machine this run has no daemon for is gone (P-AUSTIN B7b).
-    /// `listed`: the machine registry has the machine, its feature on or off. `accountListLoaded`:
-    /// the signed-in account's machine list has loaded.
-    /// Signed out, Cloud off, the list not loaded, or the machine listed with its feature off: it is
-    /// only not connected, so its workspaces stay in their windows and come back when it connects.
-    static func remoteMachineLeft(listed: Bool, accountListLoaded: Bool) -> Bool {
-        !listed && accountListLoaded
-    }
-
-    /// The signed-in account's Cloud machine list has loaded: a machine it does not list left the account.
-    /// The list must be this user's and team's (`hasLoadedCurrentMachines`): after a team switch the
-    /// store keeps the previous team's list until the new one lands, and the new team's machines are not in it.
-    private var accountMachineListLoaded: Bool {
-        let list = cloudList(services.cloud)
-        return list.isSignedIn && !list.isRestoring && list.hasLoadedCurrentMachines
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
@@ -564,13 +546,11 @@ extension WindowManager {
         seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
     }
 
-    /// Every Cloud machine that could still report workspaces has loaded.
-    /// The list must be this user's and team's (`hasLoadedCurrentMachines`): during a team switch the new
-    /// team's machines are not listed yet.
+    /// Every Cloud machine that could still report workspaces has loaded (`CloudMachineListFacts.settled`).
     private var cloudSettled: Bool {
-        guard case let list = cloudList(services.cloud), list.isSignedIn || list.isRestoring else { return true }
-        guard list.hasLoadedCurrentMachines else { return false }
-        return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
+        cloudList(services.cloud).settled {
+            services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
+        }
     }
 
     /// Workspaces the daemon has not reported yet stay alive (and land in

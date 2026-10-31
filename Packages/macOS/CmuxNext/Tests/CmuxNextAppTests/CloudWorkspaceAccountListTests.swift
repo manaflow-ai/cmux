@@ -15,7 +15,7 @@ struct CloudWorkspaceAccountListTests {
     static let workspace = "ws-account-list"
 
     /// Services with this Mac's tree loaded and `workspace` saved on Cloud machine `machine`.
-    static func services(savedOn machine: String, list: CloudService.ListFacts) -> AppServices {
+    static func services(savedOn machine: String, list: CloudMachineListFacts) -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
@@ -27,8 +27,8 @@ struct CloudWorkspaceAccountListTests {
         return services
     }
 
-    static let signedInWithCurrentList = CloudService.ListFacts(isSignedIn: true, isRestoring: false,
-                                                        hasLoadedMachines: true, hasLoadedCurrentMachines: true)
+    static let signedInWithCurrentList = CloudMachineListFacts(isSignedIn: true, isRestoring: false,
+                                                               hasLoadedCurrentMachines: true)
 
     /// Finding 4: a machine deleted from the account (the signed-in account's loaded list does not
     /// have it, so the registry has no session for it) takes its workspace out of the saved window;
@@ -64,8 +64,8 @@ struct CloudWorkspaceAccountListTests {
     /// previous team's list until the new team's arrives. A workspace on a machine of the new team
     /// is not in that old list; it must wait for the new team's list, not be pruned.
     @Test func aTeamSwitchDoesNotPruneTheNewTeamsWorkspaceFromTheOldTeamsList() {
-        let previousTeamsList = CloudService.ListFacts(isSignedIn: true, isRestoring: false,
-                                               hasLoadedMachines: true, hasLoadedCurrentMachines: false)
+        let previousTeamsList = CloudMachineListFacts(isSignedIn: true, isRestoring: false,
+                                                      hasLoadedCurrentMachines: false)
         let services = Self.services(savedOn: "vm-new-team", list: previousTeamsList)
         #expect(!services.windows.isDead(Self.workspace),
                 "the store's list is the previous team's: it says nothing about the new team's machines")
@@ -79,7 +79,7 @@ struct CloudWorkspaceAccountListTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
         services.windows.cloudList = { _ in
-            CloudService.ListFacts(isSignedIn: true, isRestoring: false, hasLoadedMachines: true, hasLoadedCurrentMachines: false)
+            CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedCurrentMachines: false)
         }
         #expect(!services.windows.isDead("ws-never-seen"),
                 "the store's list is the previous team's: the new team's machines may still hold the workspace")
