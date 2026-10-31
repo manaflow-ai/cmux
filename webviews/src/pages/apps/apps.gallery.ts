@@ -44,7 +44,6 @@ const publishing = (me: RegistryMe = person) => {
 };
 const reviewing = { ...structuredClone(base), registry: sampleRegistry() };
 
-
 // Hello Deploy (install = deploy + pin): its listing names where it runs, and once installed its
 // row shows the running instance. The machine is a sample name, never a fleet host.
 const deployed = structuredClone(base);
