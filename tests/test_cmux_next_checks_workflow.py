@@ -41,8 +41,9 @@ def steps() -> list[dict]:
 
 
 def is_setup(step: dict) -> bool:
-    """Checkout and toolchain steps: an action, not a check script."""
-    return "uses" in step
+    """Checkout and toolchain steps: an action, not a check script; and the reset of a reused
+    workspace's submodule checkouts that follows checkout on a mini."""
+    return "uses" in step or "scripts/ci/reset-stale-submodules.sh" in str(step.get("run", ""))
 
 
 
@@ -67,7 +68,7 @@ class ChecksJobStructure(unittest.TestCase):
         setup, _, _ = self.split()
         self.assertTrue(setup, "the job checks out the repository")
         for step in setup:
-            with self.subTest(step=step.get("name", step["uses"])):
+            with self.subTest(step=step.get("name") or step.get("uses")):
                 self.assertNotIn("continue-on-error", step)
 
     def test_every_check_step_has_an_id_and_continues_on_error(self):
@@ -1118,8 +1119,9 @@ OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d
 
 
 def can_run_on_owned_runner(job: dict) -> bool:
-    """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
-    return "vars." in OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
+    """A runs-on that reads a repository variable, or portable placement's mini, can resolve to a mini (glaeda-*)."""
+    runs_on = str(job.get("runs-on", ""))
+    return "vars." in OVERFLOW_FAILOVER.sub("", runs_on) or "outputs.mini_runner" in runs_on
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1158,8 +1160,9 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "request-nightly-next", "request-nightly-next-fast",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
+                                           "portable-placement", "release-compile", "request-nightly-next",
+                                           "request-nightly-next-fast",
                                            "swift-canary", "swift-test", "web-bundles"])
 
 
