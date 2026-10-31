@@ -189,12 +189,17 @@ def main(argv=None):
     ap.add_argument("--swap-gb", type=float, default=15.0)
     ap.add_argument("--hosts", default="cmux17 cmux18 cmux19 cmux20 cmux21 cmux22 cmux23 cmux24")
     ap.add_argument("--out")
+    ap.add_argument("--whole-host", metavar="HOST",
+                    help="lease this whole mini (exclusive) and launch the app active (--activate), so its window is "
+                         "key and every line is typed at once; needs CuaDriver's console grant on HOST")
     ap.add_argument("--diagnostic", action="store_true",
                     help="no type-at-once where the slot has no key window (type after the creation hold); every "
                          "other step is still checked and reported. Verdict DIAGNOSTIC: never a .pass file")
     ap.add_argument("--handoff", default=str(HANDOFF))
     ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
     opts = ap.parse_args(argv)
+    if opts.whole_host and opts.whole_host not in opts.hosts.split():
+        ap.error(f"--whole-host {opts.whole_host} is not one of --hosts ({opts.hosts})")
     if opts.rounds < 1:
         ap.error("--rounds must be at least 1")
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -220,11 +225,12 @@ def main(argv=None):
                # refuses an exclusive lease there unless it names that owner pool (HTTP 409, trial 4, 2026-10-31).
                # capture-host passes it as `cmux-ci reserve --owner-pool` (hq #5153; refresh an older install).
                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", OWNER_POOL)}
-        hosts = idle_first(opts.hosts)
+        hosts = opts.whole_host or idle_first(opts.hosts)
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", hosts,
-                               "--out", str(round_out), *(["--journey-option", "smoke_mode=diagnostic"] if opts.diagnostic else [])],
+                               "--out", str(round_out), *(["--journey-option", "smoke_mode=diagnostic"] if opts.diagnostic else []),
+                               *(["--whole-host"] if opts.whole_host else [])],
                               capture_output=True, text=True, env=env)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
@@ -260,6 +266,7 @@ def main(argv=None):
     summary = {"build": opts.build, "journey": JOURNEY, "rounds": opts.rounds, "passed": passed,
                "failed": len(failed), "not_run": len(not_run), "verdict": verdict, "swap_gb": opts.swap_gb,
                "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "diagnostic": opts.diagnostic,
+               "whole_host": opts.whole_host,
                "expects": expect_table(rounds), "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))

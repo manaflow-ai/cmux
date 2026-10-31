@@ -252,7 +252,7 @@ def launch_facts(text):
 ACQUIRE_SLACK_SECONDS = 60
 
 
-def acquire_lease(ch, exclusive, log_path=None):
+def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
     """`capture-host acquire --slot [--exclusive]`; the lease words it prints. An exclusive acquire waits for the
     mini's running fleet steps (the drain), and capture-host moves its own acquire deadline on by the time
     drained, so its bound here is its acquire timeout plus its drain budget. On that bound the acquire gets TERM
@@ -260,7 +260,7 @@ def acquire_lease(ch, exclusive, log_path=None):
     env_seconds = lambda name, default: int(os.environ.get(name, default))
     bound = (env_seconds("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", 120) + env_seconds("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", 3600)
              + ACQUIRE_SLACK_SECONDS) if exclusive else 330
-    proc = subprocess.Popen([ch, "acquire", "--slot", *(["--exclusive"] if exclusive else [])],
+    proc = subprocess.Popen([ch, "acquire", *([] if whole_host else ["--slot"]), *(["--exclusive"] if exclusive else [])],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout=bound)
@@ -287,7 +287,7 @@ def acquire_lease(ch, exclusive, log_path=None):
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 
 
-def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0):
+def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False):
     """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate)."""
@@ -295,7 +295,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     ids = [s["id"] for s in specs]
     try:
         out.mkdir(parents=True, exist_ok=True)
-        acquired = acquire_lease(ch, exclusive, out / "acquire.log")
+        acquired = acquire_lease(ch, exclusive, out / "acquire.log", whole_host=whole_host)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
@@ -342,7 +342,10 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         commit = str(build.get("commit") or "")
         if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
             raise RuntimeError(f"build {build['id']} names no commit sha ({commit!r}): capture-host launch needs --commit")
-        launched = run([ch, "launch", "--commit", commit, lease, app, build.get("tag") or "journeys", "--"],
+        # --whole-host: the app launches active (--activate, which capture-host allows on a whole-host lease
+        # only): it is the active app with a key window, as on a person's Mac.
+        launched = run([ch, "launch", "--commit", commit, *(["--activate"] if whole_host else []), lease, app,
+                        build.get("tag") or "journeys", "--"],
                        timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
@@ -358,7 +361,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         drove = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/driver.py')} --socket {q(facts['socket'])} "
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
-                             f"--deadline-seconds {budget} --frame-interval {frame_interval}",
+                             f"--deadline-seconds {budget} --frame-interval {frame_interval}"
+                             + (" --activate" if whole_host else ""),
                        timeout=budget + 90, check=False)
         for line in drove.stdout.decode(errors="replace").splitlines():
             log(f"[{host}] {line}")
@@ -511,6 +515,9 @@ def main(argv=None):
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
     ap.add_argument("--hog-swap-gb", type=float, default=0.0,
                     help="memory pressure during each lease: the Austin's-day hog to this much swap above the start")
+    ap.add_argument("--whole-host", action="store_true",
+                    help="lease the whole mini (capture-host acquire without --slot) and launch the app active "
+                         "(--activate): it gets a key window. Needs CuaDriver's grants on the mini")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
@@ -567,7 +574,7 @@ def main(argv=None):
     else:
         for group in batches(chosen):
             results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive,
-                                     hog_swap_gb=opts.hog_swap_gb))
+                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host))
 
     lines = []
     for spec in chosen:

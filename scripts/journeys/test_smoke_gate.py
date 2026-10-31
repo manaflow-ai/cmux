@@ -58,6 +58,7 @@ print("leased slot-cmux99-abc")
 if os.environ.get("SMOKE_EXCLUSIVE", "yes") == "yes":
     open(os.path.join(out, "acquire.log"), "w").write(
         "capture-host: cmux99 is exclusive until 2026-10-31T03:00:00Z: the fleet controller places no step on its workers (cmux99-perf)\n")
+open(os.path.join(out, "argv.json"), "w").write(json.dumps(args))
 open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) for k in
     ("CAPTURE_HOST_POOL", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS")}))
 '''
@@ -146,6 +147,19 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_LATE": "none"})
             self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_whole_host_leases_that_mini_alone_and_asks_run_py_for_an_active_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gate(["pass"], tmp, ("--whole-host", "cmux17"))
+            with open(os.path.join(tmp, "out", "round-01", "argv.json")) as f:
+                args = json.load(f)
+            self.assertIn("--whole-host", args)
+            self.assertEqual(args[args.index("--hosts") + 1], "cmux17")
+            self.assertIn("--exclusive", args)
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--whole-host", "cmux99",
+                                   "--out", os.path.join(tmp, "out")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 2)
 
     def test_a_trial_never_writes_the_pass_file(self):
         for plan, extra in ((["pass"] * 3, ()), (["pass"] * 10, ("--swap-gb", "4"))):
@@ -240,8 +254,18 @@ class Launch(unittest.TestCase):
     def test_the_launch_names_the_build_commit_and_the_unpack_writes_it_beside_the_bundle(self):
         # capture-host (hq main 2026-10-30) refuses `launch` without --commit SHA checked against the bundle.
         src = (HERE / "run.py").read_text()
-        self.assertIn('[ch, "launch", "--commit", commit, lease, app', src)
+        self.assertIn('[ch, "launch", "--commit", commit, *(["--activate"] if whole_host else []), lease, app', src)
         self.assertIn("capture-commit", src)
+
+
+class WholeHost(unittest.TestCase):
+    def test_run_py_and_the_driver_carry_activate(self):
+        src = (HERE / "run.py").read_text()
+        self.assertIn('*([] if whole_host else ["--slot"])', src)
+        self.assertIn('*(["--activate"] if whole_host else [])', src)
+        self.assertIn('(" --activate" if whole_host else "")', src)
+        drv = (HERE / "driver.py").read_text()
+        self.assertIn('*([] if ACTIVATE else ["-g"])', drv)
 
 
 class NewTerminals(unittest.TestCase):

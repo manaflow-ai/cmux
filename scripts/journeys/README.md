@@ -323,8 +323,9 @@ app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports
 and each check and each type-at-once step reads that a main window is still key
 (`smoke_key_window`, `debug.window_list`; not key before typing: known gap).
 If the window did not become key, the round is "not run: known gap", which never passes the gate.
-`capture-host launch --activate` (a real foreground app) needs a whole-host lease, which needs
-CuaDriver's grants on the mini.
+`smoke-gate.py --whole-host HOST` takes that mini whole (exclusive) and launches the app active
+(`capture-host launch --activate`; the driver's relaunch then opens it in front too), so its window
+is key and every line is typed at once. It needs CuaDriver's grants, given at the mini's console.
 
 Verdict: PASS (every round passed, 10 rounds or more at +15 GB; the `.pass` file holds the
 summary, the rounds' leases, pressure and results, and the gate's commit; a gate with uncommitted

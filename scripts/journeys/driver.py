@@ -1105,7 +1105,9 @@ class Journey:
             record["leftovers"] = self.leftovers
         if step.get("mark"):
             self.marks[step["mark"]] = now()
-        argv = ["/usr/bin/open", "-g", "-n", "-a", app.bundle]
+        # In the background (-g), as capture-host's own launch, unless that launch was --activate (a whole-host
+        # lease): then the reopened app comes to the front and becomes the active app again, as a person sees it.
+        argv = ["/usr/bin/open", *([] if ACTIVATE else ["-g"]), "-n", "-a", app.bundle]
         for key, value in env.items():
             argv += ["--env", f"{key}={value}"]
         opened = subprocess.run(argv, capture_output=True, text=True, timeout=60)
@@ -1562,6 +1564,10 @@ def load_extensions(module):
 load_extensions(sys.modules[__name__])
 
 
+# Whether the app was launched active (capture-host launch --activate, a whole-host lease); main sets it.
+ACTIVATE = False
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--socket", required=True)
@@ -1572,7 +1578,11 @@ def main(argv=None):
     ap.add_argument("--ocr", required=True, help="the compiled scripts/ci/pr_media_ocr.swift")
     ap.add_argument("--deadline-seconds", type=float, default=480)
     ap.add_argument("--frame-interval", type=float, default=FRAME_INTERVAL)
+    ap.add_argument("--activate", action="store_true",
+                    help="the app was launched active (capture-host launch --activate): a relaunch opens it in front")
     a = ap.parse_args(argv)
+    global ACTIVATE
+    ACTIVATE = a.activate
     deadline = now() + a.deadline_seconds
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
