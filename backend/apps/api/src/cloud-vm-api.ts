@@ -149,7 +149,17 @@ export class VmApiCloudDriver implements CloudProvider {
   private report: Promise<Vm[]> | undefined
   async list(filter: string, offset: number): Promise<{ vms: ReadonlyArray<ListedVm>; total: number }> {
     if (filter !== `cmux_next_team:${this.team}` || !Number.isInteger(offset) || offset < 0) throw unavailable("invalid report selector", true)
-    const vms = await (this.report ??= this.vms({ role: "cloud", cmux_next_team: this.team }))
+    // A zero offset begins a fresh report; later pages reuse that snapshot.
+    // A rejected read must leave the next caller free to retry.
+    const report = offset === 0 || !this.report
+      ? (this.report = this.vms({ role: "cloud", cmux_next_team: this.team }))
+      : this.report
+    let vms: Vm[]
+    try { vms = await report }
+    catch (error) {
+      if (this.report === report) this.report = undefined
+      throw error
+    }
     return { total: vms.length, vms: vms.slice(offset, offset + 100).map((vm) => ({ id: vm.id, name: vm.labels[NAME_LABEL] ?? null, tag: this.tag(vm) })) }
   }
   async replaceTlsRule(id: string, rule: EdgeTlsRule): Promise<boolean> {
