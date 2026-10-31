@@ -12,35 +12,22 @@ import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { formatDuration } from "./turns";
 import { useTicking, workingLabel } from "./WorkingFor";
 
-export function ActivityLine({
-  row,
-  now = Date.now,
-}: {
-  row: AcpmuxRow;
-  now?: () => number;
-}) {
+export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
   const time = useTicking(true, now);
   // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
-  const sendName =
-    useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
   if (sendName !== undefined) {
     // Keep the lane name as the same tag used by sent and received transcript rows. A sentinel
     // lets localization supply the words around the interpolated name without hard-coding them.
-    const [before, after = ""] = t("send.sending", { target: "\u0000" }).split(
-      "\u0000",
-    );
+    const [before, after = ""] = t("send.sending", { target: "\u0000" }).split("\u0000");
     return (
       <TranscriptActivityRow
         icon={<Spinner size={16} loading />}
         before={before}
         name={sendName}
         after={after}
-        meta={
-          <span className="cv-command__meta">
-            {formatDuration(Math.max(0, time - row.at))}
-          </span>
-        }
+        meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
         className="cv-activity-row"
         ariaLabel={t("send.sending", { target: sendName })}
       />
@@ -54,9 +41,7 @@ export function ActivityLine({
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
         </>
       ) : (
-        <span className="cv-activity__label">
-          {workingLabel(t, row.at, time)}
-        </span>
+        <span className="cv-activity__label">{workingLabel(t, row.at, time)}</span>
       )}
       {/* A running command's ⌃B hint (BackgroundHint.tsx), keyed by the command. */}
       {row.doingCommand && <BackgroundHint key={row.text} />}

@@ -42,9 +42,7 @@ export function TranscriptActivityRow({
         {after}
         {children}
       </span>
-      {meta !== undefined && (
-        <span className="cv-tool__trail cv-agent-activity__trail">{meta}</span>
-      )}
+      {meta !== undefined && <span className="cv-tool__trail cv-agent-activity__trail">{meta}</span>}
       <span
         className={`cv-tool__chevron cv-agent-activity__chevron cv-rotor${expanded ? " is-open" : ""}`}
         aria-hidden="true"
@@ -90,11 +88,7 @@ export function TranscriptActivityRowShell({
   headerRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div
-      className={`cv-agent-activity-row${className ? ` ${className}` : ""}`}
-      ref={headerRef}
-      {...attributes}
-    >
+    <div className={`cv-agent-activity-row${className ? ` ${className}` : ""}`} ref={headerRef} {...attributes}>
       {children}
     </div>
   );

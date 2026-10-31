@@ -92,7 +92,13 @@ export function messageGroupLine(
 /// The group line's leading words, keeping its translated verb in the shared verb column.
 function GroupBefore({ line }: { line: ReturnType<typeof messageGroupLine> }) {
   const verb = leadingVerb(line.before);
-  return verb ? <ToolLabel verb={verb} subject={null}>{line.before}</ToolLabel> : line.before;
+  return verb ? (
+    <ToolLabel verb={verb} subject={null}>
+      {line.before}
+    </ToolLabel>
+  ) : (
+    line.before
+  );
 }
 
 export function MessageGroupRow({

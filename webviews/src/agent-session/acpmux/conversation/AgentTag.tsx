@@ -31,12 +31,7 @@ export function AgentTag({
     );
   }
   return (
-    <span
-      className={`${classes} is-plain`}
-      title={title}
-      data-interactive=""
-      aria-hidden="true"
-    >
+    <span className={`${classes} is-plain`} title={title} data-interactive="" aria-hidden="true">
       {name}
     </span>
   );
