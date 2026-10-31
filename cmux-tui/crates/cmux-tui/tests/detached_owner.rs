@@ -207,6 +207,18 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     let fixture = EnsureFixture::new("recreated");
     let first = fixture.run("ensure");
     assert_eq!(first["status"], "started", "{first}");
+    // A client stays connected to the first owner, as a person's app would: an owner whose
+    // state dir is gone and that has no client stops (headless/lost_paths.rs, #29349), and
+    // then a new owner is right. Held, the first owner keeps serving the socket, which is the
+    // case ensure must refuse (cx-lcxo2x). An answered request proves it registered.
+    let mut client =
+        std::os::unix::net::UnixStream::connect(first["socket"].as_str().unwrap()).unwrap();
+    client.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    std::io::Write::write_all(&mut client, b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .map_while(Result::ok)
+        .any(|line| line.contains("\"id\":1"));
+    assert!(answered, "the first owner never answered identify");
 
     // The owner still writes in its state dir, so removing it in place can
     // race a new file (ENOTEMPTY). Move it away first: the path is then free
@@ -218,6 +230,7 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
+    drop(client);
     assert!(
         !output.status.success(),
         "ensure reused the owner of the deleted state dir: {}",
