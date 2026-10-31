@@ -50,6 +50,14 @@ export const CloudMachine = Schema.Struct({
    * inside). Absent or null after a person's pause or a start.
    */
   pause_reason: Schema.optionalKey(Schema.NullOr(Schema.Literals(["idle", "no_report", "provider_stopped", "provider_paused"]))),
+  /**
+   * What the machine costs while it runs, in US dollars an hour: the provider's list price for its size
+   * (cmux sets it; clients keep no rate table). For display only, not a bill. Absent or null when the size
+   * has no rate.
+   */
+  hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
+  /** When the machine last started running (a start or a bind); null unless it is running. Clients show rate x time running as "about $X so far". */
+  running_since: Schema.optionalKey(Schema.NullOr(Millis)),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 

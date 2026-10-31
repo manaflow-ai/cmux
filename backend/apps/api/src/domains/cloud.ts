@@ -10,6 +10,7 @@ import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./c
 import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
 import { environmentBoot, environmentBuild, environmentBuildResult, environmentDelete, environmentSet } from "./cloud-environment.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
+import { machineCost } from "./cloud-cost.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -149,7 +150,7 @@ export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
   const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
-  return machine
+  return { ...machine, ...machineCost(row) }
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
