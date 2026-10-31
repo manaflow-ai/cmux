@@ -4,6 +4,10 @@
 #     --arg MODE [--arg TEST_FILTER]
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
+# panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
+# (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
+# --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
+# against scripts/cmux-next/rust-panic-baseline.json before it lands (it takes no TEST_FILTER);
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
@@ -61,8 +65,8 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ "$mode" == api-compat* && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
 fi
@@ -900,6 +904,20 @@ if [[ "$mode" == api-compat-write ]]; then
   rm -f "$root/.build/artifacts/api-compat-spec.tar"
   step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
   [[ "$first_rc" -ne 0 ]] || step "api-compat pack" api_compat_pack
+  finish
+fi
+# panic: cmux-tui.yml's "Rust panic ratchet" step (Linux lint job), the same commands from the same
+# directory (cmux-tui): production targets only, every workspace crate against its baseline.
+panic_ratchet() {
+  local flags json="$root/.build/panic-clippy.jsonl"
+  read -r -a flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)" || return 3
+  ((${#flags[@]})) || { echo "error: rust_panic_ratchet.py --flags printed no flags" >&2; return 3; }
+  mkdir -p "$root/.build"
+  cargo clippy --workspace --lib --bins --locked --message-format=json -- "${flags[@]}" >"$json" || return $?
+  python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$json"
+}
+if [[ "$mode" == panic ]]; then
+  step "panic ratchet" panic_ratchet
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
