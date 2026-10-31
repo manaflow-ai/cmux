@@ -20,6 +20,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   push:
@@ -41,6 +42,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   workflow_dispatch:
@@ -86,6 +88,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Independent of the manifest: runs first so a stale manifest cannot hide it.
+      - name: Test bubblewrap installation and unprivileged sandbox
+        run: python3 ../tests/test_devbox_bubblewrap.py
+
       - name: Validate the checked-in image ladder
         run: bun run devbox:manifest:check
 
@@ -94,7 +100,7 @@ jobs:
 
   promote:
     if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && inputs.promote == true && inputs.confirm == 'PROMOTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 180
     environment: cloud-vm-image-checks
     defaults:

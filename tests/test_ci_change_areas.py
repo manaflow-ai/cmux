@@ -2713,6 +2713,14 @@ def test_helper_ci_macos_runs_selects_the_lanes_of_its_jobs() -> None:
     assert helper_areas(released) == areas(macos=True, cli=True, release_build=True)
 
 
+def test_helper_named_only_in_the_warm_sources_table_is_not_run() -> None:
+    # The table describes which helper wires each warm source; nothing executes it.
+    table = {".github/warm-sources.json": '{"sources": {"x": {"what": "scripts/ci/helper.py keeps it"}}}\n'}
+    assert helper_areas(table) == areas()
+    # Any other unplaced file that names the helper still fails open.
+    assert helper_areas({".github/other.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
+
+
 def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run() -> None:
     mac_job = "  mac:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/caller.py\n"
     ci = ROUTED_TREE[".github/workflows/ci.yml"] + mac_job
