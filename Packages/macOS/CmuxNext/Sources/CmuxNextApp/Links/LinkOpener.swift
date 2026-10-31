@@ -306,8 +306,11 @@ final class LinkOpener {
     @discardableResult
     func openFile(_ file: URL, on machine: DaemonService, from source: PaneController?, asText: Bool = false, at position: FilePosition? = nil) -> Bool {
         guard !machine.isLocal else { return openFile(file, from: source, asText: asText, at: position) }
-        return open(from: source) { pane, placed in
-            pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed)
+        return open(from: source) { [weak self] pane, placed in
+            var inPlace: (@MainActor () -> Void)?
+            if placed != nil { inPlace = { self?.openedInPlace() } }
+            return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
+                                                  shownInPlace: inPlace)
         }
     }
 

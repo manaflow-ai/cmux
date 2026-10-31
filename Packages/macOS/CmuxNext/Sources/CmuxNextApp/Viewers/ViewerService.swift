@@ -152,9 +152,10 @@ final class ViewerService {
     /// open (the refusal shows). The recents are this Mac's files, so it records none.
     @discardableResult
     func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, asText: Bool = false, at position: FilePosition? = nil,
-                  placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                  placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> Bool {
         guard let opener = fileOpener as? FilePageOpener else { return false }
-        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, placed: placed) {
+        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, placed: placed,
+                                    shownInPlace: shownInPlace) {
             showRefusal(reason)
             return false
         }

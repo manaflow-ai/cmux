@@ -77,7 +77,6 @@ nonisolated enum FilePageStrings {
                               table: "FilePages", bundle: .module), machine)
     }
 
-
     /// A machine whose cmux does not serve its files (an older daemon, a machine that is no Cloud VM).
     static func remoteNoFiles(_ machine: String) -> String {
         String(format: String(localized: "filePages.remote.noFiles",
