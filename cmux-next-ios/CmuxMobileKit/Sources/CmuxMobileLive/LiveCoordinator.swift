@@ -921,7 +921,7 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab yet. Send the first message from cmux on \(mac); the chat continues here."
+        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
     }
 
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []

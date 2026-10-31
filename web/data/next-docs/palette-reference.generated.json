@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1237,
+    "entries": 1252,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "automations.show",
+          "title": "Automations",
+          "shortcut": null,
+          "command": "cmux automation show-page"
         },
         {
           "id": "home.chatColors",
@@ -206,6 +212,12 @@
           "title": "Location History…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "window.mergeAll",
+          "title": "Merge All Windows",
+          "shortcut": null,
+          "command": "cmux app merge-all-windows"
         },
         {
           "id": "home.messageChiefPet",
@@ -956,6 +968,12 @@
           "title": "Move Space to Start",
           "shortcut": null,
           "command": "cmux space move-to-start"
+        },
+        {
+          "id": "space.bringHere",
+          "title": "Move Space to This Window",
+          "shortcut": null,
+          "command": "cmux space bring-here"
         },
         {
           "id": "moveWorkspaceDown",
@@ -5806,6 +5824,24 @@
           "command": "cmux agent fork-conversation-below"
         },
         {
+          "id": "palette.forkAgentConversationNewColumnLeft",
+          "title": "Fork Conversation to New Column Left",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-column-left"
+        },
+        {
+          "id": "palette.forkAgentConversationNewColumnRight",
+          "title": "Fork Conversation to New Column Right",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-column-right"
+        },
+        {
+          "id": "palette.forkAgentConversationNewRow",
+          "title": "Fork Conversation to New Row",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-row"
+        },
+        {
           "id": "palette.forkAgentConversationNewTab",
           "title": "Fork Conversation to New Tab",
           "shortcut": null,
@@ -6034,6 +6070,12 @@
           "command": null
         },
         {
+          "id": "agentPane.runInBackground",
+          "title": "Run in Background",
+          "shortcut": null,
+          "command": "cmux agent run-in-background"
+        },
+        {
           "id": "agentPane.searchChats",
           "title": "Search Agent Chats",
           "shortcut": null,
@@ -6064,6 +6106,12 @@
           "command": "cmux agent set-model"
         },
         {
+          "id": "agent.share",
+          "title": "Share Chat with Guest…",
+          "shortcut": null,
+          "command": "cmux share chat"
+        },
+        {
           "id": "chief.screenShare.start",
           "title": "Share Screen with Chief",
           "shortcut": null,
@@ -6074,6 +6122,18 @@
           "title": "Show Agent Stats",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.showBackgroundTasks",
+          "title": "Show Background Tasks in Session Info",
+          "shortcut": null,
+          "command": "cmux agent show-background-tasks"
+        },
+        {
+          "id": "agentPane.showSubagents",
+          "title": "Show Subagents in Session Info",
+          "shortcut": null,
+          "command": "cmux agent show-subagents"
         },
         {
           "id": "palette.quickAgentChat",
@@ -6158,6 +6218,12 @@
           "title": "Toggle Preview Beside Chat",
           "shortcut": null,
           "command": "cmux agent toggle-preview"
+        },
+        {
+          "id": "agentPane.toggleQueueing",
+          "title": "Toggle Prompt Queueing",
+          "shortcut": null,
+          "command": "cmux agent toggle-queueing"
         },
         {
           "id": "agentPane.toggleSessionInfo",
@@ -6364,10 +6430,22 @@
           "command": "cmux cloud hand-off-machine"
         },
         {
+          "id": "cloudSetNetworkAccess",
+          "title": "Internet Access…",
+          "shortcut": null,
+          "command": "cmux cloud set-network-access"
+        },
+        {
           "id": "cloudKillMachine",
           "title": "Kill Machine",
           "shortcut": null,
           "command": "cmux cloud kill-machine"
+        },
+        {
+          "id": "cloudAPIKeyList",
+          "title": "List Cloud API Keys",
+          "shortcut": null,
+          "command": "cmux cloud api-key-list"
         },
         {
           "id": "cloudDomainList",
@@ -6490,6 +6568,12 @@
           "command": "cmux cloud promote-machine-to-template"
         },
         {
+          "id": "cloudProvisionAPI",
+          "title": "Provision API on Machine…",
+          "shortcut": null,
+          "command": "cmux cloud provision-api"
+        },
+        {
           "id": "accounts.reauthenticate",
           "title": "Re-authenticate Provider…",
           "shortcut": null,
@@ -6542,6 +6626,12 @@
           "title": "Resume Machine",
           "shortcut": null,
           "command": "cmux cloud resume-machine"
+        },
+        {
+          "id": "cloudAPIKeyRevoke",
+          "title": "Revoke Cloud API Key",
+          "shortcut": null,
+          "command": "cmux cloud api-key-revoke"
         },
         {
           "id": "cloudTunnelRotateKey",

@@ -72,7 +72,8 @@ ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
 SIGNING_JOBS = {
-    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy"),
+    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
+                    "generate-nightly-deltas"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

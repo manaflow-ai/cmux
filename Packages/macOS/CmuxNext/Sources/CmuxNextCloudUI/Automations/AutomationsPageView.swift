@@ -6,12 +6,13 @@ public import SwiftUI
 public struct AutomationsPageView: View {
     /// What the page's buttons do; the app routes each to the shared automation op.
     public struct Actions: Sendable {
-        public var new: @MainActor @Sendable () -> Void
+        /// The header's New button; nil hides it (no create form yet).
+        public var new: (@MainActor @Sendable () -> Void)?
         public var runNow: @MainActor @Sendable (AutomationRow) -> Void
         public var setEnabled: @MainActor @Sendable (AutomationRow, Bool) -> Void
         public var edit: @MainActor @Sendable (AutomationRow) -> Void
 
-        public init(new: @escaping @MainActor @Sendable () -> Void = {},
+        public init(new: (@MainActor @Sendable () -> Void)? = nil,
                     runNow: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in },
                     setEnabled: @escaping @MainActor @Sendable (AutomationRow, Bool) -> Void = { _, _ in },
                     edit: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in }) {
@@ -46,6 +47,7 @@ public struct AutomationsPageView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(palette.separator)
+            problemLines
             if page.rows.isEmpty {
                 Text(strings.empty).font(palette.body).foregroundStyle(palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,9 +67,21 @@ public struct AutomationsPageView: View {
             Text(strings.title).font(palette.header).foregroundStyle(palette.text)
             AutomationChip(text: strings.active(page.rows.filter(\.enabled).count), palette: palette)
             Spacer()
-            Button(strings.new) { actions.new() }.buttonStyle(.borderedProminent).controlSize(.small)
+            if let new = actions.new {
+                Button(strings.new) { new() }.buttonStyle(.borderedProminent).controlSize(.small)
+            }
         }
         .padding(.horizontal, 16).frame(height: 44)
+    }
+
+    /// One line per source that did not load, so a failure never reads as "no automations".
+    @ViewBuilder private var problemLines: some View {
+        ForEach([AutomationRow.Target.thisMac, .cloud], id: \.self) { target in
+            if let code = page.problems[target] {
+                Text(strings.problem(target, code: code)).font(palette.caption).foregroundStyle(palette.attention)
+                    .padding(.horizontal, 16).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     private var list: some View {

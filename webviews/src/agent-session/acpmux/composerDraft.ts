@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { holdWebSwap } from "../../pages/shared/webSwap";
+import wakeStateContract from "../../../../schemas/agent-pane/wake-state.json";
 
 /**
  * A new chat's inherited draft (a terminal selection, a page's URL), or undefined when
@@ -248,8 +249,11 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
   }
 }
 
-/** How long a page about to let go waits for its composer's draft to land (`pane.wakeState`). */
-export const DRAFT_SETTLE_MS = 500;
+/**
+ * How long a page about to let go waits for its composer's draft to land (`pane.wakeState`). The host's
+ * ask waits longer (schemas/agent-pane/wake-state.json, which the host's test reads too).
+ */
+export const DRAFT_SETTLE_MS: number = wakeStateContract.draftSettleMs;
 
 /** Waits for `composer`'s draft to reach the host (``ComposerHandle/settleDraft``), at most `ms`. */
 export async function settleDraftWithin(
