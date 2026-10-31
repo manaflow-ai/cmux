@@ -54,9 +54,93 @@ struct WriterState {
 
 /// Whether a commit waits for its version to be durable.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Wait {
+pub(super) enum Wait {
     Durable,
     No,
+}
+
+impl MetaWriter {
+    /// Takes the next version for the change the caller just made, and commits it: as the
+    /// writer, when none is at work; else it waits for the writer (`Wait::Durable`) or returns
+    /// (`Wait::No`). `write` copies the metadata and writes the copy.
+    pub(super) fn commit(&self, wait: Wait, write: &dyn Fn() -> Result<()>) -> Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // After the caller's change: a copy taken once this version is the target holds it.
+        state.requested += 1;
+        let version = state.requested;
+        loop {
+            if state.durable >= version {
+                return Ok(());
+            }
+            if let Some((upto, error)) = &state.failed
+                && *upto >= version
+            {
+                anyhow::bail!("{error}");
+            }
+            if !state.writing {
+                state.writing = true;
+                drop(state);
+                self.run(write);
+                state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                continue;
+            }
+            if wait == Wait::No {
+                return Ok(());
+            }
+            // The writer runs no task of this runtime: it copies, writes and wakes.
+            state = self.done.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// The writer: commits until nothing newer waits or a commit fails, then hands the role back.
+    fn run(&self, write: &dyn Fn() -> Result<()>) {
+        // A writer that unwinds hands the role back, so no waiter waits for it forever.
+        struct Unwind<'a>(&'a MetaWriter);
+        impl Drop for Unwind<'_> {
+            fn drop(&mut self) {
+                if std::thread::panicking() {
+                    let mut state =
+                        self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state.writing = false;
+                    state.failed = Some((state.requested, "the metadata writer panicked".into()));
+                    self.0.done.notify_all();
+                }
+            }
+        }
+        let _unwind = Unwind(self);
+        loop {
+            let target = {
+                let mut state =
+                    self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.requested <= state.durable {
+                    state.writing = false;
+                    self.done.notify_all();
+                    return;
+                }
+                state.requested
+            };
+            // Copied after the target is read: the copy holds every change up to it.
+            let written = write();
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match written {
+                Ok(()) => {
+                    state.durable = state.durable.max(target);
+                    if state.failed.as_ref().is_some_and(|(upto, _)| *upto <= target) {
+                        state.failed = None;
+                    }
+                    self.done.notify_all();
+                }
+                Err(e) => {
+                    // No retry here: the requests it covered fail, and the next change commits
+                    // again.
+                    state.failed = Some((target, e.to_string()));
+                    state.writing = false;
+                    self.done.notify_all();
+                    return;
+                }
+            }
+        }
+    }
 }
 
 impl Hub {
@@ -84,83 +168,7 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait) -> Result<()> {
-        let writer = &session.meta_writer;
-        let mut state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.requested += 1;
-        let version = state.requested;
-        loop {
-            if state.durable >= version {
-                return Ok(());
-            }
-            if let Some((upto, error)) = &state.failed
-                && *upto >= version
-            {
-                anyhow::bail!("{error}");
-            }
-            if !state.writing {
-                state.writing = true;
-                drop(state);
-                self.run_writer(session);
-                state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                continue;
-            }
-            if wait == Wait::No {
-                return Ok(());
-            }
-            // The writer runs no task of this runtime: it copies, writes and wakes.
-            state = writer.done.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
-    }
-
-    /// The writer: commits until nothing newer waits or a commit fails, then hands the role back.
-    fn run_writer(&self, session: &Session) {
-        let writer = &session.meta_writer;
-        // A writer that unwinds hands the role back, so no waiter waits for it forever.
-        struct Unwind<'a>(&'a MetaWriter);
-        impl Drop for Unwind<'_> {
-            fn drop(&mut self) {
-                if std::thread::panicking() {
-                    let mut state =
-                        self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    state.writing = false;
-                    state.failed = Some((state.requested, "the metadata writer panicked".into()));
-                    self.0.done.notify_all();
-                }
-            }
-        }
-        let _unwind = Unwind(writer);
-        loop {
-            let target = {
-                let mut state =
-                    writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                if state.requested <= state.durable {
-                    state.writing = false;
-                    writer.done.notify_all();
-                    return;
-                }
-                state.requested
-            };
-            // Read after the target: the copy holds every change up to it.
-            let written = self.write_snapshot(session);
-            let mut state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            match written {
-                Ok(()) => {
-                    state.durable = state.durable.max(target);
-                    if state.failed.as_ref().is_some_and(|(upto, _)| *upto <= target) {
-                        state.failed = None;
-                    }
-                    writer.done.notify_all();
-                }
-                Err(e) => {
-                    // No retry here: the requests it covered fail, and the next change commits
-                    // again.
-                    state.failed = Some((target, e.to_string()));
-                    state.writing = false;
-                    writer.done.notify_all();
-                    return;
-                }
-            }
-        }
+        session.meta_writer.commit(wait, &|| self.write_snapshot(session))
     }
 
     /// One copy of the metadata, written. A purged chat writes nothing.
@@ -215,3 +223,7 @@ fn hold_seam(session_id: &str) {
     off_worker(wait);
     let _ = std::fs::remove_file(release);
 }
+
+#[cfg(test)]
+#[path = "meta_save_tests.rs"]
+mod tests;
