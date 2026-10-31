@@ -592,7 +592,7 @@ impl Viewer {
         let (col, row, x_off, y_off) = placement.anchor(&pane);
         let id = *kitty::IMAGE_IDS
             .get(self.image)
-            .ok_or_else(|| io::Error::other("invalid VNC image slot"))?;
+            .ok_or_else(|| io::Error::other("invalid VNC image index"))?;
         self.image = 1 - self.image;
         kitty::frame(
             &mut self.out,
