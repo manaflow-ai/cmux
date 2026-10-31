@@ -10,6 +10,8 @@ import Testing
 /// Terminal and browser commands share the dock's tool opener; its target is the right column,
 /// including when the person most recently used its upper pane or links are set to Same Pane.
 @MainActor @Suite(.serialized) struct ChatDockToolPlacementTests {
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
     private struct Shown {
         let services: AppServices
         let content: WorkspaceContentController
@@ -61,7 +63,8 @@ import Testing
         func close() { window.orderOut(nil) }
     }
 
-    @Test func oneRightPaneSplitsBelowForADockTool() throws {
+    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
+    func oneRightPaneSplitsBelowForADockTool() throws {
         let shown = try Shown(lower: false)
         defer { shown.close() }
         var made: [LayoutPaneID] = []
@@ -77,7 +80,8 @@ import Testing
         #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.chat.layoutPaneID))
     }
 
-    @Test func dockToolsReuseTheirKindAndSplitForTheOtherKind() throws {
+    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
+    func dockToolsReuseTheirKindAndSplitForTheOtherKind() throws {
         let shown = try Shown(lower: false)
         defer { shown.close() }
         #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .browser) == .pane(shown.upper.layoutPaneID))
@@ -91,7 +95,8 @@ import Testing
         #expect(!moves)
     }
 
-    @Test func twoRightPanesAddATabInTheLowerPane() throws {
+    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
+    func twoRightPanesAddATabInTheLowerPane() throws {
         let shown = try Shown(lower: true)
         defer { shown.close() }
         let lower = try #require(shown.lower)
@@ -107,7 +112,8 @@ import Testing
         #expect(!moves, "a third right-side split must never be made")
     }
 
-    @Test func aDockToolWaitsForTheEarlierRightSideOpen() throws {
+    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
+    func aDockToolWaitsForTheEarlierRightSideOpen() throws {
         let shown = try Shown(lower: false)
         defer { shown.close() }
         var finish: (@MainActor () -> Void)?
