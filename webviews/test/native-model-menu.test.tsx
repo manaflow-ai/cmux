@@ -527,11 +527,12 @@ test("the full native picker offers the current signed-out harness its Log In", 
   } as Partial<ModelPickerProps>);
   const login = f.rows().find((row) => row.id === "login");
   expect(login?.kind).toBe("action");
-  await f.emit("login");
-  expect(logins).toEqual(["claude"]);
   // A search lists matches, never the signed-out note.
   await f.emit("query", "gam", "search");
   expect(f.rows().some((row) => row.id === "signed-out")).toBe(false);
+  await f.emit("query", "", "search");
+  await f.emit("login");
+  expect(logins).toEqual(["claude"]);
 });
 
 test("the full native picker's informational Default row cannot be picked", async () => {

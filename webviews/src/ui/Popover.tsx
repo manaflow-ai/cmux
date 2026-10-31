@@ -106,6 +106,8 @@ export function Popover({
       onOpenChange(false, { escape: reason === "escape" });
     },
   });
+  // The popover owns no trigger (its anchor is the caller's), so a native one draws nothing here;
+  // an opening the host refused to show turns `available` false and the web popover draws it.
   if (nativePopup.available && native !== undefined) return null;
   return (
     <BasePopover.Root

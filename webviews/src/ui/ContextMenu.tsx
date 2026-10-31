@@ -116,6 +116,8 @@ export function ContextMenu({
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
   const [nativeOpen, setNativeOpen] = useState(false);
+  // Where the native menu was asked for: the page menu opens there when the host cannot show it.
+  const nativeAt = useRef<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
@@ -136,6 +138,10 @@ export function ContextMenu({
     onDismiss: () => {
       setNativeOpen(false);
       native?.onDismiss?.();
+    },
+    onUnavailable: () => {
+      setNativeOpen(false);
+      if (nativeAt.current) setPoint(nativeAt.current);
     },
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
@@ -259,6 +265,7 @@ export function ContextMenu({
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         const at = { x: event.clientX, y: event.clientY };
         if (native && nativePopup.available) {
+          nativeAt.current = at;
           setNativeAnchor({
             getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
           });
