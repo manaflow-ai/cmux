@@ -483,6 +483,9 @@ public final class UpdaterService {
                     : prober.probe(identity, allowedChannels: allowed))
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                if let self, self.testFeedURL == nil, self.identity.track == .nightlyNext {
+                    self.controller?.feedOverride = result.feedURL == self.identity.feed().url ? nil : result.feedURL
+                }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
