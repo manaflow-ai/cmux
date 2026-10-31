@@ -532,7 +532,8 @@
    "method": "_acpmux/sessions",
    "params": {
     "limit": 1,
-    "cursor": 1
+    "cursor": 1,
+    "usage": 1
    }
   },
   "mode_fields": null,

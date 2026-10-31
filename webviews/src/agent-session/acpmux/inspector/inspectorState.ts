@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react";
 export type InspectorSectionId =
   | "environment"
   | "context"
+  | "usage"
   | "connectors"
   | "changes"
   | "sources"
@@ -24,11 +25,12 @@ export type InspectorSections = Readonly<Record<InspectorSectionId, boolean>>;
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const INSPECTOR_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
 
-/// Context and Connectors start folded to their one-line values (as in Claude Code desktop); the
-/// rest start open.
+/// Context, Usage and Connectors start folded to their one-line values (as in Claude Code desktop);
+/// the rest start open.
 export const DEFAULT_SECTIONS: InspectorSections = {
   environment: true,
   context: false,
+  usage: false,
   connectors: false,
   changes: true,
   sources: true,

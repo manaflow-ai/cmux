@@ -92,6 +92,8 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import { UsageSection, usageMeta } from "./UsageSection";
+import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
@@ -273,6 +275,8 @@ export function useChatInspector({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onOpenChat,
+  onShowUsage,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -336,8 +340,13 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
+  /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -472,6 +481,8 @@ export function useChatInspector({
         onReconnectMcp={onReconnectMcp}
         remoteControl={remoteControl}
         onCompact={onCompact}
+        onOpenChat={onOpenChat}
+        onShowUsage={onShowUsage}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -523,6 +534,8 @@ function InspectorPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onOpenChat,
+  onShowUsage,
   onOpenDocument,
   onShowCall,
   scope,
@@ -570,6 +583,10 @@ function InspectorPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
@@ -731,6 +748,10 @@ function InspectorPresence({
         onStopWorkflow={workflows?.onStop}
         onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
+        // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
+        allSessions={scope ? undefined : snapshot.sessions}
+        onOpenChat={onOpenChat}
+        onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -937,6 +958,9 @@ export function ChatInspector({
   working = false,
   onOpenFolder,
   onShowCall,
+  allSessions,
+  onOpenChat,
+  onShowUsage,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -997,10 +1021,19 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Sends the chat's agent its `/compact`: Context's Compact (ContextSection), off while `working`.
+  /// Sends the chat's agent its `/compact`: Context's Compact (ContextSection), off while `working`,
+  /// and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
   /// A turn runs.
   working?: boolean;
+  /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
+  /// subagent's own panel.
+  allSessions?: readonly AcpmuxSessionEntry[];
+  /// Opens one of them.
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1045,23 +1078,37 @@ export function ChatInspector({
   // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
   // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
   const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
-  const unlight = () => {
+  const unlight = useCallback(() => {
     if (!lit.current) return;
     window.clearTimeout(lit.current.timer);
     delete lit.current.section.dataset.revealed;
     lit.current = undefined;
-  };
-  useEffect(() => unlight, []);
+  }, []);
+  useEffect(() => unlight, [unlight]);
+  const light = useCallback(
+    (id: InspectorSectionId) => {
+      const section = body.current?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+      section?.scrollIntoView?.({ block: "nearest" });
+      if (!section) return;
+      unlight();
+      section.dataset.revealed = "";
+      lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+    },
+    [unlight],
+  );
   useEffect(() => {
     if (!revealed) return;
-    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
-    section?.scrollIntoView?.({ block: "nearest" });
+    light(revealed.section);
     onRevealed?.();
-    if (!section) return;
-    unlight();
-    section.dataset.revealed = "";
-    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
-  }, [revealed, onRevealed]);
+  }, [revealed, onRevealed, light]);
+  // Usage's Show: Subagents opens, comes into view and lights, as a reveal does.
+  const showSubagents = useCallback(() => {
+    (onSection ?? setInspectorSection)("subagents", true);
+    light("subagents");
+  }, [onSection, light]);
+  // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
+  useEffect(() => onShowUsage?.(), [onShowUsage]);
+  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
@@ -1260,6 +1307,29 @@ export function ChatInspector({
       )}
     </InspectorSection>
   );
+  // Usage shows once acpmux reports what this chat or any listed chat spends.
+  const ownUsage = summary?.usageStats;
+  const usageValue = usageMeta(t, ownUsage, language);
+  const usageSection = (ownUsage || anyUsage) && (
+    <InspectorSection
+      id="usage"
+      title={t("chatInspector.usage")}
+      icon={rowIcon("agent.activity")}
+      open={state.usage}
+      onOpenChange={fold("usage")}
+      meta={usageValue && value(usageValue)}
+    >
+      <UsageSection
+        own={ownUsage}
+        sessions={allSessions ?? []}
+        chatId={chatId}
+        onOpen={onOpenChat}
+        onCompact={onCompact}
+        onShowSubagents={subagentsSection ? showSubagents : undefined}
+        locale={language}
+      />
+    </InspectorSection>
+  );
   return (
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
@@ -1268,6 +1338,7 @@ export function ChatInspector({
         sections={{
           environment,
           context,
+          usage: usageSection,
           connectors,
           changes,
           sources: sourcesSection,
