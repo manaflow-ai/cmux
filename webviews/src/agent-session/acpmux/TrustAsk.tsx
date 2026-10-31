@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { projectName } from "./EmptyState";
 import { type Translate, useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
@@ -44,6 +44,7 @@ export function TrustAsk({
   onTrustRepo,
   onDistrust,
   onUndo,
+  onContinueWithoutFolder,
   answers = true,
 }: {
   ask: FolderTrustAsk;
@@ -58,12 +59,18 @@ export function TrustAsk({
   onTrustRepo?(): void;
   onDistrust(): void;
   onUndo(): void;
+  /// Continue in the private no-project chat after explicitly declining this folder.
+  onContinueWithoutFolder?(): void | Promise<void>;
 }) {
   const t = useT();
+  const [continuing, setContinuing] = useState(false);
+  const continuingRef = useRef(false);
+  const [continueError, setContinueError] = useState(false);
   // A workspace's new chat starts in its private folder under Application Support: named in words.
   const owned = isAgentHome(ask.cwd);
   const subject = trustSubject(ask);
   const { folder, repo } = subject;
+  const recovery = ask.state === "decided" && ask.level === "untrusted" && answers && !!onContinueWithoutFolder;
   const asking = ask.state === "ask" || ask.state === "failed";
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
@@ -74,30 +81,75 @@ export function TrustAsk({
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
     // waited on it (Leo, 2026-10-21).
-    <div className="acpmux-trust-ask" data-asking={asking || undefined} aria-live="polite">
+    <div
+      className="acpmux-trust-ask"
+      data-asking={asking || undefined}
+      data-recovery={recovery || undefined}
+      aria-live="polite"
+    >
       {ask.state === "decided" && ask.level === "untrusted" ? (
         <>
-          <span className="acpmux-trust-ask-text">
-            {owned
-              ? t("trust.untrustedPrivate")
-              : (subject.viaRepo || subject.atRoot) && repo
-                ? t("trust.notTrustedRepo", { agent, repo })
-                : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
+          <span className={recovery ? "acpmux-trust-ask-body" : "acpmux-trust-ask-text"}>
+            <span className="acpmux-trust-ask-text">
+              {owned
+                ? t("trust.untrustedPrivate")
+                : (subject.viaRepo || subject.atRoot) && repo
+                  ? t("trust.notTrustedRepo", { agent, repo })
+                  : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
+            </span>
+            {answers && onContinueWithoutFolder && (
+              <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
+            )}
+            {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
           <span className="acpmux-trust-ask-actions">
             {!answers ? null : retrustsRepo ? (
-              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrustRepo}>
+              <button
+                type="button"
+                className="acpmux-trust-ask-action acpmux-trust-ask-primary"
+                disabled={continuing}
+                onClick={onTrustRepo}
+              >
                 {t("trust.trustRepo")}
               </button>
             ) : (
-              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
+              <button
+                type="button"
+                className="acpmux-trust-ask-action acpmux-trust-ask-primary"
+                disabled={continuing}
+                onClick={onTrust}
+              >
                 {owned ? t("trust.trust") : t("trust.trustFolder")}
               </button>
             )}
             {answers && (
-              <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
-                {t("trust.undo")}
-              </button>
+              <>
+                {onContinueWithoutFolder && (
+                  <button
+                    type="button"
+                    className="acpmux-trust-ask-action"
+                    disabled={continuing}
+                    onClick={() => {
+                      if (continuingRef.current) return;
+                      continuingRef.current = true;
+                      setContinuing(true);
+                      setContinueError(false);
+                      void Promise.resolve()
+                        .then(onContinueWithoutFolder)
+                        .catch(() => setContinueError(true))
+                        .finally(() => {
+                          continuingRef.current = false;
+                          setContinuing(false);
+                        });
+                    }}
+                  >
+                    {t("trust.continueWithoutFolderLabel")}
+                  </button>
+                )}
+                <button type="button" className="acpmux-trust-ask-action" disabled={continuing} onClick={onUndo}>
+                  {t("trust.undo")}
+                </button>
+              </>
             )}
           </span>
         </>

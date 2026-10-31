@@ -279,6 +279,10 @@ pub enum EventOutcome {
     Dropped(String),
 }
 
+/// Events a backed-off queue holds before it refuses more (each is at most
+/// 4 KB of data, so about 1 MB).
+pub const EVENT_QUEUE_MAX: usize = 256;
+
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a
 /// server error backs off, any other refusal drops the event.
 #[derive(Debug)]
@@ -301,9 +305,13 @@ impl EventQueue {
         }
     }
 
-    /// Queues one event; refuses an unknown kind or more than 4 KB of data.
+    /// Queues one event; refuses an unknown kind, more than 4 KB of data, or
+    /// a queue already holding `EVENT_QUEUE_MAX` events.
     pub fn emit(&mut self, kind: &str, at: u64, data: Value) -> Result<Option<OpRequest>, String> {
         check_event(kind, &data)?;
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err(format!("event queue full ({EVENT_QUEUE_MAX} waiting)"));
+        }
         self.queue.push_back(QueuedEvent { kind: kind.to_owned(), at, data });
         Ok(self.pump())
     }
@@ -385,5 +393,33 @@ impl EventQueue {
             }),
             reason: head.kind.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod event_queue_tests {
+    use super::{Answer, EventQueue};
+    use serde_json::json;
+
+    /// HQ#5351 item 2: nothing drains the queue while it backs off (up to 600 s), so
+    /// socket clients could grow the agent's memory without bound. Past its cap the
+    /// queue refuses new events and keeps the ones it holds, in order.
+    #[test]
+    fn a_backed_off_queue_refuses_events_past_its_cap() {
+        let mut queue = EventQueue::new("vm-1");
+        let first = queue.emit("agent.started", 1, json!({})).unwrap();
+        assert!(first.is_some());
+        let (_, next) = queue.finished(&Answer::Transport, 0, 0.5);
+        assert!(next.is_none());
+        let mut refused = 0;
+        for at in 2..1_000 {
+            if queue.emit("agent.started", at, json!({})).is_err() {
+                refused += 1;
+            }
+        }
+        assert_eq!(queue.len(), super::EVENT_QUEUE_MAX);
+        assert!(refused > 0);
+        let retry = queue.fire(u64::MAX).expect("the head retries");
+        assert_eq!(retry.params["at"], 1);
     }
 }

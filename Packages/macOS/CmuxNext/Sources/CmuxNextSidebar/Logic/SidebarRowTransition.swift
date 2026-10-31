@@ -9,8 +9,8 @@ import CoreGraphics
 nonisolated enum SidebarRowTransition {
     /// Where an inserted row (a row of `new` that `old` lacks) starts: under
     /// the header that unfolds it at full height, or else at the top of its
-    /// run of inserted rows at zero height (cx-ai79). A run (a workspace and
-    /// its tab rows, a group header) opens as one slot: each row's top tracks
+    /// run of inserted rows at zero height (cx-ai79). A run (a group header
+    /// and its members) opens as one slot: each row's top tracks
     /// the rows above it in the run, so none overlaps a row still sliding down.
     static func insertFrame(_ row: SidebarRow, target: CGRect, runTop: CGFloat?, from old: SidebarLayout, to new: SidebarLayout) -> CGRect {
         if let header = foldingHeader(of: row, open: new, closed: old, placedIn: new) {
@@ -52,12 +52,10 @@ nonisolated enum SidebarRowTransition {
     }
 
     /// The nearest header that shows `row` in `open` and hides it in
-    /// `closed`, as it sits in `placedIn`: its workspace (inline tabs), then
-    /// its group, then its section.
+    /// `closed`, as it sits in `placedIn`: its group, then its section.
     private static func foldingHeader(of row: SidebarRow, open: SidebarLayout, closed: SidebarLayout,
                                       placedIn layout: SidebarLayout) -> SidebarRow? {
         var headers: [SidebarRowKey] = []
-        if case let .tab(workspace, _) = row.key { headers.append(.workspace(workspace)) }
         if let group = row.group, row.key != .group(group) { headers.append(.group(group)) }
         if row.key != .section(row.section) { headers.append(.section(row.section)) }
         for key in headers {
@@ -68,7 +66,6 @@ nonisolated enum SidebarRowTransition {
     }
 
     private static func isFolded(_ header: SidebarRow) -> Bool {
-        if case .workspace = header.key { return header.tabDisclosure == .collapsed }
         return header.isCollapsed
     }
 }

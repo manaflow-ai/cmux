@@ -5,6 +5,7 @@
     {"title": "Open New Agent Chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 4, "shot": false},
     {"title": "Wait for the new chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "shot": false},
     {"title": "Record the fresh-home agent composer", "rpc": {"method": "debug.agent_pane", "params": {"action": "readiness", "pane": "{pane}"}}, "record": true, "shot": false},
+    {"title": "Record the native Cloud auth state read by the picker", "rpc": {"method": "debug.agent_pane", "params": {"action": "cloud_auth", "pane": "{pane}"}}, "record": true, "shot": false},
     {"title": "Open the destination picker", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "pane": "{pane}", "selector": ".acpmux-composer-context .acpmux-location-picker[data-kind=\"computer\"] .acpmux-location-button"}}, "wait": 1}
   ]
 }

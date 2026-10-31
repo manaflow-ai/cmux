@@ -22,8 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
-    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
-    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
+    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace
+    /// rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The address of the favicon a link row draws.
     public var iconAddress: String? = nil

@@ -19,11 +19,6 @@ public final class AgentTurnStateFeed {
     /// A session the app's own acpmux deleted (``deletesSession(_:)``): the app deletes what it
     /// kept for it (its chat uploads).
     public static var purged: ((String) -> Void)?
-    /// A session of acpmux peer `peer` changed on the app's own acpmux (not a mirror's), `stale`
-    /// when the peer dropped and its rows turned unreachable: its sessions change when it connects
-    /// and when it drops. The app offers a peer that connects later to the daemon update
-    /// (`AcpmuxPeerReconnects`). Called once per such change: keep it O(1).
-    public static var peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)?
 
     /// Whether a `_acpmux/session_changed`'s params say this acpmux deleted one of its own chats:
     /// `purged`, but not a peer's or the Cloud VM's row (`peer`: that daemon's copy left, as every
@@ -39,6 +34,11 @@ public final class AgentTurnStateFeed {
     /// own acpmux, else the mirrored host).
     private let source: String
     private let lanes: AgentLaneStore
+    /// A session of acpmux peer `peer` changed on the app's own acpmux (not a mirror's), `stale`
+    /// when the peer dropped and its rows turned unreachable: its sessions change when it connects
+    /// and when it drops. The app offers a peer that connects later to the daemon update
+    /// (`DaemonUpdates.peerSessionChanged`). Called once per such change: keep it O(1).
+    private let peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)?
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
@@ -53,11 +53,13 @@ public final class AgentTurnStateFeed {
     ///     store, since a page replaces every lane.
     ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
     ///     acpmux on this Mac whose chats the store also mirrors.
+    ///   - peerSessionChanged: each change of an acpmux peer's session on this Mac's own acpmux.
     public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
-                mirroring host: String? = nil) {
+                mirroring host: String? = nil, peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)? = nil) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        self.peerSessionChanged = peerSessionChanged
         lanes.socketPath = socketPath
         source = host ?? AgentTurnStateStore.localSource
         if let host { turns.mirroredHosts.insert(host) }
@@ -207,7 +209,7 @@ public final class AgentTurnStateFeed {
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
             if deleted, !isMirror { Self.purged?(session) }
-            if let peer, !isMirror { Self.peerSessionChanged?(peer.name, peer.stale) }
+            if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
         case .peerState(let peer, let state):
             if !isMirror { peerStateChanged?(peer, state) }
         }
