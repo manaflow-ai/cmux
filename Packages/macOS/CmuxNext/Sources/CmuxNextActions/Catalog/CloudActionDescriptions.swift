@@ -167,6 +167,23 @@ nonisolated enum CloudActionDescriptions {
             Lists the account's Cloud publications and returns count and text with one line per \
             publication: its hostname, state and access mode.
             """,
+        "cloudProvisionAPI": """
+            Provisions an API on the machine (--target machine:<id>): publishes --port behind cmux \
+            sign-in under a generated https hostname and mints an API key for it, in one call. Returns url, \
+            publication_id, api_key_id, key and cookie. API clients send the key as the cookie \
+            (__Host-cmux-api-key=<key>), which the machine never receives; the key is answered this one time. \
+            Running it again for the same port reuses the URL and mints another key. Optional --name names \
+            the key.
+            """,
+        "cloudAPIKeyList": """
+            Lists the live API keys of a Cloud publication (--arg path=<publication id or hostname>) and \
+            returns count and text with one line per key: its id, name and last four characters.
+            """,
+        "cloudAPIKeyRevoke": """
+            Revokes an API key (--arg path=<publication id or hostname> --arg key=<key id>); requests with \
+            it are refused from the next one on. Destructive: a CLI or agent run needs --confirm. Returns \
+            api_key_id and revoked_at.
+            """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
             machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \

@@ -483,7 +483,7 @@ export class MockAcpmuxSocket {
       case "_acpmux/harness/health": {
         const fixture = globalThis as MockAuthGlobals;
         const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
-          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "unknown"; login?: string } }
+          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "expired" | "unknown"; login?: string } }
           | undefined;
         const fromNative = native?.health;
         const overrides = fixture.cmuxAcpmuxMockHarnessHealth;
