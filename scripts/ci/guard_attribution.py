@@ -531,6 +531,7 @@ class GitHub:
         self.read_token = read_token if read_token and read_token != token else ""
         self.calls = 0
         self.read_calls = 0
+        self.graphql_calls = 0
 
     def request(self, method: str, path: str, body: object = None, text: bool = False) -> object:
         if method == "GET" and self.read_token and not OWN_TOKEN_READS.search(path.split("?")[0]):
@@ -643,7 +644,67 @@ class GitHub:
     def open_issues(self) -> list[dict]:
         return list(self.get(f"repos/{self.repo}/issues?labels={ISSUE_LABEL}&state=open&per_page=20") or [])  # type: ignore[arg-type]
 
+    # A pull request's comments over GraphQL: its own hourly pool, apart from REST's, and one query
+    # a 100 comments. The installation's REST pool ran out at 00:50Z on 2026-10-31 and every
+    # attribution run reads the comments (most runs are green and read nothing else).
+    COMMENTS_QUERY = ("query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,"
+                      "name:$name){issueOrPullRequest(number:$number){... on PullRequest{comments(first:100,"
+                      "after:$after){pageInfo{hasNextPage endCursor} nodes{fullDatabaseId body author{__typename "
+                      "login}}}} ... on Issue{comments(first:100,after:$after){pageInfo{hasNextPage endCursor} "
+                      "nodes{fullDatabaseId body author{__typename login}}}}}}}")
+
+    def graphql(self, query: str, variables: Mapping) -> dict:
+        """One GraphQL query with the read token (else `token`); its `data`. Raises RuntimeError on any error."""
+        token = self.read_token or self.token
+        url = self.api[:-len("/v3")] + "/graphql" if self.api.endswith("/api/v3") else self.api + "/graphql"
+        req = urllib.request.Request(url, data=json.dumps({"query": query, "variables": dict(variables)}).encode(),
+                                     method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        self.graphql_calls += 1
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                reply = json.loads(response.read() or b"null") or {}
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+            raise RuntimeError(f"GraphQL: {type(error).__name__}: {str(error)[:200]}") from error
+        if reply.get("errors") or not isinstance(reply.get("data"), dict):
+            raise RuntimeError(f"GraphQL: {json.dumps(reply.get('errors') or reply)[:300]}")
+        return reply["data"]
+
     def comments(self, number: int) -> list[dict]:
+        """The pull request's comments in REST's shape ({"id", "body", "user": {"login"}}), oldest first: over
+        GraphQL, and over REST (three pages at most, as before) only when GraphQL fails."""
+        try:
+            return self.graphql_comments(number)
+        except (RuntimeError, KeyError, TypeError, ValueError) as error:
+            print(f"comments over GraphQL failed, reading over REST: {str(error)[:160]}", file=sys.stderr)
+        return self.rest_comments(number)
+
+    def graphql_comments(self, number: int) -> list[dict]:
+        owner, name = self.repo.split("/", 1)
+        found: list[dict] = []
+        after = None
+        for _ in range(3):  # 300 comments, as the REST read
+            data = self.graphql(self.COMMENTS_QUERY, {"owner": owner, "name": name, "number": int(number),
+                                                      "after": after})
+            page = ((data.get("repository") or {}).get("issueOrPullRequest") or {}).get("comments")
+            if not isinstance(page, dict):
+                raise RuntimeError(f"GraphQL: no comments for #{number}")
+            for node in page.get("nodes") or []:
+                author = node.get("author") or {}
+                login = author.get("login") or ""
+                # REST names a bot `name[bot]`; pr_status.BOTS and the callers match that form.
+                if author.get("__typename") == "Bot" and login and not login.endswith("[bot]"):
+                    login += "[bot]"
+                found.append({"id": int(node["fullDatabaseId"]), "body": node.get("body") or "",
+                              "user": {"login": login}})
+            info = page.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                break
+            after = info.get("endCursor")
+        return found
+
+    def rest_comments(self, number: int) -> list[dict]:
         found: list[dict] = []
         for page in range(1, 4):
             batch = list(self.get(f"repos/{self.repo}/issues/{number}/comments?per_page=100&page={page}") or [])  # type: ignore[arg-type]

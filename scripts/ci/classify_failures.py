@@ -1285,7 +1285,7 @@ def main(argv: list[str]) -> int:
         for entry in writer.log:
             print(entry)
         print(json.dumps(result))
-        print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
+        print(f"api calls: {gh.calls} (read token: {gh.read_calls}; GraphQL: {getattr(gh, 'graphql_calls', 0)})")
         return 0
     if run.get("conclusion") not in ("success", "failure", "cancelled"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
@@ -1307,7 +1307,7 @@ def main(argv: list[str]) -> int:
     for entry in writer.log:
         print(entry)
     print(json.dumps({**result, "jobs": [(j["name"], j["verdict"], j["signature"]) for j in report["jobs"]]}))
-    print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
+    print(f"api calls: {gh.calls} (read token: {gh.read_calls}; GraphQL: {getattr(gh, 'graphql_calls', 0)})")
     return 0
 
 

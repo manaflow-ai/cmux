@@ -11,6 +11,7 @@ workflow's trust split (a PR's code never runs; only `report` can write).
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
@@ -19,6 +20,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -349,6 +351,71 @@ class Robustness(unittest.TestCase):
         # A permission refusal still falls back.
         self.assertEqual(gh.request("GET", "repos/manaflow-ai/cmux/pulls"), {})
         self.assertEqual(used, ["app", "workflow"])
+
+    def test_comments_are_read_over_graphql_in_the_rest_shape(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "workflow", read_token="app")
+        pages = [
+            {"repository": {"issueOrPullRequest": {"comments": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "c1"},
+                "nodes": [{"fullDatabaseId": "6535988977", "body": "status",
+                           "author": {"__typename": "Bot", "login": "github-actions"}}]}}}},
+            {"repository": {"issueOrPullRequest": {"comments": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [{"fullDatabaseId": "6535988978", "body": "hi",
+                           "author": {"__typename": "User", "login": "someone"}},
+                          {"fullDatabaseId": "6535988979", "body": "gone", "author": None}]}}}},
+        ]
+        asked = []
+
+        def graphql(query, variables):
+            asked.append(dict(variables))
+            return pages.pop(0)
+
+        gh.graphql = graphql  # type: ignore[method-assign]
+        gh.get = lambda path: self.fail(f"a REST read: {path}")  # type: ignore[method-assign]
+        found = gh.comments(7)
+        self.assertEqual(found, [
+            {"id": 6535988977, "body": "status", "user": {"login": "github-actions[bot]"}},
+            {"id": 6535988978, "body": "hi", "user": {"login": "someone"}},
+            {"id": 6535988979, "body": "gone", "user": {"login": ""}},
+        ])
+        self.assertEqual([(a["owner"], a["name"], a["number"], a["after"]) for a in asked],
+                         [("manaflow-ai", "cmux", 7, None), ("manaflow-ai", "cmux", 7, "c1")])
+        self.assertIn(found[0]["user"]["login"], ga.pr_status.BOTS)
+
+    def test_a_failed_graphql_read_falls_back_to_rest(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "workflow")
+
+        def refused(query, variables):
+            raise RuntimeError("GraphQL: rate limited")
+
+        gh.graphql = refused  # type: ignore[method-assign]
+        calls = []
+        gh.get = lambda path: calls.append(path) or [{"id": 1, "body": "x", "user": {"login": "a"}}]  # type: ignore[method-assign]
+        self.assertEqual(gh.comments(7), [{"id": 1, "body": "x", "user": {"login": "a"}}])
+        self.assertEqual(calls, ["repos/manaflow-ai/cmux/issues/7/comments?per_page=100&page=1"])
+
+    def test_the_graphql_endpoint_follows_the_api(self) -> None:
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout=None):
+            seen.append((request.full_url, request.get_header("Authorization")))
+            return Response(b'{"data": {}}')
+
+        for api, url in (("https://api.github.com", "https://api.github.com/graphql"),
+                         ("https://ghe.example/api/v3", "https://ghe.example/api/graphql")):
+            gh = ga.GitHub("o/r", "workflow", api=api, read_token="app")
+            with mock.patch.object(ga.urllib.request, "urlopen", opener):
+                self.assertEqual(gh.graphql("query{x}", {}), {})
+            self.assertEqual(seen.pop(), (url, "Bearer app"))
+            self.assertEqual(gh.graphql_calls, 1)
 
     def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
