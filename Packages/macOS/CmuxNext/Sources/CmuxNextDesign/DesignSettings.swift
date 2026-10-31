@@ -35,6 +35,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 @Observable
 public final class DesignSettings {
     public static let shared = DesignSettings()
+    /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
+    public let motionChanges = MotionChanges()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -73,11 +75,12 @@ public final class DesignSettings {
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
+    /// wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
@@ -86,7 +89,7 @@ public final class DesignSettings {
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
@@ -94,7 +97,7 @@ public final class DesignSettings {
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
@@ -167,10 +170,9 @@ public final class DesignSettings {
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
-            let center = NotificationCenter.default
-            center.post(name: Motion.speedDidChange, object: nil)
-            center.post(name: Motion.reduceMotionDidChange, object: nil)
-            center.post(name: Self.hoverCardsDidChange, object: nil)
+            motionChanges.post(.speed)
+            motionChanges.post(.reduceMotion)
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
             ThemeScope.app.store.repaintAll()
         }
     }
