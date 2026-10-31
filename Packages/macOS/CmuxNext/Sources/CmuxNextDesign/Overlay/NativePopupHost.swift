@@ -35,9 +35,12 @@ public final class NativePopupHost {
     private var monitors: [Any] = []
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
+    /// Where the host observes the app's and windows' notices (tests inject their own).
+    private let center: NotificationCenter
 
-    public init(panel: NSPanel) {
+    public init(panel: NSPanel, notificationCenter: NotificationCenter = .default) {
         self.panel = panel
+        center = notificationCenter
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self] elsewhere in
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
@@ -210,7 +213,7 @@ public final class NativePopupHost {
 
     private func watch(_ window: NSWindow) {
         guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
+        let center = self.center
         let names: [(NSNotification.Name, AnyObject?)] = [
             (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
             (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
@@ -248,7 +251,7 @@ public final class NativePopupHost {
     }
 
     private func unwatch() {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.forEach(center.removeObserver)
         observers = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
