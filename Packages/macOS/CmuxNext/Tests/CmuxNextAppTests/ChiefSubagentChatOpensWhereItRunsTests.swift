@@ -163,15 +163,16 @@ nonisolated final class FakeChiefAcpmux: @unchecked Sendable { // crash-allow: t
         Thread.detachNewThread { [self] in accept() }
     }
 
+    /// The accept thread closes the listener once it sees the stop, so no fd number it still polls
+    /// is reused by another test in between.
     func stop() {
         lock.withLock { stopped = true }
-        shutdown(listener, SHUT_RDWR)
-        close(listener)
         if ownsDirectory { try? FileManager.default.removeItem(atPath: (socket as NSString).deletingLastPathComponent) }
     }
 
     /// Accepts until ``stop()``; each wait is bounded so a stop is seen.
     private func accept() {
+        defer { close(listener) }
         while !lock.withLock({ stopped }) {
             var waiting = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
             guard poll(&waiting, 1, 200) >= 0 else { return }
