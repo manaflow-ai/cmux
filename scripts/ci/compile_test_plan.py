@@ -24,7 +24,14 @@ lane) build in their own jobs, not with a macOS `swift build`.
 Prints one line per package: its directory, then the test targets to build,
 or the directory alone for every test target of the package.
 
-Usage: compile_test_plan.py --changed-files FILE [--root DIR]
+--skip-package DIR leaves a package out. The pull-request check passes
+Packages/macOS/CmuxNext: cmux-next.yml's swift test job already runs `swift
+build --build-tests` on every same-repository pull request whose change
+reaches a CmuxNext test target (the same route, a superset of these targets),
+so compiling them again on a fleet Mac was a second compile of the same tree.
+The tip compile and a hand-run `compile-tests` keep CmuxNext.
+
+Usage: compile_test_plan.py --changed-files FILE [--root DIR] [--skip-package DIR ...]
 """
 
 from __future__ import annotations
@@ -61,13 +68,13 @@ def cmuxnext_targets(root: Path, changed: list[str]) -> list[str] | None:
     return None if targets == every else targets
 
 
-def plan(root: Path, changed: list[str]) -> list[tuple[str, list[str] | None]]:
-    """[(package directory, test targets or None for all)] for the changed files."""
+def plan(root: Path, changed: list[str], skip: frozenset[str] = frozenset()) -> list[tuple[str, list[str] | None]]:
+    """[(package directory, test targets or None for all)] for the changed files, without the `skip` directories."""
     changed = [path for path in changed if path and not path.endswith(".md")]
     dirs = package_dirs(root)
     result: list[tuple[str, list[str] | None]] = []
     for name in [Path(CMUXNEXT).name, *lane_packages(root)]:
-        if name not in dirs or any(directory == dirs[name] for directory, _ in result):
+        if name not in dirs or dirs[name] in skip or any(directory == dirs[name] for directory, _ in result):
             continue
         prefixes = input_prefixes(root, name, dirs)
         hits = [path for path in changed if any(under(path, prefix) for prefix in prefixes)]
@@ -87,9 +94,15 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--changed-files", type=Path, required=True, help="one path per line")
+    parser.add_argument("--skip-package", action="append", default=[], metavar="DIR",
+                        help="leave this package directory out of the plan (repeatable)")
     args = parser.parse_args(argv)
+    skip = frozenset(path.strip("/") for path in args.skip_package)
+    unknown = sorted(skip - set(package_dirs(args.root).values()))
+    if unknown:
+        parser.error(f"--skip-package: not a local package directory: {', '.join(unknown)}")
     changed = args.changed_files.read_text(encoding="utf-8").splitlines()
-    for directory, targets in plan(args.root, changed):
+    for directory, targets in plan(args.root, changed, skip):
         print(" ".join([directory, *(targets or [])]))
     return 0
 
