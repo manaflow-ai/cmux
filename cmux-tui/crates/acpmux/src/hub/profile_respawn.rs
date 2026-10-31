@@ -27,11 +27,14 @@ impl Hub {
     /// is; one with no recorded digest (started by an older build) is judged by its argv
     /// (`legacy_stale`).
     pub(crate) async fn respawn_changed_profiles(self: &Arc<Self>) -> HarnessRestarts {
-        let profiles: BTreeMap<String, (String, HarnessProfile)> = {
+        type Launch = (String, HarnessProfile, BTreeMap<String, String>);
+        let profiles: BTreeMap<String, Launch> = {
             let cfg = self.config.read().await;
             cfg.harnesses
                 .iter()
-                .map(|(name, p)| (name.clone(), (p.launch_digest(), p.clone())))
+                .map(|(name, p)| {
+                    (name.clone(), (p.launch_digest(), p.clone(), cfg.defaults_for(name).env))
+                })
                 .collect()
         };
         let mut stale = BTreeSet::new();
@@ -41,10 +44,10 @@ impl Hub {
             if super::route_switch::is_chief(&meta) {
                 continue;
             }
-            let Some((now, profile)) = profiles.get(&meta.harness) else { continue };
+            let Some((now, profile, defaults)) = profiles.get(&meta.harness) else { continue };
             let changed = match meta.launch_digest.as_deref() {
                 Some(started) => started != now,
-                None => legacy_stale(profile, &meta, |argv| self.resolved_launcher_argv(argv)),
+                None => self.legacy_stale(profile, &meta, defaults).await,
             };
             if !changed || session.child.lock().await.is_none() {
                 continue;
@@ -89,43 +92,51 @@ impl Hub {
     }
 }
 
-/// A session started before agents kept their launch digest: stale when the argv its agent last
-/// started with (`spawn_argv`, kept on disk since #23322) does not begin with the profile's argv
-/// as a start builds it (`spawn_profile_read`: every word expanded, then `resolve` for a resolved
-/// `npx -y PACKAGE` launcher). The preset's and acpmux's own words come after it, so an unchanged
-/// profile matches, and any word gained, lost or changed (the program, the package, a flag such as
-/// `--autocompact 402530`) does not. Only the argv is judged: such an agent's env was never kept,
-/// so an env-only change reaches it at its next start. A remote-origin session's argv is admitted
-/// differently (`admit_remote_profile`) and is not judged.
-fn legacy_stale(
-    profile: &HarnessProfile,
-    meta: &SessionMeta,
-    resolve: impl FnOnce(Vec<String>) -> Vec<String>,
-) -> bool {
-    let Some(started) = meta.spawn_argv.as_deref().filter(|_| !meta.remote_origin) else {
-        return false;
-    };
-    let home = dirs::home_dir().unwrap_or_default();
-    let model = meta.model_request.clone().unwrap_or_default();
-    let own: Vec<String> = profile
-        .argv
-        .iter()
-        .map(|a| super::spawn::expand_env_value(a, &meta.cwd, &home, &model))
-        .collect();
-    !started.starts_with(&resolve(own))
+impl Hub {
+    /// A session started before agents kept their launch digest: stale when the argv its agent
+    /// last started with (`spawn_argv`, kept on disk since #23322) is not, word for word, the
+    /// argv a start would build now (`spawn_profile_for`: the profile expanded, the launcher
+    /// resolved, then the preset's args, the system prompt file and the tools it turned off).
+    /// Any word gained, lost or changed is a change; a start this daemon could not build (a
+    /// route that is gone, a preset refused) is left to the next start. Only the argv is judged:
+    /// such an agent's env was never kept, so an env-only change reaches it at its next start. A
+    /// remote-origin session is admitted differently (`admit_remote_profile`), and a cmux-harness
+    /// one would migrate its state as it is built: neither is judged.
+    async fn legacy_stale(
+        &self,
+        profile: &HarnessProfile,
+        meta: &SessionMeta,
+        defaults: &BTreeMap<String, String>,
+    ) -> bool {
+        let Some(started) = meta.spawn_argv.as_deref() else { return false };
+        if meta.remote_origin || profile.family.as_deref() == Some("cmux-harness") {
+            return false;
+        }
+        match self.spawn_profile_for(meta, profile, defaults).await {
+            Ok(now) => now.argv != started,
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn profile(argv: &[&str]) -> HarnessProfile {
-        serde_json::from_value(serde_json::json!({"argv": argv})).unwrap()
+    fn hub(argv: &[&str]) -> Arc<Hub> {
+        let mut config: crate::config::Config = serde_json::from_value(serde_json::json!({
+            "harnesses": {"lane": {"argv": argv, "family": "claude"}},
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        config.profile_sources = crate::config::ProfileSources::none();
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        Hub::new(config, store)
     }
 
     fn meta(spawn_argv: Option<&[&str]>) -> SessionMeta {
         let mut m: SessionMeta = serde_json::from_value(serde_json::json!({
-            "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "claude",
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "lane",
             "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
         }))
         .unwrap();
@@ -133,44 +144,36 @@ mod tests {
         m
     }
 
-    fn same(argv: Vec<String>) -> Vec<String> {
-        argv
+    async fn stale(profile: &[&str], started: Option<&[&str]>) -> bool {
+        let hub = hub(profile);
+        let p = hub.config.read().await.harnesses["lane"].clone();
+        hub.legacy_stale(&p, &meta(started), &BTreeMap::new()).await
     }
 
-    #[test]
-    fn a_legacy_agent_is_stale_unless_its_argv_begins_with_the_profiles() {
-        let capped = profile(&["/u/bin/claude", "--autocompact", "402530"]);
+    #[tokio::test]
+    async fn a_legacy_agent_is_stale_unless_its_argv_is_what_a_start_builds_now() {
+        let capped = ["/u/bin/claude", "--autocompact", "402530"];
         // Started before the profile gained the flag (the 2026-10-31 session at 650k of 1M).
-        let old = meta(Some(&["/u/bin/claude", "--disallowedTools", "mcp__x"]));
-        assert!(legacy_stale(&capped, &old, same));
-        // Started after: the preset's and acpmux's words follow the profile's own.
-        let new =
-            meta(Some(&["/u/bin/claude", "--autocompact", "402530", "--disallowedTools", "x"]));
-        assert!(!legacy_stale(&capped, &new, same));
-        // A different cap, another program, or a word the profile lost: each is a change.
-        let other_cap = meta(Some(&["/u/bin/claude", "--autocompact", "300000"]));
-        assert!(legacy_stale(&capped, &other_cap, same));
-        let other_program = meta(Some(&["/other/claude", "--autocompact", "402530"]));
-        assert!(legacy_stale(&capped, &other_program, same));
-        let lost = meta(Some(&["/u/bin/claude", "--verbose", "--autocompact", "402530"]));
-        assert!(legacy_stale(&capped, &lost, same));
-        // Nothing to judge: no recorded argv, a remote-origin session.
-        assert!(!legacy_stale(&capped, &meta(None), same));
-        let mut remote = old.clone();
-        remote.remote_origin = true;
-        assert!(!legacy_stale(&capped, &remote, same));
+        assert!(stale(&capped, Some(&["/u/bin/claude"])).await);
+        // Started after: the same argv.
+        assert!(!stale(&capped, Some(&capped)).await);
+        // A different cap, another program, a word the profile dropped at its end (review 3).
+        assert!(stale(&capped, Some(&["/u/bin/claude", "--autocompact", "300000"])).await);
+        assert!(stale(&capped, Some(&["/other/claude", "--autocompact", "402530"])).await);
+        assert!(stale(&["/u/bin/claude"], Some(&capped)).await);
+        // `${cwd}` is expanded as a start expands it.
+        let at = ["/u/bin/agent", "--cwd", "${cwd}"];
+        assert!(!stale(&at, Some(&["/u/bin/agent", "--cwd", "/w"])).await);
+        // Nothing to judge: no recorded argv.
+        assert!(!stale(&capped, None).await);
     }
 
-    #[test]
-    fn a_legacy_agent_is_judged_by_its_expanded_and_resolved_argv() {
-        let npx = profile(&["/u/bin/npx", "-y", "@zed-industries/codex-acp", "--cwd", "${cwd}"]);
-        // A resolved launcher replaced `npx -y PACKAGE` with its binary; `${cwd}` was expanded.
-        let resolve = |argv: Vec<String>| {
-            std::iter::once("/cache/codex-acp".to_owned()).chain(argv.into_iter().skip(3)).collect()
-        };
-        assert!(!legacy_stale(&npx, &meta(Some(&["/cache/codex-acp", "--cwd", "/w"])), resolve));
-        assert!(legacy_stale(&npx, &meta(Some(&["/cache/codex-acp"])), resolve));
-        // Another package resolves to another binary.
-        assert!(legacy_stale(&npx, &meta(Some(&["/cache/other-acp", "--cwd", "/w"])), resolve));
+    #[tokio::test]
+    async fn a_remote_origin_legacy_agent_is_not_judged() {
+        let hub = hub(&["/u/bin/claude", "--autocompact", "402530"]);
+        let p = hub.config.read().await.harnesses["lane"].clone();
+        let mut m = meta(Some(&["/u/bin/claude"]));
+        m.remote_origin = true;
+        assert!(!hub.legacy_stale(&p, &m, &BTreeMap::new()).await);
     }
 }
