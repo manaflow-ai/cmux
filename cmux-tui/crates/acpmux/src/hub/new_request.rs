@@ -112,14 +112,23 @@ pub struct NewRequest {
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
-/// it can): it never finished a turn, or another profile ran it and this
-/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
+/// it can): it never finished a turn and Claude did not store it, or another
+/// profile ran it and this profile's store (its CLAUDE_CONFIG_DIR) does not
+/// have it.
+///
+/// A first turn that never finished is still in the store when Claude got
+/// its prompt: Claude writes the transcript as the turn runs. A file with no
+/// prompt in it (a start that died first) holds nothing to resume. An app update
+/// or a quit in the middle of a chat's first long turn then resumes all of
+/// it, instead of a fresh conversation that knows only the chat's text.
 pub(super) fn claude_resume_refusal(
     meta: &SessionMeta,
     profile: &HarnessProfile,
     sid: &str,
 ) -> Option<&'static str> {
-    if meta.claude_unstored {
+    if meta.claude_unstored
+        && !super::claude_keep::stored_with_prompt(&meta.claude_store(&profile.env), sid)
+    {
         return Some("never finished a turn");
     }
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
