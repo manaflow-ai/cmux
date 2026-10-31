@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 758,
-    "mcp": 676
+    "verbs": 763,
+    "mcp": 681
   },
   "nouns": [
     {
@@ -524,6 +524,20 @@
           "id": "app.hide",
           "mcp": true,
           "mcpTool": "app_apps_hide"
+        },
+        {
+          "command": "cmux apps install",
+          "title": "Install App…",
+          "id": "app.install",
+          "mcp": true,
+          "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps remove",
+          "title": "Remove App…",
+          "id": "app.remove",
+          "mcp": true,
+          "mcpTool": "app_apps_remove"
         },
         {
           "command": "cmux apps unhide",
@@ -1081,6 +1095,20 @@
       "noun": "cloud",
       "verbs": [
         {
+          "command": "cmux cloud api-key-list",
+          "title": "List Cloud API Keys",
+          "id": "cloudAPIKeyList",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_list"
+        },
+        {
+          "command": "cmux cloud api-key-revoke",
+          "title": "Revoke Cloud API Key",
+          "id": "cloudAPIKeyRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_revoke"
+        },
+        {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
           "id": "cloudApplyMachineConfig",
@@ -1352,6 +1380,13 @@
           "id": "palette.cloud.promoteTemplate",
           "mcp": true,
           "mcpTool": "app_cloud_promote_machine_to_template"
+        },
+        {
+          "command": "cmux cloud provision-api",
+          "title": "Provision API on Machine…",
+          "id": "cloudProvisionAPI",
+          "mcp": true,
+          "mcpTool": "app_cloud_provision_api"
         },
         {
           "command": "cmux cloud publication-list",
