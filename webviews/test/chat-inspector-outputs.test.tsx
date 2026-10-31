@@ -135,6 +135,32 @@ test("every Outputs row opens what it names: artifacts in the side panel, files 
   expect(link.textContent).toBe(`cmux.com/docs/inspector${translate("chatInspector.outputs.link")}`);
 });
 
+test("without a diff opener, changed files stay readable plain output rows", async () => {
+  const container = installDom();
+  const base = chat([]);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        summary={base.summary}
+        made={{
+          outputs: [
+            { path: "/src/a.ts", displayPath: "src/a.ts", edits: [], additions: 2, deletions: 1, created: false },
+          ],
+          pullRequests: [],
+          scheduled: [],
+        }}
+      />,
+    );
+  });
+  const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
+  expect(outputs.querySelector("button")).toBeNull();
+  const row = outputs.querySelector<HTMLElement>(".acpmux-chat-inspector-row")!;
+  expect(row.tagName).toBe("DIV");
+  expect(row.hasAttribute("disabled")).toBe(false);
+  expect(row.textContent).toContain("a.ts");
+});
+
 test("without a side panel (Quick Chat) the artifacts are not listed", async () => {
   const container = installDom();
   const base = chat(rows);
