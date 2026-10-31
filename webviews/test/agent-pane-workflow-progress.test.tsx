@@ -360,3 +360,72 @@ test("one usage event touches one source entry regardless of sibling count", () 
     );
   }
 });
+
+for (const surface of ["tray", "inspector"] as const)
+  test(`late root identification retires phantom progress from the ${surface}`, async () => {
+    configureSubagentTray(true);
+    (dom.window as unknown as { webkit: unknown }).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method?: string }) {
+            if (message.method === "ready")
+              return Promise.resolve({
+                ok: true,
+                value: { protocolVersion: 1, transport: "preview", machineName: "Mac" },
+              });
+            return Promise.resolve({ ok: true, value: null });
+          },
+        },
+      },
+    };
+    const fold = new SubagentFold();
+    const items = [
+      { ...agents[0]!, id: "root-native", name: "Owning chat", tokens: 9000 },
+      { ...agents[0]!, id: "worker", name: "Real worker", tokens: 42000 },
+      { ...agents[0]!, id: "grandchild", name: "Real grandchild", parent: "worker", tokens: 21000 },
+    ];
+    fold.reduce(
+      { seq: 1, at: Date.now(), msg: { params: { _meta: { acpmux: { subagents: items } } } } },
+      { sessionUpdate: "subagent_spawned" },
+    );
+    const publish = () => {
+      const next = snapshot(fold.all(), [], `late-root-${surface}`);
+      next.subagentStructureVersion = fold.progressSource.structureVersion;
+      markAgentProgressSource(next.rows, fold.progressSource);
+      return next;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const container = () =>
+      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-chat-inspector");
+    try {
+      await act(async () => root.render(<AcpmuxApp />));
+      await act(async () => receive(publish()));
+      if (surface === "inspector")
+        await act(async () => {
+          (
+            dom.window as unknown as {
+              cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void };
+            }
+          ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
+        });
+      expect(container()?.textContent).toContain("Owning chat");
+      const version = fold.progressSource.structureVersion;
+      const workerProgress = fold.progressSource.get("worker");
+      const grandchildProgress = fold.progressSource.get("grandchild");
+      fold.setRoot("root-native");
+      // No further agent event: the late summary alone must invalidate App's retained list.
+      await act(async () => receive(publish()));
+      expect(container()).not.toBeNull();
+      expect(container()!.textContent).not.toContain("Owning chat");
+      expect(container()!.textContent).toContain("Real worker");
+      expect(container()!.textContent).toContain("Real grandchild");
+      expect(fold.all().map(({ id }) => id)).toEqual(["worker", "grandchild"]);
+      expect(fold.progressSource.has("root-native")).toBe(false);
+      expect(fold.progressSource.structureVersion).toBeGreaterThan(version);
+      expect(fold.progressSource.get("worker")).toBe(workerProgress);
+      expect(fold.progressSource.get("grandchild")).toBe(grandchildProgress);
+      expect(fold.progressSource.takeChangedProgress()).not.toHaveProperty("root-native");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
