@@ -3,8 +3,10 @@ import Foundation
 import Testing
 
 /// A Cmd-click in a Cloud VM terminal names a path on the VM (#25581). The path is tidied as text:
-/// `.` and `..` folded, nothing of this Mac read. `NSString.standardizingPath` resolved `..` through
-/// this Mac's symlinks and dropped `/private`, so a VM path could become a path of this Mac's disk.
+/// `.` and `..` folded, nothing of this Mac read. `NSString.standardizingPath` consults this Mac's
+/// file system: it drops `/private` when the shorter path exists HERE (`/private/etc/hosts` became
+/// `/etc/hosts`), and its documentation resolves `..` through this Mac's symlinks, so a VM path could
+/// become another path, decided by this Mac's disk.
 @Suite struct TerminalLinkRemoteCandidatesTests {
     @Test func dotDotFoldsAsTextEvenWhereThisMacHasASymlink() throws {
         // A symlink on this Mac at the same path the VM's terminal names: `link` -> `real`.
@@ -17,6 +19,12 @@ import Testing
 
         #expect(TerminalLinkResolver().remoteCandidates("../notes.md", cwd: link + "/sub") == [link + "/notes.md"])
         #expect(TerminalLinkResolver().remoteCandidates(link + "/sub/../notes.md", cwd: nil) == [link + "/notes.md"])
+    }
+
+    @Test func aPathThatAlsoExistsOnThisMacKeepsItsPrivatePrefix() {
+        // /etc/hosts exists on every Mac, so standardizingPath shortened these after a lookup here.
+        #expect(TerminalLinkResolver().remoteCandidates("/private/etc/hosts", cwd: nil) == ["/private/etc/hosts"])
+        #expect(TerminalLinkResolver().remoteCandidates("hosts:3", cwd: "/private/etc") == ["/private/etc/hosts"])
     }
 
     @Test func privateStaysInAVMPath() {
