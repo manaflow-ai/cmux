@@ -230,8 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: services.keyRouter) { [weak services] page in
-            // A pane's page whose keyboard view changed after it showed: the pane's focus model applies again (W1, W4).
-            let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in pane.currentContent.map { page.isDescendant(of: $0.view) } == true }
+            // A pane's own Chromium page (the applier's childWindowTab; not a nested one, the Home dock's Channels) attached after it showed: the focus model applies again (W1, W4).
+            let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in (page.chromiumPage as? CEFPageChromiumPage).map { pane.currentContent?.childWindowTab === $0.tab } == true }
             if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
             return pane != nil
         }
