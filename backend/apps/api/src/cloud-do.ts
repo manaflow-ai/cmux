@@ -135,11 +135,13 @@ export class CloudDO extends CloudIdle {
         const user = (i.params as { user?: unknown })?.user
         return typeof user === "string" ? [user] : []
       }))
-      const all = teamAuthority.length > 0
+      // A membership role affects that user's peer authority on every VM in the team,
+      // including machines created by another member. Any member or team policy notice
+      // therefore fences all receiver generations in this CloudDO.
       const store = new VmReceiverGenerations(this.sqlStore)
       for (const entry of this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { limit: 10_000 })) {
         const row = entry.row
-        if (all || (row.creator !== undefined && users.has(row.creator))) store.close(row.id, () => undefined)
+        store.close(row.id, (audit) => this.audit.record({ op: "receiver_authority_close", team: entity, ...audit, at: Date.now() }))
       }
       for (const user of users) this.closeSockets((p) => p.user === user, "team membership authority changed")
     }
