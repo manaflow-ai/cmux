@@ -1000,7 +1000,13 @@ class Dispatch(unittest.TestCase):
         self.assertEqual((target.pr_number, target.e2e, target.picker_job), (42, True, "runner"))
         push = rescue.target_from_event(kit_event(event="push", pull_requests=[]), "manaflow-ai/cmux")
         self.assertIsInstance(push, rescue.Target)
-        self.assertEqual((push.pr_number, push.e2e), (0, True))
+        self.assertEqual((push.pr_number, push.e2e, push.push_branch), (0, True, ""))
+
+    def test_kit_push_preserves_branch_for_newer_push_rescue_guard(self):
+        push = rescue.target_from_event(kit_event(event="push", head_branch="feat-cmux-next",
+                                                   pull_requests=[]), "manaflow-ai/cmux")
+        self.assertIsInstance(push, rescue.Target)
+        self.assertEqual(push.push_branch, "feat-cmux-next")
 
     def test_ephemeral_e2e_run_stops_after_the_marker_check(self):
         clock = Clock()
@@ -1023,6 +1029,22 @@ class Dispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("cancel", api.calls)
         self.assertIn("budget 180s", summary)
+
+    def test_a_stuck_kit_push_superseded_by_a_newer_push_is_not_cancelled(self):
+        payload = kit_event(event="push", head_branch="feat-cmux-next", pull_requests=[])
+
+        def jobs(seconds):
+            return [e2e_runner()(seconds),
+                    job("CmuxMobileKit tests (macOS swift test, iOS simulator)", labels=[MINI], created=40)]
+
+        clock = Clock()
+        api = SupersedingAPI(clock, jobs, marker=True, newer=[RUN_ID + 1])
+        code, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "600"})
+        self.assertEqual(code, 0, summary)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("never cancelled", summary)
 
     def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
         def jobs(seconds):

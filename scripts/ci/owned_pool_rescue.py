@@ -986,8 +986,13 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if attempt != 1 and not (run.get("status") == "completed" and run.get("conclusion") == "failure"):
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
+        # Kit push runs have branch-scoped concurrency just like the other
+        # push lanes. Keep their branch so a rescue cannot replace a newer
+        # push while the older run is stalled in the owned-pool queue.
+        push_branch = str(run.get("head_branch") or "") if kit_push else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
-                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      path=str(path), attempt_started_at=attempt_started, push_branch=push_branch,
+                      event=str(run.get("event") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
                       attempt_started_at=attempt_started, event=str(run.get("event") or ""))
@@ -1260,14 +1265,12 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
-    if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
-        # cmux-next.yml queues each push Mac job in a group per branch (one
-        # runs, one waits, a newer push replaces only the waiting one), so a
-        # newer push never makes this run cancel. Cancelling here killed every
-        # tip run's running jobs at one push a minute (2026-10-07: no tip swift
-        # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
-        # would join the branch group and replace the newer run's waiting job.
-        return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+    if moved and target.push_branch and target.path in (CMUX_NEXT_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH):
+        # These workflows queue each push Mac job in a group per branch (one
+        # runs, one waits, and pushes do not cancel in progress), so a newer
+        # push never makes this run cancel. Not re-run either: a re-run would
+        # join the branch group and replace the newer run's waiting job.
+        return f"not rescued: {moved}; a push run is never cancelled for a newer push"
     if moved and target.side and target.pr_number:
         # A superseded pull-request run may still hold its concurrency slot.
         # Cancel it only when nothing in this attempt has started; killing a
