@@ -53,6 +53,17 @@
       var(--acpmux-inspector-under-room, 0px)
   );
 }
+/* Its foot follows the composer's top on the composer's own motion, never a jump, as a draft grows or
+   shrinks (Leo, 2026-10-31: "THE FACT THIS SHIT FUCKING EXPANDS WHEN THE COMPOSER GROWS OR SHRINKS
+   IS... ok i guess but i feel like should have an animation"). Only max-height moves: a card shorter
+   than its room never changes. Reduce Motion keeps the plain step. In a short pane
+   (ChatInspector.tsx POPOVER_BELOW_HEIGHT) it is a popover instead (data-popover): no foot, so it takes
+   the room to the pane's foot over the composer, and a click elsewhere hides it. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-chat-inspector[data-placement="overlay"][data-over-chat] {
+    transition-property: opacity, translate, max-height;
+  }
+}
 /* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */
 .acpmux-chat-inspector[data-placement="push"] {
   align-self: flex-start;
