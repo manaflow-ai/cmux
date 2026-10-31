@@ -64,6 +64,7 @@ export async function POST(
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.entitlementOverride,
         callerPlanId: account.entitlements.planId,
         modelPlane: vmModelPlaneRevoker(),
         teamIds: user.teamIds,

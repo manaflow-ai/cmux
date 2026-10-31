@@ -2237,6 +2237,7 @@ describe("VM REST auth", () => {
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
       maxActiveVms: 5,
+      entitlementOverride: null,
       modelPlane: expect.objectContaining({}),
     });
     // An opted-in machine's agent-update exec runs after the response.
@@ -2493,6 +2494,7 @@ describe("VM REST auth", () => {
       callerPlanId: "pro",
       command: "true",
       maxActiveVms: 5,
+      entitlementOverride: null,
       timeoutMs: 30_000,
       answerWithinMs: execInput?.answerWithinMs,
       modelPlane: expect.objectContaining({}),
