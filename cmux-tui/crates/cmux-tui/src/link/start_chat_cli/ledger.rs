@@ -9,6 +9,11 @@
 //! switch keeps the person signed in, so a send of the previous team never
 //! names this team's machine, and switching back finds it again.
 //!
+//! Apart from the sends, the machine of each recent Mac workspace that sent
+//! to Cloud, under its account too, at most [`WORKSPACE_LIMIT`]: a workspace
+//! keeps its machine however many sends ran since (Leo, 2026-10-30: "we'll
+//! want a vm for every single workspace").
+//!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
 //! (released when the process exits, also when it is killed)
@@ -25,6 +30,9 @@ use serde::{Deserialize, Serialize};
 
 /// How many sends are kept.
 pub(crate) const LIMIT: usize = 64;
+
+/// How many workspaces' machines are kept.
+pub(crate) const WORKSPACE_LIMIT: usize = 256;
 
 /// A send in the account it began in: its key and the account (the user and
 /// the team, as the App spells them), both lowercased.
@@ -73,10 +81,27 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
+/// A Mac workspace's own machine, in the account it sent in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Binding {
+    workspace: String,
+    account: String,
+    machine_id: String,
+}
+
+/// The file: the sends, then the workspaces. An older ledger is the sends' list alone.
+#[derive(Serialize, Deserialize)]
+struct File {
+    sends: Vec<Entry>,
+    #[serde(default)]
+    workspaces: Vec<Binding>,
+}
+
 /// The pins, in memory.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Ledger {
     entries: Vec<Entry>,
+    workspaces: Vec<Binding>,
 }
 
 impl Ledger {
@@ -85,16 +110,56 @@ impl Ledger {
         self.entry(send).map(|entry| entry.machine_id.clone())
     }
 
-    /// Every machine a kept send of the account `account` ran on: what counts
-    /// as that account's own machine when the server names no creator.
-    /// Another user's sends on this Mac, or another team's, never do.
+    /// Every machine a kept send of the account `account` ran on, or one of
+    /// its workspaces owns: what counts as that account's own machine when the
+    /// server names no creator. Another user's sends on this Mac, or another
+    /// team's, never do.
     pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
         let account = account.to_lowercase();
         self.entries
             .iter()
             .filter(|entry| entry.account == account)
             .map(|entry| entry.machine_id.clone())
+            .chain(self.workspace_machines(&account))
             .collect()
+    }
+
+    /// The Mac workspace `workspace`'s own machine in `account`, once a send from it ran on one.
+    pub(crate) fn workspace_machine(&self, workspace: &str, account: &str) -> Option<String> {
+        let account = account.to_lowercase();
+        self.workspaces
+            .iter()
+            .find(|binding| binding.workspace == workspace && binding.account == account)
+            .map(|binding| binding.machine_id.clone())
+    }
+
+    /// The machines that are some workspace's own in `account`.
+    pub(crate) fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
+        let account = account.to_lowercase();
+        self.workspaces
+            .iter()
+            .filter(|binding| binding.account == account)
+            .map(|binding| binding.machine_id.clone())
+            .collect()
+    }
+
+    /// `machine` is the workspace `workspace`'s own in `account` from now on.
+    pub(crate) fn bind(&mut self, workspace: &str, account: &str, machine: &str) {
+        self.unbind(workspace, account);
+        self.workspaces.push(Binding {
+            workspace: workspace.to_string(),
+            account: account.to_lowercase(),
+            machine_id: machine.to_string(),
+        });
+        let over = self.workspaces.len().saturating_sub(WORKSPACE_LIMIT);
+        self.workspaces.drain(..over);
+    }
+
+    /// Drops the workspace `workspace`'s machine in `account` (gone, or no longer the person's).
+    pub(crate) fn unbind(&mut self, workspace: &str, account: &str) {
+        let account = account.to_lowercase();
+        self.workspaces
+            .retain(|binding| binding.workspace != workspace || binding.account != account);
     }
 
     /// Pins `send` to `machine` (before anything runs there). A pin to the
@@ -242,8 +307,13 @@ impl Ledger {
                 return Err(error).with_context(|| format!("cannot read {}", path.display()));
             }
         };
-        match serde_json::from_slice::<Vec<Entry>>(&bytes) {
-            Ok(entries) => Ok(Self { entries }),
+        let file = serde_json::from_slice::<File>(&bytes).or_else(|error| {
+            serde_json::from_slice::<Vec<Entry>>(&bytes)
+                .map(|sends| File { sends, workspaces: Vec::new() })
+                .map_err(|_| error)
+        });
+        match file {
+            Ok(file) => Ok(Self { entries: file.sends, workspaces: file.workspaces }),
             Err(error) => {
                 let aside = unreadable_path(path);
                 std::fs::rename(path, &aside).with_context(|| {
@@ -271,7 +341,8 @@ impl Ledger {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&part)
             .with_context(|| format!("cannot write {}", part.display()))?;
-        file.write_all(&serde_json::to_vec(&self.entries)?)?;
+        let ledger = File { sends: self.entries.clone(), workspaces: self.workspaces.clone() };
+        file.write_all(&serde_json::to_vec(&ledger)?)?;
         file.sync_all()?;
         std::fs::rename(&part, path).with_context(|| format!("cannot write {}", path.display()))
     }

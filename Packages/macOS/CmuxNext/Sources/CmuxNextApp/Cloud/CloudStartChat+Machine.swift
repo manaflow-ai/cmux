@@ -18,11 +18,9 @@ extension CloudStartChat {
         account.map { $0 ?? "" }.joined(separator: "/")
     }
 
-    /// The plan's request: the send's key and account, who is signed in, the machines the account's
-    /// list named (`machines`, as the pick reads them, with the status shown for a change on its way),
-    /// and the ones in the store it did not name yet (`stored`, made since: a send pinned to one keeps
-    /// it, none is picked).
-    static func planRequest(key: String, account: [String?], user: String?, machines: [CloudMachineSession],
+    /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list
+    /// named (as the pick reads them, shown status), and the store's others, made since (`stored`: kept for a pin, never picked).
+    static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             stored: [String]) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
@@ -40,6 +38,7 @@ extension CloudStartChat {
         var request: [String: Any] = ["key": key, "account": accountText(account), "loaded": true, "machines": listed,
                                       "stored": stored]
         request["user"] = user
+        request["workspace"] = workspace
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
     }
@@ -80,12 +79,12 @@ extension CloudStartChat {
     /// for the chat (`pick`) and pinned to the send before anything runs there.
     func machine(for start: AgentPaneCloudStart, account: [String?], cli: CloudMoveCLI, invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
-        let machines = services.machines, cloud = services.cloud
+        let machines = services.machines, cloud = services.cloud, workspace = invocation.target.flatMap { services.workspaceID(ofTab: $0.id) }
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
-        let request = Self.planRequest(key: start.key, account: account, user: cloud.auth.user?.id,
+        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) },
                                        stored: machines.cloud.map(\.machineID).filter { !listed.contains($0) })
         let plan = try Self.checked(await cli.startChatPlan(request: request))
@@ -101,7 +100,7 @@ extension CloudStartChat {
                 try Self.checkAccount(account, now: cloud.account, listCurrent: true)
             }
             // Unpinned, a retry would plan afresh and could open the chat on another machine.
-            _ = try Self.checked(await cli.startChatPin(key: start.key, account: Self.accountText(account), machine: created.machineID))
+            _ = try Self.checked(await cli.startChatPin(key: start.key, account: Self.accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
         return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
