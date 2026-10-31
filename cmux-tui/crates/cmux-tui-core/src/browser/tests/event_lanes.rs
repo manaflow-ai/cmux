@@ -300,3 +300,56 @@ fn resume_before_handler_returns_does_not_lose_wakeup() {
     }
     route.close("test complete".into());
 }
+
+#[test]
+fn paused_lane_still_answers_dialogs_needed_by_its_command_worker() {
+    for prequeued in [true, false] {
+        let route = Arc::new(SurfaceRoute::new());
+        let weak = Arc::downgrade(&route);
+        let (paused_tx, paused_rx) = mpsc::channel();
+        let (dialog_tx, dialog_rx) = mpsc::channel();
+        route
+            .attach_handler(Box::new(move |event| {
+                match event {
+                    cmux_tui_cdp::CdpEvent::FrameNavigated { .. } => {
+                        paused_tx.send(weak.upgrade().unwrap().pause()).unwrap();
+                    }
+                    cmux_tui_cdp::CdpEvent::Other { method, .. }
+                        if method == "Page.javascriptDialogOpening" =>
+                    {
+                        dialog_tx.send(()).unwrap();
+                    }
+                    _ => {}
+                }
+                LaneFlow::Continue
+            }))
+            .unwrap();
+        let dialog = cmux_tui_cdp::CdpEvent::Other {
+            method: "Page.javascriptDialogOpening".into(),
+            session_id: Some("session-1".into()),
+            params: serde_json::json!({"type": "beforeunload"}),
+        };
+        if prequeued {
+            let initial_pause = route.pause();
+            assert!(!route.deliver(navigated(1)));
+            assert!(!route.deliver(dialog));
+            drop(initial_pause);
+        } else {
+            assert!(!route.deliver(navigated(1)));
+        }
+        let resume = paused_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+        if !prequeued {
+            assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+                method: "Page.javascriptDialogOpening".into(),
+                session_id: Some("session-1".into()),
+                params: serde_json::json!({"type": "beforeunload"}),
+            }));
+        }
+        let answered = dialog_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
+        // The waiting command would resume registry work only after this
+        // answer. Release before asserting so red runs leave no paused lane.
+        drop(resume);
+        route.close("test complete".into());
+        assert!(answered.is_ok(), "dialog waited behind its own blocked command worker");
+    }
+}

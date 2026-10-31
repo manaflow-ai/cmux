@@ -4,6 +4,7 @@
 use super::event_lanes::ResumeEventLane;
 use super::*;
 use crate::panic_free::RecoverPoison;
+use anyhow::Context;
 
 pub(super) enum RegistryWork {
     ClearAttention(String),
@@ -92,8 +93,9 @@ pub(super) fn run_registry_work(
             }
         }
         RegistryWork::RestartProvider => {
-            if !browser.is_dead()
-                && browser.session.lock().recover_poison().is_none()
+            let needs_restart =
+                !browser.is_dead() && browser.session.lock().recover_poison().is_none();
+            if needs_restart
                 && let Some(mux) = mux.upgrade()
                 && let Some(surface) = mux.surface(id)
             {

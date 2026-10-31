@@ -81,7 +81,7 @@ pub(super) fn handle_target_created(
     }
     if let Err(error) = browser.defer_registry_work(
         route,
-        super::event_registry::RegistryWork::AdoptTarget {
+        event_registry::RegistryWork::AdoptTarget {
             created: created.clone(),
             opener: session.clone(),
         },
