@@ -1,3 +1,4 @@
+import { userScrollIntent } from "./conversation/userScroll";
 import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -15,6 +16,7 @@ import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import { queuedRowsState } from "./queuedRowsState";
+import { cloudSignedInForDebug } from "./cloudMachines";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -186,6 +188,7 @@ export function createAcpmuxDebug(
       acpmuxPerf.enable();
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
       if (!scroller) return { error: "no transcript" };
+      const requested = userScrollIntent(scroller).request();
       const run = ++generation;
       const duration = Math.max(0.1, seconds) * 1000;
       timestamps = [];
@@ -195,7 +198,12 @@ export function createAcpmuxDebug(
       const done = (async () => {
         const warmup: number[] = [];
         for (let frame = 0; frame < WARMUP_FRAMES; frame += 1) warmup.push(await nextFrame());
-        if (run !== generation) return;
+        if (run !== generation || !requested()) {
+          // Cancellation during warm-up returns before the animation phase, so clear the
+          // diagnostic flag here rather than leaving flingStats() stuck at running.
+          if (run === generation) running = false;
+          return;
+        }
         nominal =
           options.nominal_ms && options.nominal_ms > 0
             ? options.nominal_ms
@@ -207,7 +215,7 @@ export function createAcpmuxDebug(
         await new Promise<void>((resolve) => {
           let start: number | undefined;
           const tick = (now: number) => {
-            if (run !== generation) return resolve();
+            if (run !== generation || !requested()) return resolve();
             start ??= now;
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
@@ -311,6 +319,9 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
+            // absent/unknown state that still offers the sign-in action.
+            cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
           }
         : NO_AUTOMATION;

@@ -198,11 +198,6 @@ path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_fast_tier_anchor.py"
-lane = "manual"
-reason = "Run explicitly with cmux-ci when changing fast-tier anchoring; repository policy keeps new regression tests out of automatic CI."
-
-[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
@@ -255,6 +250,10 @@ path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -268,6 +267,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_off_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_static_capability_runtime_only.py"
 lane = "linux-guard"
 
 [[test]]
@@ -600,6 +603,10 @@ path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -773,6 +780,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1384,6 +1395,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_side_lane_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2022,6 +2037,10 @@ path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_cloud_backend_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2299,6 +2318,20 @@ path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
 path = "tests/test_devbox_bubblewrap.py"
 lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_instant_bench_warm_arm.py"
+lane = "manual"
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
