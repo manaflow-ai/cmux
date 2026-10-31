@@ -18,6 +18,12 @@
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
+/* Compact: a quiet text action under the rows, at their trailing edge, as Environment's Save. */
+.acpmux-chat-inspector-context__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: calc(var(--ds-space-1) / 2) calc(var(--ds-space-3) / 2) 0;
+}
 .acpmux-chat-inspector-context__bar {
   display: flex;
   gap: 0;

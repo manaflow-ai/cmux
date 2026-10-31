@@ -164,7 +164,7 @@ pub enum Attached {
 }
 
 /// How long `kill` lets the agent's process group exit after SIGTERM.
-const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// How often the reader checks that the agent process is still running.
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
