@@ -164,6 +164,7 @@ struct CmuxCommand: AsyncParsableCommand {
             ClearStatusCommand.self,
             ReportPwdCommand.self,
             ReportGitBranchCommand.self,
+            ClearGitBranchCommand.self,
             ReportPRActionCommand.self,
             SetProgressCommand.self,
             ClearProgressCommand.self,
