@@ -33,23 +33,27 @@ async function send(workspace, terminal, input) {
   }
 }
 
-function terminalRow(workspace, terminal, drafts, inputs) {
+function terminalRow(workspace, terminal, forms, inputs) {
   const row = el("div", "terminal")
   row.append(el("div", "title", terminal.title || terminal.id))
   if (terminal.cwd) row.append(el("div", "cwd", terminal.cwd))
-  const form = el("form")
-  const input = el("input")
   const key = JSON.stringify([workspace, terminal.id])
-  input.dataset.draftKey = key
-  input.value = drafts.get(key) ?? ""
+  // Keep the form itself: an in-flight send must still own the visible input after Refresh.
+  const form = forms.get(key) ?? el("form")
+  let input = form.querySelectorAll("input")[0]
+  if (!input) {
+    input = el("input")
+    input.dataset.draftKey = key
+    form.dataset.draftKey = key
+    form.append(input, el("button", null, "Send"))
+    form.addEventListener("submit", (event) => {
+      event.preventDefault()
+      send(workspace, terminal.id, input)
+    })
+  }
   inputs.set(key, input)
   input.placeholder = "Send a line"
   input.setAttribute("aria-label", `Send a line to ${terminal.title || terminal.id}`)
-  form.append(input, el("button", null, "Send"))
-  form.addEventListener("submit", (event) => {
-    event.preventDefault()
-    send(workspace, terminal.id, input)
-  })
   row.append(form)
   return row
 }
@@ -63,8 +67,8 @@ async function load() {
         return { workspace, terminals }
       }),
     )
-    // Read drafts after the requests finish: the person may have kept typing while refreshing.
-    const drafts = new Map([...board.querySelectorAll("input")].map((input) => [input.dataset.draftKey, input.value]))
+    // Reuse current forms after reads settle, including edits and sends made while refreshing.
+    const forms = new Map([...board.querySelectorAll("form")].map((form) => [form.dataset.draftKey, form]))
     const active = document.activeElement
     const activeKey = active?.dataset.draftKey
     const selection = activeKey ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null
@@ -73,7 +77,7 @@ async function load() {
       const card = el("section", workspace.focused ? "card focused" : "card")
       card.append(el("h2", null, workspace.name || workspace.id))
       if (terminals.length === 0) card.append(el("div", "empty", "No terminals"))
-      for (const terminal of terminals) card.append(terminalRow(workspace.id, terminal, drafts, inputs))
+      for (const terminal of terminals) card.append(terminalRow(workspace.id, terminal, forms, inputs))
       return card
     })
     board.replaceChildren(...cards)
