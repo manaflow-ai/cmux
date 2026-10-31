@@ -18353,6 +18353,268 @@
         }
       }
     },
+    "settings.attention.moveToTopOnAgentFinish": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move the Workspace to the Top When Its Agent Finishes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل مساحة العمل إلى الأعلى عندما ينتهي وكيلها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti radni prostor na vrh kada njegov agent završi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt arbejdsområdet øverst, når dets agent er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereich nach oben verschieben, wenn sein Agent fertig ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover el espacio de trabajo arriba cuando su agente termine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer l’espace de travail en haut quand son agent a terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta lo spazio di lavoro in cima quando il suo agente ha finito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントが完了したらワークスペースを一番上に移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីកន្លែងធ្វើការទៅខាងលើ នៅពេលភ្នាក់ងាររបស់វាបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 끝나면 워크스페이스를 맨 위로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt arbeidsområdet øverst når agenten er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś obszar roboczy na górę, gdy jego agent skończy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover o espaço de trabalho para o topo quando o agente terminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещать рабочее пространство наверх, когда его агент завершит работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายพื้นที่ทำงานไปไว้บนสุดเมื่อเอเจนต์ทำงานเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanı bitirdiğinde çalışma alanını en üste taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщувати робочий простір нагору, коли його агент завершить роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển không gian làm việc lên đầu khi tác tử của nó hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成时将工作区移到顶部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成時將工作區移到頂端"
+          }
+        }
+      }
+    },
+    "settings.attention.moveToTopOnAgentFinish.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما ينهي وكيل دوره، تنتقل مساحة عمله إلى أعلى الصفوف غير المثبتة، ما لم تكن تنظر إلى جزئه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent koji završi svoj red premješta svoj radni prostor na vrh neprikačenih redova, osim ako gledate njegov panel."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent, der afslutter sin tur, flytter sit arbejdsområde øverst blandt de ikke-fastgjorte rækker, medmindre du ser på dens rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Agent, der seinen Durchgang beendet, verschiebt seinen Arbeitsbereich an den Anfang der nicht angehefteten Zeilen, außer du siehst dir seinen Bereich an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente que termina su turno mueve su espacio de trabajo al principio de las filas no fijadas, salvo que estés mirando su panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agent qui termine son tour place son espace de travail en tête des lignes non épinglées, sauf si vous regardez son panneau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente che termina il suo turno sposta il suo spazio di lavoro in cima alle righe non fissate, a meno che tu non stia guardando il suo riquadro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントがターンを終えると、そのペインを見ていない限り、ワークスペースが固定されていない行の一番上に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារដែលបញ្ចប់វេនរបស់វា ផ្លាស់ទីកន្លែងធ្វើការរបស់វាទៅខាងលើជួរដែលមិនបានខ្ទាស់ លុះត្រាតែអ្នកកំពុងមើលផ្ទាំងរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 턴을 마치면 해당 창을 보고 있지 않는 한 워크스페이스가 고정되지 않은 행의 맨 위로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent som fullfører turen sin, flytter arbeidsområdet øverst blant radene som ikke er festet, med mindre du ser på ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent, który kończy turę, przenosi swój obszar roboczy na górę nieprzypiętych wierszy, chyba że patrzysz na jego panel."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um agente que termina seu turno move o espaço de trabalho para o topo das linhas não fixadas, a menos que você esteja olhando o painel dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент, завершивший ход, перемещает своё рабочее пространство в начало незакреплённых строк, если вы не смотрите на его панель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ที่ทำรอบเสร็จจะย้ายพื้นที่ทำงานไปไว้บนสุดของแถวที่ไม่ได้ปักหมุด เว้นแต่คุณกำลังดูบานหน้าต่างของมันอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Turunu bitiren bir ajan, bölmesine bakmıyorsanız çalışma alanını sabitlenmemiş satırların en üstüne taşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент, що завершив хід, переміщує свій робочий простір на початок незакріплених рядків, якщо ви не дивитеся на його панель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử hoàn tất lượt của mình sẽ chuyển không gian làm việc lên đầu các hàng chưa ghim, trừ khi bạn đang xem ngăn của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成一轮后，其工作区会移到未固定行的顶部，除非你正在查看它的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成一輪後，其工作區會移到未釘選列的頂端，除非你正在查看它的窗格。"
+          }
+        }
+      }
+    },
     "settings.attention.showOnSidebar": {
       "extractionState": "manual",
       "localizations": {
