@@ -419,6 +419,27 @@ struct HomeNewMessageTests {
         #expect(!sidebar.list.entries.map(\.id).contains(HomeSidebarView.draftRowID.rawValue))
     }
 
+    /// The user, 2026-10-30: "on hover on new message should be x button". Only the draft row
+    /// carries the x; its click asks the page to discard the draft; without a draft no row has one.
+    @Test func theDraftRowAloneCarriesAnXThatAsksThePageToDiscardTheDraft() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        window.contentView = sidebar
+        var closes = 0
+        sidebar.onCloseDraft = { closes += 1 }
+        sidebar.update(HomeSidebarModel(rows: [Self.row("other", [Self.alan.id])], pins: HomePins(), me: Self.me))
+        #expect(sidebar.list.closableID == nil)
+        sidebar.setDraftRow(HomeNewMessageDraft.rowTitle)
+        #expect(sidebar.list.closableID == HomeSidebarView.draftRowID.rawValue)
+        #expect(sidebar.list.closeTitle == HomeConversationStrings.closeNewMessage)
+        sidebar.list.onClose("other")
+        #expect(closes == 0, "a conversation's row has no x")
+        sidebar.list.onClose(HomeSidebarView.draftRowID.rawValue)
+        #expect(closes == 1)
+        sidebar.setDraftRow(nil)
+        #expect(sidebar.list.closableID == nil)
+    }
+
     // MARK: The blank page's first send
 
     @Test func theComposerSourceHandsOnlyTheFirstSendToThePage() async throws {

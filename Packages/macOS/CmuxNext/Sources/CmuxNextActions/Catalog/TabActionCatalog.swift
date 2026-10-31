@@ -174,7 +174,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tab.restart",
                 title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
-                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell", "recover", "reconnect", "stuck", "ssh"], category: .tab,
                 symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
             ),
             ActionDescriptor(

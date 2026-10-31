@@ -52,10 +52,10 @@ enum AppCommandPalette {
         }
     }
 
-    /// Root palette items: "Open <App>" for apps with a page, then their commands.
+    /// Root palette items: "Open <App>" for apps with a page or a web app (``AppOpenTarget``), then their commands.
     @MainActor static func rootItems(_ services: AppServices) -> [PaletteItem] {
         let presence = services.apps.presence
-        let opens = services.apps.client.apps.filter { presence.isPresented($0.id) && AppPanePage.opens($0) }.map { app in
+        let opens = services.apps.client.apps.filter { presence.isPresented($0.id) && $0.isActive && AppOpenTarget($0) != .none }.map { app in
             let name = app.manifest.name.resolved()
             return PaletteItem(id: "open:\(app.id)", title: AppsAppStrings.open(name), subtitle: name,
                                symbol: "square.grid.2x2", keywords: [app.id, name],

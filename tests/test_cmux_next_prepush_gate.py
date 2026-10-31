@@ -42,6 +42,34 @@ else:
     TOOLS = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
 TOOLS = Path(os.environ.get("CMUX_LINT_TOOLS_DIR", TOOLS))
 
+
+def _pinned_swiftformat() -> Path:
+    """The pinned SwiftFormat the gate downloads into TOOLS (scripts/cmux-next/lint-tools.lock, this platform)."""
+    spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_tools", SOURCE / "scripts/cmux-next/prepush-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    row = gate.read_lock(SOURCE / "scripts/cmux-next/lint-tools.lock").get("swiftformat")
+    if row is None:
+        return TOOLS / "swiftformat-unpinned-on-this-platform" / "swiftformat"
+    return TOOLS / f"swiftformat-{row[0]}-{gate.platform_key()}" / "swiftformat"
+
+
+SWIFTFORMAT = _pinned_swiftformat()
+# These tests run the real pinned binary through the real hook; they do not download it (the gate would).
+NEEDS_SWIFTFORMAT = unittest.skipUnless(
+    SWIFTFORMAT.is_file() and os.access(SWIFTFORMAT, os.X_OK),
+    f"the pinned SwiftFormat is not installed at {SWIFTFORMAT} (any push through the hook downloads it once)")
+# One `consecutiveBlankLines` hit (scripts/cmux-next/lint/swiftformat.conf): a rule the SwiftLint layer does not have,
+# so only the SwiftFormat layer can refuse it, and nothing any other check refuses.
+SWIFTFORMAT_HIT = """struct Fresh {
+    func a() -> Int { 1 }
+
+
+    func b() -> Int { 2 }
+}
+"""
+SWIFTFORMAT_CLEAN = SWIFTFORMAT_HIT.replace("\n\n\n", "\n\n")
+
 PACKAGE = """// swift-tools-version: 6.2
 import PackageDescription
 let uiSwiftSettings: [SwiftSetting] = [.defaultIsolation(MainActor.self)]
@@ -1051,6 +1079,12 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_the_app_id_special_cases_guard_rules_hold(self):
+        # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
         # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
         before = self.remote_head()
@@ -1180,6 +1214,48 @@ let package = Package(
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
+        # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
+        # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
+        # judged on its own commits (--own-range); the base's debt is a warning that names the commit there, and
+        # stays an error on the branch's push sweep (no --own-range).
+        start = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: a base commit with no record")
+        on_base = self.git("rev-parse", "HEAD").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda *extra: subprocess.run(
+            ["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{start}..HEAD", *extra],
+            cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        # The pull request adds an unrelated commit: the base commit is only a warning.
+        self.write("docs/notes.md", "notes\n")
+        self.commit("docs: notes")
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertEqual(pr_run.returncode, 0, output)
+        self.assertNotIn("::error", output)
+        self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
+        self.assertIn(on_base[:11], output)
+        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
+
+        # The branch's push sweep (no --own-range) still fails on the same base commit.
+        push_run = sweep()
+        self.assertNotEqual(push_run.returncode, 0, push_run.stdout + push_run.stderr)
+        self.assertIn("::error title=Sidebar look owner::", push_run.stdout)
+
+        # A sidebar commit of the pull request's own stays an error, next to the base commit's warning.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 23\n}\n")
+        self.commit("sidebar: the pull request's own commit with no record")
+        own_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertNotEqual(pr_run.returncode, 0, output)
+        self.assertIn("::error title=Sidebar look owner::1 commit(s)", output)
+        self.assertIn(own_commit[:11], output.split("::warning")[0])
+        self.assertIn(f"{on_base[:11]}", output.split("::warning", 1)[1])
+
     def test_a_fixture_that_mentions_one_marker_passes(self):
         self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
         self.commit("docs mention a marker")
@@ -1247,6 +1323,58 @@ let package = Package(
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_that_adds_a_swiftformat_violation_is_refused(self):
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("adds two blank lines in a row")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SwiftFormat --lint", result.stdout + result.stderr)
+        self.assertRegex(result.stdout + result.stderr, r"Sources/CmuxNextKit/Fresh\.swift:\d+:\d+: error: \(consecutiveBlankLines\)")
+        self.assertNotEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_with_swiftformat_clean_code_passes(self):
+        self.kit("Fresh", SWIFTFORMAT_CLEAN)
+        self.commit("adds formatted code")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("(consecutiveBlankLines)", result.stdout + result.stderr)
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_that_edits_a_file_with_an_old_swiftformat_violation_passes(self):
+        # The base already has the double blank line (pushed past the hook); the push edits other lines of that file.
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("old formatting debt")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.kit("Fresh", SWIFTFORMAT_HIT.replace("    func a()", "    func c() -> Int { 3 }\n\n    func a()"))
+        self.commit("adds a function above the old double blank line")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_ci_modes_do_not_run_the_swiftformat_layer(self):
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
+        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # or --commits (pushes); none of them may refuse a SwiftFormat finding.
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("adds two blank lines in a row")
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                result = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                        capture_output=True)
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn("(consecutiveBlankLines)", output)
 
     def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
         marker = self.root / "branch-checker-ran"
