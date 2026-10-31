@@ -125,6 +125,8 @@ test("a reader back at the top after a page lands gets the next page", async () 
     act(async () => {
       scroller().scrollTop = top;
       scroller().dispatchEvent(new dom.window.Event("scroll"));
+      // The virtual range commits on the next display frame, just as a real reader sees it.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
   try {
     await draw();
