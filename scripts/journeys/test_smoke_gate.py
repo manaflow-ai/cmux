@@ -357,6 +357,7 @@ class RealKeySteps(unittest.TestCase):
 
     def journey(self, mode):
         j = type("J", (), {})()
+        j.key_window = "W1"
         j.spec = {"options": {"key_path": "real"} if mode == "real" else {}}
         j.app = type("A", (), {"pid": 7})()
         j.marks, j.vars, j.cua_session = {}, {}, self.session

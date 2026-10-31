@@ -210,7 +210,10 @@ def _bound_key(j, step):
             and r.get("key") and " " not in str(r["key"]) and not r.get("removed")]
     default_keys = [r["key"] for r in reply.get("bindings") or [] if isinstance(r, dict)
                     and r.get("command") == command and r.get("source") == "default"]
-    window = getattr(j, "key_window", None)
+    try:
+        window = getattr(j, "key_window", None) or _journey_window(j)  # pin the journey's own window
+    except D.StepError:
+        window = None  # resolve then takes the key window, else the first
     tried = []
     for row in rows:
         try:
