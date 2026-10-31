@@ -18,7 +18,15 @@ struct FakeWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         return results[arguments] ?? WorkspaceChangesGitResult(output: Data(), exitCode: 1)
     }
 
-    static func result(_ output: String = "", exitCode: Int32 = 0) -> WorkspaceChangesGitResult {
-        WorkspaceChangesGitResult(output: Data(output.utf8), exitCode: exitCode)
+    static func result(
+        _ output: String = "",
+        exitCode: Int32 = 0,
+        standardOutputWasTruncated: Bool = false
+    ) -> WorkspaceChangesGitResult {
+        WorkspaceChangesGitResult(
+            output: Data(output.utf8),
+            exitCode: exitCode,
+            standardOutputWasTruncated: standardOutputWasTruncated
+        )
     }
 }
