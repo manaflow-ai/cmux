@@ -532,20 +532,27 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                     await AcpmuxComputerUse.enroll(environment)
                     approver?.register(environment)
                 }
+                // A daemon that only runs an old version an update replaced: its owner
+                // hands it off (its agents are adopted) and starts the bundled one. One that
+                // stays (the handoff failed) still serves its chats: the peer check takes it as
+                // another install's, so the pane shows them instead of a refusal.
+                let replaced = status.pid.map(AcpmuxVersionHandoff.replaced(pid:)) == true
+                if replaced, let pid = status.pid {
+                    logger.info("acpmux \(pid) runs a replaced bundle's executable")
+                    if let heal, await heal(pid) {
+                        logger.info("acpmux \(pid) ran a replaced bundle; its owner restarts it")
+                        throw AgentPaneHostError.daemonRestarting
+                    }
+                }
                 do {
                     return try await Self.verifiedEndpoint(environment)
                 } catch let refusal as AcpmuxServerPeer.Refusal {
-                    // A daemon that only runs an old version an update replaced: its owner
-                    // hands it off (its agents are adopted) and starts the bundled one.
-                    if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
+                    // Only a refusal is a failure to reach acpmux; a replaced daemon that serves its chats is not.
+                    if replaced, let pid = status.pid {
                         AcpmuxFailureLog(logPath: environment.logPath).record(.replacedBundle, detail: "pid \(pid): \(refusal)")
-                        if let heal, await heal(pid) {
-                            logger.info("acpmux \(pid) ran a replaced bundle; its owner restarts it")
-                            throw AgentPaneHostError.daemonRestarting
-                        }
-                        throw Self.refused(refusal, environment, reason: AcpmuxFailureCause.replacedBundle.logText, startsDaemons: owned)
                     }
-                    throw Self.refused(refusal, environment, startsDaemons: owned)
+                    let reason = replaced ? AcpmuxFailureCause.replacedBundle.logText : nil
+                    throw Self.refused(refusal, environment, reason: reason, startsDaemons: owned)
                 }
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon

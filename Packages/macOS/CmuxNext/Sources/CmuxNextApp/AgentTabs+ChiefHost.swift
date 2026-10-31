@@ -82,8 +82,6 @@ struct ChiefHomeAcpmux {
          startHost: @escaping @Sendable () async -> Bool, peerApprover: AgentPanePeerApprover? = nil, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
-        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
-        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
         let environment = Self.environment(home: home)
         // One daemon: the Chief's new sessions are this Mac's, so their tabs attach like any chat
         // and the app's own handoff heals that daemon. A subagent started before the move
@@ -94,7 +92,7 @@ struct ChiefHomeAcpmux {
             let own: any AgentPaneHostProviding = ownHost?(environment) ?? AcpmuxHost(daemons: daemons, environment: environment, peerApprover: peerApprover)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
-                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome)
             }
             paneHost = router(local)
             localRouter = router
@@ -110,7 +108,7 @@ struct ChiefHomeAcpmux {
         }
         let chief = AcpmuxHost(daemons: daemons, environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost, peerApprover: peerApprover)
         paneHost = chief
-        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment) }
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.
