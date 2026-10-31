@@ -190,6 +190,9 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
+        // The Cloud app server's link takes no folder copy: refused before a machine is created.
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
     }
 
     /// A retry finds its own copy's folder; one whose record is gone gets a new folder, so its copy
