@@ -208,3 +208,6 @@ fn native_owner_transfer_uses_existing_guard_and_rechecks_host_on_finish() {
     ok(&mut stream, &mut reader, finish);
     assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
 }
+
+#[path = "remote_entry_native_terminal_tests.rs"]
+mod terminal;
