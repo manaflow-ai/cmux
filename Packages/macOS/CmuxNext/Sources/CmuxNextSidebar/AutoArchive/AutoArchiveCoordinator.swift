@@ -230,9 +230,9 @@ public final class AutoArchiveCoordinator {
         markDirty()
     }
 
-    /// The Tidy Up card, as small as it can be (Lawrence 18515): "Archive 2 idle workspaces?", the
-    /// names, Archive and Always Archive; the x is Not Now (a day's snooze). Always Archive turns on
-    /// `workspaces.autoArchive.style` `quiet` and archives these now.
+    /// The Tidy Up card, as small as it can be (Lawrence 18515, gallery pick T3): "2 idle workspaces",
+    /// the names, Archive and an inline "Always" switch; the x is Not Now (a day's snooze). Flipping Always turns
+    /// on `workspaces.autoArchive.style` `quiet` and archives these now.
     private func suggest(_ due: [AutoArchivePlanner.Candidate], days: Int) {
         guard card == nil else { return }
         var lines = due.prefix(Self.cardNames).map(\.title)
@@ -241,7 +241,7 @@ public final class AutoArchiveCoordinator {
             id: "auto-archive.suggest", symbol: "archivebox",
             title: AutoArchiveStrings.cardQuestion(due.count), lines: lines,
             actions: [SidebarNoticeCard.Action(id: Self.archiveAction, title: AutoArchiveStrings.cardArchive, prominent: true),
-                      SidebarNoticeCard.Action(id: Self.alwaysAction, title: AutoArchiveStrings.cardAlways)],
+                      SidebarNoticeCard.Action(id: Self.alwaysAction, title: AutoArchiveStrings.cardAlways, isSwitch: true)],
             dismissLabel: AutoArchiveStrings.cardNotNow)
         let items = due.map(\.item)
         // task-owner: the one open suggestion; cancelled by a settings change or stop()

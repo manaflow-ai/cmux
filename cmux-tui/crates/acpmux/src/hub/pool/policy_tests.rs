@@ -14,6 +14,7 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         system_prompt_sha256: None,
         auth: String::new(),
         account: None,
+        machine: None,
     }
 }
 

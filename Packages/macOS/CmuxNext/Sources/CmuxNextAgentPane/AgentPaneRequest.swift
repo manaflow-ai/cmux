@@ -115,6 +115,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
     /// person's files: never logged.
     case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
+    /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
+    case attachSource(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
+    case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
@@ -322,6 +327,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
     case featureTips(AgentPaneFeatureTipRequest)
+    /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
+    /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
+    case remoteControl(on: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
