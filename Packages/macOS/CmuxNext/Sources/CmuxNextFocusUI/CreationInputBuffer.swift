@@ -15,6 +15,8 @@ public final class CreationInputBuffer {
     private var laneTabs: [Int: String] = [:]
     /// The machine each creation's terminal is on (its daemon), when it was known at its start.
     private var laneMachines: [Int: String] = [:]
+    /// How many lanes this hold took over from another hold (``prepend(_:issuer:)``).
+    private var adopted = 0
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
@@ -98,12 +100,29 @@ public final class CreationInputBuffer {
     /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``).
     public func capture(_ event: NSEvent, focusedTab: String?) { events.append((event, lane(focusedTab: focusedTab))) }
 
-    /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
-    /// creation) before the keys held now, typed for that creation.
-    public func prepend(_ earlier: [NSEvent]) {
+    /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the
+    /// keys held now. Each keeps the terminal it was typed for, also when it came from another hold: only the keys of
+    /// `issuer`'s lane (the lane of the key that started the creation; nil: no lane) move to the new creation, as the
+    /// person typed them after that lane's Cmd-D (P0 1193 follow-up: a key held for another terminal went to the split).
+    public func prepend(_ earlier: [(event: NSEvent, lane: HeldLane?)], issuer: HeldLane?) {
         let creation = nextID > 0 ? nextID : nil
-        events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
+        let entries = earlier.map { key in (event: key.event, creation: key.lane == issuer ? creation : key.lane.map(adopt)) }
+        events.insert(contentsOf: entries, at: 0)
     }
+
+    /// The lane of this hold that delivers to `lane`'s terminal: one of its creations that shows that tab, else a lane
+    /// it keeps only for keys carried over from another hold (a negative number, never a pending creation).
+    private func adopt(_ lane: HeldLane) -> Int {
+        if let id = laneTabs.first(where: { $0.value == lane.tab })?.key { return id }
+        adopted += 1
+        let id = -adopted
+        laneTabs[id] = lane.tab
+        laneMachines[id] = lane.machine
+        return id
+    }
+
+    /// The terminal lane `id` delivers to; nil for no lane.
+    private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in laneTabs[id].map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
 
     public func take() -> [NSEvent] {
         defer { events.removeAll() }
@@ -121,37 +140,42 @@ public final class CreationInputBuffer {
         /// Keys of a lane whose terminal is not the focused one, typed one after another: that terminal types them
         /// with its own key encoding, never the focused terminal (a held Ctrl-C must not stop another process).
         case type([NSEvent], lane: HeldLane)
-        /// A Command chord typed for a lane whose terminal is not the focused one: an app shortcut runs with that
-        /// terminal's tab as its target (as a key press there), any other Command chord is that terminal's key.
+        /// A chord (Command or Control) typed for a lane whose terminal is not the focused one: an app shortcut (Cmd-D,
+        /// Ctrl-`, Ctrl-Tab) runs with that terminal's tab as its target (as a key press there); any other chord
+        /// (Ctrl-C) is that terminal's key.
         case command(NSEvent, lane: HeldLane)
-        /// A key that runs again as typed: the focused lane's, or a key typed for no creation.
-        case run(NSEvent)
+        /// A key that runs again as typed: the focused lane's (`lane`), or a key typed for no creation (nil).
+        case run(NSEvent, lane: HeldLane?)
 
-        public var events: [NSEvent] {
+        /// Each key with the terminal it was typed for, in order (to hold them again, ``prepend(_:issuer:)``).
+        public var keys: [(event: NSEvent, lane: HeldLane?)] {
             switch self {
-            case .type(let events, _): events
-            case .command(let event, _), .run(let event): [event]
+            case .type(let events, let lane): events.map { ($0, lane) }
+            case .command(let event, let lane): [(event, lane)]
+            case .run(let event, let lane): [(event, lane)]
             }
         }
+
+        /// The terminal the first key was typed for.
+        public var lane: HeldLane? { keys.first?.lane }
     }
 
     /// Takes the keys of lane `lane` only, in typing order, to run again as typed (its early view has the keyboard);
     /// the others keep waiting.
     public func take(lane: Int) -> [HeldKey] {
         defer { events.removeAll { $0.creation == lane } }
-        return events.filter { $0.creation == lane }.map { .run($0.event) }
+        return events.filter { $0.creation == lane }.map { .run($0.event, lane: heldLane(lane)) }
     }
 
     /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
     public func take(focused: String?) -> [HeldKey] {
         var keys: [HeldKey] = []
         for (event, id) in events {
-            guard let id, let tab = laneTabs[id], tab != focused else {
-                keys.append(.run(event))
+            guard let lane = heldLane(id), lane.tab != focused else {
+                keys.append(.run(event, lane: heldLane(id)))
                 continue
             }
-            let lane = HeldLane(tab: tab, machine: laneMachines[id])
-            if event.modifierFlags.contains(.command) {
+            if !event.modifierFlags.isDisjoint(with: [.command, .control]) {
                 keys.append(.command(event, lane: lane))
             } else if case .type(let earlier, let last)? = keys.last, last == lane {
                 keys[keys.count - 1] = .type(earlier + [event], lane: lane)

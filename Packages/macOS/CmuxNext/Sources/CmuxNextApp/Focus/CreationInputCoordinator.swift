@@ -45,9 +45,9 @@ final class CreationInputCoordinator {
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
     /// script or agent run without `focus`), which leaves the keys where they are.
-    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: router?.focus(for: window).0?.content?.daemon.machineID)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID)
     }
 
     /// A creation's placement continues after its create reply (Home moves the new terminal beside
@@ -153,13 +153,13 @@ final class CreationInputCoordinator {
         for (index, key) in keys.enumerated() {
             replaying = true
             switch key {
-            case .run(let event): runKey(event, window)
+            case .run(let event, _): runKey(event, window)
             case .type(let events, let lane): type(events, into: lane)
             case .command(let event, let lane): runCommand(event, for: lane, in: window)
             }
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
-                next.prepend(keys.dropFirst(index + 1).flatMap(\.events))
+                next.prepend(keys.dropFirst(index + 1).flatMap(\.keys), issuer: key.lane)
                 return false
             }
         }
