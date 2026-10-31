@@ -152,7 +152,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
              - To run a command for the person: tab_create_terminal {{name}}, with no pane \
-             (pane: \"current\" is this chat's own pane), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
+             (pane: \"current\" is this chat's own pane; for a tab beside it, pass its id from pane_get), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
              when there is none), then terminal_input_write {{terminal: value.terminal_id, \
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
@@ -166,8 +166,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \
              \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
-             {{terminal}} read it; history is the whole scrollback, so return only the lines \
-             you need: (await cmux.terminal_history_read({{terminal}})).text.split(\"\\n\").\
+             {{terminal}} read it (history answers {{text}}, the scrollback's lines); return only the \
+             lines you need: (await cmux.terminal_history_read({{terminal}})).text.split(\"\\n\").\
              filter((l) => l.includes(\"error\")). Return small results: a list's ids and names, \
              not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
@@ -259,10 +259,11 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
     // those tools only; the rest of the search goes in `more` by name. A full search put
     // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
-    let words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    let mut words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    words.dedup();
     let exact: Vec<&Value> =
         words.iter().filter_map(|word| tools.iter().find(|tool| tool["name"] == *word)).collect();
-    if !exact.is_empty() && exact.len() == words.len() {
+    if !exact.is_empty() && exact.len() == words.len() && exact.len() <= DOCS_MAX_LIMIT {
         let mut answer = search(tools, &query, limit);
         let named: Vec<&str> = exact.iter().filter_map(|tool| tool["name"].as_str()).collect();
         let rest = answer["tools"]

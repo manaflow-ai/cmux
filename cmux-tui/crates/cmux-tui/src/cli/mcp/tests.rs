@@ -1861,6 +1861,35 @@ fn a_record_works_where_its_id_goes() {
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }
 
+/// A history read answers the scrollback as lines of plain text, unstyled, where the
+/// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
+/// r13a). Asked for `styled`, it answers the rows as the daemon sends them.
+#[test]
+fn terminal_history_reads_as_plain_lines() {
+    let rows = json!({"start": "0", "next": null, "rows": [
+        {"row": 0, "runs": [{"text": "row-1-v7", "fg": null, "bg": null, "attrs": 0}]},
+        {"row": 1, "runs": [{"text": "row-2-", "fg": null}, {"text": "v14", "fg": "#fff"}]},
+    ]});
+    let fake = Fake { resource_result: Some(rows), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    let plain = server
+        .call(&json!({"name": "terminal_history_read", "arguments": {"terminal": terminal}}))
+        .expect("a tool result");
+    assert_eq!(plain["structuredContent"]["text"], "row-1-v7\nrow-2-v14", "{plain}");
+    assert!(plain["structuredContent"].get("rows").is_none(), "{plain}");
+    let styled = server
+        .call(&json!({"name": "terminal_history_read",
+                       "arguments": {"terminal": terminal, "styled": true}}))
+        .expect("a tool result");
+    assert!(styled["structuredContent"]["rows"].is_array(), "{styled}");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.history.read").collect();
+    assert_eq!(reads[0]["request"]["params"]["styled"], false, "{}", reads[0]);
+    assert_eq!(reads[1]["request"]["params"]["styled"], true, "{}", reads[1]);
+}
+
 /// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits
 /// for an output line, not the typed line (tests/tool-evals r3j: GLM said "done" early).
 #[test]

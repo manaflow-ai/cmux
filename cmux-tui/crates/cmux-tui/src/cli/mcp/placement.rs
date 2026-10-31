@@ -49,14 +49,19 @@ impl<B: Backend> Server<B> {
         // it by reflex for "on my right" (tests/tool-evals r13a: GPT 6 Astra and 6.1 Sol in
         // 8 samples, after the sheet said no pane). It goes beside the chat like no pane;
         // the chat's own pane by its id still works.
+        // `workspace: "current"` too, which models write beside it; any other parent stays.
+        let current = |key: &str| arguments.get(key).and_then(Value::as_str) == Some("current");
         let own_pane = terminal
-            && arguments.get("pane").and_then(Value::as_str) == Some("current")
-            && crate::cli::beside::PARENTS
-                .iter()
-                .all(|key| *key == "pane" || !arguments.contains_key(*key));
+            && current("pane")
+            && crate::cli::beside::PARENTS.iter().all(|key| {
+                *key == "pane"
+                    || !arguments.contains_key(*key)
+                    || (*key == "workspace" && current(key))
+            });
         let unplaced = if own_pane {
             let mut without = arguments.clone();
             without.remove("pane");
+            without.remove("workspace");
             Cow::Owned(without)
         } else {
             Cow::Borrowed(arguments)
