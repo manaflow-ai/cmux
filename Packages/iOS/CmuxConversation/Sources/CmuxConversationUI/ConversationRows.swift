@@ -41,6 +41,9 @@ struct ReplyQuote: Hashable {
     var text: String
     var isOutgoing: Bool
     var hasImage: Bool
+    /// The quoted message's own reply count: Messages labels the quote
+    /// "N Replies" when the reply sits on the quote's side.
+    var replyCount: Int = 0
 }
 
 enum MessageFooter: Hashable {
@@ -491,7 +494,7 @@ enum ConversationRowBuilder {
         let sender = info.participant(message.senderID)
         let footer = footer(for: entry.status, isGroup: isGroup)
         let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
-            ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
+            ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
             rowID: message.rowID,
