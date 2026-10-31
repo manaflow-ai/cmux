@@ -1,16 +1,17 @@
 // attach-endpoint's `vmKind`: the Mac app gives up its local sandbox for its
 // own session only when this reads "owner", so "owner" must mean a machine the
-// signed-in caller created that nobody else can reach: their personal account,
-// or a Stack team whose member list, read for this attach, is only them.
+// signed-in caller created: their personal account, or a Stack team whose
+// member list, read for this attach, still contains them, whatever its size.
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
+import { VmDatabaseError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import type { VmTeamDirectory } from "../services/vms/teamDirectory";
-import { vmKindForCaller, vmKindForCallerNeedsMembers } from "../services/vms/vmKind";
+import { vmKindForCaller, vmKindForCallerMayUseChatGrant, vmKindForCallerNeedsMembers } from "../services/vms/vmKind";
 import { openAttachEndpoint, openVmCmuxRemote } from "../services/vms/workflows";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
@@ -53,7 +54,7 @@ const teamVm = row({ billingTeamId: TEAM, ownerTeamId: TEAM });
 // The repository answers with `vm` whoever asks: the account scoping is
 // findUserVm's job, so these tests cover what the kind says once a caller
 // has been let in.
-function layerFor(vm: CloudVmRow) {
+function layerFor(vm: CloudVmRow, extra: Partial<VmRepositoryShape> = {}) {
   const repo = {
     findUserVm: () => Effect.succeed(vm),
     activeIdentityLeases: () => Effect.succeed([]),
@@ -63,6 +64,7 @@ function layerFor(vm: CloudVmRow) {
     recordUsageEvents: () => Effect.void,
     upsertVmSession: () => Effect.succeed(null),
     legacyResourceReservationCandidates: () => Effect.succeed([]),
+    ...extra,
   } as unknown as VmRepositoryShape;
   const providers = {
     getStatus: () => Effect.succeed("running"),
@@ -120,7 +122,7 @@ describe("attach-endpoint vmKind", () => {
     expect(await websocketKind(personalVm, CREATOR, CREATOR)).toBe("owner");
   });
 
-  test("a team machine is team, for its creator too", async () => {
+  test("a team machine with no membership answer is team, for its creator too", async () => {
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM)).toBe("team");
   });
@@ -149,14 +151,19 @@ describe("attach-endpoint vmKind", () => {
     expect(solo.asked).toEqual(["team-solo", "team-solo"]);
   });
 
-  test("a second member makes the same machine team on the next attach", async () => {
+  test("the creator stays owner when their team grows to three members", async () => {
     const answer: { members: readonly string[] } = { members: [CREATOR] };
     const { teamDirectory } = directory(answer);
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
-    answer.members = [CREATOR, MEMBER];
+    answer.members = [CREATOR, MEMBER, "user-third"];
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("owner");
+    expect(await cmuxRemoteKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    expect(await websocketKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    answer.members = [MEMBER, "user-third"];
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
-    expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("team");
   });
 
   test("a teammate on the creator's one-member team is never owner, and Stack is not asked", async () => {
@@ -207,7 +214,7 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, CREATOR)).toBe("owner");
   });
 
-  test("anyone else, any team, and a blank caller get team", () => {
+  test("anyone else, an unread team, and a blank caller get team", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, CREATOR)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, MEMBER)).toBe("team");
@@ -228,11 +235,13 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: "" }, CREATOR, { memberIds: [CREATOR] })).toBeNull();
   });
 
-  test("a team machine is owner only for its creator, on a member list of exactly them", () => {
+  test("a team machine is owner only for its creator on the member list, at any team size", () => {
     const solo = { userId: CREATOR, ownerTeamId: TEAM };
     expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR] })).toBe("owner");
-    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, MEMBER] })).toBe("team");
-    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, CREATOR] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("owner");
+    expect(vmKindForCaller(solo, MEMBER, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, CREATOR] })).toBe("owner");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [MEMBER, "user-third"] })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { memberIds: [] })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { memberIds: null })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { error: "error" })).toBe("team");
@@ -251,5 +260,116 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCallerNeedsMembers({ userId: MEMBER, ownerTeamId: TEAM }, CREATOR)).toBe(false);
     expect(vmKindForCallerNeedsMembers({ userId: CREATOR, ownerTeamId: " " }, CREATOR)).toBe(false);
     expect(vmKindForCallerNeedsMembers({ userId: "", ownerTeamId: TEAM }, "")).toBe(false);
+  });
+});
+
+// A teammate the machine's chats were shared with (cloud_vm_chat_grants,
+// services/vms/chatGrants.ts) is owner while the grant stands and they are
+// still on the team, so cmux-tui's guarded start accepts them. The attach
+// route reads grants (readChatGrants); no other caller of these workflows does.
+describe("attach-endpoint vmKind with a chat grant", () => {
+  function grantLayer(vm: CloudVmRow, grant: { granted?: boolean; error?: true; never?: true }) {
+    const asked: string[] = [];
+    const layer = layerFor(vm, {
+      hasVmChatGrant: (input) => {
+        asked.push(`${input.vmId}:${input.userId}`);
+        if (grant.never) return Effect.never;
+        if (grant.error) return Effect.fail(new VmDatabaseError({ operation: "hasVmChatGrant", cause: "down" }));
+        return Effect.succeed(grant.granted === true);
+      },
+    });
+    return { layer, asked };
+  }
+
+  async function grantedKind(
+    vm: CloudVmRow,
+    userId: string,
+    grant: { granted?: boolean; error?: true; never?: true },
+    teamDirectory: VmTeamDirectory | undefined,
+    readChatGrants = true,
+  ) {
+    const { layer, asked } = grantLayer(vm, grant);
+    const input = { ...access(userId, vm.ownerTeamId, teamDirectory), readChatGrants };
+    const remote = await Effect.runPromise(openVmCmuxRemote(input).pipe(Effect.provide(layer)));
+    const websocket = await Effect.runPromise(openAttachEndpoint(input).pipe(Effect.provide(layer)));
+    expect(remote.vmKind).toBe(websocket.vmKind);
+    return { kind: remote.vmKind, asked };
+  }
+
+  const team = directory({ members: [CREATOR, MEMBER] }).teamDirectory;
+
+  test("a granted teammate still on the team is owner", async () => {
+    const { kind, asked } = await grantedKind(teamVm, MEMBER, { granted: true }, team);
+    expect(kind).toBe("owner");
+    expect(asked).toEqual([`${teamVm.id}:${MEMBER}`, `${teamVm.id}:${MEMBER}`]);
+  });
+
+  test("no grant, or a granted teammate who left the team, is team", async () => {
+    expect((await grantedKind(teamVm, MEMBER, { granted: false }, team)).kind).toBe("team");
+    const left = directory({ members: [CREATOR] }).teamDirectory;
+    expect((await grantedKind(teamVm, MEMBER, { granted: true }, left)).kind).toBe("team");
+    expect((await grantedKind(teamVm, MEMBER, { granted: true }, directory({ members: null }).teamDirectory)).kind).toBe("team");
+  });
+
+  test("a grant read or member read that fails is team, never owner", async () => {
+    expect((await grantedKind(teamVm, MEMBER, { error: true }, team)).kind).toBe("team");
+    const down = directory({ error: new Error("stack down") }).teamDirectory;
+    expect((await grantedKind(teamVm, MEMBER, { granted: true }, down)).kind).toBe("team");
+    // No directory: the member list is unknown, so the grant is not even read.
+    const unread = await grantedKind(teamVm, MEMBER, { granted: true }, undefined);
+    expect(unread.kind).toBe("team");
+    expect(unread.asked).toEqual([]);
+  });
+
+  test("a grant read that never answers times out to team", async () => {
+    expect((await grantedKind(teamVm, MEMBER, { never: true }, team)).kind).toBe("team");
+  }, 15_000);
+
+  test("without readChatGrants the grant is never read and nothing changes", async () => {
+    const { kind, asked } = await grantedKind(teamVm, MEMBER, { granted: true }, team, false);
+    expect(kind).toBe("team");
+    expect(asked).toEqual([]);
+  });
+
+  test("the creator is answered without reading grants", async () => {
+    const { kind, asked } = await grantedKind(teamVm, CREATOR, { granted: false }, team);
+    expect(kind).toBe("owner");
+    expect(asked).toEqual([]);
+  });
+
+  test("a grant never counts on a personal-account machine", async () => {
+    const { kind, asked } = await grantedKind(personalVm, MEMBER, { granted: true }, team);
+    expect(kind).toBe("team");
+    expect(asked).toEqual([]);
+  });
+});
+
+describe("vmKindForCaller with a chat grant", () => {
+  const shared = { userId: CREATOR, ownerTeamId: TEAM };
+
+  test("owner only for a granted caller on the member list of a team machine", () => {
+    const granted = { chatGranted: true };
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: [CREATOR, MEMBER] }, granted)).toBe("owner");
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: [CREATOR] }, granted)).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: null }, granted)).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, { error: "timeout" }, granted)).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, undefined, granted)).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: [CREATOR, MEMBER] }, { chatGranted: false })).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: [CREATOR, MEMBER] })).toBe("team");
+    expect(vmKindForCaller(shared, "", { memberIds: [""] }, granted)).toBe("team");
+    expect(vmKindForCaller(shared, MEMBER, { memberIds: [` ${MEMBER}`] }, granted)).toBe("team");
+    // Personal-account machine: a grant is ignored.
+    expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER, { memberIds: [MEMBER] }, granted)).toBe("team");
+    expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: "" }, MEMBER, { memberIds: [MEMBER] }, granted)).toBeNull();
+  });
+
+  test("a grant asks for the member list only on a team machine", () => {
+    expect(vmKindForCallerNeedsMembers(shared, MEMBER, { chatGranted: true })).toBe(true);
+    expect(vmKindForCallerNeedsMembers(shared, MEMBER, { chatGranted: false })).toBe(false);
+    expect(vmKindForCallerNeedsMembers({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER, { chatGranted: true })).toBe(false);
+    expect(vmKindForCallerMayUseChatGrant(shared, MEMBER)).toBe(true);
+    expect(vmKindForCallerMayUseChatGrant(shared, CREATOR)).toBe(false);
+    expect(vmKindForCallerMayUseChatGrant(shared, "")).toBe(false);
+    expect(vmKindForCallerMayUseChatGrant({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER)).toBe(false);
   });
 });
