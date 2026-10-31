@@ -170,6 +170,12 @@ public final class StatusIndicatorAppearance {
         clients.add(client)
     }
 
+    /// Settings previews and commits publish to mounted indicators in the same main-actor turn.
+    /// The observation task still follows Debug tunables and motion changes made elsewhere.
+    public func refresh() {
+        apply(StatusIndicatorConfig.current)
+    }
+
     private func startObserving() {
         guard observation == nil else { return }
         observation = Task { [weak self] in
