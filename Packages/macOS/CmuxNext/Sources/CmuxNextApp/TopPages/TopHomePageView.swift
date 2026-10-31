@@ -186,12 +186,8 @@ final class TopHomePageView: NSView {
                 self?.openWhenListed(id)
             }
         }
-        // Search: messages whose text matches, from the conversation owner (Messages' search); an
-        // owner without conversation search answers none. Choosing one opens its conversation at it.
         list.searchMessages = { query in (try? await home.homeStore.search(query, limit: 20)) ?? [] }
-        list.onOpenMessage = { [weak self] hit in
-            self?.show(HomeDockSelection(conversation: hit.conversation.rawValue, message: hit.message.id.rawValue))
-        }
+        list.onOpenMessage = { [weak self] hit in self?.show(HomeDockSelection(conversation: hit.conversation.rawValue, message: hit.message.id.rawValue)) }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }

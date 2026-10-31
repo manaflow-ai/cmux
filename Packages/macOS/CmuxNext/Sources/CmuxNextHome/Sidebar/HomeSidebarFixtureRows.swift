@@ -15,11 +15,19 @@ public struct HomeSidebarFixtureRows: Sendable {
     public let now: Date
 
     /// - Parameters:
-    ///   - me: The signed-in person (or a debug stand-in).
+    ///   - me: The signed-in person; nil stands in a debug "Me".
     ///   - now: The newest row's time.
-    public init(me: Participant, now: Date) {
-        self.me = me
+    public init(me: Participant?, now: Date) {
+        self.me = me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
         self.now = now
+    }
+
+    /// The first `count` fixture names as team members with no DM (`debug.home.sidebar_fixture`
+    /// `team`), the last name first.
+    public static func team(_ count: Int) -> [HomeContact] {
+        names.prefix(max(0, count)).reversed().enumerated().map { i, name in
+            HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)
+        }
     }
 
     /// One DM per name, an hour apart.

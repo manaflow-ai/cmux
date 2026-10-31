@@ -13,10 +13,8 @@ import Foundation
 /// `chiefs` [{id, name, mascot?}] lists one Chief DM each after them, each Chief wearing the
 /// character `mascot` picks for it (``ChiefMascotPicks``; none: its own or the default).
 /// `team` (at most 12) lists that many fixture team members with no DM after the conversations
-/// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
-/// after the rows (no `count` keeps them); the answer carries the header's frames.
-/// `messages` [{row, text}] answers the list's message search (``HomeSidebarFixtureRows/messageHits(_:in:now:)``);
-/// `query` types into the search field, as a person does.
+/// (`team: 0` removes them). `width`, `select`, `search`, `query`, `unread` set the list's look (`HomeSidebarView.debugLook`),
+/// after the rows (no `count` keeps them); the answer carries the header's frames. `messages` [{row, text}]: ``HomeSidebarFixtureRows/messageHits(_:in:now:)``.
 /// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
 /// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
 /// `hover_draft: true` moves the synthesized pointer (`DebugHover`) onto the New Message row, so
@@ -39,34 +37,24 @@ enum DebugHomeSidebarFixture {
         }
         if params["intro"] != nil { return .object(["intro": .bool(page.host != nil)]) }
         if let team = params["team"]?.intValue {
-            page.sidebar.debugTeam = HomeSidebarFixtureRows.names.prefix(max(0, team)).reversed().enumerated().map { i, name in
-                HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)
-            }
+            page.sidebar.debugTeam = HomeSidebarFixtureRows.team(team)
             page.list.update(page.sidebar.model())
         }
-        if let messages = params["messages"]?.arrayValue {
-            let entries = messages.map { (row: $0["row"]?.intValue, text: $0["text"]?.stringValue) }
-            page.list.debugMessageHits = HomeSidebarFixtureRows.messageHits(entries, in: page.sidebar.debugRows, now: Date())
-        }
-        if params["count"] != nil || params["chiefs"] != nil
-            || !["width", "select", "search", "unread", "team", "messages", "query"].contains(where: { params[$0] != nil }) {
+        if let messages = params["messages"]?.arrayValue { page.list.debugMessageHits = HomeSidebarFixtureRows.messageHits(messages.map { ($0["row"]?.intValue, $0["text"]?.stringValue) }, in: page.sidebar.debugRows, now: Date()) }
+        if params["count"] != nil || params["chiefs"] != nil || !["width", "select", "search", "unread", "team", "messages", "query"].contains(where: { params[$0] != nil }) {
             let count = min(HomeSidebarFixtureRows.names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
-            let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
             let chiefs = (params["chiefs"]?.arrayValue ?? []).compactMap { entry -> (id: String, name: String)? in
                 guard let id = entry["id"]?.stringValue, let name = entry["name"]?.stringValue else { return nil }
                 if let mascot = entry["mascot"]?.stringValue { services.chiefMascotPicks.remember(mascot, for: id) }
                 return (id, name)
             }
             services.home.debugChiefs = Set(chiefs.map(\.id))
-            let fixture = HomeSidebarFixtureRows(me: me, now: Date())
+            let fixture = HomeSidebarFixtureRows(me: services.home.homeStore.me, now: Date())
             page.sidebar.debugRows = fixture.rows(count: count) + fixture.chiefRows(chiefs)
             for row in page.sidebar.debugRows.prefix(pinned) where !page.sidebar.pins.isPinned(row) { page.sidebar.setPinned(true, row.id) }
             page.list.update(page.sidebar.model())
         }
-        guard let look = page.list.debugLook(width: params["width"]?.doubleValue, select: params["select"]?.intValue, unread: params["unread"]?.boolValue,
-                                             search: params["search"]?.boolValue, query: params["query"]?.stringValue) else {
-            return .object(["error": .string("no such row")])
-        }
+        guard let look = page.list.debugLook(width: params["width"]?.doubleValue, select: params["select"]?.intValue, unread: params["unread"]?.boolValue, search: params["search"]?.boolValue, query: params["query"]?.stringValue) else { return .object(["error": .string("no such row")]) }
         return JSONValue(foundation: look.merging(["rows": page.sidebar.debugRows.map(\.id.rawValue)]) { a, _ in a }) ?? .null
     }
 }
