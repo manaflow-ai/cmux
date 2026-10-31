@@ -93,11 +93,9 @@ impl Card {
                 format!("{title}: {step}")
             }
             Self::SignIn { site, .. } => format!("Secure Store: sign in to {site}"),
-            Self::NextSteps { choices } => choices
-                .iter()
-                .map(|choice| format!("→ {choice}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            Self::NextSteps { choices } => {
+                choices.iter().map(|choice| format!("→ {choice}")).collect::<Vec<_>>().join("\n")
+            }
         }
     }
 
@@ -172,10 +170,9 @@ pub fn valid_card(card: &Card) -> bool {
         Card::NextSteps { choices } => {
             (1..=MAX_CARD_CHOICES).contains(&choices.len())
                 && choices.iter().all(|choice| valid_label(choice, MAX_CARD_CHOICE_CHARS))
-                && choices
-                    .iter()
-                    .enumerate()
-                    .all(|(index, choice)| !choices[..index].contains(choice))
+                && choices.iter().enumerate().all(|(index, choice)| {
+                    choices.iter().take(index).all(|earlier| earlier != choice)
+                })
         }
     }
 }
