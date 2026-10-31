@@ -431,4 +431,37 @@ struct SecondCreationKeysTests {
             #expect(made != nil, "the held Cmd-D made no pane")
         }
     }
+
+    /// P0 1193 follow-up (coordinator 17:2xZ, from #29530's review): the hold ends while the focus names the new
+    /// terminal but another view (a text field) has the keyboard. The keys typed for the terminal go to the terminal
+    /// (its own encoder), never into the view that has the keyboard: before, the focused lane's keys ran again as typed
+    /// into whatever had the keyboard.
+    @Test func heldKeysNeverRunIntoAnotherViewWhenTheHoldEnds() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let held = try Self.type("echo v1x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // Another view takes the keyboard; the focus model still names the first terminal (its pane presented).
+            let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+            p.window.contentView?.addSubview(field)
+            defer { field.removeFromSuperview() }
+            p.window.makeFirstResponder(field)
+            p.content.focus.send(.contentPresented(pane: p.first.pane.paneKey))
+            try await PinnedPageTests.until({
+                p.content.focus.state.resolved == .terminal(pane: p.first.pane.paneKey, tab: p.first.tab) && p.window.firstResponder === field
+            }, within: .seconds(5), report: {
+                "waited for the focus on the first terminal while a text view has the keyboard; saw focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))"
+            })
+            coordinator.resolve(creation, landed: true, in: p.window)
+            let inFirst = try await Self.ran("v1x\(nonce)x42", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            // The outcome the person sees first.
+            #expect(!field.string.contains("v1x\(nonce)"), "the keys typed for the first terminal ran into the text view: \(field.string.suffix(200))")
+            #expect(inFirst, "the line typed for the first terminal did not run there: \(first.suffix(300))")
+        }
+    }
 }
