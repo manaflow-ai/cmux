@@ -54,14 +54,14 @@ import Testing
         let windows = AcpmuxChatWindows()
         var none: [[PaletteItem]] = []
         for await answer in AgentChatsPalettePage.answers("zebra", windows: windows, open: { _ in }) { none.append(answer) }
-        #expect(none.allSatisfy(\.isEmpty), "no connection: no rows")
+        #expect(none.allSatisfy { $0.isEmpty }, "no connection: no rows")
         var sent: [[String: any Sendable]] = []
         windows.connected { _, params in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("quokka", windows: windows, open: { _ in })
         windows.requestFailed(AgentChatsPalettePage.window)
         var refused: [[PaletteItem]] = []
         for await answer in stream { refused.append(answer) }
-        #expect(refused.allSatisfy(\.isEmpty), "refused: no rows")
+        #expect(refused.allSatisfy { $0.isEmpty }, "refused: no rows")
     }
 
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
