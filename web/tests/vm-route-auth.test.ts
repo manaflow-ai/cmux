@@ -1597,7 +1597,13 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       vms: [{ id: "pro-vm", freeAccessExpiresAt: null }],
-      limits: { planId: "pro", freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+      limits: {
+        planId: "pro",
+        freeAccessWindowDays: 0,
+        freeAccessExpiresAt: null,
+        createProvider: "freestyle",
+        createSizing: true,
+      },
     });
   });
 

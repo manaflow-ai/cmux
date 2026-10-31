@@ -263,8 +263,16 @@ export async function GET(request: Request): Promise<Response> {
       const counted = await runVmRoute(savedMachineListCount(user.id, billingTeamId, listEntitlements), { request });
       if (!counted.ok) return counted.response;
       const savedVmCount = counted.value;
+      const createProvider = defaultProviderId();
+      const createCapabilities = vmCapabilitiesFor(createProvider);
       const limits = listEntitlements
         ? {
+          // New-machine clients use the same provider and capability contract
+          // as POST /api/vm. A client must not offer a size that the selected
+          // default provider will ignore, and it must only use prices from
+          // machines on that provider.
+          createProvider,
+          createSizing: createCapabilities.sizing,
           maxActiveVms: listEntitlements.maxActiveVms,
           // Legacy wire key: the quota counts saved machines, including paused ones.
           activeVmCount: savedVmCount,
@@ -314,7 +322,7 @@ export async function GET(request: Request): Promise<Response> {
           ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
+          imageKinds: listVmImageKinds(createProvider, process.env, {
             memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
           }),
         }
