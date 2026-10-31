@@ -48,12 +48,17 @@ async function board() {
   })
   const timers = []
   let pendingList = null
+  let pendingWrite = null
   const cmux = {
     call: async (op) => {
       if (op === "workspace.list") return { value: [{ id: "ws1", name: "Sample" }] }
       if (op === "terminal.list") {
         if (pendingList) await pendingList
         return { value: [{ id: "t1", title: "Sample terminal" }] }
+      }
+      if (op === "terminal.input.write") {
+        if (pendingWrite) await pendingWrite
+        return { value: null }
       }
       throw new Error(`Unexpected operation: ${op}`)
     },
@@ -67,6 +72,12 @@ async function board() {
     document,
     input: () => nodes.board.querySelectorAll("input")[0],
     refresh: () => nodes.refresh.listeners.get("click")(),
+    submit: () => nodes.board.querySelectorAll("form")[0].listeners.get("submit")({ preventDefault() {} }),
+    holdWrite: () => {
+      let release
+      pendingWrite = new Promise((resolve) => { release = resolve })
+      return release
+    },
     holdList: () => {
       let release
       pendingList = new Promise((resolve) => { release = resolve })
@@ -107,4 +118,16 @@ test("refresh preserves edits made while its request is pending and the selectio
   assert.equal(app.input().selectionStart, 5)
   assert.equal(app.input().selectionEnd, 8)
   assert.equal(app.input().selectionDirection, "backward")
+})
+
+test("a send completing after refresh clears the visible command", async () => {
+  const app = await board()
+  const release = app.holdWrite()
+  const input = app.input()
+  input.value = "echo a single send"
+  app.submit()
+  await app.refresh()
+  release()
+  await setImmediate()
+  assert.equal(app.input().value, "")
 })
