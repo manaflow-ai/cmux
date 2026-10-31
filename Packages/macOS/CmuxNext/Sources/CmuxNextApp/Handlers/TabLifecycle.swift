@@ -471,7 +471,7 @@ extension TabLifecycle {
         return ChatColumnPlacement.openTool(from: chat, services: ctx.services, kind: .terminal) { target, placed in
             guard target.daemon.connection != nil else { return false }
             let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
-            target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, then: then)
+            target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, placementOwner: placed != nil, then: then)
             return true
         }
     }

@@ -151,7 +151,8 @@ enum AgentBesidePlacement {
             // callers that go through LinkOpener; this path also re-measures its source).
             let source = controller ?? services.paneController(for: anchor)
             let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
-            let decision = RightColumnPlacement.decide(measured)
+            let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
+            let decision = RightColumnPlacement.decide(measured, opening: kind)
             let destination: PaneController? = {
                 guard case .tab(let id) = decision, let id else { return nil }
                 return source?.workspace?.panes[LayoutPaneID(rawValue: id)]

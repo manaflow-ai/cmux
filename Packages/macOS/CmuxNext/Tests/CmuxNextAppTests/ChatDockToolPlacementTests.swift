@@ -30,7 +30,7 @@ import Testing
             let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1), dock: dock),
                            ColumnSnapshot(id: 11, width: 1, layout: right)]
             var panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Chat")]),
-                         PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "Preview")])]
+                         PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, kind: .browser, title: "Preview")])]
             if lower { panes.append(PaneSnapshot(id: 3, tabs: [TabSnapshot(surface: 3, title: "Terminal")])) }
             let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
             services.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Tools", screens: [screen])]))
@@ -75,6 +75,20 @@ import Testing
         #expect(moves, "a dock tool must split below the existing pane, not become a tab above")
         #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true) == .splitBelow(of: shown.upper.layoutPaneID))
         #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.chat.layoutPaneID))
+    }
+
+    @Test func dockToolsReuseTheirKindAndSplitForTheOtherKind() throws {
+        let shown = try Shown(lower: false)
+        defer { shown.close() }
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .browser) == .pane(shown.upper.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal) == .splitBelow(of: shown.upper.layoutPaneID))
+        var moves = true
+        #expect(ChatColumnPlacement.openTool(from: shown.chat, services: shown.services, kind: .browser) { pane, placed in
+            #expect(pane === shown.upper)
+            moves = placed != nil
+            return false
+        })
+        #expect(!moves)
     }
 
     @Test func twoRightPanesAddATabInTheLowerPane() throws {
