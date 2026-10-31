@@ -299,9 +299,11 @@ struct CloudAgentChatTests {
         // A real path (no /tmp symlink): the daemon reports a terminal's folder as it launched it.
         let root = URL(fileURLWithPath: "/private/tmp/cn-chat-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let macHome = root.appendingPathComponent("mac-home", isDirectory: true)
         let home = root.appendingPathComponent("vm-home", isDirectory: true)
         let work = home.appendingPathComponent("work", isDirectory: true)
         let acpmuxHome = root.appendingPathComponent("vm-acpmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: macHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: acpmuxHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // The machine's acpmux: one harness, the sample one (an asking mode, so it may run from here).
@@ -312,10 +314,14 @@ struct CloudAgentChatTests {
         ]
         try JSONSerialization.data(withJSONObject: config).write(to: acpmuxHome.appendingPathComponent("config.json"))
 
-        let base = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
+        // Only the explicit sample harness: a login shell can change PATH, and live catalog
+        // fetches and probes make this fixture depend on the worker's setup and network.
+        let base = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color",
+                    "ACPMUX_LOGIN_ENV": "0", "ACPMUX_CATALOG_FETCH": "0", "ACPMUX_REGISTRY_FETCH": "0",
+                    "ACPMUX_HEALTH_FETCH": "0", "ACPMUX_PROBE_HARNESSES": ""]
         // This Mac's acpmux has a home of its own: a chat that ran here instead never touches the person's.
         let macAcpmux = root.appendingPathComponent("mac-acpmux").path
-        let macEnvironment: @Sendable () -> [String: String] = { base.merging(["HOME": NSHomeDirectory(), "ACPMUX_HOME": macAcpmux]) { $1 } }
+        let macEnvironment: @Sendable () -> [String: String] = { base.merging(["HOME": macHome.path, "ACPMUX_HOME": macAcpmux]) { $1 } }
         var vmVariables = base.merging(["HOME": home.path, "ACPMUX_HOME": acpmuxHome.path]) { $1 }
         if let hostKind { vmVariables["CMUX_AGENT_START_HOST"] = hostKind }
         let vmEnvironment: @Sendable () -> [String: String] = { [vmVariables] in vmVariables }
@@ -383,7 +389,7 @@ struct CloudAgentChatTests {
         await hub?.stop()
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": acpmuxHome.path, "HOME": home.path])
         // A chat that wrongly ran on this Mac would have started its acpmux here.
-        _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": macAcpmux, "HOME": NSHomeDirectory()])
+        _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": macAcpmux, "HOME": macHome.path])
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
     }
