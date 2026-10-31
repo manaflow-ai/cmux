@@ -2,8 +2,8 @@
 // A row that cuts its text short opens to all of it (Leo, ask-486cb2cec3: "why the fuck did you guys
 // ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"), one test per row kind
 // this fixes:
-// - a tool call's line (no shell): it opens, with output or without, and opened its label is drawn
-//   whole (`is-whole-open`, conversation.css), never only its first words;
+// - a tool call's line (no shell): it opens when it has output, or when a long label itself is cut;
+//   a short label with no detail stays an inert row;
 // - a dispatch report's text: the whole report, never cut at 2,000 characters.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
@@ -111,6 +111,30 @@ test("a shell's line keeps its one line: its Shell block shows the whole command
   const container = await render(<ToolRow item={shell} />);
   expect(container.querySelector("button.cv-tool")!.classList.contains("is-whole-open")).toBe(false);
 });
+
+for (const [name, output] of [
+  ["without output", undefined],
+  ["with whitespace output", " \n\t"],
+] as const) {
+  test(`a short tool call ${name} has no empty disclosure`, async () => {
+    const item: AcpmuxActivity = {
+      kind: "tool",
+      text: "Wait 60000 ms",
+      tool: {
+        id: `wait-${name}`,
+        title: "Wait 60000 ms",
+        kind: "execute",
+        status: "completed",
+        ...(output === undefined ? {} : { output }),
+      },
+    };
+    const container = await render(<ToolRow item={item} />);
+    expect(container.querySelector("button.cv-tool")).toBeNull();
+    expect(container.querySelector(".cv-tool")?.tagName).toBe("DIV");
+    expect(container.querySelector(".cv-tool")?.getAttribute("aria-expanded")).toBeNull();
+    expect(container.querySelector(".cv-tool__chevron")).toBeNull();
+  });
+}
 
 test("a dispatch report keeps its whole text", () => {
   const long = `${"The picker now fails over a stalled label. ".repeat(80)}END`;
