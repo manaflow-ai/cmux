@@ -885,3 +885,41 @@ fn a_column_create_that_resizes_a_column_is_refused() {
         .expect_err("a drag into a new column that resizes one must be refused");
     assert!(problems.to_string().contains("resized column"), "{problems}");
 }
+
+/// R3b checks only the screen that gets the new column (review of #29176):
+/// a tab dragged from workspace A into a new column in workspace B closes
+/// its column in A, and A's lone column with rows goes back to full width
+/// (close sizing). That is not a create resizing a column, so the drag lands.
+#[test]
+fn a_drag_into_a_new_column_elsewhere_is_not_refused_for_its_source_screens_close_sizing() {
+    let mux = test_mux("layout-invariants-r3b-elsewhere");
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let a0 = pane_of(&mux, first.id);
+    // Workspace A: c0 at 0.6 with two rows, c1 at 0.4 with one pane and one tab.
+    let moved = mux.new_pane_right(a0, 0.4, Some((30, 22))).unwrap();
+    assert!(mux.set_viewport_pane_width(a0, 0.6));
+    mux.new_row_with_options(a0, 500, Default::default(), Some((38, 10)), None).unwrap();
+    // Workspace B: one pane.
+    let second = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let b0 = pane_of(&mux, second.id);
+    let before = mux.with_state(|state| {
+        state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.screens[0].layout_columns.len())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(before, vec![2, 0]);
+    mux.move_tab_to_column(moved.id, b0, None, Some(0.5), None, None)
+        .expect("the drag lands: A's close sizing is not a create resize");
+    mux.with_state(|state| {
+        assert_eq!(
+            state.pane_of(moved.id).map(|pane| state.screen_of(pane).map(|(w, _)| w)),
+            Some(Some(1))
+        );
+        // A's lone column with rows is full width again; B's tree stays full width.
+        assert_eq!(state.workspaces[0].screens[0].layout_columns[0].width, 1.0);
+        let b = &state.workspaces[1].screens[0].layout_columns;
+        assert_eq!(b.iter().map(|column| column.width).collect::<Vec<_>>(), vec![1.0, 0.5]);
+    });
+}
