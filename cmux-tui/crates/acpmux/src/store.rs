@@ -748,6 +748,11 @@ pub trait Store: Send + Sync {
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// The daemon's shutdown is done: from now on every write is refused. It lets go of
+    /// `daemon.lock` before its process exits, so the next daemon may already read this store;
+    /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
+    /// way.
+    fn seal(&self) {}
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
@@ -980,6 +985,9 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// Read-held by every write, true once `seal` ran: a write either lands before the seal
+    /// returns or not at all.
+    sealed: std::sync::RwLock<bool>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1023,7 +1031,17 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            sealed: Default::default(),
         })
+    }
+
+    /// Held through a write; refused once the store is sealed (`Store::seal`).
+    fn writable(&self) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+        let sealed = self.sealed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *sealed {
+            anyhow::bail!("the store is sealed: the daemon has shut down");
+        }
+        Ok(sealed)
     }
 
     fn dir(&self, id: &str) -> PathBuf {
@@ -1397,6 +1415,7 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
@@ -1419,6 +1438,7 @@ impl Store for LocalStore {
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
         // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
             && writers.open.len() >= OPEN_LOGS
@@ -1632,14 +1652,23 @@ impl Store for LocalStore {
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        // Not under the seal: staging writes only copies beside the log, and a large log's
+        // stage would hold a shutdown's seal for as long as it reads (router review of #28503).
+        // The commit that puts them in place is sealed.
         LocalStore::stage_compaction(self, id, mode)
     }
 
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        let _open = self.writable()?;
         LocalStore::commit_compaction(self, id, staged)
     }
 
+    fn seal(&self) {
+        *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
+        let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
