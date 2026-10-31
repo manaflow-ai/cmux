@@ -7,7 +7,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
-import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { cleanText, mcpCall, mcpOutputResult, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { shellOutput } from "./toolFailure";
@@ -34,7 +34,9 @@ export type FindMatchesResult = {
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
 
-const SEARCHED_KINDS = new Set(["user", "assistant"]);
+/// Prompts, replies, and another agent's message waiting in the queue (QUEUED_MESSAGE, its text),
+/// which the transcript draws in the group of waiting messages (pendingMessages.ts).
+const SEARCHED_KINDS = new Set(["user", "assistant", "queuedMessage"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
@@ -47,7 +49,11 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
+  if (call) {
+    const result = mcpOutputResult(tool.output, strip, call.tool);
+    const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
+    return [prettyValue(call.args), text].filter(Boolean).join("\n");
+  }
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
@@ -222,8 +228,17 @@ export type FindRevealTarget = {
   /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
    * the running line, WorkingFor.tsx). */
   toolId?: string;
+  /** The match's own row when `rowId` draws it inside itself (a message in the group of waiting
+   * messages, PendingMessagesCard.tsx): only that one opens. */
+  matchRowId?: string;
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
+
+/// A grouped message keeps its own Find/highlight target even though its outer row scrolls in.
+export const findMemberRowId = (row: AcpmuxRow | undefined, target: string | undefined): string | undefined =>
+  target && (row?.pendingMessages || row?.laneNoticeBatch) && row.id !== target && row.joined?.includes(target)
+    ? target
+    : undefined;
 
 /** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
  * that absorbed it (turns.ts `mergeShortNotes`). */
@@ -333,8 +348,14 @@ export function paintFindHighlights(
     }
     const candidates: { range: Range; pair?: string; kind?: "primary" | "fallback" }[] = [];
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+      // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        node.parentElement?.closest("[data-find-skip]") ||
+        node.parentElement
+          ?.closest("[data-find-member][data-row-id]")
+          ?.closest("[data-row-id]:not([data-find-member])") === row
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
     });
     for (const nodes of findRuns(walker)) {
       // A run's nodes share one presentation (a label's verb and subject sit in one element).

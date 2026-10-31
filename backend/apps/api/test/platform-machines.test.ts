@@ -8,6 +8,7 @@ import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { bindBody, bindFile, cloudStub, frame, reply, SIZE } from "./cloud-bind-support.ts"
 import { ALLOWED_USERS, cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.ts"
+import { DriverError } from "../src/providers/contract.ts"
 
 /** PlatformMachines (platform-machines.ts): the service-binding entrypoint for the platform Worker's environment setups. */
 type Reply = { ok: boolean; value?: any; code?: string; message?: string; retryable?: boolean }
@@ -111,6 +112,19 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(warm.value.id).not.toBe(machine)
   })
 
+  it("returns and audits a terminal output-limit refusal through CloudDO", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    await inDO(stub, async (instance) => {
+      instance.driverFor = async () => ({
+        execStdin: async () => { throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true) }
+      })
+    })
+    expect(await rpc.exec(c, machine, "yes", null, 1000)).toMatchObject({ ok: false, code: "cloud.exec.output_limit", retryable: false })
+    const ctl = await stub.fakeControl({}) as any
+    expect(ctl.audit.at(-1)).toMatchObject({ action: "platform.exec", machine, outcome: "output_limit" })
+  })
+
   it("a delete that failed for good is started again by the next destroy, until the machine is gone", async () => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)
@@ -147,7 +161,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(saved).toMatchObject({ ok: true, value: { id: expect.stringMatching(/^snap_[a-z0-9]{20}$/) } })
     const id = saved.value.id as string
     expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
-    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
     expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
 
     const other = caller()
@@ -225,6 +239,33 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     })
     expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
     expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
+  })
+
+  it("does not claim an old unmarked snapshot is gone when its creation ledger is absent", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.any(String) } })
+    const id = saved.value.id as string
+    await inDO(stub, async (instance) => {
+      const rows = instance.boundEngine.rows
+      const snap = rows.get(TABLE_SNAPSHOT, id)
+      const { platform: _platform, ...unmarked } = snap.row
+      const created = rows.range(TABLE_LEDGER, { limit: 1000 }).find((entry: any) => entry.row.op === "snapshot" && entry.row.snapshot === id)
+      expect(created).toBeDefined()
+      rows.apply([
+        { table: TABLE_SNAPSHOT, op: "upsert", key: id, n: snap.n, row: unmarked },
+        { table: TABLE_LEDGER, op: "delete", key: created.key },
+      ])
+      expect(rows.get(TABLE_SNAPSHOT, id).row.platform).toBeUndefined()
+      expect(rows.get(TABLE_LEDGER, created.key)).toBeUndefined()
+    })
+    const before = (await stub.fakeControl({})) as any
+    expect(before.snapshots).toHaveLength(1)
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.ownership_unknown", retryable: true })
+    const after = (await stub.fakeControl({})) as any
+    expect(after.snapshot_deletes).toBe(before.snapshot_deletes)
+    expect(after.snapshots).toEqual(before.snapshots)
   })
 
   it("refuses a non-platform snapshot without calling its provider", async () => {

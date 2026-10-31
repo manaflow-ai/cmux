@@ -28,7 +28,8 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
                 result("new cloud workspace", context) {
                     (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
@@ -348,7 +349,10 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil,
+    /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
+    /// window showing its creation still opens its workspace in one. Without it the workspace waits,
+    /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
@@ -363,9 +367,11 @@ extension CloudHandlers {
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
                 // The window that still shows the creation shows its
-                // workspace; one that moved on gets it filed quietly.
+                // workspace; one that moved on gets it filed quietly. A
+                // machine an agent or the CLI made without focus stays out
+                // of the sidebar until the person opens it (`unopenedCloudWorkspaces`).
                 guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
-                    windows.reveal(workspaceID: id)
+                    if startedByPerson || reveals { windows.reveal(workspaceID: id) }
                     return
                 }
                 if state.cloudCreation == creation.id {
@@ -494,5 +500,58 @@ extension CloudHandlers {
             }
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
+    }
+}
+
+// HQ #4884 ("Signed-out cloud is text only"): a person's run of a Cloud action that is
+// unavailable only because nobody is signed in signs in, then runs the action, the way New
+// Cloud Machine resumes after sign-in (#27104). The CLI, MCP, scripts and pages still get
+// ``CloudStrings/signInFirst``.
+extension CloudHandlers {
+    /// Actions whose signed-out reason gets no recovery: running them after a sign-in means
+    /// nothing (Sign Out) or the sign-in already chose for them (Switch Active Team).
+    static let signInRecoveryExempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
+
+    /// Whether a person's run of `id`, unavailable for `reason`, signs in and then runs it.
+    static func signInRecovers(_ id: ActionID, reason: String) -> Bool {
+        reason == CloudStrings.signInFirst && !signInRecoveryExempt.contains(id)
+    }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) {
+        // One pending replay, shared with New Cloud Machine's: a later intent, a sign-out or a
+        // team change drops the earlier one (``CloudSignedOutCreationContinuation``).
+        let pending = cloud.signedOutCreation
+        registry.unavailableRecoveries.append { [weak registry] id, reason in
+            guard signInRecovers(id, reason: reason) else { return nil }
+            return ActionRecovery(note: CloudStrings.signInToContinue) { id, invocation in
+                let expected = pending.reserve()
+                // task-owner: the reserved generation owns the replay; a later intent, sign-out or team change cancels it.
+                Task { @MainActor in
+                    // The machine list loads after sign-in; a machine action replayed before it lands finds no machine.
+                    await pending.perform(expected: expected, signIn: {
+                        guard await cloud.auth.signIn() else { return false }
+                        // A list read for this account, else a fresh read; one a newer read superseded (the
+                        // sign-in's own refresh) is read once more. A failed read still replays, so the action
+                        // reports its own error instead of nothing.
+                        for _ in 0..<2 where !cloud.hasCurrentList(within: .seconds(30)) && cloud.isSignedIn {
+                            if await cloud.refresh() { break }
+                        }
+                        return true
+                    }, resume: {
+                        guard let registry, cloud.isSignedIn else { return }
+                        resumeAfterSignIn(id, invocation, in: registry)
+                    })
+                }
+            }
+        }
+    }
+
+    /// Runs `id` for the person once signed in; a reason that still holds (no team, no backend) is reported.
+    static func resumeAfterSignIn(_ id: ActionID, _ invocation: ActionInvocation, in registry: ActionRegistry) {
+        if let reason = registry.unavailableReason(for: id) {
+            registry.refuse(reason)
+            return
+        }
+        registry.perform(id, invocation: invocation)
     }
 }

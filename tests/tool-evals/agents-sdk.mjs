@@ -211,7 +211,10 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   try {
     await request("initialize", { clientInfo: { name: "cmux-tool-evals", version: "1" } });
     send({ jsonrpc: "2.0", method: "initialized" });
-    const started = await request("thread/start", { model, cwd, approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: true });
+    // CMUX_EVAL_CODEX_DEVELOPER: developer instructions for an A/B run (a real cmux Codex
+    // chat gets none; cmux's rules arrive only as the MCP server's instructions).
+    const developerInstructions = process.env.CMUX_EVAL_CODEX_DEVELOPER || undefined;
+    const started = await request("thread/start", { model, cwd, approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: true, developerInstructions });
     const threadId = started?.thread?.id ?? started?.threadId;
     await request("turn/start", { threadId, input: [{ type: "text", text: prompt }], effort });
     turn = await finished;
@@ -226,7 +229,9 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   return {
     text: text.trim(),
     steps: Math.max(0, steps - 1),
-    usage: { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
+    // Codex's inputTokens includes the cached ones (codex-rs TokenUsage::non_cached_input);
+    // `input` here is the uncached part, as the Claude SDK reports it.
+    usage: { input: Math.max(0, (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0)), output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
     shell,
     error,
   };

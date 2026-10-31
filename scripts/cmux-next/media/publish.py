@@ -12,7 +12,7 @@ steps' screenshots inline and the rest folded. With no tour output, `--note`
 says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
 is deleted on the first write.
 
-Uploads go through scripts/pr-media.py's contents-API writer, after its
+Uploads go through scripts/pr-media.py's git writer, after its
 privacy check (scripts/ci/pr_media_privacy.py) has passed every file of the
 tour: one refused file uploads none of that tour's media. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run

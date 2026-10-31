@@ -158,16 +158,20 @@ fn stuck(row: &Value, now: u64) -> String {
     }
 }
 
-/// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, hub#27899); wide
-/// names each rule.
+/// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, `hub/usage_warnings.rs`),
+/// one word so the default listing stays compact (Leo 2026-10-30: "acpmux ls should probably not
+/// be overly... verbose?"); wide names each rule with its number and the command that answers it
+/// (`ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`).
 fn warn(row: &Value, wide: bool) -> String {
-    let Some(warnings) = row["usageWarnings"].as_array().filter(|w| !w.is_empty()) else {
+    let Some(warnings) =
+        row.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty())
+    else {
         return String::new();
     };
     if !wide {
         return "warn".into();
     }
-    warnings.iter().filter_map(|w| w["rule"].as_str()).collect::<Vec<_>>().join(" ")
+    warnings.iter().map(crate::hub::usage_warnings::with_command).collect::<Vec<_>>().join("; ")
 }
 
 /// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).

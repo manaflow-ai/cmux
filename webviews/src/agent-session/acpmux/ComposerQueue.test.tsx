@@ -6,7 +6,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ComposerQueue } from "./ComposerQueue";
+import { ComposerQueue, shownText } from "./ComposerQueue";
 import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
@@ -77,11 +77,12 @@ const queue = [
 async function render(
   onChange: (id: string, edit: QueueEdit) => Promise<boolean>,
   onRemove: (id: string) => Promise<boolean>,
+  entries: Parameters<typeof ComposerQueue>[0]["queue"] = queue,
 ) {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<ComposerQueue queue={queue} chat="c" t={t} onChange={onChange} onRemove={onRemove} />);
+    root.render(<ComposerQueue queue={entries} chat="c" t={t} onChange={onChange} onRemove={onRemove} />);
   });
   return container;
 }
@@ -345,6 +346,37 @@ test("cancel and edit withdraws a queued prompt and restores its text and images
     ],
   ]);
   expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
+});
+
+test("cancel and edit leaves a prompt queued when one of its images cannot be read back", async () => {
+  const restored: string[] = [];
+  const unreadable = [
+    {
+      ...pictured[0]!,
+      images: [pictured[0]!.images![0]!, { ...pictured[0]!.images![1]!, src: undefined }],
+    },
+  ];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={unreadable}
+        chat="c"
+        t={t}
+        onCancelEdit={async (id) => {
+          restored.push(id);
+          return true;
+        }}
+        readImage={async () => undefined}
+      />,
+    );
+  });
+  const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
+  await act(async () => cancel!.click());
+  await settle();
+  expect(restored).toEqual([]);
+  expect(container.querySelector('[data-prompt-id="p-1"]')).not.toBeNull();
 });
 
 const thumbnails = (container: HTMLElement) => [
@@ -782,4 +814,59 @@ test("an edit pulled back while its images load, from a row that turned out a te
   await act(async () => reads.splice(0).forEach((read) => read("data:image/png;base64,QQ==")));
   await settle();
   expect(touched).toEqual([]);
+});
+
+test("acpmux's ask to resume a subagent is a labelled row with the subagent's name, never its raw text", async () => {
+  // Leo, 2026-10-30: "this looks weird and unrendered idk where it came from".
+  const raw =
+    'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529). Resume it';
+  const container = await render(
+    async () => true,
+    async () => true,
+    [{ id: "r-1", prompt: raw, retry: { name: "Cap context cost", agentId: "af0cbece62b15d0e1", error: "529" } }],
+  );
+  const text = container.querySelector<HTMLButtonElement>('[data-prompt-id="r-1"] .acpmux-queued-text')!;
+  expect(text.querySelector('.acpmux-queued-kind[data-kind="retry"]')?.textContent).toBe(
+    "composer.queuedSubagentRetry",
+  );
+  expect(text.textContent).toBe("composer.queuedSubagentRetryCap context cost");
+  expect(text.textContent).not.toContain("agent id");
+  // Opened, the error follows on its own line; the row keeps its actions.
+  await act(async () => text.click());
+  expect(text.querySelector(".acpmux-queued-detail")?.textContent).toBe("529");
+  expect(actions(container, "r-1").length).toBe(3);
+});
+
+test("a truncated resume row's tooltip is the row's own text, never the raw prompt or its agent id", async () => {
+  // Review (Codex astra) at 10ee1f0: a long name or a narrow pane showed acpmux's raw prompt on hover.
+  const raw =
+    'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529). ' +
+    'Resume it with SendMessage to "af0cbece62b15d0e1": it picks up from its transcript.';
+  const container = await render(
+    async () => true,
+    async () => true,
+    [{ id: "r-1", prompt: raw, retry: { name: "Cap context cost", agentId: "af0cbece62b15d0e1", error: "529" } }],
+  );
+  const button = container.querySelector<HTMLButtonElement>('[data-prompt-id="r-1"] .acpmux-queued-text')!;
+  // The clamp cuts its one line (a test DOM has no layout).
+  const clamp = button.firstElementChild as HTMLElement;
+  Object.defineProperty(clamp, "scrollWidth", { configurable: true, value: 400 });
+  Object.defineProperty(clamp, "clientWidth", { configurable: true, value: 200 });
+  // React makes onPointerEnter from a pointerover whose relatedTarget is outside the root.
+  const Pointer =
+    (dom!.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom!.window.MouseEvent;
+  await act(async () => {
+    button.dispatchEvent(new Pointer("pointerover", { bubbles: true, relatedTarget: dom!.window.document.body }));
+  });
+  expect(button.title).toBe("composer.queuedSubagentRetry Cap context cost\n529");
+  expect(button.title).not.toContain("agent id");
+  expect(button.title).not.toContain("af0cbece62b15d0e1");
+  expect(button.title).not.toContain("SendMessage");
+});
+
+test("shownText is the prompt for the person's rows, and the resume's label, name and error for acpmux's", () => {
+  expect(shownText({ id: "p", prompt: "hello there" }, t)).toBe("hello there");
+  expect(shownText({ id: "r", prompt: "Your subagent … (agent id x1)", retry: { agentId: "x1" } }, t)).toBe(
+    "composer.queuedSubagentRetry x1",
+  );
 });

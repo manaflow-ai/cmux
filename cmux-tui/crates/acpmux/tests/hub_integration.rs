@@ -67,6 +67,8 @@ mod prompt_provenance;
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protected_resume.rs"]
+mod protected_resume;
 #[path = "hub_integration/protocol_serve.rs"]
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
@@ -109,6 +111,9 @@ mod tags_rules;
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
+
+#[path = "hub_integration/turn_attestation.rs"]
+mod turn_attestation;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
