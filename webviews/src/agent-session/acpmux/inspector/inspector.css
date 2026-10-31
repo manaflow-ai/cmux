@@ -771,16 +771,29 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
+/* What gives way in a narrow row, in order: the checks' on-base share (below), then `repo #N`
+   (its shrink weighs 100x the counts'), then the line counts; the comments and "N failing" are
+   never cut. The
+   counts, comments and failing checks are short already (formatCount: 12.3K, 9Q). */
 .acpmux-chat-inspector-pr__ref {
-  flex: 0 0 auto;
+  flex: 0 100 auto;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acpmux-chat-inspector-pr__counts,
 .acpmux-chat-inspector-pr__line .acpmux-diff-counts {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.acpmux-chat-inspector-pr__line .acpmux-diff-counts > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-chat-inspector-pr__comments {
   flex: none;
@@ -788,12 +801,30 @@ button.acpmux-chat-inspector-port:hover,
   align-items: center;
   gap: 3px;
 }
+/* The checks annotation gives way before everything else on the line (#28774's review): failing,
+   its parts are the line's own items (display: contents), so "N failing" stays whole and the
+   "(N already on base)" share after it shrinks first and ends in an ellipsis, while `repo #N` and
+   the line counts keep their room. (Inside a flex box of its own, the share's full text would set
+   that box's minimum width and push the rest out.) */
 .acpmux-chat-inspector-pr__checks {
-  flex: 0 1 auto;
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] {
+  display: contents;
+}
+.acpmux-chat-inspector-pr__failing {
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] > .acpmux-chat-inspector-pr__base {
+  flex: 0 10000 auto;
   min-width: 0;
+  /* The line's 6px gap less a space's width: the share reads as one phrase with the count. */
+  margin-left: -3px;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-left: auto;
+  white-space: nowrap;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
   color: var(--agent-status-failure);
@@ -840,6 +871,16 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more,
 .acpmux-chat-inspector-pr__more:is([data-popup-open], [aria-expanded="true"]) {
   opacity: 1;
+}
+.acpmux-chat-inspector-pr__more[data-popup-open] {
+  color: var(--agent-text);
+}
+/* Touch screens have no hover, so they always show it. Same specificity as the resting rule above,
+   and after it, so it wins there. */
+@media (hover: none) {
+  .acpmux-chat-inspector-pr .acpmux-chat-inspector-pr__more {
+    opacity: 1;
+  }
 }
 .acpmux-chat-inspector-pr-fold {
   margin-top: 2px;
