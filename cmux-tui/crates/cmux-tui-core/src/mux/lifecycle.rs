@@ -61,6 +61,7 @@ impl Mux {
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
