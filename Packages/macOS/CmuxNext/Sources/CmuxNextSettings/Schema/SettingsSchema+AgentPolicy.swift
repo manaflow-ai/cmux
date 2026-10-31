@@ -276,6 +276,12 @@ extension SettingsSchema {
         "history.commandRetentionDays": .privacy,
         "history.closed.maxGroups": .privacy,
         "history.closed.maxAgeDays": .privacy,
+        // What terminal output is written to disk and how much of it is kept (like the history keys).
+        "terminal.persistence.mode": .privacy,
+        "terminal.persistence.maxBytesPerTerminal": .privacy,
+        "terminal.persistence.maxTotalBytes": .privacy,
+        // Lower, other terminals lose scrollback that is not on disk: an agent must not discard the person's output.
+        "terminal.scrollback.maxTotalMemoryBytes": .destructive,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).

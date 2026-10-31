@@ -3929,6 +3929,68 @@
 			<string>array</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<string>snapshot</string>
+			<key>pfm_description</key>
+			<string>Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, written when the screen changed: at most every 30 seconds, at a session checkpoint, when you clear the terminal's history, and at quit. In this mode, terminal.output_read reads only the last 64 KiB in memory. Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; in Full Scrollback only, terminal.output_read can read all of it.</string>
+			<key>pfm_name</key>
+			<string>terminal.persistence.mode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>memory</string>
+				<string>snapshot</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Output on Disk</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The most saved output for one terminal, in bytes. Snapshot: 1 MiB to 4 MiB (default 4 MiB), the largest uncompressed screen replay. Full Scrollback: 1 MiB to 100 GiB (default 100 MiB); the oldest output goes first. Empty uses the mode's default. It is never more than the disk limit for all terminals.</string>
+			<key>pfm_name</key>
+			<string>terminal.persistence.maxBytesPerTerminal</string>
+			<key>pfm_range_max</key>
+			<real>107374182400</real>
+			<key>pfm_range_min</key>
+			<real>1048576</real>
+			<key>pfm_title</key>
+			<string>Disk Limit per Terminal (Bytes)</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first. In Full Scrollback, the screen snapshots (up to 50 MiB) come in addition to this limit.</string>
+			<key>pfm_name</key>
+			<string>terminal.persistence.maxTotalBytes</string>
+			<key>pfm_range_max</key>
+			<real>107374182400</real>
+			<key>pfm_range_min</key>
+			<real>1048576</real>
+			<key>pfm_title</key>
+			<string>Disk Limit for All Terminals (Bytes)</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>268435456</integer>
+			<key>pfm_description</key>
+			<string>The most memory all terminals use together for scrollback, in bytes, from 16 MiB to 64 GiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, the terminals that printed least recently give back scrollback first.</string>
+			<key>pfm_name</key>
+			<string>terminal.scrollback.maxTotalMemoryBytes</string>
+			<key>pfm_range_max</key>
+			<real>68719476736</real>
+			<key>pfm_range_min</key>
+			<real>16777216</real>
+			<key>pfm_title</key>
+			<string>Scrollback Memory for All Terminals (Bytes)</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Empty uses the terminal font.</string>
 			<key>pfm_name</key>

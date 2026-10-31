@@ -4696,6 +4696,39 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.persistence.maxBytesPerTerminal" : {
+      "description" : "The most saved output for one terminal, in bytes. Snapshot: 1 MiB to 4 MiB (default 4 MiB), the largest uncompressed screen replay. Full Scrollback: 1 MiB to 100 GiB (default 100 MiB); the oldest output goes first. Empty uses the mode's default. It is never more than the disk limit for all terminals.",
+      "maximum" : 107374182400,
+      "minimum" : 1048576,
+      "title" : "Disk Limit per Terminal (Bytes)",
+      "type" : "number"
+    },
+    "terminal.persistence.maxTotalBytes" : {
+      "description" : "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first. In Full Scrollback, the screen snapshots (up to 50 MiB) come in addition to this limit.",
+      "maximum" : 107374182400,
+      "minimum" : 1048576,
+      "title" : "Disk Limit for All Terminals (Bytes)",
+      "type" : "number"
+    },
+    "terminal.persistence.mode" : {
+      "default" : "snapshot",
+      "description" : "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, written when the screen changed: at most every 30 seconds, at a session checkpoint, when you clear the terminal's history, and at quit. In this mode, terminal.output_read reads only the last 64 KiB in memory. Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; in Full Scrollback only, terminal.output_read can read all of it.",
+      "enum" : [
+        "memory",
+        "snapshot",
+        "full"
+      ],
+      "title" : "Terminal Output on Disk",
+      "type" : "string"
+    },
+    "terminal.scrollback.maxTotalMemoryBytes" : {
+      "default" : 268435456,
+      "description" : "The most memory all terminals use together for scrollback, in bytes, from 16 MiB to 64 GiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, the terminals that printed least recently give back scrollback first.",
+      "maximum" : 68719476736,
+      "minimum" : 16777216,
+      "title" : "Scrollback Memory for All Terminals (Bytes)",
+      "type" : "number"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
