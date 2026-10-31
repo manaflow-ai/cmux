@@ -23,6 +23,15 @@ struct BrowserCallerTarget: Sendable, Equatable {
     /// mirroring pane for a mirrored tab it shows; nil when no pane shows it.
     var shownIn: ControlPaneInfo?
 
+    /// A focused mirror refers to its owning tab, while the focus path names its showing pane.
+    func isFocused(in topology: ControlTopology) -> Bool {
+        guard topology.focus.tabID == tab.id, let shownIn, topology.focus.paneID == shownIn.id else { return false }
+        return topology.workspaces.contains { workspace in
+            workspace.id == topology.focus.workspaceID && workspace.sessionID == self.workspace.sessionID
+                && workspace.panes.contains { $0.id == shownIn.id }
+        }
+    }
+
     /// The browser nearest `location`, nil when none is in its workspace, group or window. It keeps
     /// to the caller's own session (the daemon the CLI and MCP address), so page verbs, actions and
     /// `identify` always pick the same browser.
@@ -168,7 +177,7 @@ extension ControlRouter {
             request.target = ControlTargetRef(kind: "pane", id: shown.id)
         } else if action.targets.contains("tab") {
             request.target = ControlTargetRef(kind: "tab", id: near.tab.id)
-        } else if action.targets.contains("pane") || topology.focus.tabID != near.tab.id {
+        } else if action.targets.contains("pane") || !near.isFocused(in: topology) {
             throw ControlError(code: "unavailable",
                                message: ControlStrings.format("control.error.callerBrowserNotShown",
                                                               "%1$@ cannot reach your browser %2$@: no pane shows it, or it is not the focused tab; use a page verb on it: `cmux browser %2$@ <verb>`",

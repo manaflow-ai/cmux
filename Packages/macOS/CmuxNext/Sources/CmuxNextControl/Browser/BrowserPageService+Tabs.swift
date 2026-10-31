@@ -23,33 +23,38 @@ extension BrowserPageService {
                            _ arguments: @escaping @Sendable (ControlCall) -> [String: JSONValue]) -> ControlMethod {
         .async("browser.page.\(name)") { [weak router] call in
             guard let router else { throw ControlRouter.stopped }
-            var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
-            var tab: Tab?
-            if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
-                // The caller's first browser, rather than a refusal: an agent's opens beside its chat
-                // (`openBrowser` places it), a terminal's in its own pane behind it, so the agent
-                // running there stays in view (page verbs reach a tab no pane shows).
-                if lonely.caller.agentSession != nil || lonely.caller.homeChat {
-                    params["caller"] = call.request.params["caller"]
+            var fingerprintParams = call.params
+            for key in ["idempotency_key", "wait", "after"] { fingerprintParams.removeValue(forKey: key) }
+            return try await router.runAction(call, fingerprint: .page(method: call.method, params: fingerprintParams, callerApp: call.request.callerApp)) {
+                var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
+                var tab: Tab?
+                if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
+                    // The caller's first browser: an agent's opens beside its chat, a terminal's
+                    // in its own pane behind it, so the agent running there stays in view.
+                    if lonely.caller.agentSession != nil || lonely.caller.homeChat {
+                        params["caller"] = call.request.params["caller"]
+                    } else {
+                        params["target"] = .string("tab:" + lonely.location.tab.id)
+                        params["background"] = true
+                    }
                 } else {
-                    params["target"] = .string("tab:" + lonely.location.tab.id)
-                    params["background"] = true
+                    let anchor = try Self.tab(call)
+                    params["target"] = .string("tab:" + anchor.id)
+                    tab = anchor
                 }
-            } else {
-                let anchor = try Self.tab(call)
-                params["target"] = .string("tab:" + anchor.id)
-                tab = anchor
+                let args = arguments(call)
+                if !args.isEmpty { params["args"] = .object(args) }
+                let request = ControlRequest(id: call.request.id, method: call.method, params: params, callerApp: call.request.callerApp)
+                let derived = ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
+                                          deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark)
+                let base = tab.map(Self.base) ?? [:]
+                return (derived, { run in
+                    var result = base
+                    for key in ["ran", "waited", "created"] { result.updateValue(run[key] ?? .null, forKey: key) }
+                    if let sequence = run["sequence"] { result["sequence"] = sequence }
+                    return .object(result)
+                })
             }
-            if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
-            let args = arguments(call)
-            if !args.isEmpty { params["args"] = .object(args) }
-            let request = ControlRequest(id: call.request.id, method: call.method, params: params)
-            let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
-                                                             deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
-            var result = tab.map(Self.base) ?? [:]
-            for key in ["ran", "waited", "created"] { result.updateValue(run[key] ?? .null, forKey: key) }
-            if let sequence = run["sequence"] { result["sequence"] = sequence }
-            return .object(result)
         }.claimingProgress()
     }
 
