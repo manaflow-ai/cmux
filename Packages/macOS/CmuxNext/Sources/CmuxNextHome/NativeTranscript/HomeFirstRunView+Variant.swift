@@ -282,6 +282,28 @@ final class DebugUnifiedBackdrop: NSView {
         }
         flattenCards(content)
         if let frame = content.superview { for sibling in frame.subviews where sibling !== content { flattenCards(sibling) } }
+        if image {
+            // Dark: one black veil over the window's picture so white text reads (light keeps the theme tint alone).
+            func veilArt(_ view: NSView) {
+                for child in view.subviews {
+                    if let art = child as? WindowMaterialView {
+                        let cover = art.subviews.first { $0.identifier?.rawValue == "debug.variant.veil" } ?? {
+                            let cover = NSView(frame: art.bounds)
+                            cover.identifier = NSUserInterfaceItemIdentifier("debug.variant.veil")
+                            cover.wantsLayer = true
+                            cover.autoresizingMask = [.width, .height]
+                            art.addSubview(cover, positioned: .above, relativeTo: nil)
+                            return cover
+                        }()
+                        cover.frame = art.bounds
+                        cover.layer?.backgroundColor = (dark ? NSColor.black.withAlphaComponent(0.55) : NSColor.clear).cgColor
+                        continue
+                    }
+                    veilArt(child)
+                }
+            }
+            veilArt(content)
+        }
         let color = image ? NSColor.clear : background.color(dark: dark)
         guard let color else { return }
         layer?.backgroundColor = color.cgColor
