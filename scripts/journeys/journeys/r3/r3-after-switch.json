@@ -1,0 +1,369 @@
+{
+ "id": "r3-after-switch",
+ "priority": "P1",
+ "title": "R3 (f): leave the workspace and come back, then resize the window and close a split: one size everywhere",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. His window had 2 workspaces; the journeys (a)-(e) never leave the workspace.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-switch"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace (this one parks)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back1-away"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "back1-away",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-Cmd-` back to the first workspace (Switch to Last Used Workspace)",
+   "key": "`",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "back1"
+  },
+  {
+   "do": "expect",
+   "title": "back: the first workspace's pane shows again",
+   "since": "back1",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "visible": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the terminal"
+  },
+  {
+   "do": "remember",
+   "as": "left1",
+   "pane": "main"
+  },
+  {
+   "do": "window_drag",
+   "title": "after the switch back: drag the bottom-right corner 260 right, 160 down",
+   "by": [
+    260,
+    160
+   ],
+   "events": 30,
+   "mark": "grow"
+  },
+  {
+   "do": "type",
+   "text": "echo r3fg-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3fgw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3fg: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width; also right",
+   "since": "grow",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3fg-${nonce}",
+      "long_tag": "r3fgw${nonce}",
+      "vs": "left1",
+      "cols": "wider"
+     }
+    },
+    {
+     "r3_settled": {
+      "pane": "right"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3fg-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "right",
+   "click": true,
+   "title": "click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-W closes the right pane: the left one fills the window",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo r3fc-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3fcw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3fc: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "close",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3fc-${nonce}",
+      "long_tag": "r3fcw${nonce}",
+      "vs": "left1",
+      "cols": "wider"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3fc-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace (this one parks)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back2-away"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "back2-away",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-Cmd-` back to the first workspace (Switch to Last Used Workspace)",
+   "key": "`",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "back2"
+  },
+  {
+   "do": "expect",
+   "title": "back: the first workspace's pane shows again",
+   "since": "back2",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "visible": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the terminal"
+  },
+  {
+   "do": "remember",
+   "as": "full2",
+   "pane": "main"
+  },
+  {
+   "do": "window_drag",
+   "title": "after a second switch back: drag the corner 300 left, 200 up",
+   "by": [
+    -300,
+    -200
+   ],
+   "events": 30,
+   "mark": "shrink"
+  },
+  {
+   "do": "type",
+   "text": "echo r3fs-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3fsw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3fs: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "shrink",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3fs-${nonce}",
+      "long_tag": "r3fsw${nonce}",
+      "vs": "full2",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3fs-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
