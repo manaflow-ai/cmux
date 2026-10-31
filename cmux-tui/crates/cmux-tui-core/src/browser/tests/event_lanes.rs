@@ -353,7 +353,8 @@ fn paused_lane_still_answers_dialogs_needed_by_its_command_worker() {
 
 #[test]
 fn deferred_registry_overflow_closes_surface_without_losing_exit() {
-    let surface = test_surface();
+    let mux = Mux::new("browser-event-lanes-overflow", SurfaceOptions::default());
+    let surface = mux.new_browser_tab("https://example.test".into(), None, Some((10, 5))).unwrap();
     let browser = surface.as_browser().unwrap();
     let done = browser.take_worker_done_for_test();
     let (entered_tx, entered_rx) = mpsc::channel();
@@ -390,8 +391,11 @@ fn deferred_registry_overflow_closes_surface_without_losing_exit() {
     let closed = browser.is_dead();
     drop(release_tx);
     done.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+    let removed = mux.surface(surface.id).is_none();
+    mux.shutdown();
     assert!(rejected.is_err());
     assert!(closed, "unbounded provider churn must end the surface");
+    assert!(removed, "the reserved exit must remove durable topology, even after kill");
     assert!(
         retained.iter().all(|route| route.upgrade().is_none()),
         "worker released every paused route"
