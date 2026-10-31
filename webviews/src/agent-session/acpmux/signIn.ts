@@ -23,12 +23,12 @@ export const SignInContext = createContext<SignIn | undefined>(undefined);
 
 export const useSignIn = () => useContext(SignInContext);
 
-/// The signed-out rows of a `_acpmux/harness/health` reply, as `SignIn.signedOut`.
+/// The signed-out (or expired) rows of a `_acpmux/harness/health` reply, as `SignIn.signedOut`.
 export function signedOutHarnesses(rows: readonly unknown[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const row of rows) {
     const health = row as { id?: unknown; auth?: unknown; login?: unknown } | null;
-    if (typeof health?.id !== "string" || health.auth !== "signedOut") continue;
+    if (typeof health?.id !== "string" || (health.auth !== "signedOut" && health.auth !== "expired")) continue;
     out[health.id] = typeof health.login === "string" ? health.login : "";
   }
   return out;

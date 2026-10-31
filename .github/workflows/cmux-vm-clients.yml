@@ -17,6 +17,8 @@ on:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
       - workers/cmux-vm/sdk/**
+      # The cli tests run every command in this agent guide (tests/agent_doc.rs).
+      - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml
@@ -28,6 +30,8 @@ on:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
       - workers/cmux-vm/sdk/**
+      # The cli tests run every command in this agent guide (tests/agent_doc.rs).
+      - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml

@@ -88,15 +88,8 @@ public nonisolated enum SidebarTunables {
     /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
     public static let dragThreshold = Tunable<CGFloat>.number(
         "sidebar.drag.threshold", .sidebar, "Drag start distance",
-        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        help: "How far a press on a sidebar row or tile moves before it drags; a shorter move stays a click.",
         default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
-
-    /// What a listed tab row says (`SidebarTabLine`; Leo 2026-10-27: "look at what's redundant and look at
-    /// what's useful").
-    public static let tabLines = Tunable<SidebarTabLineLook>.choice(
-        "sidebar.tabLines", .sidebar, "Listed tab rows",
-        help: "What a tab row under its workspace says: its title only, its name without repeats of the workspace or a bare ~, that plus one detail (status words, agent, page host or folder), or the program's status words first.",
-        default: .detail, code: "SidebarTunables.tabLines")
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
@@ -306,7 +299,6 @@ public nonisolated enum SidebarTunables {
             remoteMachineResources.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
-            tabLines.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,

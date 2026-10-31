@@ -20,6 +20,7 @@ import {
   refreshCloudMachines,
   runCloudMachine,
   useCloudMachines,
+  useCloudSignedIn,
   withCloudMachines,
   type CloudMachine,
 } from "./cloudMachines";
@@ -106,6 +107,7 @@ export function ComposerContext({
   started = false,
   onProject,
   projectChoices,
+  machineFolders,
   onBrowseProject,
   onNewWorktree,
   onNoProject,
@@ -146,6 +148,9 @@ export function ComposerContext({
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
+  /// A chat on another machine: that machine's own folders (its `project.list`), listed in its
+  /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
+  machineFolders?: Project[];
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
@@ -201,6 +206,7 @@ export function ComposerContext({
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
+  const cloudSignedIn = useCloudSignedIn();
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
@@ -237,12 +243,12 @@ export function ComposerContext({
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
-    onRefreshPeers || (newChat && !cloudMachines)
+    newChat && !cloudMachines
       ? () => {
           onRefreshPeers?.();
-          if (newChat && !cloudMachines) void refreshCloudMachines();
+          void refreshCloudMachines();
         }
-      : undefined;
+      : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -293,6 +299,8 @@ export function ComposerContext({
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
+  // The chat's own machine (not this Mac) is picked, and its folders were listed for it.
+  const ownMachine = selectedComputer !== "local" && selectedComputer === initialComputer && Boolean(machineFolders);
   // A Cloud machine picked while it was paused or not yet linked (pickCloudMachine below), until
   // acpmux lists it ready, another machine is picked, or the chat changes. A change drops it for
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
@@ -305,8 +313,9 @@ export function ComposerContext({
   const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
-    if (selectedComputer !== "local" || !projectChoices) return known;
-    const projects = projectChoices.map((project) => ({
+    const choices = selectedComputer === "local" ? projectChoices : ownMachine ? machineFolders : undefined;
+    if (!choices) return known;
+    const projects = choices.map((project) => ({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
@@ -314,7 +323,7 @@ export function ComposerContext({
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices]);
+  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder = summaryFolder
@@ -518,7 +527,8 @@ export function ComposerContext({
                 if (newChats) {
                   browseRequest.current += 1;
                   onNewChat?.(cwd);
-                } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+                } else if (!readOnly)
+                  onProject?.(cwd, selectedComputer === "local" || ownMachine ? undefined : selectedComputer);
               }}
             />
           )}
@@ -563,6 +573,9 @@ export function ComposerContext({
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
+              // A fresh home may not have a Cloud list reply at all. EnvironmentPicker treats only
+              // an explicit true as signed in, so it can offer the existing sign-in action there.
+              cloudSignedIn={cloudSignedIn}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
@@ -591,6 +604,15 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
+                      ...(cloudSignedIn !== true
+                        ? [
+                            {
+                              id: "cloudSignIn",
+                              label: t("composer.cloudSignIn"),
+                              onSelect: () => onboardingConnect?.("cloudSignIn"),
+                            },
+                          ]
+                        : []),
                       {
                         id: "cloud",
                         label: t(CONTEXT_LABELS.newCloudMachine),
@@ -601,6 +623,15 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
+                        ...(cloudSignedIn !== true
+                          ? [
+                              {
+                                id: "cloudSignIn",
+                                label: t("composer.cloudSignIn"),
+                                onSelect: () => onConnect("cloudSignIn"),
+                              },
+                            ]
+                          : []),
                         { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
                         {
                           id: "cloud",

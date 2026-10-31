@@ -117,6 +117,7 @@ export function EnvironmentPicker({
   current,
   onPick,
   onConnect,
+  cloudSignedIn,
   saved,
   onOpen,
   offload,
@@ -136,6 +137,10 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
+  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
+  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
+  /// for the purpose of offering the existing sign-in entry point.
+  cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -261,10 +266,23 @@ export function EnvironmentPicker({
   const cloud: Action | undefined = onConnect
     ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
     : undefined;
-  const actions: Action[] = [...(move ? [move] : []), ...(cloud ? [cloud] : [])];
+  // Signed out (or before the app's Cloud reply), Sign in for Cloud follows Cloud: it signs in only,
+  // where Cloud's New Cloud Machine flow would sign in and then make a machine (#27973).
+  const signIn: Action | undefined =
+    onConnect && cloudSignedIn !== true
+      ? {
+          value: ACTION + "cloudSignIn",
+          text: t("composer.cloudSignIn"),
+          kind: "cloud",
+          run: () => onConnect("cloudSignIn"),
+        }
+      : undefined;
+  const actions: Action[] = [...(move ? [move] : []), ...(cloud ? [cloud] : []), ...(signIn ? [signIn] : [])];
   const moreActions = useMemo(() => {
     const items: { id: string; label: string; onSelect(): void }[] = [];
     if (onConnect) {
+      if (cloudSignedIn !== true)
+        items.push({ id: "cloudSignIn", label: t("composer.cloudSignIn"), onSelect: () => onConnect("cloudSignIn") });
       for (const [kind, key] of [
         ["cloud", "composer.newCloudMachine"],
         ["cloudPage", "composer.openCloud"],
@@ -281,7 +299,7 @@ export function EnvironmentPicker({
         items.push({ id: "edit", label: t("environment.edit"), onSelect: () => saved.onEdit(editing) });
     }
     return items;
-  }, [onConnect, saved, editing]);
+  }, [onConnect, cloudSignedIn, saved, editing]);
   const isLocal = (environment: Environment) => sectionOf(environment) === "local";
   const sandboxSearched = offersSandbox && words.length > 0 && matches(words, `${t("composer.sandboxed")} sandbox`);
   const cloudShown =
@@ -291,6 +309,7 @@ export function EnvironmentPicker({
     ...shown.filter(isLocal).map((environment) => environment.id),
     ...(move ? [move.value] : []),
     ...(cloudShown ? [cloud.value] : []),
+    ...(signIn && (words.length === 0 || matches(words, `${signIn.text} cloud`)) ? [signIn.value] : []),
   ];
   const others = [
     ...savedShown.map((environment) => SAVED + environment.id),
