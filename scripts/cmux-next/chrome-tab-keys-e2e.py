@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Live check that every Chrome tab key moves between sidebar items from any focus.
+"""Live check that the sidebar keys move between sidebar items from any focus.
 
-Leo 2026-10-12: "chrome/chatgpt/claude has them all the same". Sidebar items are what Chrome
-calls tabs, so by default, with no preset and no rebinding:
-  - Ctrl-Cmd-] and Ctrl-PageDown select the next sidebar item;
-  - Ctrl-Cmd-[ and Ctrl-PageUp select the previous one;
-  (Cmd-Opt-Left / Right are Ghostty's pane focus keys, reserved: Lawrence 2026-10-20.)
+By default, with no preset and no rebinding (Lawrence 2026-10-20):
+  - Ctrl-Cmd-] selects the next sidebar item and Ctrl-Cmd-[ the previous one;
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
-They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
+Cmd-Opt arrows focus panes (Ghostty's `goto_split`) and Ctrl-PageDown / PageUp have no cmux
+default, so neither is checked here.
+They win over the focused surface (the user's own Ghostty keybinds win over them, #22418): a terminal, the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
 old Previous / Next switched the pane's tabs). `--surfaces` adds terminal copy mode (which
 takes every other key), a web page, the Settings page and Home (cx-9ce.18); their focus is
@@ -41,7 +40,7 @@ parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,com
                     help="also copymode, page, settings, home")
 parser.add_argument("--tidy", action="store_true",
                     help="first close every other workspace (a tag's workspaces persist between launches)")
-parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Ctrl-PageDown)")
+parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Cmd-9)")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
@@ -52,8 +51,6 @@ KEYS = [
     # 2026-10-15), never workspaces: CtrlTabCyclesPaneTabsTests.
     ("Ctrl-Cmd-]", "]", ["ctrl", "cmd"], NEXT, None),
     ("Ctrl-Cmd-[", "[", ["ctrl", "cmd"], PREV, None),
-    ("Ctrl-PageDown", "pagedown", ["ctrl"], NEXT, None),
-    ("Ctrl-PageUp", "pageup", ["ctrl"], PREV, None),
     ("Cmd-1", "1", ["cmd"], "selectWorkspaceByNumber", 1),
     ("Cmd-2", "2", ["cmd"], "selectWorkspaceByNumber", 2),
     ("Cmd-9", "9", ["cmd"], "selectWorkspaceByNumber", 9),
