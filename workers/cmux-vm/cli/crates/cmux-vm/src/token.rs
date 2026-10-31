@@ -860,6 +860,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// On macOS the token is one login Keychain item per user, so the lock
+    /// is the account's, whatever HOME or XDG_CONFIG_HOME say (#29705).
+    #[test]
+    fn the_lock_follows_the_account_not_the_environment() {
+        let home = std::path::Path::new("/Users/someone");
+        let xdg = |name: &str| (name == "XDG_CONFIG_HOME").then(|| "/tmp/a".to_owned());
+        let other_home = |name: &str| (name == "HOME").then(|| "/tmp/b".to_owned());
+        let lock = Some(home.join(".config").join("cmux").join("vm-token.lock"));
+        assert_eq!(lock_path_for(Some(home), &xdg), lock);
+        assert_eq!(lock_path_for(Some(home), &other_home), lock);
+        assert_eq!(lock_path_for(Some(home), &|_| None), lock);
+        // The file store (no Keychain) is locked beside the file it keeps.
+        assert_eq!(
+            lock_path_for(None, &xdg),
+            Some(std::path::PathBuf::from("/tmp/a/cmux/vm-token.lock"))
+        );
+        assert_eq!(
+            lock_path_for(None, &other_home),
+            Some(std::path::PathBuf::from(
+                "/tmp/b/.config/cmux/vm-token.lock"
+            ))
+        );
+        assert_eq!(lock_path_for(None, &|_| None), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn two_environments_of_one_user_share_the_macos_lock() {
+        let a = |name: &str| (name == "XDG_CONFIG_HOME").then(|| "/tmp/a".to_owned());
+        let b = |name: &str| (name == "HOME").then(|| "/tmp/b".to_owned());
+        assert!(create_lock_path(&a).is_some());
+        assert_eq!(create_lock_path(&a), create_lock_path(&b));
+    }
+
     // The file store; macOS keeps the token in the login Keychain.
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
