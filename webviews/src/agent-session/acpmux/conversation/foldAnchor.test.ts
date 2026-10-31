@@ -89,7 +89,7 @@ describe("foldToggleAt", () => {
     [
       "an agent message's line",
       '<div class="cv-tool cv-agentmsg__line" data-header-toggle=""><span class="cv-agentmsg__words">Asked</span></div>',
-      "div",
+      ".cv-agentmsg__words",
     ],
     [
       "the edits card's header, at its icon",
