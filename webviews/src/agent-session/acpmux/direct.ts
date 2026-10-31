@@ -53,6 +53,7 @@ import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } fr
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -4839,6 +4840,20 @@ export class AcpmuxDirectClient {
         return;
       }
     }
+    // Route child updates before session metadata's early returns too: a helper's init or
+    // usage belongs to that helper, just like its text and tools.
+    if (update) {
+      this.subagents.cause = this.turnStopCause(event);
+      this.subagents.chat = this.chatThread();
+      this.subagents.harness = this.summary?.harness;
+      if (this.subagents.reduce(event, update)) {
+        // A later command update can associate a shell call with its recorded child session.
+        if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
+          this.dropToolItem(update.toolCallId);
+        this.takeSubagentRows();
+        return;
+      }
+    }
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -5278,17 +5293,6 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
-    this.subagents.cause = this.turnStopCause(event);
-    this.subagents.chat = this.chatThread();
-    this.subagents.harness = this.summary?.harness;
-    if (this.subagents.reduce(event, update)) {
-      // A shell call known to start another agent only once its command came (a later update)
-      // drew a row before: the agent's card stands for it now.
-      if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
-        this.dropToolItem(update.toolCallId);
-      this.takeSubagentRows();
-      return;
-    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -5742,7 +5746,7 @@ export class AcpmuxDirectClient {
             baseUrl: text(summary.baseUrl),
             route: text(summary.route),
             settingsSources: summary.settingsSources,
-            usageLimits: text(summary.usageLimits),
+            usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,

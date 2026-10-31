@@ -186,7 +186,8 @@ import Testing
         list.start()
         list.apply(HostStepResult(step: .identity, state: .ok))
         list.apply(HostStepResult(step: .approvals, state: .fixed))
-        #expect(list.rows.map(\.step).filter { $0 == .approvals }.count == 1)
+        let approvalRows = list.rows.filter { $0.step == HostStep.approvals }
+        #expect(approvalRows.count == 1)
         #expect(list.row(.approvals)?.status == .done(.fixed))
     }
 
