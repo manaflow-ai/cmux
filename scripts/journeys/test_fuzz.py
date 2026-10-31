@@ -245,19 +245,53 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(all(c["hosts"] == "cmux19" for c in calls), calls[:2])
         self.assertTrue((go / "fz.done").exists())
 
+    def test_whole_host_with_go_dir_leases_only_the_held_mini(self):
+        import threading
+        tmp = Path(tempfile.mkdtemp())
+        go = tmp / "go"
+        go.mkdir()
+
+        def scheduler():
+            # A go for another mini (dropped: the run may lease only cmux18), then gos for cmux18.
+            (go / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
+            for _ in range(12):
+                end = time.time() + 30
+                while time.time() < end and (go / "fz.go").exists():
+                    time.sleep(0.05)
+                time.sleep(0.2)
+                (go / "fz.go").write_text(json.dumps({"host": "cmux18", "until": time.time() + 300}))
+        threading.Thread(target=scheduler, daemon=True).start()
+        done, summary, calls, _ = self.run_fuzz({"jobT": {"seconds": 400}, "jobB": {}}, "--base", "jobB",
+                                                "--whole-host", "cmux18", "--go-dir", str(go), "--go-spec", "fz")
+        self.assertTrue(calls)
+        self.assertTrue(all(c["hosts"] == "cmux18" for c in calls), [c["hosts"] for c in calls])
+
+    def test_unreadable_until_is_dropped(self):
+        import types, threading
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": "soon"}))
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
+        def later():
+            time.sleep(6)
+            (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
+        threading.Thread(target=later, daemon=True).start()
+        t = time.time()
+        self.assertEqual(fuzz.wait_go(opts, "r"), "cmux19")
+        self.assertGreater(time.time() - t, 4)
+
     def test_iso_until_is_utc(self):
         import types
         tmp = Path(tempfile.mkdtemp())
         soon = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 120))
         (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": soon}))
-        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19")
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
         self.assertEqual(fuzz.wait_go(opts, "r"), "cmux19")
 
     def test_expired_or_foreign_go_is_dropped(self):
         import types
         tmp = Path(tempfile.mkdtemp())
         (tmp / "fz.go").write_text(json.dumps({"host": "cmux22", "until": time.time() + 300}))
-        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19")
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
         import threading
         def later():
             time.sleep(6)

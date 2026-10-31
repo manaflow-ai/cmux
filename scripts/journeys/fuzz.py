@@ -161,7 +161,9 @@ def wait_go(opts, what):
     d.mkdir(parents=True, exist_ok=True)
     go = d / f"{opts.go_spec}.go"
     print(f"fuzz: {what} waits for {go}", flush=True)
-    allowed = (opts.host or opts.hosts).split()
+    # The minis this run may lease: --whole-host's one mini (normal mode), else --host, else --hosts. A go for another
+    # mini is dropped, so the lease is always the mini the scheduler holds and the run may use.
+    allowed = (getattr(opts, "whole_host", None) or opts.host or opts.hosts).split()
     while True:
         while not go.exists():
             time.sleep(5)
@@ -181,7 +183,7 @@ def wait_go(opts, what):
             try:
                 expired = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S")) < time.time()  # UTC
             except ValueError:
-                expired = False
+                expired = True  # an until that cannot be read is no hold: wait for the next go
         if not host or host not in allowed or expired:
             print(f"fuzz: dropped a go file ({data}): host not in {allowed} or past its until", flush=True)
             continue
@@ -241,6 +243,8 @@ class Runner:
                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", self.gate.OWNER_POOL),
                "JOURNEYS_EXCLUDE_HOSTS": " ".join(x for x in (os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16"),
                                                                 "" if opts.allow_cmux17 else "cmux17") if x)}
+        # Normal mode leases only its --whole-host mini (wait_go drops a go for any other one); else the go host or
+        # the first side's mini of an ABBA pair, else --host, else an idle one of --hosts.
         hosts = opts.whole_host or host or opts.host or self.gate.idle_first(opts.hosts)
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         argv = [sys.executable, opts.runner, "--build", build, "--journey", JOURNEY, "--exclusive", "--hosts", hosts,
