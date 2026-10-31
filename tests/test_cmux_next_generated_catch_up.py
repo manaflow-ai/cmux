@@ -4,7 +4,9 @@ files rebuilt by CI, so a landed UI PR no longer stops every other open PR."""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml
@@ -119,6 +122,45 @@ class Selection(unittest.TestCase):
         fields = calls[0][calls[0].index("--json") + 1].split(",")
         self.assertIn("author", fields)
         self.assertIn("labels", fields)
+
+
+class MergeabilityWait(unittest.TestCase):
+    """UNKNOWN on a PR we cannot touch never warrants a 20-100 second wait."""
+
+    def setUp(self):
+        self.catch_up = load()
+
+    def choose(self, replies):
+        output = io.StringIO()
+        with patch.object(self.catch_up, "_list", side_effect=replies) as listed, \
+             patch.object(self.catch_up.time, "sleep") as sleep, \
+             contextlib.redirect_stdout(output):
+            code = self.catch_up.main(["select", "--repo", "manaflow-ai/cmux"])
+        self.assertEqual(code, 0)
+        return json.loads(output.getvalue()), listed.call_count, sleep.call_args_list
+
+    def test_unknown_unowned_fork_draft_and_base_head_do_not_delay_selection(self):
+        unknown = [
+            pr(1, mergeable="UNKNOWN", author={"login": "someone-else"}),
+            pr(2, mergeable="UNKNOWN", isCrossRepository=True),
+            pr(3, mergeable="UNKNOWN", isDraft=True),
+            pr(4, mergeable="UNKNOWN", headRefName="feat-cmux-next"),
+            pr(5, mergeable="MERGEABLE"),
+        ]
+        chosen, reads, sleeps = self.choose([unknown])
+        self.assertEqual(chosen, [])
+        self.assertEqual(reads, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_unknown_opted_in_head_still_waits_for_github_mergeability(self):
+        first = [pr(7, mergeable="UNKNOWN"),
+                 pr(8, mergeable="UNKNOWN", author={"login": "someone-else"})]
+        second = [pr(7, mergeable="CONFLICTING"), first[1]]
+        chosen, reads, sleeps = self.choose([first, second])
+        self.assertEqual([item["number"] for item in chosen], [7])
+        self.assertEqual(reads, 2)
+        self.assertEqual(len(sleeps), 1)
+        self.assertEqual(sleeps[0].args, (self.catch_up.MERGEABLE_POLL_SECONDS,))
 
 
 class Workflow(unittest.TestCase):
