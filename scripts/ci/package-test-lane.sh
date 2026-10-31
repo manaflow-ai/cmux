@@ -1115,6 +1115,7 @@ case "$phase" in
     select_packages
     ;;
   packages)
+    require_display_screen  # a display step asserts its screen in every phase that runs tests
     run_package_tests
     ;;
   run)
@@ -1123,6 +1124,7 @@ case "$phase" in
     # needs the files.
     GITHUB_OUTPUT="" select_packages
     select_xcode
+    require_display_screen
     interface_fingerprint
     if [ "$needs_ghosttykit" = true ]; then
       ensure_ghosttykit
