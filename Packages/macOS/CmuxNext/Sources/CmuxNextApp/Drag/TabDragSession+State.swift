@@ -52,6 +52,8 @@ extension TabDragSession {
         var pointerVelocity = CGVector.zero
         var lastPointerSample: (point: CGPoint, time: CFTimeInterval)?
         var winner: Winner?
+        /// Completes only this drop's optimistic destination presentation.
+        var settleDrop: (@MainActor (Bool) -> Void)?
         var outcome: TabDragOutcome = .cancel
         /// What the pointer previews now; `outcome` is its outcome.
         var resolution = TabDropResolution(preview: .none, outcome: .cancel)

@@ -34,5 +34,9 @@ public protocol TabDropTargetProviding: AnyObject {
     func dropExited()
     /// The drag finished. `committed` is the proposal the session executed
     /// if it was this surface's, else nil (cancelled or dropped elsewhere).
-    func dropEnded(committed: TabDropProposal?)
+    /// Returns a completion for any optimistic presentation. The caller reports
+    /// whether the move landed, including failures before it reaches the owner.
+    /// A completion must affect only this drop, never a newer gesture.
+    @discardableResult
+    func dropEnded(committed: TabDropProposal?) -> (@MainActor (Bool) -> Void)?
 }
