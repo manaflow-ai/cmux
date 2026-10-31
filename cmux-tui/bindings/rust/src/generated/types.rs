@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3.
+// cmux-tui mux protocol 12, IR d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1700,6 +1700,14 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHookQueue {
+    pub queued_events: u64,
+    pub reset_dropped_events: u64,
+    pub undeliverable_events: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -1778,6 +1786,8 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<ServerStatsHookQueue>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

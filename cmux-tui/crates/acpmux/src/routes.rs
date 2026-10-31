@@ -608,6 +608,8 @@ pub fn add(
 pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, RouteError> {
     let route = find(dir, id)?;
     let backups = backups_dir(home);
+    // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
+    crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
     std::fs::create_dir_all(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
