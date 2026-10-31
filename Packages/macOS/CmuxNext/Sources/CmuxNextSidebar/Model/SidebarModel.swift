@@ -212,12 +212,6 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace lists its tabs under it. No setting turns it on: every sidebar is the
-    /// plain workspace list (Lawrence 2026-10-30, "i dont want to see tabs expanded inside of sidebar";
-    /// `sidebar.showWorkspaceTabs` is retired). Tests still set it to cover the tab-row code.
-    public var showWorkspaceTabs = false
-    /// The workspaces whose disclosure hid their tabs: window view state.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
@@ -393,7 +387,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .moveTab, .closeTab:
+        case .selectTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -444,7 +438,7 @@ public final class SidebarModel {
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
     /// change, then told to `onRowsPatched`; a row this window does not list is skipped. False, writing nothing, when the
-    /// change moves rows (filter, folder buckets, listed tabs); the caller then sets the sections.
+    /// change moves rows (filter, folder buckets, the Done fold, the row limit); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
@@ -579,19 +573,11 @@ public final class SidebarModel {
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
-    /// The disclosure on a workspace row: hide its listed tabs, or list them again.
-    public func toggleWorkspaceTabs(_ id: WorkspaceID) {
-        if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
-    }
-
     /// The list layout's options that come from the model.
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
-        o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
-        o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
