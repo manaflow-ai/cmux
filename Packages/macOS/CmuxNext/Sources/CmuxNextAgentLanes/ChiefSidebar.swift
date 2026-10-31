@@ -75,9 +75,11 @@ public final class ChiefSidebar {
     @ObservationIgnored private var opening: Set<String> = []
 
     /// `lanes`: the Chief home's lanes (its turns and subagents), which its acpmux watch writes
-    /// (`ChatsFeed.startChiefTurnStates`).
-    public init(lanes: AgentLaneStore = .chief) {
+    /// (`ChatsFeed.startChiefTurnStates`). `host`: what the App reaches (tests pass a fake;
+    /// the app sets it in ``bind(into:host:)``).
+    public init(lanes: AgentLaneStore = .chief, host: Host? = nil) {
         self.lanes = lanes
+        self.host = host
     }
 
     /// The subagent rows now (they draw only under the Chief item). Read inside an observation
@@ -170,6 +172,23 @@ public final class ChiefSidebar {
             return
         }
         _ = registry.perform("home.openConversation", invocation: .init(arguments: ["conversation": .string(chief)], origin: origin))
+    }
+
+    /// Opens a Chief subagent link (`cmux://chief/<home>/session/<session>`, the `aN` links in
+    /// Home's chat). False when `chiefHost` is not this app's Chief home (`chief:<home>`), or
+    /// nothing could show the session.
+    ///
+    /// - Parameters:
+    ///   - session: The subagent's acpmux session id.
+    ///   - chiefHost: The link's Chief host, `chief:<home id>`.
+    ///   - registry: Where an open's work and refusal go.
+    ///   - reveal: How a tab that shows the session comes forward (the link's window intent);
+    ///     nil: ``Host/reveal``.
+    /// - Returns: Whether the link showed or is opening something.
+    public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry,
+                                 reveal: ((String) -> Bool)? = nil) -> Bool {
+        guard let host, host.chiefHost() == chiefHost, let shown = host.tab(session, chiefHost) else { return false }
+        return (reveal ?? host.reveal)(shown)
     }
 
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
