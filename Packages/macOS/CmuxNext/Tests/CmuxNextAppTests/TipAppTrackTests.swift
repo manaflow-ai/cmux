@@ -79,4 +79,21 @@ import Testing
                                    policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
         #expect(local.disabledReason == .developmentBuild)
     }
+
+    /// cmux NEXT Stable (scripts/ci/stable-next-identity.sh): a nightly-kind bundle id with the stable
+    /// feed under /nightly-next/, so it runs Sparkle and resolves like cmux NEXT, and every ring
+    /// accepts its `cmux-next-stable` items.
+    @Test func cmuxNextStableIsANightlyTrackOnItsOwnFeed() {
+        let feedURL = "https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml"
+        let stable = Self.identity("com.cmuxterm.app.nightly.cmux-next-stable", feed: feedURL)
+        #expect(stable.track == .nightly)
+        #expect(stable.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
+        let feed = stable.feed(architecture: .arm64)
+        #expect(feed.channel == .nightlyNext)
+        #expect(feed.url == feedURL)
+        for ring in UpdateRing.allCases {
+            #expect(feed.channel.allowedSparkleChannels(ring: ring).contains("cmux-next-stable"), "\(ring)")
+        }
+        #expect(stable.channelSwitchTarget == nil)
+    }
 }

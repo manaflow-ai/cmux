@@ -253,7 +253,8 @@ test("an MCP response that scrolls fades its bottom edge until it is scrolled to
       reveal={0}
     />,
   );
-  const box = container.querySelector<HTMLElement>(".cv-mcp-call__body")!;
+  // The response reads in the shared tool output body (ToolOutputBody.tsx), which fades its own edge.
+  const box = container.querySelector<HTMLElement>(".cv-mcp-call .cv-tool-output")!;
   // jsdom lays nothing out: the box is 240px tall over 720px of text.
   Object.defineProperty(box, "clientHeight", { value: 240 });
   Object.defineProperty(box, "scrollHeight", { value: 720 });
