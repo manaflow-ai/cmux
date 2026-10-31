@@ -17,7 +17,7 @@ import Testing
 /// Every key goes through the app's key path (the key router, then the window, as `CmuxApplication.sendEvent` runs a
 /// key), all in one turn. No key is HELD at the checked steps: a test window is never key, so a key the creation hold
 /// keeps is replayed through `NSApp.sendEvent` to no window (the test would fail for the rig, not the app; the first red
-/// did). Each check first proves the key ran (`held` false). Both terminals are new panes made by splits: the test app's
+/// did). The test first proves that the second Cmd-D ran (the key router's record of the keys it runs). Both terminals are new panes made by splits: the test app's
 /// first pane is an agent chat, where Cmd-D and Cmd-W mean other things.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClosedPendingSplitFocusTests {
@@ -41,10 +41,13 @@ struct ClosedPendingSplitFocusTests {
                          "the test needs the focus on the split's stand-in and no focus wait: \(Self.describe(content, services))")
             _ = try Self.press("w", .command, keyCode: 13, services: services, window: window)
             let afterClose = Self.describe(content, services)
-            // A key the creation hold keeps is replayed to no window in a test: the second Cmd-D must run now.
-            try #require(!services.keyRouter.creationInputCoordinator.isHolding(in: window),
-                         "a creation hold is still open after Cmd-W, so the second Cmd-D would wait (not a result): \(afterClose)")
             let secondSplit = try Self.press("d", .command, keyCode: 2, services: services, window: window)
+            // A key a hold keeps is replayed to no window in a test, so a held Cmd-D is not a result: it must have RUN as
+            // the split (the key router records each key it runs; a held key leaves Cmd-W's record). A hold that only
+            // waits for a selected terminal's surface lets a Command chord through while it holds nothing.
+            let ran = services.keyRouter.lastInterception
+            try #require(ran?.action == "splitRight", // dispatched, not held; whether it made a pane is the check below
+                         "the second Cmd-D did not run (held: \(secondSplit), last run \(String(describing: ran))), so it is not a result: \(Self.describe(content, services))")
 
             // In the same turn: the focus names a pane the store has (never the closed stand-in's id), and the second
             // Cmd-D shows its new pane.
@@ -52,7 +55,7 @@ struct ClosedPendingSplitFocusTests {
             let live = focused.flatMap { content.paneController(key: $0) }.map { services.daemon.store.pane($0.pane.handle) != nil } ?? false
             #expect(live, "after Cmd-W closed the pending split \(firstKey), the focus names pane \(focused ?? "-"), which the store does not have; after Cmd-W: \(afterClose)")
             let shown = content.panes.values.first { !before.contains($0.layoutPaneID) && $0.paneKey != firstKey }
-            #expect(shown != nil, "the second Cmd-D (held: \(secondSplit)) showed no new pane in its turn: \(Self.describe(content, services))")
+            #expect(shown != nil, "the second Cmd-D (ran: \(String(describing: ran?.ran))) showed no new pane in its turn: \(Self.describe(content, services))")
 
             // Then the outcome the person sees: a new terminal pane, made by the daemon, with the focus; the closed split
             // stays closed and the starting terminal stays.
