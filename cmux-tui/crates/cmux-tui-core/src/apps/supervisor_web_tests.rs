@@ -391,7 +391,7 @@ fn a_local_reload_preserves_a_completed_registry_update() {
     // complete the put while the local snapshot still holds the old version.
     // With coordination, let that snapshot commit before starting the put.
     // The oracle below is the resulting catalog, not whether a mutex is held.
-    let put_can_run = match f.supervisor.registry_puts.try_lock() {
+    let put_can_run = match f.supervisor.catalog_updates.try_lock() {
         Ok(guard) => {
             drop(guard);
             true

@@ -240,8 +240,9 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Web pane calls in flight per app (`web_calls.rs`), capped like a host's.
     pub(super) web_inflight: Mutex<HashMap<String, usize>>,
-    /// One `apps.registry.put` at a time, so two swaps of a folder never interleave.
-    pub(super) registry_puts: Mutex<()>,
+    /// Catalog reads and commits cannot cross a registry folder swap. Lock
+    /// before `inner`, and release before emitting to client callbacks.
+    pub(super) catalog_updates: Mutex<()>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
 }
@@ -326,7 +327,7 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
             web_inflight: Mutex::new(HashMap::new()),
-            registry_puts: Mutex::new(()),
+            catalog_updates: Mutex::new(()),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
         });
         if seeded {

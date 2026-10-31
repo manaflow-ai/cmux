@@ -154,7 +154,7 @@ impl Supervisor {
                 bad("apps.registry.unavailable", "this daemon has no state folder")
             })?;
         let files = decoded(&p)?;
-        let _one_put = self.registry_puts.lock().unwrap_or_else(PoisonError::into_inner);
+        let update = self.catalog_updates.lock().unwrap_or_else(PoisonError::into_inner);
         // First source wins in the catalog: a bundled or extra folder with the
         // same id would shadow the copy, so nothing is written for it.
         let shadowed = self
@@ -214,17 +214,10 @@ impl Supervisor {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(io(e));
         }
-        self.reload_catalog_for(&p.app, "registry-put");
+        let catalog = catalog::load(&self.config.sources);
         // First source wins in the catalog: a bundled or extra folder with the
         // same id would shadow the copy just written.
-        let source = self
-            .inner
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .catalog
-            .packages
-            .get(&p.app)
-            .map(|p| p.source);
+        let source = catalog.packages.get(&p.app).map(|p| p.source);
         let refused = match source {
             Some(Source::Registry) => None,
             Some(_) => Some(bad("apps.registry.shadowed", "another copy of this app is installed")),
@@ -237,31 +230,41 @@ impl Supervisor {
             if had_old {
                 let _ = std::fs::rename(&old, &target);
             }
-            self.reload_catalog_for(&p.app, "registry-put");
+            let outs = self.commit_catalog_for(
+                catalog::load(&self.config.sources),
+                &p.app,
+                "registry-put",
+            );
+            drop(update);
+            self.emit(outs);
             return Err(error);
         }
+        let outs = self.commit_catalog_for(catalog, &p.app, "registry-put");
         if had_old {
             let _ = std::fs::remove_dir_all(&old);
         }
+        drop(update);
+        self.emit(outs);
         Ok(json!({ "app": p.app, "version": p.version, "sha256": p.sha256.to_ascii_lowercase() }))
     }
 
-    /// Reads the catalog again (off the lock), swaps it in, regrants `app`
-    /// if it runs, and tells clients it changed.
-    fn reload_catalog_for(&self, app: &str, transaction: &str) {
-        let catalog = catalog::load(&self.config.sources);
-        let outs: Vec<Out> = {
-            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner.catalog = catalog;
-            let mut outs = self.regrant_locked(&mut inner, app);
-            outs.push(Out::Broadcast(json!({
-                "event": "apps-changed",
-                "revision": inner.mirror.revision,
-                "transaction": transaction,
-                "app": app,
-            })));
-            outs
-        };
-        self.emit(outs);
+    /// Commits a catalog read while holding `catalog_updates`, regrants `app`
+    /// if it runs, and returns events to emit after releasing the guard.
+    fn commit_catalog_for(
+        &self,
+        catalog: catalog::Catalog,
+        app: &str,
+        transaction: &str,
+    ) -> Vec<Out> {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.catalog = catalog;
+        let mut outs = self.regrant_locked(&mut inner, app);
+        outs.push(Out::Broadcast(json!({
+            "event": "apps-changed",
+            "revision": inner.mirror.revision,
+            "transaction": transaction,
+            "app": app,
+        })));
+        outs
     }
 }

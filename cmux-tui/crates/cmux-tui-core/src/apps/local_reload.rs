@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 
 use notify::Watcher as _;
 use serde_json::json;
@@ -61,6 +61,7 @@ impl Supervisor {
         prints: &Prints,
         read: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        let update = self.catalog_updates.lock().unwrap_or_else(PoisonError::into_inner);
         let catalog = read(&self.config.sources);
         let next = local_prints(catalog.packages.values());
         let changed: Vec<String> = next
@@ -103,6 +104,7 @@ impl Supervisor {
             outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
+        drop(update);
         self.emit(outs);
         next
     }
