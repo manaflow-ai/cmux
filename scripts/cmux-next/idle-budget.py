@@ -224,7 +224,7 @@ def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
     try:
-        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-fullPaths", "-file", path], capture_output=True,
                        timeout=seconds + 60)
         text = open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
@@ -250,6 +250,44 @@ def sample_threads(pid, seconds, path):
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
+
+
+def display_link_clients(path, limit=8):
+    """Who a CVDisplayLink thread calls when it fires: in `path` (a /usr/bin/sample report), the frames of each
+    CVDisplayLink thread outside CoreVideo and the system's wait and thread-start frames, most samples first.
+    The link's owner is the client its callback reaches (the thread itself starts in CoreVideo)."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return []
+    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+    found, inside = {}, False
+    for line in graph.splitlines():
+        if re.match(r"\s{4}\d+ Thread_\d+", line):
+            inside = "CVDisplayLink" in line
+            continue
+        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
+        if not (inside and frame):
+            continue
+        count, symbol, image = int(frame.group(1)), frame.group(2), frame.group(3)
+        if image in ("CoreVideo", "libsystem_pthread.dylib", "libsystem_kernel.dylib", "libdyld.dylib"):
+            continue
+        key = f"{symbol} ({image})"
+        found[key] = max(found.get(key, 0), count)
+    return sorted(found.items(), key=lambda kv: -kv[1])[:limit]
+
+
+def bundle(out):
+    """Everything this run wrote under `out`, as one file `out/idle-budget.tgz` (`cmux-ci run --artifact` uploads
+    one regular file, not a directory: artifacts/split-spring/idle-budget.tgz)."""
+    import tarfile
+    path = os.path.join(out, "idle-budget.tgz")
+    with tarfile.open(path, "w:gz") as archive:
+        for name in sorted(os.listdir(out)):
+            if name != "idle-budget.tgz":
+                archive.add(os.path.join(out, name), arcname=name)
+    print(f"IDLE-BUDGET-BUNDLE {path}", flush=True)
+    return path
 
 
 def app_counters(app):
@@ -499,7 +537,12 @@ def main():
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
-                result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                sample_path = os.path.join(out, session, "sample-app.txt")
+                result["sample"] = sample_threads(app.process.pid, opts.sample, sample_path)
+                result["display_link_clients"] = display_link_clients(sample_path)
+                if result["display_link_clients"]:
+                    clients = "; ".join(f"{frame} x{count}" for frame, count in result["display_link_clients"])
+                    print(f"IDLE-BUDGET-CVDISPLAYLINK {session}: {clients}", flush=True)
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
@@ -547,6 +590,7 @@ def main():
     with open(path, "w") as handle:
         json.dump(report, handle, indent=1)
     print(f"IDLE-BUDGET over={len(all_overs)} sessions={json.dumps(report['session_exits'])} json={path}", flush=True)
+    bundle(out)
     sys.exit(1 if opts.gate and all_overs else 0)
 
 
