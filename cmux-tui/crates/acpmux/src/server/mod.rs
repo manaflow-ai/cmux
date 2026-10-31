@@ -213,6 +213,9 @@ pub struct Conn {
     client_requests: client_request::ClientRequests,
     /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
     cancel_refusals: Arc<requests::cancel_refused::Waiting>,
+    /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
+    /// on a transport whose writer does not compress.
+    wire: Option<Arc<crate::frame_compress::Wire>>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1081,7 +1084,14 @@ pub async fn serve_ws_until(
             let (out_tx, out_rx) = mpsc::channel::<String>(4096);
             let mut children = ws_shutdown::Children::new();
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-            let writer = tokio::spawn(ws_shutdown::write(sink, out_rx, stopped, shutdown.clone()));
+            let wire = Arc::new(crate::frame_compress::Wire::default());
+            let writer = tokio::spawn(ws_shutdown::write(
+                sink,
+                out_rx,
+                stopped,
+                shutdown.clone(),
+                wire.clone(),
+            ));
             children.track(&writer);
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
@@ -1187,10 +1197,15 @@ pub async fn serve_ws_until(
             if let Some(watcher) = &watcher {
                 children.track(watcher);
             }
-            match device {
-                Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
-                None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
-            }
+            let (origin, proof, device) = match device {
+                Some(device) => {
+                    let (origin, proof) = pairing::origin_of(&device);
+                    (origin, proof, Some(device.id))
+                }
+                None => (origin, proof, None),
+            };
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, device, Some(wire))
+                .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -1395,7 +1410,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None, None).await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1408,7 +1423,7 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id), None).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1420,6 +1435,7 @@ async fn serve_connection_from(
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
     device: Option<String>,
+    wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -1469,6 +1485,7 @@ async fn serve_connection_from(
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
         cancel_refusals: Default::default(),
+        wire,
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1532,6 +1549,13 @@ async fn serve_connection_from(
                     hub.session_meta(id).await;
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                // Before its reply is built: the reply says whether large messages go compressed.
+                if m == method::INITIALIZE
+                    && let Some(wire) = &conn.wire
+                    && crate::frame_compress::offered(params.as_ref())
+                {
+                    wire.enable();
+                }
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
@@ -2065,6 +2089,10 @@ mod acp_list_tests;
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
+
+#[cfg(test)]
+#[path = "compressed_link_tests.rs"]
+mod compressed_link_tests;
 
 #[cfg(test)]
 mod key_route_tests;

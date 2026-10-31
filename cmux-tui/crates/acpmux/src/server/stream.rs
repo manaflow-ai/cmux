@@ -30,6 +30,15 @@ pub(super) async fn serve_stream(
             }
         }
     });
-    serve_connection_from(hub, in_rx, out_tx, Origin::Local, ConnAuth::LocalSocket, peer, None)
-        .await;
+    serve_connection_from(
+        hub,
+        in_rx,
+        out_tx,
+        Origin::Local,
+        ConnAuth::LocalSocket,
+        peer,
+        None,
+        None,
+    )
+    .await;
 }
