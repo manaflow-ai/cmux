@@ -307,8 +307,8 @@ public actor AgentSessionAttachClient {
     /// streams their changes too. A daemon without the verb lists none.
     /// That machine's folders for a new chat (`agent-session-folders-v1`): its work folder
     /// (`default`, nil when it has none) and the folders under it. A daemon without the verb
-    /// answers no folders (the app then asks the person for one).
-    public func folders() async throws -> (default: String?, folders: [String]) {
+    /// answers none (the app then asks the person for a folder).
+    public func folders() async throws -> (work: String?, folders: [String]) {
         guard mode == .attach else { return (nil, []) }
         _ = try await liveTransport()
         guard served.folders else { return (nil, []) }

@@ -58,15 +58,19 @@ extension AgentTabStore {
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         // No folder picked and none in its workspace: that machine's own work folder (`~/work`,
         // `agent-session-folders`), never a dead end (Leo, 2026-10-31). An older daemon has none.
+        // Its own connection, so the start's owner-checked one is made for the start alone.
         var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
-        if fallback == nil { fallback = try? await client.folders().default }
+        if fallback == nil {
+            let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+            fallback = try? await lister.folders().work
+            await lister.close()
+        }
         guard let cwd = fallback else {
-            await client.close()
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
+        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
