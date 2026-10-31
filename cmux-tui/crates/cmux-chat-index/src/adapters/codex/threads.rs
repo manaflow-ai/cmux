@@ -61,8 +61,9 @@ struct Known {
     db: PathBuf,
     /// The database file's identity: a replaced file is read whole.
     file: (u64, u64),
-    /// The row query: a schema change is read whole.
-    sql: String,
+    /// The tables' schema (`sqlite_master`, collations and defaults included): a change is read
+    /// whole.
+    schema: String,
     /// When the whole table was last read.
     full_at: Instant,
     /// Every thread row by id, with the entry it gives (None: filtered out, or spawned).
@@ -176,10 +177,14 @@ impl Query {
         Ok(keys)
     }
 
-    /// The text ids spawn edges name (the filters leave those threads out).
+    /// The threads a spawn edge names (the filters leave those out), matched by SQLite's own
+    /// `IN`, with the column affinity the filter's `NOT IN` uses.
     fn children(&self, conn: &Connection) -> rusqlite::Result<HashSet<String>> {
         let Some(child) = self.child else { return Ok(HashSet::new()) };
-        let sql = format!("SELECT {child} FROM thread_spawn_edges WHERE {child} IS NOT NULL");
+        let sql = format!(
+            "SELECT id FROM threads
+             WHERE id IN (SELECT {child} FROM thread_spawn_edges WHERE {child} IS NOT NULL)"
+        );
         let mut stmt = conn.prepare(&sql)?;
         let ids = stmt.query_map([], |row| row.get::<_, Value>(0))?;
         let mut children = HashSet::new();
@@ -189,6 +194,15 @@ impl Query {
             }
         }
         Ok(children)
+    }
+
+    /// The tables' schema as SQLite keeps it: the text of every table and index on them.
+    fn schema(conn: &Connection) -> rusqlite::Result<String> {
+        let mut stmt = conn.prepare(
+            "SELECT group_concat(coalesce(sql, ''), char(10)) FROM (SELECT sql FROM sqlite_master
+             WHERE tbl_name IN ('threads', 'thread_spawn_edges') ORDER BY type, name)",
+        )?;
+        stmt.query_row([], |row| row.get::<_, Option<String>>(0)).map(Option::unwrap_or_default)
     }
 }
 
@@ -208,12 +222,13 @@ pub(super) fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
     let query = Query::new(&conn)?;
     // One snapshot for the keys and the rows: a write between them is read on its own burst.
     let snapshot = conn.unchecked_transaction()?;
+    let schema = Query::schema(&conn)?;
     let keys = query.keys(&conn)?;
     let children = query.children(&conn)?;
     let known = known.filter(|known| {
         known.db == db
             && known.file == file
-            && known.sql == query.sql
+            && known.schema == schema
             && known.full_at.elapsed() < FULL_AFTER
     });
     let mut full_at = known.as_ref().map(|known| known.full_at);
@@ -253,7 +268,7 @@ pub(super) fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
         }
         let full_at = full_at.unwrap_or_else(Instant::now);
         let db = db.to_path_buf();
-        known.insert(root, Known { db, file, sql: query.sql, full_at, rows, children });
+        known.insert(root, Known { db, file, schema, full_at, rows, children });
     }
     Ok(entries)
 }
