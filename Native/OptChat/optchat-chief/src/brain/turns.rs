@@ -423,6 +423,7 @@ impl Brain {
         }
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        self.length_refused = false;
         self.tool_stopped = false;
         self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.

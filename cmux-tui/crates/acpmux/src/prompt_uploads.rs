@@ -31,6 +31,7 @@
 
 use crate::rpc::RpcError;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
@@ -215,7 +216,7 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
                    "_meta": {"acpmux": {"uploadPath": path.to_string_lossy()}}})
         };
         if !inline && let Some(proof) = web_proof {
-            block["_meta"]["acpmux"]["webUpload"] = proof;
+            block.set_path(&["_meta", "acpmux", "webUpload"], proof);
         }
         let shown = if inline || image.is_none() { "" } else { ", not shown inline: open it" };
         listed.push(format!("- {} ({mime}, {}{shown})", path.display(), size_text(len)));

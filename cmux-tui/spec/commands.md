@@ -2019,6 +2019,16 @@ absent) for an agent session source, and `{page}` for a page source. A connectio
 `session.events` and `session.journal.subscribe` stream items alike. Every
 browser command and browser operation refuses the tab.
 
+Closed agent chat tabs use the same canonical `conversation` kind in
+`closed.list` and closed snapshot/event records, with only safe
+`agent_session:{session,harness}` metadata. This requires the separate
+`closed-conversation-tabs-v1` declaration: older connections, including
+clients that understand live conversation tabs, retain `browser` and the
+safe metadata. Merged history similarly uses `closed_kind:"conversation_tab"`
+only for declared connections, otherwise `browser_tab`. Private host/install
+identity stays in the daemon's restore record; reopening still restores the
+original conversation source.
+
 Params: `conversation` and `owner`, `agent_session`, or `page` (one source required);
 `pane` or `workspace`, `split` (with `pane`), `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
 
@@ -7673,6 +7683,15 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
+no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
+first listed; any page's failure, a refusal included, leaves the Cloud rows
+`unavailable` (`signed_out` only without a usable lease).
 
 ### cloud-requests-list
 
