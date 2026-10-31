@@ -488,7 +488,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if buildsAtLaunch, content != nil { services.launchPanes.noteBuilt() }
         DebugTabSwitch.mark(self, "content")
         if let content, let key { DebugTabSwitch.content(self, content, key: key) }
-        // The tab's node is the one `selectTabNode` made visible; a no-op when the content follows it already.
+        if content != nil, let key { selectTabNode(key) } // an adopted stand-in brings its node (`moveNode`): show it
         if let content, let key { content.followAppearance(services.appearance, node: services.cache.node(for: key)) }
         if let content, let key { content.followVisibility(services.cache.node(for: key), services: services) }
         currentTabKey = key
