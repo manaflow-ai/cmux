@@ -1420,6 +1420,9 @@ jobs:
             github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '') }}
           GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && needs.path_route.outputs.mac_release == 'true' && 'release-compile' || '' }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
+          # The GUI jobs' last resort when the placement names neither a GUI route nor a GUI overflow (the shell
+          # below). Fork branch first, as every runs-on here: a fork never names a Blacksmith label.
+          GUI_LAST_RESORT: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
@@ -1455,7 +1458,7 @@ jobs:
           # runner above sent them before, never the owned GUI queue unmeasured.
           gui="$(awk -F= '($1 == "gui_runner" || $1 == "gui_overflow") && substr($0, index($0, "=") + 1) != "" { found=1 } END { print found + 0 }' "$GITHUB_OUTPUT")"
           if [ "$gui" = 0 ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
-            printf 'gui_overflow=blacksmith-6vcpu-macos-26\n' >> "$GITHUB_OUTPUT"
+            printf 'gui_overflow=%s\n' "$GUI_LAST_RESORT" >> "$GITHUB_OUTPUT"
           fi
 
       # Fail-safe: without the marker the run is only not watched. Skipped

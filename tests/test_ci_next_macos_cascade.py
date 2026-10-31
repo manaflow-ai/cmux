@@ -1258,7 +1258,9 @@ class Rerun(unittest.TestCase):
                     output.write_text("")
                     subprocess.run(["bash", "-e", "-c", place["run"]], check=True, cwd=tmp, capture_output=True,
                                    env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output),
-                                        "GITHUB_RUN_ATTEMPT": "1", "SIDE_LABEL": SIDE})
+                                        "GITHUB_RUN_ATTEMPT": "1", "SIDE_LABEL": SIDE,
+                                        "GUI_LAST_RESORT": evaluate(place["env"]["GUI_LAST_RESORT"],
+                                                                    self.route_context("1", "teamleaderleo"))})
                     # GitHub keeps an output's last value.
                     step = dict(line.split("=", 1) for line in output.read_text().splitlines())
                     context = self.route_context("1", "teamleaderleo")
