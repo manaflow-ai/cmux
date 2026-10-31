@@ -13,11 +13,11 @@ import Testing
 struct SidebarTunablesWatchNoopTests {
     /// A pass that finds the rows already drawn with the current values touches no row.
     @Test func aPassWithNoTunableChangeLeavesTheRowsAlone() throws {
-        let (_, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
         defer { window.close() }
         window.orderFrontRegardless()
         sidebar.renderNow()
-        let row = try #require(sidebar.list.rowViews[.workspace(SidebarTabGroupControlsTests.other)] as? WorkspaceRowView)
+        let row = try #require(sidebar.list.rowViews[.workspace(SidebarRowCloseSpotTests.other)] as? WorkspaceRowView)
         // One synchronous turn: no other test can set a tunable between these calls.
         SidebarTunablesWatch.shared.changed()
         row.layoutSubtreeIfNeeded()
@@ -28,15 +28,15 @@ struct SidebarTunablesWatchNoopTests {
 
     /// A real change still reaches the live rows, and the pass after it, with nothing new, does not.
     @Test func aRealChangeStillRedrawsTheRowsOnce() throws {
-        try SidebarTabGroupControlsTests.withCloseSpot(.end) {
-            let (_, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        try SidebarRowCloseSpotTests.withCloseSpot(.end) {
+            let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
             defer { window.close() }
             window.orderFrontRegardless()
             sidebar.renderNow()
-            let row = try #require(sidebar.list.rowViews[.workspace(SidebarTabGroupControlsTests.other)] as? WorkspaceRowView)
+            let row = try #require(sidebar.list.rowViews[.workspace(SidebarRowCloseSpotTests.other)] as? WorkspaceRowView)
             SidebarTunablesWatch.shared.changed()
             row.layoutSubtreeIfNeeded()
-            try SidebarTabGroupControlsTests.withCloseSpot(.middle) {
+            try SidebarRowCloseSpotTests.withCloseSpot(.middle) {
                 SidebarTunablesWatch.shared.changed()
                 #expect(row.needsLayout, "a changed close spot did not reach the live row")
                 row.layoutSubtreeIfNeeded()

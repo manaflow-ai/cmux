@@ -11,7 +11,7 @@ import Testing
 /// Artifact `sidebar-update-button-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarUpdateButtonGalleryTests {
     static func render(dark: Bool) throws -> CGImage {
-        let (_, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
         defer { window.close() }
         let theme = dark ? "Soft Blue" : "Soft Blue Light"
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

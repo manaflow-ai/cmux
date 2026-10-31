@@ -124,7 +124,7 @@ import Testing
     /// "trailing dots and spinners must line up horizontally across sections"; msg 12086: "loading spinners must
     /// align too". Every visible trailing dot and spinner centers on the column in every row kind: Home, a
     /// selected band item that needs you, a band item that works (a spinner alone), the band's pinned
-    /// collapsed-loading group header, a selected list row that works (its disclosure shown), a row that
+    /// collapsed-loading group header, a selected list row that works, a row that
     /// needs you, an unread row, a busy row (a spinner alone), open group headers' chevrons at depth 0 and 1, collapsed groups'
     /// resting spinners at depth 0 and 2, a member and a nested member, at every density with Minimal Mode
     /// on and off. The band item drew its yellow dot after its title, 3.5 pt
@@ -152,15 +152,6 @@ import Testing
     static let open = GroupID("tc-open"), sub = GroupID("tc-sub"), folded = GroupID("tc-folded")
     static let pinned = GroupID("tc-pinned"), deep = GroupID("tc-deep")
     static let pinnedMember = WorkspaceID("tc-pinned-member"), deepMember = WorkspaceID("tc-deep-member")
-    /// Inner tab rows (Leo 2026-10-28, "because it's the inner tab thing"): an unread tab and a working tab under
-    /// the selected row at depth 0, and under a member of a nested group.
-    static let tabUnread = TabID("tc-tab-1"), tabWorking = TabID("tc-tab-2")
-    static let nestedTabUnread = TabID("tc-nested-tab-1"), nestedTabWorking = TabID("tc-nested-tab-2")
-    static func tab(_ id: TabID, _ title: String, unread: Bool = false, working: Bool = false) -> SidebarTab {
-        var tab = SidebarTab(id: id, title: title, isUnread: unread)
-        if working { tab.state = .working }
-        return tab
-    }
     static let topKey = SidebarRowKey.block(SidebarLayoutDocument.topSectionID.rawValue)
 
     /// The band (Home unread, a selected band workspace that needs you) over a list with every row kind.
@@ -189,14 +180,11 @@ import Testing
                                          workspaces: [SidebarWorkspace(id: T.deepMember, title: "Deep member", agentWorking: true, activity: .working)])
             deepGroup.parent = T.sub
             var subgroup = SidebarGroup(id: T.sub, name: "Perf", color: .yellow,
-                                        workspaces: [SidebarWorkspace(id: T.nested, title: "Nested unread", unread: .dot,
-                                                                      tabs: [T.tab(T.nestedTabUnread, "claude", unread: true),
-                                                                             T.tab(T.nestedTabWorking, "codex", working: true)])])
+                                        workspaces: [SidebarWorkspace(id: T.nested, title: "Nested unread", unread: .dot)])
             subgroup.parent = T.open
             let nodes: [SidebarNode] = [
                 // Lawrence msg 12086: "loading spinners must align too": the selected row works (a spinner).
-                .workspace(SidebarWorkspace(id: T.selected, title: "Selected working", agentWorking: true, activity: .working,
-                                            tabs: [T.tab(T.tabUnread, "zsh", unread: true), T.tab(T.tabWorking, "vim", working: true)])),
+                .workspace(SidebarWorkspace(id: T.selected, title: "Selected working", agentWorking: true, activity: .working)),
                 .group(SidebarGroup(id: T.open, name: "cmux-next app", color: .blue,
                                     workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot)])),
                 .group(subgroup),
@@ -208,8 +196,6 @@ import Testing
                 .workspace(SidebarWorkspace(id: T.waiting, title: "Needs you", agentWorking: true, activity: .waiting)),
             ]
             model = SidebarModel(sections: [block, SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: T.selected)
-            // The selected row's disclosure keeps its slot (cx-fo2t) where tab rows list.
-            model.showWorkspaceTabs = true
             let layout = SidebarLayoutDocument(sections: [top])
             model.layout = layout
             var homeInfo = SidebarItemInfo(title: "Home", symbol: "house")
@@ -315,9 +301,6 @@ import Testing
                 ("nested", try h.row(.workspace(Self.nested))), ("openHeader", try h.row(.group(Self.open))),
                 ("nestedOpenHeader", try h.row(.group(Self.sub))), ("deepLoadingHeader", try h.row(.group(Self.deep))),
                 ("foldedHeader", try h.row(.group(Self.folded))), ("pinnedLoadingHeader", try h.row(.group(Self.pinned))),
-                ("tabUnread", try h.row(.tab(Self.selected, Self.tabUnread))), ("tabWorking", try h.row(.tab(Self.selected, Self.tabWorking))),
-                ("nestedTabUnread", try h.row(.tab(Self.nested, Self.nestedTabUnread))),
-                ("nestedTabWorking", try h.row(.tab(Self.nested, Self.nestedTabWorking))),
             ]
             var marks: [Mark] = []
             for (name, row) in rows {
@@ -329,8 +312,8 @@ import Testing
             for mark in marks {
                 #expect(abs(mark.midX - column) <= 0.5, "\(c.testDescription): \(mark.what) centers at \(mark.midX), the column at \(column)")
             }
-            // One center line per row: the tab rows and the headers, one line tall, center their marks on it.
-            for mark in marks where ["tab", "header"].contains(where: mark.what.lowercased().contains) {
+            // One center line per row: the headers, one line tall, center their marks on it.
+            for mark in marks where mark.what.lowercased().contains("header") {
                 #expect(abs(mark.dy) <= 0.5, "\(c.testDescription): \(mark.what) sits \(mark.dy) pt off its row's center")
             }
         }
@@ -342,7 +325,7 @@ import Testing
     /// shows its chevron on the column and no spinner. Each case prints a `TRAILHOVER|` line.
     @Test(arguments: SidebarDensity.allCases, [SidebarRowCloseSpot.end, .middle, .even])
     func hoverControlsTakeTheMarksPlace(_ density: SidebarDensity, _ spot: SidebarRowCloseSpot) throws {
-        try SidebarTabGroupControlsTests.withCloseSpot(spot) { try SidebarGroupRailAlignmentTests.with(density, .off) {
+        try SidebarRowCloseSpotTests.withCloseSpot(spot) { try SidebarGroupRailAlignmentTests.with(density, .off) {
             let h = KindHarness(width: 260)
             defer { h.window.close() }
             let column = try Self.columnX(h)
@@ -387,7 +370,7 @@ import Testing
     func leavingClearsTheControlsBeforeTheMarkReturns(_ spot: SidebarRowCloseSpot, _ style: SidebarRowBadgeStyle) throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        try SidebarTabGroupControlsTests.withCloseSpot(spot) { try SidebarGroupRailAlignmentTests.with(.comfortable, .off) {
+        try SidebarRowCloseSpotTests.withCloseSpot(spot) { try SidebarGroupRailAlignmentTests.with(.comfortable, .off) {
             let h = KindHarness(width: 260)
             h.model.rowBadgeStyle = style
             h.list.reload(animated: false)
