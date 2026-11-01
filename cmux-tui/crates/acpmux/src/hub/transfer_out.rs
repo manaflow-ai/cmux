@@ -527,10 +527,47 @@ impl Hub {
     /// queue (an inbox digest's messages included) stays as it is.
     fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         self.restore_queue_only(session, Some(prompt_id));
+        self.reword_unmoved(session, prompt_id);
         let _ = self.move_queued(session, prompt_id, 0, None);
         if !self.hold_in_protected_folder(session) {
             self.start_restored(session);
         }
+    }
+
+    /// The carried continuation was written for the machine the chat was going to: here it says
+    /// the chat stayed (`Cut::unmoved`), or the agent reports its turn finished there. Logged as
+    /// an edit that keeps its provenance (`queue.rs` restores `queue_updated`), so a restart
+    /// restores the same words.
+    fn reword_unmoved(&self, session: &Arc<Session>, prompt_id: &str) {
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
+            return;
+        };
+        let Some(text) = q.run.blocks.first().and_then(|b| b.get("text")).and_then(Value::as_str)
+        else {
+            return;
+        };
+        let Some(text) = super::auto_resume::Cut::unmoved(text) else {
+            return;
+        };
+        let mut run = (*q.run).clone();
+        if let Some(block) = run.blocks.first_mut() {
+            block.set("text", json!(text));
+        }
+        q.run = Arc::new(run);
+        q.preview = short_text(&text, 200);
+        let run = &q.run;
+        let mut msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        // Its images, kept and named as `queued` names them (`prompt_images.rs`).
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
+        if !images.is_empty() {
+            msg.set("images", Value::Array(images));
+        }
+        if let Some(display_parts) = &run.display_parts {
+            msg.set("displayParts", display_parts.clone());
+        }
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append(session, "mux", "queue_updated", msg);
     }
 
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy

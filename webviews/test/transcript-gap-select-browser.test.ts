@@ -147,8 +147,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           })),
           dir: "rtl",
           // RTL inherits the document; a local LTR line must keep its own endpoints.
+          // Specific enough to win over a reply's kept room (conversation.css `.acpmux-row--reply-room`).
           css:
-            '.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
+            'article.acpmux-row.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
             (lineDirection === "ltr" ? ".cv-md p { direction: ltr; }" : ""),
         });
         try {
