@@ -7770,6 +7770,43 @@ becomes the lease's account: every later `cloud-*` event carries it as
 `account`, `cloud-session-status` names it as `participant`, and open
 subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 
+### cloud-environment
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-environment` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-environments-v1` |
+
+The cloud environment editor uses the existing Cloud transport on an off-loop
+request worker. Only the verified native app may call it. The app supplies
+`platform_origin` from its existing platform resolver and `access_token`, its
+cmux install JWT with team authorization. The page never supplies or sees either.
+No Home session lease is needed or modified. Redirects are disabled. The platform
+owns validation, authorization, storage and default locking.
+
+Required fields: `platform_origin`, `access_token`, `action` and `params` (object).
+The origin must be an HTTPS `*.debussy.workers.dev` deployment without a port,
+or HTTP loopback, with no userinfo, query, fragment or non-root path.
+Actions and their params:
+
+- `list`, `{}`: `GET /v1/cloud-environments`, answers an array.
+- `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
+- `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
+  environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
+  `remove_secrets` and `network`. Null and empty values reach the owner unchanged.
+- `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
+  the derived setup including `setup.script`.
+
+Ids are 1–128 ASCII letters, digits, underscores or hyphens. No action accepts an
+arbitrary path, header, scope or account. Secret values are write-only: replies
+retain only each secret's `name` and `updated_at`; diagnostics redact params and
+the install token. Upstream error messages are sanitized.
+The app requires the Save click for `update`. Platform `cloud_environment.*`
+refusals preserve their code; invalid fields fail before an HTTP call. Neither
+this command nor its reads change focus. CLI/MCP use requires the person's own
+API authorization; this native forwarding command never grants it to agents.
+
 ### cloud-conversation-thread
 
 | Field | Value |
@@ -9498,6 +9535,24 @@ attachment `agent_session.not_trusted`: only the chat's owner changes how its
 agent runs. The app checks the person's gesture (and its full-access rule)
 before it sends one; an app without the capability says the pick needs that
 machine's cmux-tui updated.
+
+### agent-session-login
+
+`agent-session-login-v1` (advertised with `agent-session-attach-v1`): a Cloud
+chat's own sign-in on this machine, from the app's sign-in card. On an attached
+tab, `{id, cmd:"agent-session-login", surface, op, ...}` sends acpmux's
+`_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude` or `codex`)
+sends `{agent, sessionId}`; `op:"finish"` with `login_id` and optionally Claude's `code`
+sends `{loginId, sessionId, code?}` and may wait up to 15 minutes (Codex waits
+for the person's approval); `op:"api_key"` with `agent` and `key` sends `{agent,
+key, sessionId}`; `op:"cancel"` with `login_id` sends `{loginId,
+sessionId}`. `sessionId` is always the tab's own session. acpmux's result comes back unchanged; its
+refusal comes back as an answer, `{refused:{reason}}` with its `data.reason`
+(`unsupported` from an acpmux without the method). A missing or oversized field,
+another agent, another `op` or any other param is `agent_session.bad_request`.
+An observation attachment gets `agent_session.read_only`, and a teammate's or
+link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
+its agent in. The code and key are never logged.
 
 ### agent-session-proxy-bind, agent-session-of
 

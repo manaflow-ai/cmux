@@ -87,7 +87,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         // `video.frames`: a video's numbers and frames for the agent tools `video_info` and `video_frames`.
-        service.router.register(VideoControl.methods())
+        service.router.register(VideoControl().methods())
         // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026).
         let build = services.environment.build
         service.router.register([.agentAcpmux {
