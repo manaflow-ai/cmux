@@ -28,9 +28,10 @@
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
 //!
-//! `cmux link seed pull --socket PATH LOCAL REMOTE` brings the seeded
-//! folder's changes back as a diff, merged against the [`record`]
-//! ([`pull`]).
+//! `cmux link seed pull --socket PATH LOCAL REMOTE [--or-copy]` brings the
+//! seeded folder's changes back as a diff, merged against the [`record`]
+//! ([`pull`]); `--or-copy` (Bring Back Local) pulls a folder that was copied
+//! instead as `cmux link sync pull` does.
 //!
 //! Output: progress on stderr as JSON lines, `{"progress":{"phase":"upload",
 //! "bytes_done","bytes_total"}}` while the bundle goes, then
@@ -50,6 +51,8 @@
 mod pull;
 mod record;
 
+pub(super) use pull::bring_back;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -65,7 +68,7 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 [--since-last]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--base-head SHA --base-index SHA --base-work SHA]";
+[--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -180,7 +183,11 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     };
     let answer = match command {
-        Command::Pull { socket, local, remote, base } => pull::pull(&socket, &local, &remote, base),
+        Command::Pull { socket, local, remote, base } => {
+            let (line, code) = pull::run(&socket, &local, &remote, base);
+            println!("{line}");
+            return code;
+        }
         Command::Push { socket, local, remote, since_last } => {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
@@ -206,7 +213,7 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 enum Command {
-    Pull { socket: PathBuf, local: PathBuf, remote: String, base: Option<SeedBase> },
+    Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
     Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
     Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
 }
@@ -214,6 +221,7 @@ enum Command {
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
+    let mut or_copy = false;
     let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
@@ -223,6 +231,7 @@ fn parse(args: &[String]) -> Option<Command> {
             "--repo" => repo = Some(rest.next()?.clone()),
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
+            "--or-copy" => or_copy = true,
             "--base-head" => head = Some(rest.next()?.clone()),
             "--base-index" => index = Some(rest.next()?.clone()),
             "--base-work" => work = Some(rest.next()?.clone()),
@@ -249,9 +258,14 @@ fn parse(args: &[String]) -> Option<Command> {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
-            base,
+            base: match (base, or_copy) {
+                (Some(_), true) => return None,
+                (Some(base), false) => pull::Base::Given(base),
+                (None, true) => pull::Base::RecordOrCopy,
+                (None, false) => pull::Base::Record,
+            },
         }),
-        _ if base.is_some() => None,
+        _ if base.is_some() || or_copy => None,
         ("push", [local, remote]) if plain => Some(Command::Push {
             socket: socket?,
             local: PathBuf::from(local),
@@ -657,7 +671,7 @@ impl Drop for LocalBundle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, LocalBundle, parse};
+    use super::{Command, LocalBundle, parse, pull};
 
     #[test]
     fn the_bundle_lives_in_a_folder_only_this_user_opens_and_goes_with_it() {
@@ -685,8 +699,13 @@ mod tests {
             panic!("pull");
         };
         assert_eq!((local.to_str(), remote.as_str()), (Some("/a"), "/home/w/a"));
-        assert!(base.is_none(), "the record's");
-        let Some(Command::Pull { base: Some(base), .. }) = parse(&args(&[
+        assert!(matches!(base, pull::Base::Record), "the record's");
+        let Some(Command::Pull { base: pull::Base::RecordOrCopy, .. }) =
+            parse(&args(&["pull", "--socket", "/s", "/a", "/b", "--or-copy"]))
+        else {
+            panic!("Bring Back Local's pull");
+        };
+        let Some(Command::Pull { base: pull::Base::Given(base), .. }) = parse(&args(&[
             "pull",
             "--socket",
             "/s",
@@ -752,6 +771,21 @@ mod tests {
             &["pull", "--socket", "/s", "/a", "b"],
             &["pull", "--socket", "/s", "/a", "/b", "--since-last"],
             &["pull", "--socket", "/s", "/a", "/b", "--base-head", SHA],
+            &["push", "--socket", "/s", "/a", "/b", "--or-copy"],
+            &[
+                "pull",
+                "--socket",
+                "/s",
+                "/a",
+                "/b",
+                "--or-copy",
+                "--base-head",
+                SHA,
+                "--base-index",
+                SHA,
+                "--base-work",
+                SHA,
+            ],
             &[
                 "pull",
                 "--socket",

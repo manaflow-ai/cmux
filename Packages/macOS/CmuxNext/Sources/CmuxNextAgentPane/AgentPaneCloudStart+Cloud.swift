@@ -10,15 +10,26 @@ extension AgentPaneCloudStart {
         public var folder: String?
         public var machine: String?
         public var size: String?
+        public var cloneState: String?
+        public var clonePhase: String?
+        public var cloneStartedAt: Double?
+        public var cloneFinishedAt: Double?
 
-        public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil) {
+        public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
+                    cloneState: String? = nil, clonePhase: String? = nil,
+                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
+            (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
+            (self.cloneState, self.clonePhase) = (cloneState, clonePhase)
         }
     }
 
     /// Tells the page's card `step` as it begins.
     @MainActor public func progress(_ step: Step, to view: AgentPaneView) {
-        progress(step.name, folder: step.folder, machine: step.machine, size: step.size, to: view)
+        progress(step.name, folder: step.folder, machine: step.machine, size: step.size,
+                 cloneState: step.cloneState, clonePhase: step.clonePhase,
+                 cloneStartedAt: step.cloneStartedAt, cloneFinishedAt: step.cloneFinishedAt,
+                 to: view)
     }
 
     /// A machine's size in the card's words: "4 CPU · 16 GB".

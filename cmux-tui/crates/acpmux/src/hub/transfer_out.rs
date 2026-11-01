@@ -3,7 +3,8 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?}}`: the chat stops
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?},
+//!    gatesQueueApproval?}`: the chat stops
 //!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
 //!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
 //!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
@@ -169,7 +170,10 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
-                self.transfer_begin(&session, interrupt, socket, ssh, host).await
+                // The client hands the bundle only to a receiver whose own `initialize` listed
+                // queue approval when it carries approved prompts that still wait.
+                let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
+                self.transfer_begin(&session, interrupt, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -201,6 +205,7 @@ impl Hub {
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
+        gates_receiver: bool,
     ) -> Result<Value, RpcError> {
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
@@ -291,13 +296,29 @@ impl Hub {
             ));
         }
         let dir = transfers_dir().join(&transfer_id);
-        let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                // Check exactly what the target will restore, even if the live queue changed.
+                let approved_waiting = self.held_prompts(&bundle)?;
+                // A prompt the owner approved that still waits goes only to a receiver whose own
+                // `initialize` listed queue approval, which only the move's client sees (it holds
+                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
+                // does not say it checks that is refused (review of #28859).
+                if !approved_waiting.is_empty() && !gates_receiver {
+                    let why = "the move's client does not check that its receiver approves";
+                    return Err(approved_prompts_error(json!(approved_waiting), why));
+                }
+                let files = bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                Ok((files, approved_waiting))
+            });
         drop(guard);
-        let files = match made {
-            Ok(files) => files,
-            Err(e) => {
+        let (files, approved_waiting) = match made {
+            Ok(made) => made,
+            Err(error) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                let error = RpcError::internal(format!("transfer: bundle: {e}"));
                 let record = json!({"transferId": transfer_id});
                 // Its `transfer_out` is logged: it stays frozen unless its end is too.
                 let (_, logged) =
@@ -335,6 +356,11 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        // The receiver refuses the bundle unless it understands them (`transfer_in.rs`), and the
+        // client hands it only to one that listed queue approval.
+        if !approved_waiting.is_empty() {
+            answer.set("approvedWaiting", json!(approved_waiting));
         }
         if let Some(manifest) = std::fs::read_to_string(dir.join(&session.id).join("manifest.json"))
             .ok()

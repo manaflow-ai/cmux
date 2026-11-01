@@ -94,7 +94,7 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
-import { errorMessage } from "./transportErrors";
+import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
@@ -7659,7 +7659,7 @@ export class AcpmuxDirectClient {
                 if (settled || running) return;
                 running = true;
                 void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                  finish(undefined, new Error(translate("switch.cancelled"))),
+                  finish(undefined, startCancelled()),
                 ).then(
                   (id) => finish(id),
                   (error: unknown) => {
