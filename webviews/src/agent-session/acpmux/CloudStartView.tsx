@@ -44,7 +44,7 @@ function cloneDetail(operation: CloudStartupOperation | undefined): string | und
 export function startupChecklist(start: CloudStartProgress): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
   const machine: ChecklistStep = { id: "machine", label: "Set up a Cloud machine", status: start.state === "failed" && oldStep < 0 ? "error" : oldStep > 0 || start.initialized ? "done" : oldStep === 0 ? "running" : "pending", duration: elapsed(start.machineStartedAt, start.machineFinishedAt) };
-  const hasRepository = start.hasRepository ?? Boolean(start.repository || start.folder) && !start.home;
+  const hasRepository = start.hasRepository ?? Boolean(start.repository || start.folder || start.clone) && !start.home;
   const cloneStatus = operationStatus(start.clone);
   const clone: ChecklistStep = { id: "clone", label: "Clone repository", status: !hasRepository ? "skipped" : cloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt), ...((cloneDetail(start.clone) || start.clone?.error) ? { detail: cloneDetail(start.clone) || start.clone?.error } : {}) };
   const hasScript = start.setup?.hasScript;
