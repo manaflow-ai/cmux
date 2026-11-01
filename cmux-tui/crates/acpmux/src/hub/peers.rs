@@ -1180,7 +1180,7 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        for session in self.live_sessions() {
+        for session in self.indexed_live_sessions() {
             visit(if with_tools {
                 self.session_summary(&session)
             } else {
@@ -1207,7 +1207,7 @@ impl Hub {
     /// The index-backed projection for lookups that usually target an active chat. A miss falls
     /// back to [`Self::all_session_summaries_including_closed`] in `locate` so closed history is
     /// still discoverable by an explicit request.
-    pub(super) fn live_session_summaries(&self) -> Vec<Value> {
+    pub(crate) fn live_session_summaries(&self) -> Vec<Value> {
         let mut v = Vec::new();
         self.visit_live_session_summaries(true, |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);

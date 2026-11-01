@@ -1325,7 +1325,7 @@ impl Hub {
 
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
     /// from `sessions` only by an explicit id/name request.
-    pub(super) fn live_sessions(&self) -> Vec<Arc<Session>> {
+    pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
         let ids: Vec<String> = self
             .live_session_ids
             .lock()
