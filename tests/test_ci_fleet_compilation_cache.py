@@ -15,7 +15,8 @@ SETTINGS = ROOT / "scripts/ci/fleet-compilation-cache.sh"
 
 class FleetCacheTests(unittest.TestCase):
     def setUp(self):
-        self.scratch = tempfile.TemporaryDirectory(prefix="fleet-cas-")
+        # Runner TMPDIR may exceed sockaddr_un's ~100-byte pathname limit.
+        self.scratch = tempfile.TemporaryDirectory(prefix="fleet-cas-", dir="/tmp")
         self.addCleanup(self.scratch.cleanup)
         self.root = Path(self.scratch.name)
         self.cache = self.root / "cache with spaces"
