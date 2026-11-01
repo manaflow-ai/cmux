@@ -159,6 +159,15 @@ export default agentPaneEntry({
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
     },
+    "grid-running": {
+      note: "Grid measurement: running with the steer / queue placeholder and no draft.",
+      snapshot: row({ isWorking: true }),
+    },
+    "grid-draft": {
+      note: "Grid measurement: a single plain text line and Send.",
+      ready: { draft: "Check the grid lines" },
+      snapshot: row(),
+    },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },

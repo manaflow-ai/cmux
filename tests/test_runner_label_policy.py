@@ -349,11 +349,12 @@ class NightlyRunnerVariable(unittest.TestCase):
                 )
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
 
-    def test_nightly_no_longer_asks_for_a_single_trusted_runner(self) -> None:
+    def test_nightly_uses_the_next_trusted_pair_only_through_the_picker(self) -> None:
         text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
         self.assertIn("vars.CI_SIDE_LANE_RUNNER", text)
         self.assertNotIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", text)
-        self.assertNotIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
 
 
 
