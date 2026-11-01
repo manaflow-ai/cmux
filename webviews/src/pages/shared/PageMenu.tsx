@@ -97,7 +97,11 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           align="start"
           sideOffset={0}
         >
-          <BaseMenu.Popup ref={host ? setPopup : undefined} className="page-menu" finalFocus={() => opener.current}>
+          <BaseMenu.Popup
+            ref={host ? setPopup : undefined}
+            className="page-menu ui-popup ui-glass"
+            finalFocus={() => opener.current}
+          >
             {items.map((item) => (
               <PageMenuRow key={item.id} item={item} onClose={onClose} />
             ))}
