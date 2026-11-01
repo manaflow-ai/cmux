@@ -50,14 +50,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import {
-  frameTextOf,
-  imageNames,
-  isVideoFrameName,
-  rowImageNames,
-  withoutFrames,
-  withoutFramesNotes,
-} from "./composer/videoPrompt";
+import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -619,21 +612,15 @@ function queuedEntry(
   inlineParts?: PromptContentPart[],
   retry?: SubagentRetryNotice,
 ): QueuedPrompt {
-  // A video's frames, its note and its labels went to the agent only (composer/videoPrompt.ts).
-  const isFrame = frameTextOf(rowImageNames({ images, inlineParts }));
-  const shownImages = images?.filter((image) => !isVideoFrameName(image.name));
-  const parts = inlineParts?.filter((part) =>
-    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrame(part.text)),
-  );
   return {
     id,
-    prompt: withoutFramesNotes(prompt, isFrame),
+    prompt,
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
-    ...(shownImages?.length ? { images: [...shownImages] } : {}),
+    ...(images?.length ? { images: [...images] } : {}),
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
-    ...(parts?.length ? { inlineParts: parts } : {}),
+    ...(inlineParts?.length ? { inlineParts } : {}),
     ...(retry && !message && !author ? { retry } : {}),
   };
 }
