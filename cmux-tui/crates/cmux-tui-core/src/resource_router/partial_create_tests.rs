@@ -139,16 +139,35 @@ fn app_tree_workspace_names(mux: &Mux) -> Vec<String> {
         .collect()
 }
 
-/// Fuzz finding restore h1 (STATUS 3083, build feat d1f0e63691a0): with the
-/// daemon's state directory on a full disk, `cmux workspace create --name X`
-/// answers `operation.failed` "database or disk is full" and `workspace list`
-/// has no X, but the app shows X (no tabs), also after a relaunch against the
-/// same daemon. Here the disk fills after the create wrote its workspace row
-/// and its terminal reservation. A refused create must leave X nowhere: not in
-/// `workspace.list`, not in the tree the app reads, and the event stream must
-/// not announce X without announcing its removal.
-#[test]
-fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
+/// Where the disk fills during a terminal-backed `workspace.create`.
+#[derive(Clone, Copy, Debug)]
+enum DiskFillPoint {
+    /// After the workspace row, before the terminal's reservation: the
+    /// workspace has no tab (the fuzz run's ghost had none).
+    AfterWorkspaceRow,
+    /// After the terminal's reservation, before it is running.
+    AfterTerminalReservation,
+    /// After the terminal is running, before its surface joins the
+    /// workspace: the projection that publishes the creation fails.
+    AfterTerminalReady,
+}
+
+fn set_fill_hook(mux: &Arc<Mux>, point: DiskFillPoint, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+    match point {
+        DiskFillPoint::AfterWorkspaceRow => {
+            mux.set_terminal_create_after_workspace_reservation_hook_for_test(hook);
+        }
+        DiskFillPoint::AfterTerminalReservation => {
+            mux.set_resource_terminal_reservation_hook_for_test(
+                hook.map(|hook| -> Arc<dyn Fn(&str) + Send + Sync> { Arc::new(move |_| hook()) }),
+            );
+        }
+        DiskFillPoint::AfterTerminalReady => mux.set_terminal_ready_hook_for_test(hook),
+    }
+}
+
+/// One refused create; returns what is wrong, empty when nothing is.
+fn refused_create_problems(point: DiskFillPoint) -> Vec<String> {
     let mux = Mux::new_for_test("diskfull-create", SurfaceOptions::default());
     // The fuzz run made one workspace before the disk filled.
     topology::dispatch(
@@ -163,15 +182,19 @@ fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
     let workspaces_before = mux.with_state(|state| state.workspaces.len());
     let events = mux.subscribe();
     let filled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    mux.set_resource_terminal_reservation_hook_for_test(Some(Arc::new({
-        let mux = Arc::clone(&mux);
-        let filled = Arc::clone(&filled);
-        move |_terminal_id: &str| {
-            if !filled.swap(true, std::sync::atomic::Ordering::AcqRel) {
-                fill_the_disk(&mux);
+    set_fill_hook(
+        &mux,
+        point,
+        Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let filled = Arc::clone(&filled);
+            move || {
+                if !filled.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                    fill_the_disk(&mux.upgrade().unwrap());
+                }
             }
-        }
-    })));
+        })),
+    );
 
     let created = topology::dispatch(
         &mux,
@@ -181,20 +204,20 @@ fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
             "diskfull-ghost",
         ),
     );
-    mux.set_resource_terminal_reservation_hook_for_test(None);
-    assert!(filled.load(std::sync::atomic::Ordering::Acquire), "the disk never filled");
+    set_fill_hook(&mux, point, None);
+    assert!(filled.load(std::sync::atomic::Ordering::Acquire), "{point:?}: the disk never filled");
     let error = created.expect_err("a create on a full disk reported success");
-    eprintln!("refused create: {error:?}");
+    eprintln!("{point:?}: refused create: {error:?}");
 
     // (a) The daemon's `workspace.list`.
     let listed = listed_workspace_names(&mux);
     // (b) The tree the app reads (`list-workspaces`), and the mux state under it.
     let tree = app_tree_workspace_names(&mux);
     let workspaces_after = mux.with_state(|state| state.workspaces.len());
-    // (c) The event stream the app subscribes to.
+    // (c) The event stream the app subscribes to. A tree resync alone does
+    // not pass: the stream must announce the removal of what it announced.
     let mut announced = None;
     let mut removed = false;
-    let mut resynced_after_add = false;
     while let Ok(event) = events.try_recv() {
         match event {
             crate::MuxEvent::TreeDelta(delta)
@@ -209,7 +232,6 @@ fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
             {
                 removed = true;
             }
-            crate::MuxEvent::TreeChanged if announced.is_some() => resynced_after_add = true,
             _ => {}
         }
     }
@@ -217,25 +239,47 @@ fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
 
     let mut problems = Vec::new();
     if listed.iter().any(|name| name == "ghost") {
-        problems.push(format!("(a) workspace.list has the refused workspace: {listed:?}"));
+        problems
+            .push(format!("{point:?} (a): workspace.list has the refused workspace: {listed:?}"));
     }
     if tree.iter().any(|name| name == "ghost") || workspaces_after != workspaces_before {
         problems.push(format!(
-            "(b) the app's list-workspaces tree has the refused workspace: {tree:?} \
+            "{point:?} (b): the app's list-workspaces tree has the refused workspace: {tree:?} \
              ({workspaces_before} workspaces before, {workspaces_after} after; \
              workspace.list: {listed:?})"
         ));
     }
-    if announced.is_some() && !removed && !resynced_after_add {
+    if announced.is_some() && !removed {
         problems.push(format!(
-            "(c) the event stream announced the refused workspace (WorkspaceAdded {announced:?}) \
-             and never its removal"
+            "{point:?} (c): the event stream announced the refused workspace \
+             (WorkspaceAdded {announced:?}) and never its removal"
         ));
     }
+    mux.shutdown();
+    problems
+}
+
+/// Fuzz finding restore h1 (STATUS 3083, build feat d1f0e63691a0): with the
+/// daemon's state directory on a full disk, `cmux workspace create --name X`
+/// answers `operation.failed` "database or disk is full" and `workspace list`
+/// has no X, but the app shows X (no tabs), also after a relaunch against the
+/// same daemon. A refused create must leave X nowhere: not in
+/// `workspace.list`, not in the tree the app reads, and the event stream must
+/// not announce X without announcing its removal. The disk fills at each
+/// step of the creation in turn.
+#[test]
+fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
+    let problems = [
+        DiskFillPoint::AfterWorkspaceRow,
+        DiskFillPoint::AfterTerminalReservation,
+        DiskFillPoint::AfterTerminalReady,
+    ]
+    .into_iter()
+    .flat_map(refused_create_problems)
+    .collect::<Vec<_>>();
     assert!(
         problems.is_empty(),
         "a refused create left a ghost workspace:\n{}",
         problems.join("\n")
     );
-    mux.shutdown();
 }
