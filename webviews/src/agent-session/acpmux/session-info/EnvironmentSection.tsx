@@ -6,7 +6,7 @@
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -15,6 +15,8 @@ import type { SavedEnvironmentDraft } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
+import { openCloudEnvironment } from "../cloudEnvironment";
+import { CloudRepositoryPicker, loadAttachedCloudRepos, type AttachedCloudRepo } from "./CloudRepositoryPicker";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -136,8 +138,12 @@ export function EnvironmentSection({
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [repositoryPickerOpen, setRepositoryPickerOpen] = useState(false);
+  const [attachedRepos, setAttachedRepos] = useState<AttachedCloudRepo[]>([]);
+  const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
+  const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
@@ -166,9 +172,26 @@ export function EnvironmentSection({
         }
       : undefined;
   const parent = project && homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
+  useEffect(() => {
+    if (!cloudSession) {
+      setAttachedRepos([]);
+      return;
+    }
+    let live = true;
+    void loadAttachedCloudRepos(cloudSession)
+      .then((repos) => {
+        if (live) setAttachedRepos(repos);
+      })
+      .catch(() => {
+        if (live) setAttachedRepos([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [cloudSession]);
   return (
     <ul className="acpmux-session-info-list" data-section="environment">
-      <li className="acpmux-session-info-row" data-machine={machine.kind}>
+      {!cloudSession && <li className="acpmux-session-info-row" data-machine={machine.kind}>
         <Icon
           name={machine.icon}
           size={ROW_ICON}
@@ -187,13 +210,55 @@ export function EnvironmentSection({
             {t(saved ? "artifact.saved" : "sessionInfo.environment.save")}
           </button>
         )}
-      </li>
+      </li>}
+      {cloudSession && (
+        <>
+          <li className="acpmux-session-info-row acpmux-cloud-environment-row">
+            <Icon name="cloud" size={ROW_ICON} row />
+            <span className="acpmux-session-info-row__name">Default</span>
+            <button
+              type="button"
+              className="acpmux-session-info-icon-button acpmux-session-info-row__end"
+              aria-label="Edit cloud environment"
+              title="Edit cloud environment"
+              onClick={() => openCloudEnvironment({ section: "overview" })}
+            >
+              <Icon name="settings" size={ROW_ICON} />
+            </button>
+          </li>
+          <li>
+            <button
+              ref={addRepositoryButton}
+              type="button"
+              className="acpmux-session-info-row acpmux-session-info-row--button"
+              aria-haspopup="dialog"
+              aria-expanded={repositoryPickerOpen}
+              onClick={() => setRepositoryPickerOpen((open) => !open)}
+            >
+              <Icon name="folder.add" size={ROW_ICON} row />
+              <span className="acpmux-session-info-row__name">Add repository…</span>
+            </button>
+            <CloudRepositoryPicker
+              session={cloudSession}
+              anchor={addRepositoryButton}
+              open={repositoryPickerOpen}
+              onOpenChange={setRepositoryPickerOpen}
+              onAttached={(repo) => setAttachedRepos((current) => [...current, repo])}
+            />
+          </li>
+          {attachedRepos.map((attached) => (
+            <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
+              <span className="acpmux-session-info-row__name">{attached.repo}</span>
+            </Row>
+          ))}
+        </>
+      )}
       {failed && (
         <li className="acpmux-session-info-note" role="alert">
           {t("environment.saveFailed", { reason: t("error.requestFailed") })}
         </li>
       )}
-      {project && (
+      {!cloudSession && project && (
         <Row
           icon={project.worktree ? "git.worktree" : "folder"}
           title={project.path}
@@ -206,12 +271,12 @@ export function EnvironmentSection({
           )}
         </Row>
       )}
-      {repository && (
+      {!cloudSession && repository && (
         <Row icon="brand.github" href={repositoryUrl}>
           <span className="acpmux-session-info-row__name">{repository}</span>
         </Row>
       )}
-      {branch && !(projectLook === "branch" && project) && (
+      {!cloudSession && branch && !(projectLook === "branch" && project) && (
         <Row icon="git.branch" href={branchUrl}>
           <span className="acpmux-session-info-row__name">{branch}</span>
         </Row>
