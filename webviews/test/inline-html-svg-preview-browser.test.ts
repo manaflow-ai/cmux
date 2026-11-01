@@ -1,8 +1,9 @@
 // The inline preview frame's isolation in a real browser (InlinePreview.tsx, previewDocument.ts): a
 // document in a frame sandboxed with `allow-scripts` and no same-origin, behind the preview policy.
-// Before Run its own scripts never run (only the nonce'd height reporter does); after Run (inline
-// scripts allowed) a script still cannot read `parent.document`, and `fetch` is refused by the
-// policy without a request leaving the page. The height report reaches the parent.
+// Its own scripts never run (only the nonce'd frame script does). Even with inline scripts allowed,
+// under the sandbox alone, a script cannot read `parent.document`, and `fetch` is refused by the
+// policy without a request leaving the page. The height report reaches the parent; the frame refuses
+// a link out and has no live refresh.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when they cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -124,7 +125,7 @@ parent.postMessage({ type: "probe-ran" }, "*");
       await page.close();
     });
 
-    test(`${engine}: before Run the document's script never runs, and the height still reports`, async () => {
+    test(`${engine}: the document's script never runs, and the height still reports`, async () => {
       const { messages, requests } = await load(
         engine,
         inlinePreviewDocument("html", probe, "", "0123456789abcdef0123456789abcdef"),
@@ -136,7 +137,7 @@ parent.postMessage({ type: "probe-ran" }, "*");
       expect(requests).toEqual([]);
     });
 
-    test(`${engine}: after Run a script cannot read parent.document and fetch is refused`, async () => {
+    test(`${engine}: with scripts allowed, a script still cannot read parent.document and fetch is refused`, async () => {
       const { messages, requests } = await load(engine, inlinePreviewDocument("html", probe, "", undefined), "probe");
       const result = messages.find((message) => message.type === "probe")?.result;
       expect(result?.ran).toBe(true);

@@ -2,7 +2,7 @@
 // A reply's closed ```html or ```svg fence drawn inline as its document (InlinePreview.tsx), in a frame
 // sandboxed with allow-scripts and no same-origin, behind a policy with no network. Code shows the
 // source card (Copy stays); Open puts it in the side panel. An open fence stays plain code, and a
-// document that carries script waits for Run.
+// document that carries script stays the code card; Open puts it in the side panel, where Run is.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
@@ -115,7 +115,7 @@ export default agentPaneEntry({
       snapshot: reply("Chart builds per day this week", `Builds per day:\n\n${fence("svg", barChart, false)}`, true),
     },
     scripted: {
-      note: "A document with script shows its source until Run.",
+      note: "A document with script stays the code card; Open takes it to the side panel, where Run is.",
       snapshot: reply("Make a counter", fence("html", counter)),
     },
   },

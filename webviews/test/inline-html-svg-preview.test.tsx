@@ -1,8 +1,8 @@
 // A reply's closed ```html or ```svg fence draws inline as its document (InlinePreview.tsx, leo-workspace
 // design/artifacts.md). The frame is sandboxed with exactly `allow-scripts` (never same-origin), its
-// srcdoc starts with a policy that allows no network and, before Run, no script but the client's
+// srcdoc starts with a policy that allows no network and no script but the client's
 // nonce'd height reporter; its height follows only its own frame's report, capped; a fence still
-// arriving renders nothing; a document with script shows its source until Run. The browser half
+// arriving renders nothing; a document with script stays the code card (Run is in the side panel). The browser half
 // (scripts cannot reach the parent, fetch is refused) is inline-html-svg-preview-browser.test.ts.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -146,23 +146,22 @@ test("Code shows the source card with Copy, and Preview brings the frame back", 
   expect(frame()).not.toBeNull();
 });
 
-test("a document with script shows its source until Run, then runs in the native artifact frame", async () => {
+test("a document with script stays the code card, with Open and no inline Run", async () => {
   await show('```html\n<button onclick="this.textContent=1">0</button>\n```\n');
   expect(host.querySelector("iframe")).toBeNull();
   expect(host.querySelector(".cv-codeblock")).not.toBeNull();
-  await act(() => button("Run")!.click());
-  const iframe = frame()!;
-  expect(iframe.getAttribute("src")).toBe("cmux-agent://render/artifact");
-  expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
-  expect(iframe.getAttribute("srcdoc")).toBeNull();
+  expect(button("Run")).toBeUndefined();
 });
 
-test("a refresh in the document is inert: the policy's meta is the only http-equiv", async () => {
+test("a refresh in the document is inert: the client's own metas are the only http-equiv", async () => {
   await show('```html\n<META HTTP-EQUIV="refresh" content="0;url=https://example.invalid/"><p>hi</p>\n```\n');
   const srcdoc = frame()!.getAttribute("srcdoc")!;
   const parsed = new DOMParser().parseFromString(srcdoc, "text/html");
   const live = [...parsed.querySelectorAll("meta")].filter((meta) => meta.hasAttribute("http-equiv"));
-  expect(live.map((meta) => meta.getAttribute("http-equiv"))).toEqual(["Content-Security-Policy"]);
+  expect(live.map((meta) => meta.getAttribute("http-equiv"))).toEqual([
+    "Content-Security-Policy",
+    "x-dns-prefetch-control",
+  ]);
 });
 
 test("a frame that loads a second time left its document: the card falls back to the source", async () => {
@@ -175,4 +174,13 @@ test("a frame that loads a second time left its document: the card falls back to
     });
   expect(frame()).toBeNull();
   expect(host.querySelector(".cv-codeblock")).not.toBeNull();
+});
+
+test("resource hints are inert and the browser's own DNS prefetch is off", async () => {
+  await show(
+    '```html\n<LINK rel="dns-prefetch" href="//a.invalid"><link/rel=preconnect href=https://b.invalid><p>hi</p>\n```\n',
+  );
+  const parsed = new DOMParser().parseFromString(frame()!.getAttribute("srcdoc")!, "text/html");
+  expect(parsed.querySelectorAll("link").length).toBe(0);
+  expect(parsed.querySelector('meta[http-equiv="x-dns-prefetch-control"]')?.getAttribute("content")).toBe("off");
 });
