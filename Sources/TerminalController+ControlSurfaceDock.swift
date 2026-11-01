@@ -404,6 +404,32 @@ extension TerminalController {
         dock.scope == .global ? dock.workspaceId : v2ResolveWindowId(tabManager: tabManager)
     }
 
+    /// The `system.identify` caller for a surface of the window Dock owned by
+    /// `ownerId` (its window id), or nil when that Dock does not hold it.
+    func v2IdentifyWindowDockCallerPayload(ownerId: UUID, surfaceId: UUID) -> [String: Any]? {
+        guard let dock = AppDelegate.shared?.existingWindowDock(forWindowId: ownerId),
+              dock.scope == .global,
+              dock.workspaceId == ownerId,
+              let panel = dock.panels[surfaceId] else {
+            return nil
+        }
+        let paneId = dock.paneId(forPanelId: surfaceId)?.id
+        return [
+            "window_id": ownerId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: ownerId),
+            "workspace_id": ownerId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: ownerId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "tab_id": surfaceId.uuidString,
+            "tab_ref": v2TabRef(uuid: surfaceId),
+            "surface_type": panel.panelType.rawValue,
+            "is_browser_surface": panel.panelType == .browser,
+            "pane_id": v2OrNull(paneId?.uuidString),
+            "pane_ref": v2Ref(kind: .pane, uuid: paneId),
+        ]
+    }
+
     /// The `TabManager` Dock-scoped focus/reveal should act on: the Dock's
     /// owning window. Falls back to the routed manager only for workspace Docks
     /// (whose reveal semantics are unchanged) — see `dockResultWindowId`.
