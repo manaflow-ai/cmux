@@ -415,6 +415,12 @@ impl TurnInfo {
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
 
+    /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
+    pub(super) fn by_person(mut self, persons: bool) -> Self {
+        self.persons = persons;
+        self
+    }
+
     /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
     /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
     pub(super) fn shown_as(mut self, line: &str) -> Self {

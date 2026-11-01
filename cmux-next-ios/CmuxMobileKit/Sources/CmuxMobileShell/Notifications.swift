@@ -69,6 +69,9 @@ public final class NotificationRouter {
     /// How long a route waits for its Mac's tree before it settles for the Feed.
     static let waitBudget: Duration = .seconds(10)
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// Each new tap owns a separate timeout, even if it names the same route.
+    @ObservationIgnored private(set) var routeGeneration: UInt64 = 0
+    @ObservationIgnored private var expiryTask: Task<Void, Never>?
     /// Settings → Require Face ID has the app locked (AppLock): replies that
     /// need Face ID wait, so the two prompts never overlap.
     public internal(set) var appLocked = false {
@@ -94,17 +97,29 @@ public final class NotificationRouter {
         set(NotificationRoute(kind: "link", link: link))
     }
 
-    /// Waits for `route`, at most `waitBudget`: then it is tried once more, as expired.
+    /// Each tap owns a fresh wait budget. Cancelling an earlier route also
+    /// releases its timeout task; the generation guards a late clock callback.
     func set(_ route: NotificationRoute?, at now: ContinuousClock.Instant = .now) {
+        routeGeneration &+= 1
+        expiryTask?.cancel()
+        expiryTask = nil
         pending = route
         pendingSince = route == nil ? nil : now
         guard let route else { return }
+        let generation = routeGeneration
         let clock = clock
-        Task { @MainActor [weak self] in
-            try? await clock.sleep(for: Self.waitBudget)
-            guard let self, self.pending == route else { return }
-            self.expired += 1
+        expiryTask = Task { @MainActor [weak self] in
+            do { try await clock.sleep(for: Self.waitBudget) }
+            catch { return }
+            self?.expireIfCurrent(route, generation: generation)
         }
+    }
+
+    /// Called by the owning timeout. Equality of routes alone cannot identify
+    /// a tap: two taps on the same notification have different waiting budgets.
+    func expireIfCurrent(_ route: NotificationRoute, generation: UInt64) {
+        guard routeGeneration == generation, pending == route else { return }
+        expired += 1
     }
 
     /// Bumped when a waiting route's budget ends (the shell then opens the Feed).
