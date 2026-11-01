@@ -27,3 +27,6 @@
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
 }
+.cv-agent-tag.cv-received__from {
+  margin-inline: calc(-1 * var(--cv-disclosure-gap));
+}
