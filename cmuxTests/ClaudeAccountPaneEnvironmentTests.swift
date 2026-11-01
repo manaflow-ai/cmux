@@ -201,6 +201,31 @@ struct ClaudeAccountPaneEnvironmentTests {
             == " /usr/bin/env -u \(configKey) -u \(secureStorageKey) cmux restore claude \(sessionID)\n")
     }
 
+    /// The wake banner's Retry types the resume again; it must be the wake's own input, keys unset
+    /// included, or a shell rc that exports `CLAUDE_CONFIG_DIR` moves the retried Claude back.
+    @Test
+    func wakeRetryResumesWithTheClearedKeysUnset() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionID,
+            workingDirectory: NSTemporaryDirectory(),
+            launchCommand: nil
+        )
+        panel.claudeAccountEnvironment = defaultAccount
+        workspace.beginAgentWakeVerification(panelId: panel.id, agent: agent)
+        workspace.failAgentWakeVerification(panelId: panel.id, reason: .didNotStart)
+
+        let retry = try #require(workspace.agentWakeRetry(panelId: panel.id))
+
+        #expect(retry.panel === panel)
+        #expect(retry.startupInput
+            == " /usr/bin/env -u \(configKey) -u \(secureStorageKey) cmux restore claude \(sessionID)\n")
+        #expect(retry.startupInput == panel.agentHibernationResumeStartupInput(agent))
+    }
+
     @Test
     func relaunchedClaudePaneResumesWithTheClearedKeysUnset() throws {
         let defaultsName = "cmux-claude-account-restore-\(UUID().uuidString)"
