@@ -8,7 +8,7 @@ import Foundation
 /// owned minis pass them. The probe never reads the socket's peer (the code under test): it only
 /// asks whether the copy is still running once its socket file exists. When it cannot, it prints
 /// why, and the tests that need it skip (https://github.com/manaflow-ai/cmux/issues/30978) instead of failing on the host.
-enum CopiedListenerProbe {
+nonisolated enum CopiedListenerProbe {
     static let runs: Bool = probe()
 
     private static func probe() -> Bool {
