@@ -396,7 +396,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 issue = "must declare a portable class and a reason"
             elif not isinstance(job, dict) or "uses" in job:
                 issue = "must name a runnable lightweight job"
-            elif job.get("environment") not in (None, "ci-routing-agent") or sensitive.search(json.dumps(job)):
+            elif (job.get("environment") not in (None, "ci-routing-agent")
+                  or sensitive.search(json.dumps([workflow.get("env", {}), job]))):
                 issue = "cannot authorize release/signing credentials or operations"
             elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "published-in"}:
                 issue = "cannot authorize release/signing or credentialed publication routes"
