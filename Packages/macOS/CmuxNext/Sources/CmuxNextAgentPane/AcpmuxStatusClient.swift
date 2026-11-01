@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Network
 
@@ -15,6 +16,16 @@ nonisolated enum AcpmuxStatusClient {
         case unsupportedFeature(String)
         /// The daemon on the socket runs from another acpmux home (another app's or tag's).
         case otherHome(String)
+        /// The socket path does not fit a Unix socket address (`sun_path`): no daemon can listen
+        /// there, and `NWEndpoint.unix` traps on it.
+        case socketPathTooLong(String)
+    }
+
+    /// The Network endpoint of the Unix socket `path` (``NWEndpoint/unixSocket(path:)``), or
+    /// ``Failure/socketPathTooLong(_:)`` for a path that does not fit one, where `NWEndpoint.unix`
+    /// traps (the page's `_acpmux/status` read with a long TMPDIR crashed the process, #28492).
+    static func unixEndpoint(_ path: String) throws -> NWEndpoint {
+        do { return try NWEndpoint.unixSocket(path: path) } catch { throw Failure.socketPathTooLong(error.path) }
     }
 
     /// The endpoint of the daemon listening on `socketPath`. Throws
@@ -24,14 +35,17 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// The running daemon's `_acpmux/status`. Throws `.unreachable` when
-    /// nothing answers there.
-    @concurrent static func status(socketPath: String, deadline: Duration = .seconds(2)) async throws -> AcpmuxStatus {
+    /// nothing answers there. `deadline` nil: waits for the answer, the daemon's close (it
+    /// exited) or the caller's cancel, as a slow daemon is not a dead one.
+    @concurrent static func status(socketPath: String, deadline: Duration? = .seconds(2)) async throws -> AcpmuxStatus {
         let result = try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline)
         return AcpmuxStatus(result)
     }
 
+    /// The peers of the daemon's `_acpmux/status`. It waits for the answer however long a loaded
+    /// daemon takes (#28083); the caller's cancel ends the wait (a picker that closed).
     @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
-        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: .seconds(2)))
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: nil))
     }
 
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
@@ -217,16 +231,23 @@ nonisolated enum AcpmuxStatusClient {
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
     /// With `requiredFeature`, no operation is sent before that connection advertises it.
+    /// `deadline` nil: the call ends at the answer, at the daemon's close of the connection (a
+    /// daemon that exited) or at the caller's cancel; no timer decides it.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20,
+                     deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
         defer { connection.cancel() }
-        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
+        let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
                                          detailed: detailed, limit: limit, requiredFeature: requiredFeature,
                                          requiredCapability: requiredCapability))
         }
+        guard let deadline else {
+            // A cancelled connection fails its pending start, send and receive.
+            return try await withTaskCancellationHandler(operation: operation, onCancel: { connection.cancel() }).value
+        }
+        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }, operation)
         return box.value
     }
 
@@ -306,6 +327,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func start(_ connection: NWConnection) async throws {
+        // A caller cancelled before the connection starts has already torn it down
+        // (withAgentPaneDeadline's onTimeout): a cancelled connection may never report a state.
+        try Task.checkCancellation()
         let gate = AgentPaneResumeOnce()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.stateUpdateHandler = { state in
@@ -321,6 +345,11 @@ nonisolated enum AcpmuxStatusClient {
                 }
             }
             connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status"))
+            // A cancel that landed after the check above, before the handler was in place, tore the
+            // connection down where no handler saw it: answer it here. A later one reaches the
+            // handler as `.cancelled`. The task's flag is set before its teardown runs, so one of
+            // the two always sees it.
+            if Task.isCancelled { gate.run { continuation.resume(throwing: CancellationError()) } }
         }
     }
 

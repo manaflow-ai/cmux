@@ -10,6 +10,7 @@ import sys
 from xml.dom import minidom
 
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+CMUX = "https://cmux.com/xml-namespaces/cmux"
 
 
 def item_for(doc, build):
@@ -23,19 +24,33 @@ def item_for(doc, build):
 def main(source, target, build):
     src_item = item_for(minidom.parse(source), build)
     descriptions = [n for n in (src_item.childNodes if src_item else []) if n.nodeType == n.ELEMENT_NODE and n.tagName == "description"]
-    if not descriptions:
+    source_commits = [n for n in (src_item.childNodes if src_item else [])
+                      if n.nodeType == n.ELEMENT_NODE and n.namespaceURI == CMUX and n.localName == "sourceCommit"]
+    if not descriptions and not source_commits:
         print(f"no description for {build} in {source}; {target} unchanged")
         return 0
-    text = "".join(n.nodeValue for n in descriptions[0].childNodes if n.nodeType in (n.TEXT_NODE, n.CDATA_SECTION_NODE))
+    text = "".join(n.nodeValue for n in descriptions[0].childNodes if n.nodeType in (n.TEXT_NODE, n.CDATA_SECTION_NODE)) if descriptions else None
     doc = minidom.parse(target)
+    if not doc.documentElement.hasAttribute("xmlns:cmux"):
+        doc.documentElement.setAttribute("xmlns:cmux", CMUX)
     item = item_for(doc, build)
     if item is None:
         raise SystemExit(f"{target} has no item for build {build}")
-    for old in [n for n in item.childNodes if n.nodeType == n.ELEMENT_NODE and n.tagName == "description"]:
+    if text is not None:
+        for old in [n for n in item.childNodes if n.nodeType == n.ELEMENT_NODE and n.tagName == "description"]:
+            item.removeChild(old)
+    for old in [n for n in item.childNodes if n.nodeType == n.ELEMENT_NODE and n.namespaceURI == CMUX and n.localName == "sourceCommit"]:
         item.removeChild(old)
-    node = doc.createElement("description")
-    node.appendChild(doc.createTextNode(text))
-    item.appendChild(node)
+    if text is not None:
+        node = doc.createElement("description")
+        node.appendChild(doc.createTextNode(text))
+        item.appendChild(node)
+    if source_commits:
+        source_node = doc.createElementNS(CMUX, "cmux:sourceCommit")
+        source_node.appendChild(doc.createTextNode("".join(
+            n.nodeValue for n in source_commits[0].childNodes if n.nodeType in (n.TEXT_NODE, n.CDATA_SECTION_NODE)
+        )))
+        item.appendChild(source_node)
     with open(target, "wb") as out:
         out.write(doc.toxml(encoding="utf-8"))
     print(f"carried the {build} description into {target}")

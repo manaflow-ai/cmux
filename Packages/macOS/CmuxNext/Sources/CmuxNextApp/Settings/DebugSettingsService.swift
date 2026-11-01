@@ -138,7 +138,8 @@ final class DebugSettingsService: InternalPageProvider {
             let page = webPage(model: model)
             windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
-                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
+                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } },
+                                                           activeLook: services.activeLook)
             controller.onClose = { [weak self] in
                 guard let self else { return }
                 windowPage?.close()

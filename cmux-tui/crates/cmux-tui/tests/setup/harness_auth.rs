@@ -97,7 +97,7 @@ id = "work-claude"
 protocol = "claude-stdio"
 command = {command:?}
 [auth]
-check = ["/bin/false"]
+check = ["/usr/bin/false"]
 login = "claude auth login"
 "#,
             command = agent.to_string_lossy()

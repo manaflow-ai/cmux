@@ -554,7 +554,7 @@ pub(crate) async fn ensure(
         .into());
     }
     let tags = parse_tags(&tags)?;
-    let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),

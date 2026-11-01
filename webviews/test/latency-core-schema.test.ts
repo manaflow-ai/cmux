@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { RAIL_DRAG_PAGE } from "./latency/actions";
 import { aggregateAction, distribution, type LatencySample } from "./latency/measure";
-import { evidenceErrors, parseOptions, sampleIdle } from "../scripts/latency/run";
+import { actionInstrumentation, evidenceErrors, parseOptions, sampleIdle } from "../scripts/latency/run";
 
 test("quantiles retain the tail, empty/nonfinite evidence has no distribution", () => {
   expect(distribution([1, 2, 3, 100])?.p50).toBe(2.5);
@@ -59,4 +60,29 @@ test("idle uses real CPU ticks after disposal and reports wakeups unsupported", 
   expect(idle.cpuDurationMs).toBe(1);
   expect(idle.wakeups).toBeNull();
   expect(idle.unsupportedReasons.wakeups).toContain("not wakeups");
+});
+
+test("WebKit flow evidence allows missing Long Tasks while Chromium and explicit requirements reject it", () => {
+  const action = RAIL_DRAG_PAGE.actions[0];
+  const sample: LatencySample = {
+    work: 2,
+    paint: 20,
+    frames: 2,
+    maxFrameGap: 16,
+    frameGaps: [4, 16],
+    longTasks: [],
+    input: "pointermove",
+    eventTiming: [],
+    reactCommits: 1,
+    instrumentation: { longTasks: false, eventTiming: false },
+  };
+  const result = aggregateAction({ page: "chat rail", engine: "webkit" }, action, [sample], [], 1, 16.7);
+  expect(result.longTasks).toBeNull();
+  expect(evidenceErrors([result], [result.id], actionInstrumentation(action, "webkit"))).toEqual([]);
+  expect(evidenceErrors([result], [result.id], actionInstrumentation(action, "chromium"))).toContain(
+    `${result.id}: required longTasks unsupported`,
+  );
+  expect(evidenceErrors([result], [result.id], ["longTasks"])).toContain(
+    `${result.id}: required longTasks unsupported`,
+  );
 });

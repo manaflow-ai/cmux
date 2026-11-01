@@ -326,7 +326,7 @@ mod tests {
         // Moved: the file keeps a name elsewhere.
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(&exe, b"three").unwrap();
-        let third = Program::open(exe.clone());
+        let third = Program::open(exe);
         std::fs::rename(&bundle, dir.join("moved.app")).unwrap();
         assert_eq!(judge(third.look()), None);
         let _ = std::fs::remove_dir_all(&dir);

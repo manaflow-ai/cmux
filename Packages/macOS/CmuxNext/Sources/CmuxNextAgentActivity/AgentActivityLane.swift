@@ -51,6 +51,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
     /// session tree lists its workspace under that session's.
     public let spawnedBy: String?
+    /// acpmux classifies agent-started sessions as requiring an opened tab before a sidebar row.
+    public let sidebarRequiresOpen: Bool
     /// The session's folder: the sidebar's session tree reads its branch's pull request there.
     public let cwd: String?
     /// The pull requests its `gh pr create` calls opened (acpmux `pullRequests`, their URLs): the
@@ -68,11 +70,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
     /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
     public let markKey: String?
+    /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
+    /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
+    public let usageWarnings: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil,
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil) {
         self.id = id
         self.name = name
@@ -91,12 +96,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.unread = unread
         self.project = project
         self.spawnedBy = spawnedBy
+        self.sidebarRequiresOpen = sidebarRequiresOpen
         self.cwd = cwd
         self.pullRequests = pullRequests
         self.chat = chat
         self.updatedAt = updatedAt
         self.createdAt = createdAt
         self.markKey = markKey
+        self.usageWarnings = usageWarnings
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -132,6 +139,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
                                  createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) },
+                                 sidebarRequiresOpen: (lane["requiresOpen"] as? Bool) ?? false,
                                  turnPrompt: turn?["prompt"] as? String,
                                  turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]))
     }

@@ -298,13 +298,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go includes two saved VMs, including the running VM.",
+      "savedMessage": "Plus: 1 saved VM total, including paused machines",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go includes one running VM at a time.",
+      "activeMessage": "Plus: 1 Cloud VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Go has used its 40 VM-hours this month. Saved VMs remain available after the next billing period starts.",
+      "hoursMessage": "Plus: No monthly hour cap",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -325,7 +325,7 @@
       "action": "Pause or delete a VM."
     },
     "activeLimit": {
-      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "counted": "Counted now: {machines}. Paused machines count toward the limit.",
       "provisioning": "{name} (provisioning)",
       "separator": ", "
     }
@@ -775,9 +775,9 @@
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
       "go": {
-        "name": "cmux Go",
-        "activeBody": "Your Go plan is active. It renews on {date}.",
-        "pendingBody": "Your Go plan ends on {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Your Plus plan renews on {date}.",
+        "pendingBody": "Your Plus plan ends on {date}.",
         "monthlyPrice": "${amount}/mo"
       },
       "team": {
@@ -870,7 +870,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -882,9 +882,10 @@
             "Local session history"
           ],
           "go": [
-            "1 active Cloud VM",
-            "40 VM-hours each month",
-            "2 saved VMs"
+            "1 saved VM total, including paused machines",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Community support",
+            "No monthly hour cap"
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
@@ -1328,7 +1329,7 @@
       },
       "plan": {
         "free": "Free",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1833,14 +1834,14 @@
       ]
     },
     "go": {
-      "name": "Go",
-      "cta": "Get Go",
-      "featuresLead": "A small Cloud VM for focused work:",
+      "name": "Plus",
+      "cta": "Get Plus",
+      "featuresLead": "Includes:",
       "features": [
-        "1 active Cloud VM",
-        "2 vCPU, 4 GiB RAM, and 16 GiB disk",
-        "2 saved VMs in total, including the running VM",
-        "40 included VM-hours each month; VMs pause at the limit"
+        "1 saved VM total, including paused machines",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Community support",
+        "No monthly hour cap"
       ]
     },
     "pro": {
@@ -1970,7 +1971,7 @@
           "go": "true"
         },
         {
-          "label": "Concurrent Cloud VMs",
+          "label": "Saved Cloud VMs, including paused machines",
           "free": "false",
           "pro": "5",
           "max": "5",
@@ -1985,7 +1986,7 @@
           "max": "80 vCPUs and 160 GB RAM, shared",
           "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
           "enterprise": "Custom",
-          "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
+          "go": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"
         },
         {
           "label": "Largest Cloud VM",
@@ -1994,7 +1995,7 @@
           "max": "64 GB RAM / 32 vCPU (includes 24 GB / 12 vCPU and 32 GB / 16 vCPU)",
           "team": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
           "enterprise": "Custom",
-          "go": "4 GiB RAM"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "Workspaces",
@@ -4539,9 +4540,9 @@
       "limitsTitle": "Plan limits",
       "limitsDesc": "Your active machines share one pool of vCPUs and memory. Run one large machine or several small ones. Paused machines do not use the pool. Disk is set for each machine and is not pooled.",
       "limitsFree": "Free accounts cannot create machines.",
-      "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 active machines that share 20 vCPUs and 40 GB of memory. A machine is active while it is running or starting.",
-      "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
-      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
+      "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 machines, including paused machines that share 20 vCPUs and 40 GB of memory.",
+      "limitsTeam": "Team accounts can have up to 5 machines, including paused machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
+      "limitsMax": "Max accounts can have up to 5 machines, including paused machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
       "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
