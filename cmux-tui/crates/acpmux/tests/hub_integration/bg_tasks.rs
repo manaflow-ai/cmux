@@ -208,7 +208,9 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "quiet").await;
-    let quiet = "(trap '' TERM; echo child-$BASHPID; exec >/dev/null 2>&1; \
+    // The subshell's own pid, also in macOS's /bin/bash 3.2, which has no $BASHPID: the
+    // substitution's process becomes `sh`, whose parent is the subshell.
+    let quiet = "(trap '' TERM; echo child-$(exec sh -c 'echo $PPID'); exec >/dev/null 2>&1; \
         while :; do sleep 0.1; done) & wait";
     let task = start(&mut r, &id, quiet).await["id"].as_str().unwrap().to_owned();
     r.until("the child never said its pid", || text(&r, &id, &task).ends_with('\n')).await;

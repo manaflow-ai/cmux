@@ -8,7 +8,8 @@
 #
 # Rule sets:
 #   everywhere: waits, sleeps, sync hops to main, raw locks, nested run-loop
-#               spinning, synchronous XPC, blocking FileHandle reads,
+#               spinning, synchronous XPC, blocking FileHandle reads, dlopen
+#               (dyld's loader lock), whole-file code signature validation,
 #               unbounded AsyncStream buffers, and deadlines raced inside a
 #               task group (the group waits for a loser that ignores
 #               cancellation, so the deadline becomes a hang).
@@ -130,6 +131,16 @@ EVERYWHERE = [
     # Both resolve every local name through DNS/mDNS and have blocked the
     # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
     ("blocking host-name lookup (Host.current / ProcessInfo.hostName)", r"\bHost\.current\(\)|\bprocessInfo\.hostName\b"),
+    # dlopen holds dyld's loader lock while it maps, validates and fixes up the image; every
+    # main-thread dlopen, dladdr and image lookup waits for that lock, on any thread's load.
+    # The CEF framework's off-main load held it ~2 s on a cold cache and hung the main thread
+    # (Sentry MainThreadHang in dyld4::APIs::dlopen_from). Read the file into the cache first,
+    # and say why the load is short.
+    ("dlopen (holds dyld's loader lock: main-thread dlopen/dladdr wait on it from any thread)", r"(?:^|[^.\w]|Darwin\.)dlopen\s*\("),
+    # Static code validation hashes the whole file (72 MB acpmux, the 367 MiB CEF framework):
+    # seconds on a cold file cache. Never on the main thread; cache the verdict by file identity.
+    ("SecStaticCodeCheckValidity (hashes the whole file; never on the main thread)",
+     r"\bSecStaticCodeCheckValidity(WithErrors)?\s*\("),
     # architecture.md 5a: no unbounded buffers. `makeStream()` without a
     # policy and the `AsyncStream { }` initializer default to unbounded.
     ("unbounded AsyncStream buffer (give it a cap and an overflow policy)",
@@ -161,6 +172,14 @@ WAKEUP_ALLOW = re.compile(r"//\s*wakeup-allow:\s*\S")
 # Files another agent is rewriting right now, so they cannot take an inline
 # comment without a conflict. Temporary: remove the entry when that work lands.
 WAKEUP_PENDING_FILES: set[str] = set()
+# KNOWN main-thread signature checks, moved off main by #22814 (a high-risk-tier PR
+# that waits for a person: acpmux trust and the updater). Only the rule for
+# SecStaticCodeCheckValidity is waived here; #22814 removes these entries.
+SIGNATURE_PENDING_FILES: set[str] = {
+    "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+    "CmuxNextUpdater/UpdateDropBack.swift",
+}
+SIGNATURE_RULE = "SecStaticCodeCheckValidity (hashes the whole file; never on the main thread)"
 
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8
@@ -431,7 +450,8 @@ for dirpath, _, files in os.walk(sources):
                     failures += 1
                 continue
             hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
-                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
+                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")
+                     and not (name == SIGNATURE_RULE and relative.replace(os.sep, "/") in SIGNATURE_PENDING_FILES)]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):

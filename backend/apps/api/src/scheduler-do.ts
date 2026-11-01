@@ -422,6 +422,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     return this.submit(entity, principal, frame)
   }
 
+  /** Whether this op's key is decided (the ledger replays it): the Worker skips its pre-op checks (chief-job-gate.ts). */
+  isReplay(entity: string, principal: Principal, frame: OpFrame): boolean {
+    return this.bind(entity).gate(principal, frame) === "replay"
+  }
+
   /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */
   async applyRunPolicy(entity: string, policy: { version: number; runs_allowed: boolean }): Promise<{ ok: boolean; message?: string }> {
     this.bind(entity)

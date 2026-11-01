@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -99,7 +100,7 @@ final class ChatsOpenCoordinator {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
                 await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
             } catch {
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         }
     }

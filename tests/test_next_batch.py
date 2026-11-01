@@ -45,6 +45,19 @@ def pr(number: int, **fields) -> nb.PullRequest:
     return nb.PullRequest(number=number, **defaults)
 
 
+def reviewed_heads(text: str) -> Path:
+    """A CMUX_NEXT_BATCH_REVIEWED file as the reviewer writes it: owned by this user, writable by nobody else.
+
+    The mode is set, not left to the umask: next_batch.reviewed() ignores a group- or world-writable
+    file, so under a umask of 002 (Ubuntu's default for a login shell) a plain write_text() reads as
+    "not reviewed" and every landing test fails for the wrong reason.
+    """
+    path = Path(tempfile.mkdtemp()) / "reviewed"
+    path.write_text(text)
+    path.chmod(0o600)
+    return path
+
+
 class Classify(unittest.TestCase):
     def test_generated_paths_by_generator(self):
         cases = {
@@ -707,6 +720,22 @@ class BaseReds(unittest.TestCase):
         # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
+    def test_cancelled_base_tier_runs_never_count_toward_the_lookback(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts; more of them than
+        # the lookback must not hide the newest run with a verdict.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        cancelled = [{"id": 100 + n, "status": "completed", "conclusion": "cancelled", "head_branch": nb.BASE,
+                      "display_title": title + f"{n:x}" * 40} for n in range(nb.BASE_TIER_LOOKBACK + 2)]
+        tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], cancelled + [tier]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
         controller = self.controller()
         controller.gh.runs.return_value = [
@@ -1130,8 +1159,7 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.merge_one = lambda item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {red.sha}\n2 {clean.sha}\n")
+        reviewed = reviewed_heads(f"1 {red.sha}\n2 {clean.sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=[red, clean]), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
@@ -1201,8 +1229,7 @@ class NotifyOwners(unittest.TestCase):
     def test_land_flag_merges_a_head_reviewed_at_its_exact_sha(self):
         controller = self.controller(notify=False)
         prs = [pr(1)]
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
+        reviewed = reviewed_heads(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=prs), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             controller.land(self.validation(prs))
@@ -1230,8 +1257,7 @@ class ReviewGate(NotifyOwners):
         self.assertEqual([kind for _, kind, _ in controller.comments], ["validated"])
 
     def test_a_review_of_an_older_head_does_not_count(self):
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {'f' * 40}\n")
+        reviewed = reviewed_heads(f"1 {'f' * 40}\n")
         controller, landed = self.land([pr(1)], {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)})
         self.assertEqual(controller.merged, [])
 
@@ -1248,10 +1274,7 @@ class ReviewGateHoles(NotifyOwners):
     """Review findings on #21925: every way an unreviewed head could still land."""
 
     def reviewed_file(self, *items):
-        path = Path(tempfile.mkdtemp()) / "reviewed"
-        path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
-        path.chmod(0o600)
-        return str(path)
+        return str(reviewed_heads("".join(f"{item.number} {item.sha}\n" for item in items)))
 
     def test_only_reviewed_prs_are_stacked_when_landing(self):
         gh = mock.Mock()
@@ -1290,8 +1313,7 @@ class LandOnlyTheValidatedTree(NotifyOwners):
     def test_nothing_after_a_pr_that_did_not_land(self):
         controller = self.controller(notify=False)
         a, b, c = pr(1), pr(2), pr(3)
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
+        reviewed = reviewed_heads(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
         with mock.patch.object(nb, "open_prs", return_value=[a, b, c]), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = dict((item.number, text) for item, text in controller.land(self.validation([a, b, c])))
@@ -1300,8 +1322,7 @@ class LandOnlyTheValidatedTree(NotifyOwners):
 
     def test_a_run_that_may_not_land_leaves_no_marker_that_holds_a_pr_out(self):
         controller = self.controller(notify=False)
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {pr(1).sha}\n")
+        reviewed = reviewed_heads(f"1 {pr(1).sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=[pr(1)]), \
                 mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)

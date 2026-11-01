@@ -34,7 +34,7 @@ impl ReplayWindow {
             return false;
         }
         let (word, bit) = Self::slot(nonce);
-        self.bits[word] & bit == 0
+        self.bits.get(word).is_some_and(|w| w & bit == 0)
     }
 
     pub fn accept(&mut self, nonce: u64) {
@@ -43,11 +43,15 @@ impl ReplayWindow {
             let advance = (nonce + 1 - self.top).min(WINDOW);
             for n in 0..advance {
                 let (word, bit) = Self::slot(self.top + n);
-                self.bits[word] &= !bit;
+                if let Some(w) = self.bits.get_mut(word) {
+                    *w &= !bit;
+                }
             }
             self.top = nonce + 1;
         }
         let (word, bit) = Self::slot(nonce);
-        self.bits[word] |= bit;
+        if let Some(w) = self.bits.get_mut(word) {
+            *w |= bit;
+        }
     }
 }

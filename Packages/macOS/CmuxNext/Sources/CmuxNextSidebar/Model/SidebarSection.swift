@@ -64,14 +64,22 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case paused
         /// A Cloud machine the idle auto-pause parked; resumes on attach.
         case pausedIdle
+        /// A Cloud machine whose pause cmux Cloud accepted and has not finished.
+        case pausing
+        /// A Cloud machine whose resume cmux Cloud accepted and has not finished.
+        case resuming
+        /// A Cloud machine whose delete cmux Cloud accepted and has not finished.
+        case deleting
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update). In one list its workspaces' second
-        /// line names the status (cx-mdo0); no header or status row shows.
+        /// network, install or update). In one list its workspaces' rows say
+        /// the status to VoiceOver and an expanded row's meta line names it
+        /// (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
             case .authFailed, .unreachable, .installRequired, .updateRequired, .failed, .disconnected: true
-            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle: false
+            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle,
+                 .pausing, .resuming, .deleting: false
             }
         }
     }

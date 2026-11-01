@@ -56,7 +56,7 @@ final class SidebarDragAutoscroll {
             list.updateDrag(windowPoint: windowPoint)
         } else if let external = list.external {
             _ = list.externalDragMoved(windowPoint: windowPoint, sourceMachine: external.sourceMachine,
-                                      reordersTabRows: external.reordersTabRows, slotDwell: external.slotDwell)
+                                      slotDwell: external.slotDwell)
         }
         return true
     }
