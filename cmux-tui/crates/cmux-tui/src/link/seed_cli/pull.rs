@@ -202,7 +202,9 @@ fn base_of(kept: Option<&Record>, machine: Option<&str>) -> Result<SeedBase, See
 
 /// Keeps the machine's state, the answer's `base`, as this folder's record.
 fn keep(local: &Path, remote: &str, machine: Option<String>, url: Option<String>, summary: &Value) {
-    let sha = |key: &str| summary["base"][key].as_str().map(str::to_owned);
+    let base = summary.get("base");
+    let sha =
+        |key: &str| base.and_then(|base| base.get(key)).and_then(Value::as_str).map(str::to_owned);
     let (Some(head), Some(index), Some(work)) = (sha("head"), sha("index"), sha("work")) else {
         return;
     };
