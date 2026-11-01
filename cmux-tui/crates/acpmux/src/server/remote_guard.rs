@@ -511,6 +511,7 @@ async fn check_inner(
             | method::MUX_QUEUE_REMOVE
             | method::MUX_QUEUE_APPROVE
             | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
@@ -828,6 +829,7 @@ async fn web_starts_asking(
             // Approving runs a prompt, as a Web prompt would (`hub/queue_approve.rs`).
             | method::MUX_QUEUE_APPROVE
             | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
