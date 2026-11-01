@@ -44,6 +44,9 @@ public final class AgentTurnStateFeed {
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
+    /// This connection's usage read (``usageRequest(cursor:)``): its numbers until the watch's page
+    /// arrives (the page would replace them), whether the page did, and the pages it read.
+    private var usageRead: (numbers: [String: AgentChatDetail], paged: Bool, pages: Int) = ([:], false, 0)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
     /// - Parameters:
@@ -103,6 +106,7 @@ public final class AgentTurnStateFeed {
         logger.info("agent turn states: watching \(self.socket, privacy: .public)")
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
+        usageRead = ([:], false, 0)
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
         // line (MainActorLineBatch). The main actor only sets the states that changed.
         connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
@@ -116,7 +120,8 @@ public final class AgentTurnStateFeed {
         }
     }
 
-    /// `initialize`, then `_acpmux/watch` (id 2), one JSON object per line.
+    /// `initialize`, then `_acpmux/watch` (id 2), then the usage read (id 3,
+    /// ``usageRequest(cursor:)``), one JSON object per line.
     static let watchRequest: Data = {
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -128,8 +133,26 @@ public final class AgentTurnStateFeed {
             payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
             payload.append(0x0A)
         }
-        return payload
+        return payload + usageRequest(cursor: nil)
     }()
+
+    /// The most pages one usage read follows (`SESSION_PAGE`-sized byte pages: far past any real list).
+    static let usagePages = 50
+
+    /// `_acpmux/sessions` with `usage: true` (id 3), from `cursor` on: acpmux reads each chat's
+    /// harness records first (one pass at most every 5 s, waited for at most 750 ms) instead of
+    /// answering the last pass's numbers, or none when nothing asked since it started. The watch's
+    /// own list carries only those, so the hover card's usage row stayed empty or stale. Asked
+    /// once each time the watch (re)connects, never on a timer: after it, each chat's turn end
+    /// brings its own fresh numbers over `_acpmux/session_changed`.
+    static func usageRequest(cursor: String?) -> Data {
+        var params: [String: Any] = ["usage": true]
+        if let cursor { params["cursor"] = cursor }
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": 3, "method": "_acpmux/sessions", "params": params]
+        var line = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
+        line.append(0x0A)
+        return line
+    }
 
     /// One decoded line of the watch (decoded off the main actor).
     nonisolated enum Message: Sendable {
@@ -144,6 +167,9 @@ public final class AgentTurnStateFeed {
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                     generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
                     deleted: Bool = false, peer: (name: String, stale: Bool)? = nil, sessionName: String? = nil)
+        /// A page of the usage read (id 3): each listed chat's usage numbers that acpmux read, and
+        /// the cursor of the next page (nil: the last).
+        case usage([String: AgentChatDetail], next: String?)
         /// One `_acpmux/peer_state_changed`: peer `peer`'s link is now `state` (connected,
         /// connecting, degraded, reconnecting or offline; a removed peer's last is offline).
         case peerState(peer: String, state: String)
@@ -157,6 +183,9 @@ public final class AgentTurnStateFeed {
                              titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
                              details: AgentChatDetail.details(result), lanes: Self.lanes(result),
                              startedBy: AgentTurnStateStore.startedBy(result), sessionNames: AgentTurnStates.sessionNames(result))
+            } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
+                let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
                 let purged = params["kind"] as? String == "purged"
@@ -200,6 +229,9 @@ public final class AgentTurnStateFeed {
             if !self.lanes.live { self.lanes.live = true }
             // A fresh page (the first, or after a reconnect): the peer list is read again.
             if !isMirror { peerStateChanged?(nil, nil) }
+            // A usage read that answered first: its numbers are newer than the page's.
+            usageRead.paged = true
+            if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
                      let startedBy, let deleted, let peer, let sessionName):
             // Most session records leave the indicator as it was: the store writes (and so
@@ -207,9 +239,14 @@ public final class AgentTurnStateFeed {
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
                         generatedTitle: generatedTitle, detail: detail, source: source)
             turns.setStartedBy(startedBy, session: session, source: source)
-            if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
+            if lanes.lanes[session] != lane { lanes.set(session, lane) }
             if deleted, !isMirror { Self.purged?(session) }
             if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
+        case .usage(let numbers, let next):
+            usageRead.numbers.merge(numbers) { $1 }
+            usageRead.pages += 1
+            if usageRead.paged { turns.applyUsage(numbers, source: source) }
+            if let next, usageRead.pages < Self.usagePages { subscription?.send(Self.usageRequest(cursor: next)) }
         case .peerState(let peer, let state):
             if !isMirror { peerStateChanged?(peer, state) }
         }
