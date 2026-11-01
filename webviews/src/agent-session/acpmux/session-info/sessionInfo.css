@@ -225,7 +225,8 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The first 6px of the body's right padding (data-layout); the 4px past it keeps it off the scrollbar. */
+  /* The first 6px of the body's right padding (data-layout); in glance and rules the 4px past it keep it
+     off the scrollbar. */
   right: -6px;
   width: 6px;
   height: 28px;

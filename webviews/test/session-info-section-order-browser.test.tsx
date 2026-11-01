@@ -209,7 +209,13 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
-        expect(inside).toEqual({ inBody: true, clearOfScrollbar: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
+        expect(inside).toEqual({
+          inBody: true,
+          clearOfScrollbar: true,
+          afterSection: true,
+          rightOfTitle: true,
+          titleAtTextColumn: 8,
+        });
       } finally {
         await page.close();
       }
