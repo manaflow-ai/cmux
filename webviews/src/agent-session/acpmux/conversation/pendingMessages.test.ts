@@ -11,7 +11,7 @@ import {
   pendingMessagesRow,
   searchablePendingRows,
 } from "./pendingMessages";
-import { batchLaneNotices, flattenInboxRows } from "./laneNoticeBatches";
+import { batchLaneNotices, flattenInboxRows, projectInboxRows } from "./laneNoticeBatches";
 
 let at = 0;
 const queued = (promptId: string, name: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -340,6 +340,66 @@ test("a folded inbox batch projects to flat delivery rows after turn shaping", (
   ]);
 });
 
+test("one projection context deduplicates across a batch, standalone notice, and direct delivery", () => {
+  const make = (id: string, sender: string, text: string): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 1,
+    kind: "user",
+    text: `New messages from other agents in 1 thread.\n- 1 new in #${id} from ${sender}: ${text} (thread from:${sender}/pr:${id})`,
+    incoming: {
+      kind: "message",
+      message: {
+        name: "inbox",
+        text: `New messages from other agents in 1 thread.\n- 1 new in #${id} from ${sender}: ${text} (thread from:${sender}/pr:${id})`,
+        raw: "",
+      },
+    },
+  });
+  const first = make("30220", "lane-a", "merged #30220");
+  const second = make("30221", "lane-b", "merged #30221");
+  const standalone = make("30222", "lane-c", "merged #30222");
+  const direct: AcpmuxRow = {
+    id: "direct-30220",
+    version: 1,
+    at: 2,
+    kind: "user",
+    text: "merged #30220",
+    incoming: { kind: "message", message: { name: "lane-a", text: "merged #30220", raw: "merged #30220" } },
+  };
+  const batch = batchLaneNotices([first, second]);
+  const projected = projectInboxRows([...batch, standalone, direct]);
+  expect(projected).toHaveLength(3);
+  expect(projected[0]?.laneNoticeBatch?.rows).toHaveLength(1);
+  expect(projected[0]?.laneNoticeBatch?.rows[0]?.incoming?.kind === "message" && projected[0].laneNoticeBatch.rows[0].incoming.message.name).toBe("lane-b");
+  expect(projected[1]?.incoming?.kind === "message" && projected[1].incoming.message.name).toBe("lane-c");
+  expect(projected[2]).toBe(direct);
+  expect(projected.some((row) => row.text?.includes("New messages from other agents"))).toBe(false);
+});
+
+test("projection caches are isolated by source row identity across chats", () => {
+  const make = (id: string): AcpmuxRow => ({
+    id: "same-row-id",
+    version: 1,
+    at: 1,
+    kind: "user",
+    text: `New messages from other agents in 1 thread.\n- 1 new in #${id} from lane: delivery ${id} (thread from:lane/pr:${id})`,
+    incoming: {
+      kind: "message",
+      message: {
+        name: "inbox",
+        text: `New messages from other agents in 1 thread.\n- 1 new in #${id} from lane: delivery ${id} (thread from:lane/pr:${id})`,
+        raw: "",
+      },
+    },
+  });
+  const first = projectInboxRows([make("30230")]);
+  const second = projectInboxRows([make("30231")]);
+  expect(first[0]).not.toBe(second[0]);
+  expect(first[0]?.text).toContain("30230");
+  expect(second[0]?.text).toContain("30231");
+});
+
 test("raw inbox deliveries with the same first line keep distinct full bodies", () => {
   const text = [
     "New messages from other agents in 1 thread.",
@@ -404,7 +464,9 @@ test("a delivered inbox notice expands to clean rows outside the waiting group",
     incoming: { kind: "message", message: { name: "inbox", text, raw: `[inbox] ${text}` } },
   };
   const { turnViewFrom } = await import("./turns");
-  const rendered = turnViewFrom([row], new Set()).rows;
+  const view = turnViewFrom([row], new Set());
+  expect(view.rows).toEqual([row]);
+  const rendered = flattenInboxRows(view.rows);
   expect(rendered).toHaveLength(1);
   expect(rendered[0]?.incoming).toMatchObject({ kind: "message", message: { name: "lane-a", text: "merged #30022" } });
   expect(rendered[0]?.text).not.toContain("inbox_read");
