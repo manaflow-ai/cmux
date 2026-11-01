@@ -1,12 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample drafts and folders), not shipped UI.
 // A cancelled New Tab start is no failure (#28543 follow-ups, #28815). The pane runs its real
 // client on the in-page mock daemon (`transport: "mock"`, mock.ts):
-// - not-now-keeps-draft: the start waits on the folder's Trust question (`mockTrustPending`); Not now
-//   ends it as cancelled. The draft stays in the field and no failure notice shows beside it.
+// - not-now-keeps-draft: a start on another machine (devbox) keeps the page until it has started
+//   (#28965), so its folder's Trust question (`mockTrustPending`) shows beside the field. Not now
+//   ends it as cancelled: the draft stays in the field and no failure notice shows beside it.
 // - stale-folder-reply-ready: the send's folder reply arrives after a newer folder request replaced
 //   it. That reply uses nothing and ends the send, so the next Return starts the chat.
-// - start-refused-shows-notice: beside them, a start the host really refused still says why beside
-//   the kept draft. Only a cancel is quiet.
+// - start-refused-shows-notice: beside them, a start acpmux really refused still says why. A local
+//   start becomes its chat at once (#28965), so the reason shows in that chat and the prompt is kept
+//   there. Only a cancel is quiet.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { noChat } from "../../../gallery/fixtures/acpmux";
@@ -54,12 +56,49 @@ async function ready(ctx: PlayContext) {
   return view;
 }
 
+/// The live mock daemon's answers, patched for one play (as the unit tests patch its prototype).
+type Answer = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+async function patchDaemon(
+  wrap: (
+    method: string,
+    params: Record<string, unknown>,
+    answer: () => Promise<unknown>,
+  ) => Promise<unknown> | undefined,
+) {
+  const { MockAcpmuxSocket } = await import("../mock");
+  const socket = MockAcpmuxSocket.live as unknown as { answer: Answer } | undefined;
+  if (!socket) throw new Error("no live mock daemon");
+  const answer = socket.answer.bind(socket);
+  socket.answer = (method, params) => wrap(method, params, () => answer(method, params)) ?? answer(method, params);
+}
+
+/// Picks the devbox machine in the page's location picker; opening it reads the machines again.
+async function pickDevbox(ctx: PlayContext) {
+  await patchDaemon((method, _params, answer) =>
+    method === "_acpmux/status"
+      ? answer().then((status) => ({
+          ...(status as Record<string, unknown>),
+          peers: [{ name: "devbox", kind: "ssh", connected: true }],
+        }))
+      : undefined,
+  );
+  await ctx.click({ selector: '.acpmux-location-picker[data-kind="computer"] button' });
+  await ctx.waitFor(
+    () => [...ctx.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    { capMs: 10_000 },
+  );
+  const devbox = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  devbox.click();
+  await frames(ctx);
+}
+
 async function notNow(ctx: PlayContext) {
-  const view = await ready(ctx);
-  // The direct no-project route (direct.ts create), whose start waits through the Trust answer.
-  const actions = view.cmuxAcpmuxActions!;
-  const start = actions["chat.new"]!;
-  actions["chat.new"] = (params) => start({ ...params, harness: "", noProject: true });
+  await ready(ctx);
+  // A start on another machine keeps the page until it has started (#28965), so its Trust question
+  // and any notice show beside the field.
+  await pickDevbox(ctx);
   await ctx.type(DRAFT, { selector: ".nt-field" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask-primary"), {
@@ -103,17 +142,24 @@ async function staleFolder(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
 }
 
-/// A start the host refuses (no in-page daemon: `chat.new` goes to the host, which answers with its
-/// reason): the failure notice shows beside the kept draft.
+/// The prompt is still on the page: its queued row in the chat, or the chat's composer.
+const kept = (ctx: PlayContext) =>
+  !!ctx.document.body.textContent?.includes(DRAFT) ||
+  [...ctx.document.querySelectorAll("textarea")].some((node) => node.value.includes(DRAFT));
+
+/// A local start acpmux refuses (`session/new` fails with its reason): the page becomes the chat at
+/// once (#28965), which says why it did not start, and the prompt is kept there.
 async function refused(ctx: PlayContext) {
-  await ctx.waitFor(() => field(ctx));
+  await ready(ctx);
+  await patchDaemon((method) => (method === "session/new" ? Promise.reject(new Error(REFUSAL)) : undefined));
   await ctx.type(DRAFT, { selector: ".nt-field" });
   await ctx.press("Enter");
-  await ctx.waitFor(() => notice(ctx)?.textContent?.includes(REFUSAL), { capMs: 10_000 });
+  await ctx.waitFor(() => !field(ctx), { capMs: 10_000 });
+  await ctx.waitFor(() => ctx.document.body.textContent?.includes(REFUSAL), { capMs: 10_000 });
   await frames(ctx);
-  if (field(ctx)?.value !== DRAFT) throw new Error(`the draft is gone after a refused start (${field(ctx)?.value})`);
+  if (!kept(ctx)) throw new Error("the refused prompt is gone");
 }
-const REFUSAL = "Claude Code could not start: agent unavailable";
+const REFUSAL = "acpmux refused session/new: agent unavailable";
 
 export default agentPaneEntry({
   id: "agent-pane.new-tab-start-cancel",
@@ -131,9 +177,16 @@ export default agentPaneEntry({
   },
   variants: {
     "not-now-keeps-draft": {
-      note: "Return, then Not now on the folder's Trust question: the draft stays in the field and no failure notice shows (#28815).",
+      note: "A start on devbox, then Not now on the folder's Trust question: the draft stays in the field and no failure notice shows (#28815).",
       ready: newTab,
       mockTrustPending: true,
+      checks: {
+        layoutShiftMax: {
+          value: 0.2,
+          reason:
+            "A start on another machine holds the page (#28965): Return adds its Starting line and the Trust question above the composer, and Not now swaps that for the Undo line; the composer moves with them by design (measured 0.10-0.14 on Linux Chromium).",
+        },
+      },
       snapshot: noChat([], { listedSessions: true }),
       play: notNow,
     },
@@ -146,10 +199,16 @@ export default agentPaneEntry({
       play: staleFolder,
     },
     "start-refused-shows-notice": {
-      note: "Beside the cancels: a start the host refused still shows its reason beside the kept draft (#28815).",
-      ready: { newTab: newTab.newTab, newSession: true, machineName: "This Mac" },
-      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: REFUSAL } } },
+      note: "Beside the cancels: a local start acpmux refused becomes its chat, which says why and keeps the prompt (#28815).",
+      ready: newTab,
       snapshot: noChat([], { listedSessions: true }),
+      checks: {
+        longFrameFailMs: {
+          value: 120,
+          reason:
+            "Return replaces the New Tab page with the chat's at once (#28965): that one frame mounts the chat view (measured 80-87 ms on Linux Chromium); the rest of the play stays under the default.",
+        },
+      },
       play: refused,
     },
   },
