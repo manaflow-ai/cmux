@@ -322,15 +322,18 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   await act(async () => {
     root!.render(
       <NewTabScreen
-        snapshot={noChat([
-          {
-            sessionId: "remote-chat",
-            peer: "build-box",
-            host: "build-box",
-            hostKind: "local",
-            cwd: remoteFolder,
-          },
-        ], { peers: ["build-box"], peerKinds: { "build-box": "ssh" } })}
+        snapshot={noChat(
+          [
+            {
+              sessionId: "remote-chat",
+              peer: "build-box",
+              host: "build-box",
+              hostKind: "local",
+              cwd: remoteFolder,
+            },
+          ],
+          { peers: ["build-box"], peerKinds: { "build-box": "ssh" } },
+        )}
         cwd="/Users/you/src/cmux"
         startCwd="/Users/you/src/cmux"
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
