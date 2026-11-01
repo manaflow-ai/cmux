@@ -260,6 +260,9 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     /// Native session identifier for the agent's CLI (used to build the resume command).
     let sessionId: String
     let title: String
+    /// Producer metadata from the transcript, such as Claude Code's `sdk-py`.
+    /// It is nil for agents whose session format does not expose an entrypoint.
+    let entrypoint: String?
     let cwd: String?
     let gitBranch: String?
     let pullRequest: PullRequestLink?
@@ -279,6 +282,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         agent: SessionAgent,
         sessionId: String,
         title: String,
+        entrypoint: String? = nil,
         cwd: String?,
         gitBranch: String?,
         pullRequest: PullRequestLink?,
@@ -292,6 +296,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         self.agent = agent
         self.sessionId = sessionId
         self.title = title
+        self.entrypoint = entrypoint
         self.cwd = cwd
         self.gitBranch = gitBranch
         self.pullRequest = pullRequest
@@ -321,6 +326,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             agent: agent,
             sessionId: sessionId,
             title: title,
+            entrypoint: entrypoint,
             cwd: cwd,
             gitBranch: gitBranch,
             pullRequest: pullRequest,

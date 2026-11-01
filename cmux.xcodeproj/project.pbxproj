@@ -4415,6 +4415,8 @@
 		3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */; };
 		8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */; };
 		88DAF31AC3FC4A6CB899E0B1 /* VaultSessionCheckpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A6A437B01E4A0CBF64454D /* VaultSessionCheckpointTests.swift */; };
+		8BC9AF655D4D57B9C2C0D6D8 /* VaultSessionExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54954D6F650027A37FA2071D /* VaultSessionExclusion.swift */; };
+		9557F8B11D4DE8403A0A9BA8 /* VaultSessionExclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5369F38053C6B4AC15A456B /* VaultSessionExclusionTests.swift */; };
 		A865E72EE4B14A2A8517A944 /* VaultSessionLiveStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */; };
 		208BA068DD2B4B4E86D0F213 /* VaultSessionLiveStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5E90CEF204498AAEC93921 /* VaultSessionLiveStatusTests.swift */; };
 		021B98686B73408892D7C876 /* VaultSessionSearchQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */; };
@@ -9082,6 +9084,8 @@
 		662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpoint.swift; sourceTree = "<group>"; };
 		CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpointStore.swift; sourceTree = "<group>"; };
 		39A6A437B01E4A0CBF64454D /* VaultSessionCheckpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpointTests.swift; sourceTree = "<group>"; };
+		54954D6F650027A37FA2071D /* VaultSessionExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionExclusion.swift; sourceTree = "<group>"; };
+		C5369F38053C6B4AC15A456B /* VaultSessionExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultSessionExclusionTests.swift"; sourceTree = "<group>"; };
 		5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionLiveStatus.swift; sourceTree = "<group>"; };
 		0C5E90CEF204498AAEC93921 /* VaultSessionLiveStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionLiveStatusTests.swift; sourceTree = "<group>"; };
 		189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionSearchQuery.swift; sourceTree = "<group>"; };
@@ -12613,6 +12617,7 @@
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 				352D4A0BA53BF9B5B3480BE8 /* MainWindowHitTestMutationMonitor.swift */,
+				54954D6F650027A37FA2071D /* VaultSessionExclusion.swift */,
 				A44D8B169E078B6036415AC7 /* HerdrResumeBinding.swift */,
 				DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */,
 				588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */,
@@ -14288,6 +14293,7 @@
 				CDA45BE3861EEBF458303ED3 /* TerminalTTYSessionIdentityTests.swift */,
 				80B2BBAC8B90CA286F4B2BF7 /* MainWindowHitTestMutationMonitorTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
+				C5369F38053C6B4AC15A456B /* VaultSessionExclusionTests.swift */,
 				D8F241D343EB86448969104C /* RemoteTmuxMirrorCloseShortcutTests.swift */,
 				05BE49145FE4324D6FDDBC60 /* HerdrResumeBindingTests.swift */,
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
@@ -17698,6 +17704,7 @@
 				6170C16F7014467C93587385 /* VaultRecencySections.swift in Sources */,
 				3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */,
 				8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */,
+				8BC9AF655D4D57B9C2C0D6D8 /* VaultSessionExclusion.swift in Sources */,
 				A865E72EE4B14A2A8517A944 /* VaultSessionLiveStatus.swift in Sources */,
 				021B98686B73408892D7C876 /* VaultSessionSearchQuery.swift in Sources */,
 				D4476F0B0000000000000001 /* VaultSessionViewMenu.swift in Sources */,
@@ -19609,6 +19616,7 @@
 				C018F5613EA04C739B108FB3 /* VaultRecencySectionsTests.swift in Sources */,
 				992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */,
 				88DAF31AC3FC4A6CB899E0B1 /* VaultSessionCheckpointTests.swift in Sources */,
+				9557F8B11D4DE8403A0A9BA8 /* VaultSessionExclusionTests.swift in Sources */,
 				208BA068DD2B4B4E86D0F213 /* VaultSessionLiveStatusTests.swift in Sources */,
 				62F6C9E77A6A40B982D91040 /* VaultSessionSearchQueryTests.swift in Sources */,
 				C5BEA2B0EA914759A8BFD577 /* VaultSocketPayloadTests.swift in Sources */,

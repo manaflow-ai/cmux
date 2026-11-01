@@ -78,7 +78,13 @@ extension SessionIndexStore {
             return SearchOutcome(entries: [], errors: [])
         }
 
-        var merged = entries.filter { query.matchesMetadata($0) }
+        // `entries` was filtered with the global config only; a folder scope
+        // can add project-local session filters.
+        let registry = await vaultAgentRegistry(workingDirectory: scopedDirectory)
+        let metadataMatchers = registry.compiledSessionExclusions
+        var merged = entries.filter {
+            query.matchesMetadata($0) && !registry.excludes($0, matchers: metadataMatchers)
+        }
         var errors: [String] = []
 
         // Transcript phase: the underlying per-agent search matches one
@@ -94,7 +100,6 @@ extension SessionIndexStore {
         )
         if !needleTerms.isEmpty {
             let agents = globalSearchCandidateAgents(for: query, entries: entries)
-            let registry = await vaultAgentRegistry(workingDirectory: scopedDirectory)
             var perTermIDs: [Set<String>] = []
             var transcriptEntriesByID: [String: SessionEntry] = [:]
             for term in needleTerms {
