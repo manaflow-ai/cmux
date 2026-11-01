@@ -1375,6 +1375,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
+  /// An optimistic row has been accepted by an event: keep its id, but make the event its order.
+  adoptEventOrder(id: string): void {
+    if (!this.has(id)) return;
+    this.local.delete(id);
+    if (this.current !== undefined) {
+      this.order.set(id, this.current);
+      this.latest = Math.max(this.latest, this.current);
+    }
+    this.ordered = undefined;
+    this.snapshot = undefined;
+  }
+
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
@@ -5167,6 +5179,7 @@ export class AcpmuxDirectClient {
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
         });
+        if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
