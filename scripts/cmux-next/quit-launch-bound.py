@@ -366,8 +366,8 @@ class Session:
             while time.time() < ask_end:
                 try:
                     asking = self.call("debug.quit", {}).get("result") or {}
-                except (OSError, ValueError):
-                    break  # the app is gone or going: nothing asks
+                except (OSError, ValueError, SystemExit):
+                    break  # the app is gone or going (app_client exits after its own timeout): nothing asks
                 if asking.get("asking"):
                     self.call("debug.quit", {"press": "keep"})
                     break
