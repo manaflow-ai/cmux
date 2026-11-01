@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4135353754501",
+  "notes": "notes/4135353754501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31313,
+      "title": "fix(cmux-next): the passkey banner's incognito check resolves the tab on its machine",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31329,
+      "title": "acpmux: bg_start and other self-spawns survive a replaced binary on Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31315,
+      "title": "fix(next): route alternate-screen shortcut context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31305,
+      "title": "Cloud: a team machine's Claude sign-in card says it takes no personal login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31345,
+      "title": "cmux NEXT: moving through an open menu's rows counts as input, so budgeted work yields to it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31354,
+      "title": "test(sidebar): allow the stray-switch occlusion post on the default center",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
