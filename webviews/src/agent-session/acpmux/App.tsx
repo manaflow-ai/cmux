@@ -2650,6 +2650,8 @@ export function VirtualTranscript({
   useLayoutEffect(() => stopJump, [sessionId, stopJump]);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
+  /// The bottom stack's reach at rest, for the prompt rail's box (`railBox`): its smallest at `height`.
+  const restingDock = useRef({ height: -1, space: 0 });
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
@@ -4916,6 +4918,13 @@ export function VirtualTranscript({
   if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
+  // The prompt rail's own box: the view's height, less the bottom stack at its smallest at this
+  // height (the composer at rest). A composer that grows a line, a tray or bar that opens over the
+  // view, or the lift a followed view takes leaves the rail where it is; a new view height starts over.
+  if (restingDock.current.height !== height) restingDock.current = { height, space: dockSpace };
+  else if (dockSpace > 0 && (restingDock.current.space <= 0 || dockSpace < restingDock.current.space))
+    restingDock.current.space = dockSpace;
+  const railBox = { height, foot: height - restingDock.current.space };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
@@ -4962,6 +4971,7 @@ export function VirtualTranscript({
             // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
             // rail's rows stay above its bottom band.
             foot={height - dockSpace}
+            railBox={railBox}
             scrolls={layout.totalHeight - height > 0.5}
             width={paneWidth}
             columnWidth={width}

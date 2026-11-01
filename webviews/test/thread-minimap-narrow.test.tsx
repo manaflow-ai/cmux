@@ -309,7 +309,7 @@ test("with the pointer on its card, a wide rail keeps its ticks at rest and the 
     await holdCard(5);
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
     expect(tick(5).getAttribute("data-tone")).toBe("active");
   } finally {
@@ -323,7 +323,7 @@ test("a wide pane keeps the rail close to the transcript: 36 px rows, 6 px ticks
   try {
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
   } finally {
     await view.unmount();

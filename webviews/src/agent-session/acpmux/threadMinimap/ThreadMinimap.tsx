@@ -130,6 +130,7 @@ export function ThreadMinimap({
   scrollTop,
   viewportHeight,
   foot,
+  railBox,
   scrolls,
   width,
   columnWidth = width,
@@ -148,6 +149,12 @@ export function ThreadMinimap({
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
+  /// The rail's own vertical box, when the transcript gives one: the scroller's height and the foot of
+  /// its resting bottom stack (VirtualTranscript `railBox`). The rail's height and top read only this,
+  /// so a composer that grows, a tray that opens or a followed view's lift never move it (Leo,
+  /// 2026-11-01: "the left side scroll rail needs to not really get affected by most other layout
+  /// things it shouldn't really shift much at all"). Without one, `viewportHeight` and `foot`.
+  railBox?: { height: number; foot: number };
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
@@ -303,12 +310,14 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
+  const boxHeight = railBox?.height ?? viewportHeight;
+  const boxFoot = railBox?.foot ?? foot;
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(
     turns.length,
     windowHeight,
-    viewportHeight,
-    foot,
+    boxHeight,
+    boxFoot,
     onScreen.last - onScreen.first + 1,
     railHeightConfig(heightArm),
   );
@@ -601,7 +610,7 @@ export function ThreadMinimap({
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
-    const railTop = railTopAt(height, viewportHeight, foot);
+    const railTop = railTopAt(height, boxHeight, boxFoot);
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
@@ -875,7 +884,7 @@ export function ThreadMinimap({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const railTop = railTopAt(height, viewportHeight, foot);
+  const railTop = railTopAt(height, boxHeight, boxFoot);
   const fades = railFades(onScreen, turns.length, height, listTop);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
