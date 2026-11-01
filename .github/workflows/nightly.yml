@@ -3596,7 +3596,8 @@ jobs:
       # Blocking, like the step that builds it: a nightly-next app always
       # ships the Ghostty license tree. This is a small artifact containing
       # only the trees, rather than the complete source offer archive.
-      - name: Download the Ghostty dependency license trees (cmux-next)
+      - &download-nightly-ghostty-license-trees
+        name: Download the Ghostty dependency license trees (cmux-next)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         id: ghostty_licenses
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -3677,7 +3678,8 @@ jobs:
       # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
-      - name: Inject the Ghostty dependency licenses (cmux-next)
+      - &inject-nightly-ghostty-licenses
+        name: Inject the Ghostty dependency licenses (cmux-next)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         run: |
           set -euo pipefail
@@ -3937,14 +3939,7 @@ jobs:
       # Blocking, like the step that builds it: a nightly-next app always
       # ships the Ghostty license tree. This is a small artifact containing
       # only the trees, rather than the complete source offer archive.
-      - name: Download the Ghostty dependency license trees (cmux-next)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
-        id: ghostty_licenses
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-next-license-trees
-          path: nightly-inputs/license-trees
-
+      - *download-nightly-ghostty-license-trees
 
       - *restore-unsigned-nightly-produ
 
@@ -3972,34 +3967,8 @@ jobs:
       # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
-      - name: Inject the Ghostty dependency licenses (cmux-next)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
-        run: |
-          set -euo pipefail
-          APP_DIR="build-universal/Build/Products/Release/cmux.app"
-          tree="nightly-inputs/license-trees/ghostty-licenses"
-          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
-          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
-          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
-          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
-          # selects, at this commit's gitlink (the resolved cmux-tui client
-          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
-          # Today: Contents/Resources/ghostty-next-licenses.
-          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
-          vt_name="${vt%% *}" vt_revision="${vt##* }"
-          if [[ "$vt_name" != ghostty ]]; then
-            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
-            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-              --root "$next_tree" --revision "$vt_revision"
-            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
-            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
-          fi
+      - *inject-nightly-ghostty-licenses
 
-
-      # build-nightly-app installed, stripped and probed the client (the one
-      # commit resolve-nightly-cmux-tui-client chose); an unsigned app saved
-      # before that move has none, and is refused here.
       - *require-the-cmux-tui-client-bu
 
 
