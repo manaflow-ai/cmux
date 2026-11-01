@@ -63,6 +63,7 @@ export function ArtifactPanel({
   onSave,
   pinned = false,
   onPinChange,
+  sourceTitle,
 }: {
   artifact: Artifact;
   /// The document's versions in the chat (cx-ncc.64, `artifactVersions`), with the opened one: the
@@ -74,6 +75,8 @@ export function ArtifactPanel({
   /** Pin keeps this exact source chat's preview visible while browsing other chats in this pane. */
   pinned?: boolean;
   onPinChange?(pinned: boolean): void;
+  /** Original conversation's title, supplied by the host rather than the document. */
+  sourceTitle?: string;
 }) {
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
@@ -129,6 +132,11 @@ export function ArtifactPanel({
     >
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
+        {pinned && (
+          <span className="acpmux-artifact-source" title={sourceTitle}>
+            {t("sidebar.pinned")}{sourceTitle ? ` · ${sourceTitle}` : ""}
+          </span>
+        )}
         {list.length > 1 && (
           <span className="acpmux-artifact-versions">
             <button
