@@ -81,6 +81,7 @@ impl CloudTurnClient {
         valid_component("workspace", &workspace)?;
         valid_component("machine", &machine)?;
         let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
             .build()
@@ -175,12 +176,26 @@ impl CloudTurnClient {
     /// Claims the one-use execution capability immediately before the harness prompt is sent.
     /// The supplied capability must be the opaque `trc_…` token minted by the owner bridge.
     pub async fn claim_execution(&self, scope: &TurnScope) -> Result<ExecutionReply> {
-        self.execution_post("claim", scope).await
+        anyhow::ensure!(scope.purpose == "execute", "execution requires execute purpose");
+        let reply: ExecutionReply = self.execution_post("claim", scope).await?;
+        reply.check(scope, "claim")?;
+        Ok(reply)
+    }
+
+    /// Verifies preparation against the live backend without starting or consuming execution.
+    pub async fn verify_preparation(&self, scope: &TurnScope) -> Result<TurnScope> {
+        anyhow::ensure!(scope.purpose == "prepare", "preparation requires prepare purpose");
+        let reply: ExecutionReply = self.execution_post("claim", scope).await?;
+        reply.check(scope, "claim")?;
+        Ok(reply.scope)
     }
 
     /// Finishes a claimed execution after the harness outcome is recorded.
     pub async fn finish_execution(&self, scope: &TurnScope) -> Result<ExecutionReply> {
-        self.execution_post("finish", scope).await
+        anyhow::ensure!(scope.purpose == "execute", "execution requires execute purpose");
+        let reply: ExecutionReply = self.execution_post("finish", scope).await?;
+        reply.check(scope, "finish")?;
+        Ok(reply)
     }
 
     async fn execution_post<R: for<'de> Deserialize<'de>>(
@@ -188,6 +203,8 @@ impl CloudTurnClient {
         operation: &str,
         scope: &TurnScope,
     ) -> Result<R> {
+        anyhow::ensure!(scope.workspace == self.workspace, "cloud workspace fence mismatch");
+        self.check_machine(&scope.machine)?;
         for (name, value) in [
             ("team", &scope.team),
             ("user", &scope.user),
@@ -198,7 +215,10 @@ impl CloudTurnClient {
         ] {
             valid_component(name, value)?;
         }
-        anyhow::ensure!(matches!(scope.purpose.as_str(), "prepare" | "execute"), "turn purpose is malformed");
+        anyhow::ensure!(
+            matches!(scope.purpose.as_str(), "prepare" | "execute"),
+            "turn purpose is malformed"
+        );
         valid_component("attempt_id", &scope.attempt_id)?;
         let token = self.auth.bearer().context("turn capability unavailable")?;
         anyhow::ensure!(token.starts_with("trc_"), "turn capability is malformed");
@@ -412,7 +432,11 @@ impl CloudTurnEnvelope {
             session: self.session.clone(),
             turn: self.turn.clone(),
             purpose: if self.purpose.is_empty() { "execute".into() } else { self.purpose.clone() },
-            attempt_id: if self.attempt_id.is_empty() { self.turn.clone() } else { self.attempt_id.clone() },
+            attempt_id: if self.attempt_id.is_empty() {
+                self.turn.clone()
+            } else {
+                self.attempt_id.clone()
+            },
         }
     }
 }
@@ -424,8 +448,75 @@ pub struct ExecutionReply {
     pub claimed: Option<bool>,
     #[serde(default)]
     pub finished: Option<bool>,
-    #[serde(default)]
-    pub scope: Option<TurnScope>,
+    #[serde(flatten)]
+    pub scope: TurnScope,
+}
+
+impl ExecutionReply {
+    fn check(&self, expected: &TurnScope, operation: &str) -> Result<()> {
+        anyhow::ensure!(&self.scope == expected, "turn capability response scope mismatch");
+        let acknowledged = match operation {
+            "claim" => self.claimed == Some(true),
+            "finish" => self.finished == Some(true),
+            _ => false,
+        };
+        anyhow::ensure!(acknowledged, "turn capability response was not acknowledged");
+        Ok(())
+    }
+}
+
+/// Checks the native request against trusted daemon scope before consulting the backend.
+/// The returned scope is safe to use for reservation admission; no bearer is retained in it.
+#[allow(clippy::too_many_arguments)]
+pub async fn verify_preparation(
+    origin: &str,
+    workspace: &str,
+    machine: &str,
+    session: &str,
+    turn: &str,
+    generation: u64,
+    attempt_id: &str,
+    authorization: &CloudTurnEnvelope,
+) -> Result<TurnScope> {
+    let scope = preparation_scope(
+        workspace,
+        machine,
+        session,
+        turn,
+        generation,
+        attempt_id,
+        authorization,
+    )?;
+    let auth = Arc::new(EphemeralCapability::new(authorization.capability.clone())?);
+    let cloud = CloudTurnClient::new(origin, workspace, machine, auth)?;
+    cloud.verify_preparation(&scope).await
+}
+
+fn preparation_scope(
+    workspace: &str,
+    machine: &str,
+    session: &str,
+    turn: &str,
+    generation: u64,
+    attempt_id: &str,
+    authorization: &CloudTurnEnvelope,
+) -> Result<TurnScope> {
+    anyhow::ensure!(
+        authorization.purpose == "prepare",
+        "preparation requires explicit prepare purpose"
+    );
+    anyhow::ensure!(
+        authorization.workspace == workspace
+            && authorization.machine == machine
+            && authorization.session == session
+            && authorization.turn == turn
+            && authorization.generation == generation
+            && authorization.attempt_id == attempt_id,
+        "preparation authorization scope mismatch"
+    );
+    valid_component("attempt_id", attempt_id)?;
+    // Expiry and current generation are checked by the backend, never the restored guest clock.
+    Ok(authorization.scope())
 }
 
 #[derive(Debug, Serialize)]
@@ -508,7 +599,11 @@ impl MintedCapability {
             session: self.session,
             turn: self.turn.clone(),
             purpose: if self.purpose.is_empty() { "execute".into() } else { self.purpose },
-            attempt_id: if self.attempt_id.is_empty() { self.turn.clone() } else { self.attempt_id },
+            attempt_id: if self.attempt_id.is_empty() {
+                self.turn.clone()
+            } else {
+                self.attempt_id
+            },
         };
         Ok((scope, EphemeralCapability::new(self.capability)?))
     }
@@ -700,6 +795,194 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(Zeroizing::new("owner-capability".into()))
         }
+    }
+
+    fn preparation() -> CloudTurnEnvelope {
+        CloudTurnEnvelope {
+            capability: format!("trc_{}", "a".repeat(43)),
+            team: "team".into(),
+            user: "user".into(),
+            workspace: "ws".into(),
+            machine: "machine".into(),
+            generation: 7,
+            session: "session".into(),
+            turn: "prompt".into(),
+            expires_at: 0,
+            purpose: "prepare".into(),
+            attempt_id: "attempt".into(),
+        }
+    }
+
+    #[test]
+    fn preparation_requires_explicit_purpose_and_exact_request_scope() {
+        let auth = preparation();
+        let check = |auth: &CloudTurnEnvelope| {
+            preparation_scope("ws", "machine", "session", "prompt", 7, "attempt", auth)
+        };
+        assert!(check(&auth).is_ok());
+        for field in [
+            "workspace",
+            "machine",
+            "session",
+            "turn",
+            "generation",
+            "attempt",
+            "purpose",
+            "missing-purpose",
+        ] {
+            let mut wrong = auth.clone();
+            match field {
+                "workspace" => wrong.workspace = "other".into(),
+                "machine" => wrong.machine = "other".into(),
+                "session" => wrong.session = "other".into(),
+                "turn" => wrong.turn = "other".into(),
+                "generation" => wrong.generation += 1,
+                "attempt" => wrong.attempt_id = "other".into(),
+                "purpose" => wrong.purpose = "execute".into(),
+                _ => wrong.purpose.clear(),
+            }
+            assert!(check(&wrong).is_err(), "accepted wrong {field}");
+        }
+        let mut missing = auth;
+        missing.attempt_id.clear();
+        assert!(preparation_scope("ws", "machine", "session", "prompt", 7, "", &missing).is_err());
+    }
+
+    async fn claim_server(status: u16, body: Value) -> (String, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0; 4096];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&request[..end]);
+                    let length: usize = header
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(str::parse)
+                        })
+                        .unwrap()
+                        .unwrap();
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let body = body.to_string();
+            socket.write_all(format!("HTTP/1.1 {status} Response\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (origin, task)
+    }
+
+    fn test_client(origin: &str) -> CloudTurnClient {
+        let auth = Arc::new(EphemeralCapability::new(preparation().capability).unwrap());
+        let mut client =
+            CloudTurnClient::new("https://cloud.example", "ws", "machine", auth).unwrap();
+        // Only tests can replace the validated HTTPS origin with a local HTTP listener.
+        client.origin = reqwest::Url::parse(origin).unwrap();
+        client
+    }
+
+    #[tokio::test]
+    async fn preparation_claim_posts_scope_and_requires_authoritative_confirmation() {
+        let scope = preparation().scope();
+        let mut body = serde_json::to_value(&scope).unwrap();
+        body["claimed"] = Value::Bool(true);
+        let (origin, server) = claim_server(200, body).await;
+        let verified = test_client(&origin).verify_preparation(&scope).await.unwrap();
+        assert_eq!(verified, scope);
+        let request = server.await.unwrap();
+        assert!(request.starts_with("POST /v1/turn-execution/claim HTTP/1.1"));
+        let (_, body) = request.split_once("\r\n\r\n").unwrap();
+        assert_eq!(serde_json::from_str::<TurnScope>(body).unwrap(), scope);
+        assert!(!body.contains("trc_"));
+    }
+
+    #[tokio::test]
+    async fn preparation_refuses_denial_missing_ack_and_mismatched_backend_scope() {
+        let scope = preparation().scope();
+        for variation in [
+            "denied",
+            "empty",
+            "false",
+            "team",
+            "user",
+            "workspace",
+            "machine",
+            "session",
+            "turn",
+            "generation",
+            "purpose",
+            "attemptId",
+        ] {
+            let mut body = serde_json::to_value(&scope).unwrap();
+            body["claimed"] = Value::Bool(true);
+            let status = if variation == "denied" { 409 } else { 200 };
+            match variation {
+                "denied" => {}
+                "empty" => body = serde_json::json!({}),
+                "false" => body["claimed"] = Value::Bool(false),
+                "generation" => body[variation] = Value::from(8),
+                field => body[field] = Value::from("other"),
+            }
+            let (origin, server) = claim_server(status, body).await;
+            assert!(
+                test_client(&origin).verify_preparation(&scope).await.is_err(),
+                "accepted {variation}"
+            );
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn preparation_cannot_be_used_as_execution_or_for_another_machine() {
+        let client = test_client("http://127.0.0.1:1");
+        let scope = preparation().scope();
+        assert!(
+            client
+                .claim_execution(&scope)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("execute purpose")
+        );
+        assert!(
+            client
+                .finish_execution(&scope)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("execute purpose")
+        );
+        let mut wrong = scope.clone();
+        wrong.machine = "other".into();
+        assert!(
+            client
+                .verify_preparation(&wrong)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("machine fence")
+        );
+        wrong = scope;
+        wrong.workspace = "other".into();
+        assert!(
+            client
+                .verify_preparation(&wrong)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("workspace fence")
+        );
     }
 
     #[test]
