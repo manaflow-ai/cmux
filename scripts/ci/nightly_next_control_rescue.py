@@ -96,6 +96,15 @@ def rescue_control(api: Actions, run: Mapping[str, Any], *, sleep=time.sleep, cl
     # A final read closes the race between the last poll and cancellation.
     if control_started(api.jobs(run_id, 1)):
         return "started"
+    current = api.request("GET", f"/actions/runs/{run_id}")
+    if (current.get("path") not in CONTROL_PATHS
+            or int(current.get("run_attempt") or 0) != 1
+            or current.get("status") == "completed"):
+        return "changed"
+    # The run can acquire a runner between the first final read and this
+    # mutation. Read the current attempt once more immediately before cancel.
+    if control_started(api.jobs(run_id, 1)):
+        return "started"
     api.cancel(run_id)
     # The Actions API accepts the full rerun once cancellation settles. The
     # workflow's own requested event remains bounded by its job timeout.

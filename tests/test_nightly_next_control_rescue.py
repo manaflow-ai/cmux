@@ -39,13 +39,27 @@ class ControlRescueTests(unittest.TestCase):
     def test_unstarted_control_is_cancelled_and_retried_after_settlement(self):
         api = mock.Mock()
         api.jobs.return_value = []
-        api.request.return_value = {"status": "completed"}
+        api.request.side_effect = [
+            {"path": next(iter(rescue.CONTROL_PATHS)), "run_attempt": 1, "status": "in_progress"},
+            {"status": "completed"},
+        ]
         with mock.patch.object(rescue, "WAIT_SECONDS", 0):
             result = rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
                                            sleep=lambda _: None, clock=lambda: 0.0)
         self.assertEqual(result, "rerun")
         api.cancel.assert_called_once_with(42)
         api.rerun.assert_called_once_with(42)
+
+    def test_changed_attempt_is_not_cancelled(self):
+        api = mock.Mock()
+        api.jobs.return_value = []
+        api.request.return_value = {"path": next(iter(rescue.CONTROL_PATHS)), "run_attempt": 2,
+                                    "status": "in_progress"}
+        with mock.patch.object(rescue, "WAIT_SECONDS", 0):
+            result = rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
+                                           sleep=lambda _: None, clock=lambda: 0.0)
+        self.assertEqual(result, "changed")
+        api.cancel.assert_not_called()
 
 
 if __name__ == "__main__":
