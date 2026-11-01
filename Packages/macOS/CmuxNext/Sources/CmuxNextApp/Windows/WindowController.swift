@@ -172,8 +172,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         if enabled {
             if cmuxTouchBar == nil {
-                cmuxTouchBar = CmuxTouchBar { [weak services] action in
-                    services?.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user)) ?? false
+                cmuxTouchBar = CmuxTouchBar { [weak services] action, invocation in
+                    services?.registry.perform(ActionID(rawValue: action), invocation: invocation) ?? false
                 }
             }
             window.touchBar = cmuxTouchBar?.touchBar
