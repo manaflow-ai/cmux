@@ -80,8 +80,7 @@ final class CloudService {
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
-    @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
-    @ObservationIgnored private let refreshGate = CloudRefreshGate()
+    @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?; @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
@@ -480,18 +479,7 @@ final class CloudService {
     /// whatever the store held before it.
     @discardableResult
     func refresh() async -> Bool {
-        guard auth.isSignedIn, unavailableReason == nil else { return false }
-        return await refreshGate.run { [weak self] in
-            guard let self else { return false }
-            return await self.performRefresh()
-        }
-    }
-
-    /// Performs one machine-list read. ``refreshGate`` coalesces overlapping
-    /// triggers, while a later trigger during the read asks for one follow-up
-    /// pass so a wake or mutation cannot be lost behind the shared request.
-    @discardableResult
-    private func performRefresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil else { return false }; return await refreshGate.run { [weak self] in guard let self else { return false }
         changes.start()
         lastRefresh = .now
         listGeneration += 1
@@ -530,7 +518,7 @@ final class CloudService {
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
         }
-    }
+        } }
 
     /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
     /// the server answered within `age` for the account signed in now.
