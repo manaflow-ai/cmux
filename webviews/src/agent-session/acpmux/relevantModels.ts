@@ -54,11 +54,13 @@ function newer(a: Model, b: Model): boolean {
   return variant(b) && !variant(a);
 }
 
-/** `a` is a strictly older version than `b` (a variant of the same version is not, nor is a
- *  model whose name and id carry no version, such as a bare alias). */
+/** `a` is a strictly older version than `b`. A variant of the same version is not, nor is a model
+ *  whose name and id carry no version (a bare alias). A snapshot date is no version part, so
+ *  `claude-opus-4-5` is not older than its dated snapshot `claude-opus-4-5-20251101`. */
 function olderVersion(a: Model, b: Model): boolean {
-  const left = version(a);
-  const right = version(b);
+  const release = (model: Model) => version(model).filter((part) => part < 100_000);
+  const left = release(a);
+  const right = release(b);
   if (left.length === 0 || right.length === 0) return false;
   for (let index = 0; index < Math.max(left.length, right.length); index++) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
@@ -67,9 +69,14 @@ function olderVersion(a: Model, b: Model): boolean {
   return false;
 }
 
+/** One product line: the declared family and the version-stripped id together, so a harness whose
+ *  families are whole vendors ("OpenAI", "Google") never folds one product line under another. */
+const lineKey = (model: Model) => `${familyKey(model)}\u0000${familyKey({ ...model, family: undefined })}`;
+
 export function relevantModelSections<T extends Model>(
   models: readonly T[],
   top: readonly string[] | undefined,
+  running?: string,
 ): { shown: T[]; more: T[] } {
   const available = (model: T) => (model.offers ?? [model]).some((offer) => !offer.unavailable);
   const chosen = new Set<T>();
@@ -83,18 +90,21 @@ export function relevantModelSections<T extends Model>(
     // A harness that reports its whole live list (Codex: every GPT generation) would otherwise
     // list its tab flat while one that reports a short menu (Claude Code) folds the rest under
     // Legacy models (https://github.com/manaflow-ai/cmux/issues/29915). A menu model of a declared
-    // catalog family that the same menu also lists at a newer version folds, so every tab shows its
-    // families' current versions. Context variants of one version stay; inferred families do not fold.
+    // catalog family whose product line the same menu also lists at a newer version folds, so every
+    // tab shows its lines' current versions. Context variants of one version stay, inferred families
+    // never fold, and the chat's running model keeps its row: folding never hides the live choice.
+    const isRunning = (model: T) =>
+      !!running && (model.offers ?? [model]).some((offer) => offer.id === running || offer.release === running);
     const newest = new Map<string, T>();
     for (const model of chosen) {
       if (!model.family) continue;
-      const key = familyKey(model);
+      const key = lineKey(model);
       const previous = newest.get(key);
       if (!previous || olderVersion(previous, model)) newest.set(key, model);
     }
     for (const model of [...chosen]) {
-      const lead = model.family ? newest.get(familyKey(model)) : undefined;
-      if (lead && olderVersion(model, lead)) chosen.delete(model);
+      const lead = model.family ? newest.get(lineKey(model)) : undefined;
+      if (lead && olderVersion(model, lead) && !isRunning(model)) chosen.delete(model);
     }
   } else {
     const families = new Map<string, T>();

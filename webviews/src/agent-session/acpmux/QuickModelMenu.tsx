@@ -614,7 +614,7 @@ export function QuickModelMenu({
         key={valueOf(model)}
         data-effort-look={look}
         data-running={running ? "" : undefined}
-        data-held={held && shown ? "" : undefined}
+        data-held={held ? "" : undefined}
       >
         {name}
         <Submenu

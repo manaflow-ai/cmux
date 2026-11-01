@@ -64,7 +64,7 @@ export function retryModelSections(
     const kept = reported && unique.find((model) => sameModel(model, reported));
     return kept ? [kept.id] : [];
   });
-  const { shown, more } = relevantModelSections(candidates, mappedTop);
+  const { shown, more } = relevantModelSections(candidates, mappedTop, current);
   const original = new Map(unique.map((model) => [model.id, model]));
   return {
     latest: shown.map((model) => original.get(model.id) ?? model),
