@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::state::Watch;
