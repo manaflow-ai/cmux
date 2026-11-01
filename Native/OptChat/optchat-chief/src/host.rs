@@ -786,6 +786,12 @@ fn start(
     let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
+    // The optional coordinator contact belongs only to this Chief's turns;
+    // subagents keep their original instructions. The host reads it once at
+    // startup, so setting changes apply after restart.
+    let contact =
+        crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).contact;
+    let instructions = crate::prompt::with_coordinator_contact(instructions, contact.as_deref());
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");

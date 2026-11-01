@@ -46,6 +46,15 @@ fn every_part_of_the_profile_lands_in_the_hosts_order() {
 }
 
 #[test]
+fn a_configured_coordinator_contact_is_in_the_prompt() {
+    let profile = json!({"contact": "test-host/coordinator"}).to_string();
+    assert_eq!(
+        render_system(&profile, "claude", r#"{"mode": "mcp"}"#).unwrap(),
+        golden("mcp-contact")
+    );
+}
+
+#[test]
 fn a_cli_engine_names_the_launcher() {
     let profile = json!({"person": PERSON}).to_string();
     let tools = json!({"mode": "cli", "chief": "/h/optchat/bin/chief"}).to_string();

@@ -14,12 +14,15 @@ use serde_json::{Value, json};
 use crate::prompt::CacheTtl;
 
 /// The settings this host knows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
     /// native engine). `OPTCHAT_CACHE_TTL` wins over it.
     pub cache_ttl: Option<CacheTtl>,
+    /// Optional coordinator session (`host/session`) for fleet, PR and lane work.
+    /// Unset by default; its identity is added to the prompt at host start.
+    pub contact: Option<String>,
     /// When a reply in the Chief's DM goes into the thread of the message it
     /// answers (`replies.thread`). Default `auto`.
     pub reply_threads: ReplyThreads,
@@ -94,6 +97,7 @@ impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
             cache_ttl: None,
+            contact: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
             show_subagent_workspaces: false,
@@ -108,6 +112,9 @@ impl Default for ChiefSettings {
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
+
+/// The optional coordinator session used for fleet, PR and lane work.
+pub const CONTACT: &str = "contact";
 
 /// The key of `ChiefSettings::reply_threads`.
 pub const REPLY_THREADS: &str = "replies.thread";
@@ -139,6 +146,9 @@ impl ChiefSettings {
             .unwrap_or(Value::Null);
         ChiefSettings {
             cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
+            contact: value[CONTACT]
+                .as_str()
+                .and_then(|v| parse_contact(v).ok().flatten()),
             reply_threads: value["replies"]["thread"]
                 .as_str()
                 .and_then(ReplyThreads::parse)
@@ -162,8 +172,11 @@ impl ChiefSettings {
         }
     }
 
-    pub fn to_json(self) -> Value {
+    pub fn to_json(&self) -> Value {
         let mut value = json!({});
+        if let Some(contact) = &self.contact {
+            value[CONTACT] = json!(contact);
+        }
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }
@@ -183,7 +196,7 @@ impl ChiefSettings {
     }
 
     /// Writes the settings (0600, through a temporary file and a rename).
-    pub fn save(self, path: &Path) -> std::io::Result<()> {
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         if let Some(dir) = path.parent() {
@@ -204,6 +217,27 @@ impl ChiefSettings {
 
 /// The key of `ChiefSettings::cloud_delete_after_paused_days`.
 pub const CLOUD_DELETE_AFTER_PAUSED_DAYS: &str = "cloud.deleteAfterPausedDays";
+
+/// A `contact` value is an acpmux session id in `host/session` form.
+/// An empty value clears it. Whitespace and additional separators are rejected
+/// so the prompt cannot be made to point at an ambiguous session.
+pub fn parse_contact(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let Some((host, session)) = value.split_once('/') else {
+        return Err(format!("{CONTACT}: expected host/session, not {value:?}"));
+    };
+    if host.is_empty()
+        || session.is_empty()
+        || session.contains('/')
+        || value.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(format!("{CONTACT}: expected host/session, not {value:?}"));
+    }
+    Ok(Some(value.to_owned()))
+}
 
 /// A `cloud.deleteAfterPausedDays` value: whole days, 0 to 365.
 pub fn parse_paused_days(value: &str) -> Result<u64, String> {

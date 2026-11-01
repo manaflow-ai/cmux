@@ -386,6 +386,10 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
             &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
         )
         .unwrap();
+        // If cmux MCP is disabled or an older acpmux cannot fold servers,
+        // the standalone server must not expose bg_* or team_* to the turn.
+        let deny = settings["permissions"]["deny"].as_array().unwrap();
+        assert!(deny.iter().any(|v| v == "mcp__acpmux"), "{name}: {deny:?}");
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         for tool in optchat_chief::approval::turn_allowed_tools() {
             assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
@@ -658,14 +662,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux and agent memory MCP servers in a turn (cx-4a5w2),
+    // cmux, its folded acpmux server and agent memory in a turn (cx-4a5w2),
     // and in cmux only the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
             (
                 "ACPMUX_AGENT_TOOL_SERVERS".to_owned(),
-                "cmux,cmux-agent-memory".to_owned()
+                "cmux,acpmux,cmux-agent-memory".to_owned()
             ),
             (
                 "CMUX_MCP_TOOLS".to_owned(),
