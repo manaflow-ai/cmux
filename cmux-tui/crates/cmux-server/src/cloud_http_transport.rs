@@ -30,6 +30,7 @@ impl Transport {
 
     pub(super) fn request(
         &self,
+        method: reqwest::Method,
         url: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
@@ -42,7 +43,7 @@ impl Transport {
                 _ = crate::deadline::wait(deadline.active(), deadline.elapsed()) => {
                     Err("Cloud request unavailable".to_owned())
                 }
-                response = self.send(url, body, bearer, remaining) => response,
+                response = self.send(method, url, body, bearer, remaining) => response,
             }
         })?;
         deadline.remaining().ok_or("Cloud response unavailable")?;
@@ -51,16 +52,16 @@ impl Transport {
 
     async fn send(
         &self,
+        method: reqwest::Method,
         url: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
         remaining: Duration,
     ) -> Result<(u16, Vec<u8>), String> {
-        let mut request = match body {
-            Some(body) => self.client.post(url).json(body),
-            None => self.client.get(url),
+        let mut request = self.client.request(method, url).timeout(remaining);
+        if let Some(body) = body {
+            request = request.json(body);
         }
-        .timeout(remaining);
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }

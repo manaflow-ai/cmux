@@ -349,7 +349,7 @@ impl CloudRole {
 
     pub fn with_root_bootstrap(
         mut self,
-        host: Option<std::sync::Arc<cmux_link::root_bootstrap::Host>>,
+        host: Option<Arc<cmux_link::root_bootstrap::Host>>,
     ) -> Self {
         self.bootstrap = host.map(super::bootstrap_role::RoleBridge::new);
         self
