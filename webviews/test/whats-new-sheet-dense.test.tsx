@@ -62,7 +62,7 @@ test("a day of nightlies gives every change one row with its own key, however ma
   const rows = sheetRows(view, strings);
   expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
   expect(new Set(rows.map((r) => titleKey(r.title))).size).toBe(rows.length);
-  expect([...rows.map((r) => r.title)].sort()).toEqual([...expected].sort());
+  expect(rows.map((r) => r.title).sort()).toEqual([...expected].sort());
   // The first build keeps its own ids; a repeat takes its build.
   expect(rows.map((r) => r.key)).toContain("summary-0");
   expect(rows.map((r) => r.key)).toContain("summary-0@4134335440201");
@@ -101,5 +101,5 @@ test("the page lists each change once while a day's builds load one by one", asy
   expect(root.querySelector(".cls")?.classList.contains("cls-inline")).toBe(true);
   const titles = [...root.querySelectorAll(".cls-row-title")].map((t) => t.textContent ?? "");
   expect(titles.length).toBe(new Set(titles).size);
-  expect([...titles].sort()).toEqual([...expected].sort());
+  expect(titles.sort()).toEqual([...expected].sort());
 });

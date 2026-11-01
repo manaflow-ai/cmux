@@ -176,10 +176,7 @@ export const journalNotes: ReleaseNotes[] = [
     lines, so every build names its entries summary-0, summary-1, … (Leo 2026-11-01 saw rows twice
     on What's New: the page keyed its rows by those ids). One title was cut inside its parentheses
     by an older pipeline. Newest first. */
-const digestBuild = (
-  build: string,
-  lines: [WhatsNewEntry["category"], string, string][],
-): ReleaseNotes => ({
+const digestBuild = (build: string, lines: [WhatsNewEntry["category"], string, string][]): ReleaseNotes => ({
   build,
   shortVersion: `1.0.0-nightly.${build}`,
   date: "2026-11-01",

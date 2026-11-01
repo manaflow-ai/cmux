@@ -68,7 +68,7 @@ export default changelogPageEntry({
       notes: realNightlies,
     },
     sheet: {
-      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), picked layout A Inline (Leo 2026-11-01: \"this is way too narrow and not info dense enough\"): up to 920px wide, each change an accent glyph, its bold title and its muted line on one line where they fit.",
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), picked layout A Inline (Leo 2026-11-01 found it too narrow and not info dense enough): up to 920px wide, each change an accent glyph, its bold title and its muted line on one line where they fit.",
       notes: journalNotes,
     },
     "sheet-stack": {
