@@ -95,13 +95,13 @@ class Daemon {
   fail?: string;
   /// Refuses a detach, as acpmux does for a chat it no longer resolves.
   refuseDetach = false;
-  /// Holds the next detach of this chat unanswered, as a busy acpmux does.
+  /// Holds every detach of this chat unanswered while set, as a busy acpmux does.
   holdDetach?: string;
-  private heldDetach?: Message;
-  /** Answers the detach held back. */
-  releaseDetach(): void {
-    const message = this.heldDetach;
-    this.heldDetach = undefined;
+  private heldDetaches: Message[] = [];
+  /** Answers a detach held back: the oldest, or the newest (acpmux runs each request on its own
+   * task, so a later detach can be answered first). */
+  releaseDetach(which: "oldest" | "newest" = "oldest"): void {
+    const message = which === "oldest" ? this.heldDetaches.shift() : this.heldDetaches.pop();
     if (message) this.answer(message);
   }
   private held?: Message;
@@ -133,8 +133,7 @@ class Daemon {
     if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
     if (message.method === "_acpmux/detach" && sessionId === this.holdDetach) {
-      this.heldDetach = message;
-      this.holdDetach = undefined;
+      this.heldDetaches.push(message);
       return;
     }
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
@@ -560,6 +559,44 @@ test("a switch straight back waits for that chat's own detach before attaching i
     daemon.releaseDetach();
     expect(await back).toBe(A);
     expect(attachesOfA()).toBe(before + 1);
+    expect(text(last())).toContain("Retry added.");
+  } finally {
+    client.close();
+  }
+});
+
+test("switching away from a chat twice before its detaches answer attaches it after both, in any order", async () => {
+  const daemon = new Daemon("detach-rapid");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    const attachesOfA = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+    daemon.holdDetach = A;
+    // A -> B -> A -> B -> A, every detach of A still out.
+    await client.select(B);
+    const before = attachesOfA();
+    const first = client.select(A);
+    expect(await client.select(B)).toBe(B);
+    let settled = false;
+    const back = client.select(A).finally(() => (settled = true));
+    await drain();
+    expect(attachesOfA()).toBe(before);
+    // The second detach answers first: the last switch still waits for the first one, which acpmux
+    // could otherwise answer after its attach and so drop the chat's new subscription.
+    daemon.releaseDetach("newest");
+    await drain();
+    expect(settled).toBe(false);
+    expect(attachesOfA()).toBe(before);
+    daemon.releaseDetach();
+    // The switch the first detach held was superseded and attached nothing.
+    expect(await first).toBeUndefined();
+    expect(await back).toBe(A);
+    expect(attachesOfA()).toBe(before + 1);
+    const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
+    expect(order.lastIndexOf(`_acpmux/attach ${A}`)).toBeGreaterThan(order.lastIndexOf(`_acpmux/detach ${A}`));
     expect(text(last())).toContain("Retry added.");
   } finally {
     client.close();

@@ -7221,19 +7221,21 @@ export class AcpmuxDirectClient {
       throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
-  /// Detaches a switch has sent and acpmux has not answered, by chat. An entry lives only until its
-  /// reply (or refusal, or the socket closing rejects it), so the map holds at most the chats left
-  /// within one round trip; an attach of a chat still in here waits for its detach first.
+  /// Detaches a switch has sent and acpmux has not answered, by chat. A chat left twice in a row
+  /// (A, B, A, B before the first detach answers) has its detaches chained: the entry settles only
+  /// when every detach of that chat sent so far has answered, so an attach that waits on it is
+  /// never answered before one of them. An entry lives only until that (a reply, a refusal, or the
+  /// socket closing rejects it), so the map holds at most the chats left within one round trip.
   private detaching = new Map<string, Promise<void>>();
   private detachInBackground(sessionId: string): void {
-    const sent: Promise<void> = this.typed("_acpmux/detach", { sessionId })
-      .then(
-        () => undefined,
-        () => undefined,
-      )
-      .finally(() => {
-        if (this.detaching.get(sessionId) === sent) this.detaching.delete(sessionId);
-      });
+    const earlier = this.detaching.get(sessionId);
+    const reply = this.typed("_acpmux/detach", { sessionId }).then(
+      () => undefined,
+      () => undefined,
+    );
+    const sent: Promise<void> = Promise.all([earlier, reply]).then(() => {
+      if (this.detaching.get(sessionId) === sent) this.detaching.delete(sessionId);
+    });
     this.detaching.set(sessionId, sent);
   }
   async select(sessionId: string): Promise<string | undefined> {
