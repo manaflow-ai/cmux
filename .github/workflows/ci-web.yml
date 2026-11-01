@@ -299,7 +299,7 @@ jobs:
     # 972 s, pull requests) for half the per-minute price, the longest 2139 s, under
     # the 40 min timeout. The overflow failover still goes to 32 vCPU. Fork pull
     # requests run the same suite on the hosted runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -631,7 +631,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     name: react-apps-base-check (${{ matrix.shard }})
     strategy:
@@ -802,7 +802,7 @@ jobs:
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
