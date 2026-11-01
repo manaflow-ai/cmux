@@ -9,7 +9,12 @@
 use serde_json::{Map, Value};
 
 /// The capabilities a remote client may declare (`set-client-info`).
-pub(crate) const REMOTE_CAPABILITIES: &[&str] = &["local-conversations-v1", "cloud-mobile-chat-v1"];
+pub(crate) const REMOTE_CAPABILITIES: &[&str] = &[
+    "local-conversations-v1",
+    "cloud-mobile-chat-v1",
+    "conversation-tabs-v1",
+    "agent-session-tabs-v1",
+];
 
 /// Params that carry a command to run. Refused on every method.
 pub(crate) const COMMAND_PARAMS: &[&str] =
@@ -25,6 +30,7 @@ pub(crate) const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
         &[
             "name",
             "capabilities",
+            "kind",
             "user_id",
             "display_name",
             "device_kind",
@@ -38,6 +44,9 @@ pub(crate) const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     ("conversation-history", &["conversation", "before_seq", "limit"]),
     ("conversation-op", &["conversation", "idempotency_key", "actor", "transaction", "op"]),
     ("conversation-typing", &["conversation", "actor", "on"]),
+    // Cloud mobile owner discovery.  `intercept` applies the token admission
+    // check before this reaches the normal workspace router.
+    ("list-workspaces", &[]),
 ];
 
 /// Section 4: the op kinds a remote peer may send, with their exact fields.

@@ -7,7 +7,7 @@
 //! server without a pairing record and an install without a good check own
 //! nothing and may open no stream.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -185,6 +185,10 @@ pub fn lock_checked<T>(
 pub struct RemoteRelayState {
     /// The verified link peer of each remote connection (memory only).
     pub peers: Mutex<BTreeMap<u64, LinkPeer>>,
+    /// Connections whose peer stamp was produced after the Cloud control
+    /// plane accepted a link token.  A caller-supplied capability is not
+    /// authority; Cloud mobile uses this authenticated admission bit.
+    pub cloud_token_clients: Mutex<BTreeSet<u64>>,
     pub pairing: Mutex<Option<Arc<dyn PairingRecords>>>,
     pub revocation: Mutex<Revocation>,
 }

@@ -150,15 +150,35 @@ impl Mux {
     /// insert removes it again, so a refusal leaves no record, and nothing
     /// here panics while the revocation lock is held.
     pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> Result<(), BindRefused> {
+        self.bind_remote_peer_checked(client, peer, false)
+    }
+
+    /// Bind a peer whose entry stamp was made by a verified Cloud link token.
+    /// This is the authority used by the Cloud mobile carrier; the capability
+    /// in `set-client-info` is only a negotiation marker.
+    pub(crate) fn bind_remote_peer_checked(
+        &self,
+        client: u64,
+        peer: &LinkPeer,
+        cloud_token: bool,
+    ) -> Result<(), BindRefused> {
         let relay = self.remote_relay();
         let revocation = lock_checked(&relay.revocation, RelayLock::Revocation)?;
         if revocation.policy(&peer.install) != StreamPolicy::Serve {
             return Err(BindRefused::Policy);
         }
         self.bind_conversation_principal(client, remote_participant(&peer.install))?;
+        let mut cloud_clients = if cloud_token {
+            Some(lock_checked(&relay.cloud_token_clients, RelayLock::Peers).map_err(BindRefused::from)?)
+        } else {
+            None
+        };
         match lock_checked(&relay.peers, RelayLock::Peers) {
             Ok(mut peers) => {
                 peers.insert(client, peer.clone());
+                if let Some(clients) = cloud_clients.as_deref_mut() {
+                    clients.insert(client);
+                }
             }
             Err(error) => {
                 self.unbind_conversation_principal(client);
@@ -167,6 +187,46 @@ impl Mux {
         }
         drop(revocation);
         Ok(())
+    }
+
+    /// True only for a remote stream admitted with a verified Cloud link
+    /// token.  Poisoned state denies the stream.
+    pub(super) fn cloud_token_client(&self, client: u64) -> bool {
+        lock_checked(&self.remote_relay().cloud_token_clients, RelayLock::Peers)
+            .ok()
+            .is_some_and(|clients| clients.contains(&client))
+    }
+
+    pub(super) fn forget_cloud_token_client(&self, client: u64) {
+        if let Ok(mut clients) = lock_checked(
+            &self.remote_relay().cloud_token_clients,
+            RelayLock::Peers,
+        ) {
+            clients.remove(&client);
+        }
+    }
+
+    /// The only remote client admitted to the native Cloud mobile surface:
+    /// its capability was negotiated on a stream stamped by a verified link
+    /// token.  Caller-supplied identity fields never participate.
+    pub(super) fn cloud_mobile_client(&self, client: u64) -> bool {
+        if !self.is_remote_client(client)
+            || !self.cloud_token_client(client)
+            || !self.control_clients.supports_capability(
+                client,
+                crate::server::agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY,
+            )
+        {
+            return false;
+        }
+        // Until the Cloud verifier carries the VM principal through the
+        // entry stamp, require the explicit owner record. Never let a
+        // caller-provided `user_id` substitute for that source. The Cloud VM
+        // path is enabled by the follow-up verifier PR's owner stamp.
+        match (self.remote_relay().peer_checked(client), self.remote_relay().owner_user()) {
+            (Ok(Some(peer)), Ok(Some(owner))) => peer.user == owner,
+            _ => false,
+        }
     }
 
     /// The principal of `client` for one frame, checked now: a remote
@@ -247,6 +307,7 @@ pub(super) fn intercept(
         | Command::ConversationHistory(_)
         | Command::ConversationOp(_)
         | Command::ConversationTyping(_) => return None,
+        Command::ListWorkspaces if mux.cloud_mobile_client(client) => return None,
         _ => Err(denied()),
     })
 }
@@ -269,15 +330,29 @@ pub(super) fn handle_frame(
     // capability is admitted by the remote frame gate and is sticky for the
     // lifetime of this authenticated peer connection.
     #[cfg(unix)]
-    if mux.control_clients.supports_capability(
-        client,
-        crate::server::agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY,
-    ) && message.contains("\"agent-session-")
-    {
+    let cloud_mobile = mux.cloud_mobile_client(client);
+    #[cfg(unix)]
+    if cloud_mobile {
+        let command = serde_json::from_str::<Value>(message)
+            .ok()
+            .and_then(|frame| frame.get("cmd").and_then(Value::as_str).map(str::to_owned));
+        let allowed = matches!(
+            command.as_deref(),
+            Some(
+                "agent-session-of"
+                    | "agent-session-attach"
+                    | "agent-session-events"
+                    | "agent-session-prompt"
+                    | "agent-session-cancel"
+                    | "agent-session-detach"
+            )
+        );
+        if allowed {
         if let Some(keep_open) = super::agent_session_attach::try_handle(mux, client, message, writer) {
             return keep_open;
         }
         return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
+        }
     }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
