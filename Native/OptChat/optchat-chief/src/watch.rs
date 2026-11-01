@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Duration;
@@ -60,6 +60,19 @@ pub struct Running {
     events: Sender<Event>,
     /// The running command's process group, 0 when none runs.
     group: Arc<AtomicI32>,
+    /// Its last output lines so far (the `watch` list shows them).
+    latest: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl Running {
+    /// The watch's last output lines so far, oldest first (at most
+    /// [`TAIL_LINES`]): what it printed most recently, across its reruns.
+    pub fn latest(&self) -> Vec<String> {
+        self.latest
+            .lock()
+            .map(|l| l.iter().cloned().collect())
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for Running {
@@ -90,13 +103,15 @@ pub fn start(
 ) -> Running {
     let (events, rx) = channel::<Event>();
     let group = Arc::new(AtomicI32::new(0));
+    let latest = Arc::new(Mutex::new(VecDeque::new()));
     let handle = Running {
         events: events.clone(),
         group: group.clone(),
+        latest: latest.clone(),
     };
     let watch = watch.clone();
     std::thread::spawn(move || {
-        if let Some(ending) = run(&watch, now_ms, &events, &rx, &group) {
+        if let Some(ending) = run(&watch, now_ms, &events, &rx, &group, &latest) {
             fired(ending);
         }
     });
@@ -110,6 +125,7 @@ fn run(
     events: &Sender<Event>,
     rx: &Receiver<Event>,
     group: &AtomicI32,
+    latest: &Mutex<VecDeque<String>>,
 ) -> Option<Fired> {
     let until = watch
         .until
@@ -167,6 +183,14 @@ fn run(
                         tail.pop_front();
                     }
                     tail.push_back(shown.clone());
+                    // The list's copy is kept across reruns: a polled command
+                    // shows what its last run printed.
+                    if let Ok(mut l) = latest.lock() {
+                        if l.len() == TAIL_LINES {
+                            l.pop_front();
+                        }
+                        l.push_back(shown.clone());
+                    }
                     if until.as_ref().is_some_and(|re| re.is_match(&line)) {
                         break Some(Ending::Matched(shown));
                     }
