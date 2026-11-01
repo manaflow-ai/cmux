@@ -158,11 +158,13 @@ jobs:
       - name: Cancel a nightly-next run stuck without a runner
         if: inputs.sha == ''
         continue-on-error: true
-        timeout-minutes: 5
+        # The rescue can read once, settle for FORCE_AFTER + 1 bounded waits,
+        # and read again before a force-cancel. Leave room for those API reads.
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
-        run: python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
+        run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on
