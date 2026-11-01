@@ -65,3 +65,17 @@ fn a_copy_root_under_an_existing_folder_is_made_and_used() {
     assert!(installed.path.starts_with(&root));
     assert_eq!(fs::read(&installed.path).unwrap(), b"not an executable");
 }
+
+/// A root inside the home folder is made below the home folder, which must
+/// exist; a removed home is never made again.
+#[test]
+fn a_root_in_a_removed_home_is_not_made_again() {
+    let scratch = Scratch::new("home");
+    let home = scratch.0.join("home");
+    let root = home.join("Library/Application Support/cmux-tui/host-exe");
+    assert!(create_root(&root, Some(&home)).is_err(), "made a root in a missing home");
+    assert!(!home.exists(), "made the removed home {} again", home.display());
+    fs::create_dir(&home).unwrap();
+    create_root(&root, Some(&home)).expect("make the root in an existing home");
+    assert!(root.is_dir());
+}
