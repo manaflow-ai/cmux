@@ -345,6 +345,40 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
+/// Every action the app's catalog marks `waitsForPerson = true` gets the
+/// person deadline here too: the CLI must not give up before the app does.
+#[test]
+fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
+    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
+    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let mut checked = 0;
+    for entry in entries.flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
+            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
+            let variable = line.trim().split('.').next().unwrap_or_default();
+            let declared = format!("var {variable} = ActionDescriptor(");
+            let Some(start) = text.find(&declared) else { continue };
+            let body = &text[start..];
+            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
+            for key in ["id: \"", "cliName: \""] {
+                if let Some(at) = body.find(key) {
+                    let name = &body[at + key.len()..];
+                    let name = &name[..name.find('"').unwrap_or(0)];
+                    assert_eq!(
+                        waiting_run_timeout(name),
+                        PERSON_RUN_TIMEOUT,
+                        "{name} waits for a person in the app"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+}
+
 /// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
 #[test]
 fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
