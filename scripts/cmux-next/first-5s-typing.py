@@ -654,6 +654,118 @@ def main_thread_tree(path, min_share=0.02, limit=260):
     return {"samples": total, "tree": out}
 
 
+# ---------------------------------------------------------------- perfx/keys-held A/B: daemon build per round
+def _ps_rows():
+    out = subprocess.run(["ps", "-axww", "-o", "pid=,lstart=,command="], capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        m = re.match(r"\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)", line)
+        if m:
+            rows.append((int(m.group(1)), m.group(2), m.group(3)))
+    return rows
+
+
+def _flag(command, name):
+    words = command.split()
+    return words[words.index(name) + 1] if name in words and words.index(name) + 1 < len(words) else None
+
+
+def _identify(sock):
+    """The daemon's `identify` reply (a dict with build_id, build_commit, pid), or {"error": ...}."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect(sock)
+            s.sendall(b'{"id":1,"cmd":"identify"}\n')
+            buf, deadline = b"", time.time() + 5
+            while time.time() < deadline:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                for line in buf.split(b"\n"):
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        continue
+                    found = []
+
+                    def walk(node):
+                        if isinstance(node, dict):
+                            if "build_id" in node or "build_commit" in node:
+                                found.append(node)
+                            for v in node.values():
+                                walk(v)
+                    walk(msg)
+                    if found:
+                        f = found[0]
+                        return {k: f.get(k) for k in ("build_id", "build_commit", "pid", "version", "session")}
+    except OSError as error:
+        return {"error": repr(error)[:200]}
+    return {"error": "no identify reply"}
+
+
+_BUNDLE_BUILD = {}
+
+
+def bundle_build(app_path):
+    """The bundle's own cmux-tui build identity (`cmux-tui --version --json`) and the app's commit (Info.plist)."""
+    if app_path in _BUNDLE_BUILD:
+        return _BUNDLE_BUILD[app_path]
+    info = {}
+    tui = os.path.join(app_path, "Contents/Resources/bin/cmux-tui")
+    try:
+        got = subprocess.run([tui, "--version", "--json"], capture_output=True, text=True, timeout=30)
+        data = json.loads(got.stdout)
+        info["build_identity"] = data.get("build_identity") or data.get("build_id")
+        info["build_commit"] = data.get("build_commit")
+    except Exception as error:  # noqa: BLE001  recorded, judged below
+        info["version_error"] = repr(error)[:200]
+    try:
+        import plistlib
+        with open(os.path.join(app_path, "Contents/Info.plist"), "rb") as f:
+            plist = plistlib.load(f)
+        info["app_plist"] = {k: v for k, v in plist.items() if "ommit" in k or "Build" in k or k == "CFBundleIdentifier"}
+    except Exception as error:  # noqa: BLE001
+        info["plist_error"] = repr(error)[:200]
+    _BUNDLE_BUILD[app_path] = info
+    return info
+
+
+def daemon_check(app):
+    """Every cmux-tui daemon of this app's session now: in this arm's bundle, and its identify build id equal to the
+    bundle's build. A round whose daemons are not the arm's build is "not run" (lead 03:20Z)."""
+    if getattr(app, "family", "") != "next":
+        return {"ok": False, "why": "not a cmux-next app"}
+    bundle_bin = os.path.join(app.app, "Contents/Resources/bin") + "/"
+    expect = bundle_build(app.app)
+    daemons = []
+    for pid, start, command in _ps_rows():
+        words = command.split()
+        if not words or os.path.basename(words[0]) != "cmux-tui" or "--headless" not in words:
+            continue
+        session = _flag(command, "--session") or ""
+        if not session.startswith("cmux-app-split"):
+            continue
+        sock = _flag(command, "--socket")
+        ident = _identify(sock) if sock else {"error": "no --socket"}
+        daemons.append({"pid": pid, "start": start, "exe": words[0], "session": session, "in_bundle": words[0].startswith(bundle_bin),
+                        "identify": ident})
+    why = None
+    if not daemons:
+        why = "no daemon of the session runs"
+    elif not all(d["in_bundle"] for d in daemons):
+        why = "a daemon of the session runs from another bundle: " + ", ".join(d["exe"] for d in daemons if not d["in_bundle"])
+    else:
+        want = expect.get("build_identity")
+        got = {d["identify"].get("build_id") for d in daemons}
+        if want and got != {want}:
+            why = f"daemon build {sorted(map(str, got))} is not the bundle's {want}"
+        elif not want and None in got:
+            why = "no build id from the daemon or the bundle"
+    return {"ok": why is None, "why": why, "daemons": daemons, "bundle": expect}
+
+
 def run_round(app, scenario, index, sampled):
     name, modifiers = (CLASSIC_OPEN_KEYS if app.family == "classic" else OPEN_KEYS)[scenario]
     nkeys = int(round(opts.seconds / opts.interval))
@@ -756,7 +868,16 @@ def run_round(app, scenario, index, sampled):
     # removed). Only for the terminal scenarios (a page field shows no surface text).
     text = "".join(getattr(app, "last_text", "").split("\n"))
     in_order = typed in text if scenario not in ("newtab", "browser") and text else None
-    rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
+    try:
+        daemon = daemon_check(app)
+    except Exception as error:  # noqa: BLE001  a check that fails makes the round "not run"
+        daemon = {"ok": False, "why": f"daemon check failed: {error!r}"[:300]}
+    note(f"KEYS-HELD-DAEMON {scenario} {index}: {'ok' if daemon.get('ok') else 'NOT RUN: ' + str(daemon.get('why'))}; "
+         + "; ".join(f"pid {d['pid']} start {d['start']} build {d['identify'].get('build_id')} commit {d['identify'].get('build_commit')}"
+                     for d in daemon.get("daemons") or []))
+    rec_extra_rows = len(rows) - (nkeys + 1)
+    rec = {"daemon": daemon, "extra_probe_rows": rec_extra_rows,
+           "scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
            "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok, "typed_in_order": in_order,
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
@@ -877,7 +998,7 @@ def measure(app_path, zdot, result, family, features=""):
     app = (NextApp if family == "next" else ClassicApp)(app_path, zdot, out)
     app.zdot = zdot
     label = os.path.basename(app_path) + (" +felt" if features else "")
-    entry = {"app": label, "family": family, "enable_features": features, "scenarios": {}}
+    entry = {"app": label, "path": app_path, "family": family, "enable_features": features, "scenarios": {}}
     result["apps"].append(entry)
     note(f"=== {entry['app']} ({family})")
     try:
@@ -907,6 +1028,7 @@ def measure(app_path, zdot, result, family, features=""):
                                             "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
                                             "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds),
                                             "split": split(rounds)}
+            entry["scenarios"][scenario]["keys_held_ab"] = keys_held_ab(entry["app"], scenario, rounds, entry)
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
             print_split(entry["app"], scenario, entry["scenarios"][scenario])
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
@@ -917,6 +1039,51 @@ def measure(app_path, zdot, result, family, features=""):
             app.photon.stop()
         app.stop()
         save(result)
+
+
+def _pct(vals, q):
+    s = sorted(vals)
+    if not s:
+        return None
+    k = (len(s) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(s) - 1)
+    return round(s[lo] + (s[hi] - s[lo]) * (k - lo), 1)
+
+
+def _dist(vals):
+    return {"n": len(vals), **{name: _pct(vals, q) for name, q in (("p50", .5), ("p95", .95), ("p99", .99))},
+            "max": round(max(vals), 1) if vals else None}
+
+
+def keys_held_ab(name, scenario, rounds, entry):
+    """Per arm and scenario, over the rounds whose daemons are the arm's build: keys whose dispatch started more than
+    50 ms after the key (the typing probe's dispatch_start_ms: a held key's replay opens its row), with the hold's
+    p50/p95/p99/max, per 500 ms bucket and in all."""
+    measured = [r for r in rounds if not r["sampled"]]
+    valid = [r for r in measured if (r.get("daemon") or {}).get("ok")]
+    not_run = [f"round {r['round']}: {(r.get('daemon') or {}).get('why')}" for r in measured if r not in valid]
+    plist = (bundle_build(entry["path"]) if entry.get("path") else {}).get("app_plist")
+    keys = [k for r in valid for k in r["keys"]]
+    holds = [k["dispatch_start_ms"] for k in keys if k.get("dispatch_start_ms") is not None]
+    missing = sum(1 for k in keys if k.get("dispatch_start_ms") is None)
+    over = [v for v in holds if v > 50]
+    extra = sum(abs(r.get("extra_probe_rows") or 0) for r in valid)
+    out = {"rounds": len(measured), "valid": len(valid), "not_run": not_run, "keys": len(holds), "missing": missing,
+           "over_50ms": len(over), "hold_over_50ms": _dist(over), "dispatch_all": _dist(holds), "extra_probe_rows": extra,
+           "app": plist, "buckets": []}
+    for lo, hi in ((0, 500), (500, 1000), (1000, 1500), (1500, 2000), (2000, 5001)):
+        b = [k["dispatch_start_ms"] for k in keys if k.get("dispatch_start_ms") is not None and lo <= k["t_ms"] < hi]
+        bo = [v for v in b if v > 50]
+        out["buckets"].append({"from_ms": lo, "to_ms": hi, "keys": len(b), "over_50ms": len(bo), "hold": _dist(bo)})
+    note(f"KEYS-HELD-AB {name} {scenario}: app {json.dumps(plist)}; rounds run {len(valid)} of {len(measured)}"
+         + (f" (not run: {'; '.join(not_run)})" if not_run else ""))
+    note(f"KEYS-HELD-AB {name} {scenario}: keys over 50 ms {len(over)} of {len(holds)} (no probe row: {missing}; "
+         f"probe rows off the one-row-per-key count: {extra}); hold of keys over 50 ms {json.dumps(out['hold_over_50ms'])}; "
+         f"every key's dispatch delay {json.dumps(out['dispatch_all'])}")
+    for b in out["buckets"]:
+        note(f"KEYS-HELD-AB {name} {scenario}:   {b['from_ms']:4d}-{b['to_ms']:<4d} ms: {b['over_50ms']} of {b['keys']} over 50 ms, "
+             f"hold {json.dumps(b['hold'])}")
+    return out
 
 
 def print_table(name, scenario, data):
