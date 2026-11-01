@@ -287,6 +287,95 @@ async fn a_file_for_a_peers_chat_lands_on_the_peer() {
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
 }
 
+/// A TCP relay in front of `port` that, while `up` is false, drops every connection it carries
+/// and refuses new ones (accepts and closes them), as an ssh tunnel to a loaded host does.
+async fn cuttable_relay(port: u16, up: tokio::sync::watch::Receiver<bool>) -> u16 {
+    async fn pipe(
+        mut from: tokio::net::tcp::OwnedReadHalf,
+        mut to: tokio::net::tcp::OwnedWriteHalf,
+        mut up: tokio::sync::watch::Receiver<bool>,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            // The read guard of `up` never lives across an await: the pipe ends once it reads false.
+            if !*up.borrow_and_update() {
+                return;
+            }
+            let n = tokio::select! {
+                read = from.read(&mut buf) => match read {
+                    Ok(n) if n > 0 => n,
+                    _ => return,
+                },
+                changed = up.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            if to.write_all(&buf[..n]).await.is_err() {
+                return;
+            }
+        }
+    }
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            if !*up.borrow() {
+                continue;
+            }
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (cr, cw) = client.into_split();
+            let (sr, sw) = server.into_split();
+            tokio::spawn(pipe(sr, cw, up.clone()));
+            tokio::spawn(pipe(cr, sw, up.clone()));
+        }
+    });
+    relay_port
+}
+
+/// Leo, 2026-11-01: a pasted video for a chat on a lane VM failed on its first try while the ssh
+/// link to that VM was reconnecting (`peer_unreachable ... SSH connection refused` in the app's
+/// daemon log), and only his Retry got it through: "i had to retry to get it to load???". A file
+/// sent while the peer's link is down waits for it to come back, and lands.
+#[tokio::test]
+async fn a_file_sent_while_the_peers_link_reconnects_waits_for_it_and_lands() {
+    let b = hub();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "reconnect").await;
+    let mut cb = client(&b, Origin::Local);
+    let remote = cb.new_session("far-reconnect").await;
+    let (up, link) = tokio::sync::watch::channel(true);
+    let relay = cuttable_relay(port, link).await;
+    let a = hub();
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
+    // The link drops and stays down for a moment.
+    up.send_replace(false);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while a.peers()[0]["connected"] == true {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the cut link must go down");
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        up.send_replace(true);
+        // Kept until the relay's pipes go: a dropped sender would end them.
+        up.closed().await;
+    });
+    let mut ca = client(&a, Origin::Local);
+    let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "clip.mp4", b"video bytes")).await;
+    assert_eq!(reply["result"]["peer"], "b", "it waited for the link instead of failing: {reply}");
+    assert_saved(&reply, &remote, "clip.mp4", b"video bytes");
+}
+
 /// A peer from before `_acpmux/file_put` (it lists no `filePut` feature): a WebSocket server that
 /// lists one session and counts the file puts it gets. Returns its port.
 async fn older_peer(puts: Arc<AtomicUsize>) -> u16 {

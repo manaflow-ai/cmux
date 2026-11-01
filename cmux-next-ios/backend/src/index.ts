@@ -6,8 +6,48 @@ import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notify
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
+import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+
+const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
+const CLOUD_ID = /^[A-Za-z0-9._:-]{1,128}$/
+const CLOUD_KINDS = new Set(["question", "permission", "done"])
+
+/** Private service-binding entrypoint used by cmux-platform; it has no public HTTP route. */
+export class CloudAttentionPush extends WorkerEntrypoint<Env> {
+  async sendAttention(event: {
+    recipient: string
+    kind: "question" | "permission" | "done"
+    event_id: string
+    team_id: string
+    machine_id: string
+    session_id: string
+    deep_link: string
+  }): Promise<{ accepted: boolean; correlation_id?: string }> {
+    if (!CLOUD_ID.test(event.recipient) || !CLOUD_ID.test(event.event_id) || !CLOUD_ID.test(event.team_id) || !CLOUD_ID.test(event.session_id) || !CLOUD_MACHINE.test(event.machine_id) || !CLOUD_KINDS.has(event.kind))
+      throw new Error("invalid cloud attention identity")
+    if (event.deep_link !== `cmux://cloud/chat/${encodeURIComponent(event.machine_id)}/${encodeURIComponent(event.session_id)}`)
+      throw new Error("invalid cloud attention deep link")
+    const owner = event.recipient
+    const config = apnsConfig(this.env)
+    if (!config) return { accepted: false }
+    const store = await openStore(this.env)
+    try {
+      const wanted = event.kind === "done" ? "completed" : event.kind
+      const targets = (await store.listOwnerPush(owner)).filter((target) => target.kinds.includes(wanted as PushKind))
+      if (targets.length === 0) return { accepted: true, correlation_id: `no-targets:${event.event_id}` }
+      const { sendCloudAttention } = await import("./push.ts")
+      const results = await sendCloudAttention(config, targets, event, Date.now())
+      const dropped = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
+      if (dropped.length) await store.dropPushTokens(dropped)
+      const sent = results.find((r) => r.outcome === "sent" && r.status === 200 && !!r.apns_id)
+      return { accepted: !!sent, ...(sent ? { correlation_id: `apns:${sent.apns_id}` } : {}) }
+    } finally {
+      await store.close().catch(() => {})
+    }
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/

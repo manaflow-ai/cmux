@@ -1268,9 +1268,9 @@
           "text" : "Agents"
         },
         "trail" : [
+          "computerUse",
           "harnesses",
           "agentHarnesses",
-          "computerUse",
           "agentIntegrations"
         ]
       },
@@ -79263,40 +79263,30 @@
     },
     {
       "accepts" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb",
-            "text" : "Orb"
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
           },
-          "value" : "orb"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-spark",
-            "text" : "Orb Spark"
-          },
-          "value" : "orb-spark"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-hood",
-            "text" : "Hooded Orb"
-          },
-          "value" : "orb-hood"
+          "value" : "fox"
         },
         {
           "title" : {
@@ -79335,17 +79325,59 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.chiefPetMascot.fox",
-            "text" : "Fox"
-          },
-          "value" : "fox"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.chiefPetMascot.mochi",
             "text" : "Mochi"
           },
           "value" : "mochi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox-arctic",
+            "text" : "Arctic Fox"
+          },
+          "value" : "fox-arctic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-violet",
+            "text" : "Violet Machine"
+          },
+          "value" : "machine-violet"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-gold",
+            "text" : "Gold Machine"
+          },
+          "value" : "machine-gold"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-rose",
+            "text" : "Rose Moon"
+          },
+          "value" : "moon-rose"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
         }
       ],
       "consumers" : [
@@ -88602,7 +88634,8 @@
     {
       "accepts" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -88620,6 +88653,13 @@
             "text" : "Strip"
           },
           "value" : "strip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatAttachmentBoth",
+            "text" : "Inline and Strip"
+          },
+          "value" : "both"
         }
       ],
       "consumers" : [
@@ -88645,6 +88685,7 @@
         "file",
         "inline",
         "strip",
+        "both",
         "composer",
         "messages"
       ],

@@ -49,6 +49,20 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// guest's startup scope and reconnect; run before resolving a surface or opening an attachment.
     public var prepareCloudTurns: (@Sendable () async throws -> Void)?
 
+    /// One-shot machine-daemon forwarding for page-host actions, including when the page's ACP
+    /// transport itself is local to this Mac.
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+        let result: Result<Data, any Error>
+        do {
+            result = .success(try await client.cloudRepository(method: method, params: params, timeout: timeout))
+        } catch {
+            result = .failure(error)
+        }
+        await client.close()
+        return try result.get()
+    }
+
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     public var approvals: AgentPaneRemoteApprovals?
@@ -112,7 +126,18 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let attachment = CloudTurnAttachment(endpoint: endpoint, ownerLink: ownerLink, turn: mode == .attach ? cloudTurn : nil)
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: attachment.endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudTurn: attachment.turn)
+                let cloudRepository: RemoteAcpmuxWire.CloudRepository = { method, params, timeout in
+                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+                    let result: Result<Data, any Error>
+                    do {
+                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
+                    } catch {
+                        result = .failure(error)
+                    }
+                    await requestClient.close()
+                    return try result.get()
+                }
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudTurn: attachment.turn, cloudRepository: cloudRepository)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -129,8 +154,19 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: attachment.endpoint)
-                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudTurn: attachment.turn)
+                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudTurn: attachment.turn,
+                cloudRepositoryStart: { surface, method, params, timeout in
+                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+                    let result: Result<Data, any Error>
+                    do {
+                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
+                    } catch {
+                        result = .failure(error)
+                    }
+                    await requestClient.close()
+                    return try result.get()
+                })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -143,6 +179,7 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         handshake.cloudMachineID = cloudMachineID
         handshake.cloudAccount = cloudAccount
         handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
+        handshake.cloudRepositoryAvailable = true
         if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
     }

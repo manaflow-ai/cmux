@@ -191,11 +191,13 @@ fn choose(matches: Vec<Repo>) -> Result<String, Failure> {
 }
 
 pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure> {
-    let session = args["session"].as_str().filter(|s| valid_name(s)).ok_or_else(|| {
-        Failure::new("seed.bad_request", "Open a Cloud chat and retry with its chat ID.")
-    })?;
-    let input = args["repo"]
-        .as_str()
+    let session =
+        args.get("session").and_then(Value::as_str).filter(|s| valid_name(s)).ok_or_else(|| {
+            Failure::new("seed.bad_request", "Open a Cloud chat and retry with its chat ID.")
+        })?;
+    let input = args
+        .get("repo")
+        .and_then(Value::as_str)
         .ok_or_else(|| Failure::new("seed.bad_request", "Choose a repository to add."))?;
     let reference = match args.get("ref") {
         None | Some(Value::Null) => None,
@@ -216,15 +218,13 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
     };
     let result = (|| {
         let repo = resolve(backend, input)?;
-        if let Some(existing) = backend
-            .attached(session)?
-            .into_iter()
-            .find(|r| r["repo"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(&repo)))
-        {
+        if let Some(existing) = backend.attached(session)?.into_iter().find(|r| {
+            r.get("repo").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(&repo))
+        }) {
             return Ok(existing);
         }
         let attached = backend.clone_repo(session, &repo, reference).map_err(|mut failure| {
-            if failure.0["code"] == "repo.no_access" {
+            if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access") {
                 failure.0.set("org", json!(repo.split('/').next().unwrap_or_default()));
             }
             failure
@@ -233,27 +233,31 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
         Ok(attached)
     })();
     result.map_err(|mut failure: Failure| {
-        if failure.0["code"] == "repo.needs_github" {
+        if failure.0.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
             let mut retry_args = json!({"session":session,"repo":input});
             if let Some(reference) = reference { retry_args.set("ref", json!(reference)); }
             failure.0.set("retry", json!({"action":"cloud.repo.add", "args":retry_args, "wait_action":"cloud.repo.wait_github"}));
         }
-        if failure.0["code"] == "repo.no_access" {
-            if let Ok(name) = normalize(input) {
-                if let Some((org, _)) = name.split_once('/') { failure.0.set("org", json!(org)); }
-            }
+        if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access")
+            && let Ok(name) = normalize(input)
+            && let Some((org, _)) = name.split_once('/')
+        {
+            failure.0.set("org", json!(org));
         }
         failure
     })
 }
 
 pub(crate) fn seed_failure(value: &Value) -> Failure {
-    let code = value["error_code"]
-        .as_str()
-        .or_else(|| value["code"].as_str())
+    let code = value
+        .get("error_code")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("code").and_then(Value::as_str))
         .unwrap_or("seed.clone_failed");
     if code == "seed.needs_github" || code == "repo.needs_github" {
-        return Failure::needs_github(value["install_url"].as_str().unwrap_or(""));
+        return Failure::needs_github(
+            value.get("install_url").and_then(Value::as_str).unwrap_or(""),
+        );
     }
     if code == "repo.no_access" || code == "seed.no_access" {
         let mut result = Failure::new(
