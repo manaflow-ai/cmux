@@ -174,6 +174,15 @@ async fn daemon(env: BTreeMap<String, String>) -> (Arc<Hub>, Client) {
     (hub, client)
 }
 
+/// A connection that is not the person (no `_acpmux/person_prove`): an agent's or a lane's
+/// `acpmux` client.
+fn agent_client(hub: &Arc<Hub>) -> Client {
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection(hub.clone(), in_rx, out_tx));
+    Client { tx: in_tx, rx: out_rx, next: 0 }
+}
+
 /// The stand-in's env: its class log in `dir`, plus `more`.
 fn logged(dir: &Path, more: &[(&str, &str)]) -> BTreeMap<String, String> {
     let mut env = BTreeMap::from([(
@@ -248,7 +257,10 @@ async fn cpu_class_a_start_that_misses_its_deadline_says_what_its_harness_was_do
     let gate = dir.join("gate");
     std::fs::write(&gate, b"").unwrap();
     let gate_env = ("FAKE_START_GATE", gate.to_str().unwrap());
-    let (hub, mut c) = daemon(logged(&dir, &[gate_env])).await;
+    let (hub, _person) = daemon(logged(&dir, &[gate_env])).await;
+    // An agent's connection: the person's start has no deadline (#28963, `hub/lifecycle.rs`
+    // `person_start`), an agent's or a lane's keeps it.
+    let mut c = agent_client(&hub);
     let id = c.new_session(&dir, "late").await.unwrap();
     // Stop the agent; the next prompt starts a fresh one that never reads.
     c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
