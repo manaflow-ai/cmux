@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real Bun/bwrap runner's deadline and lifecycle cleanup."""
 
+import ctypes
 import json
 import os
 import select
@@ -42,6 +43,24 @@ for (;;) {}
     "bun and bwrap are required",
 )
 class CodeModeCancellationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # A failed startup can lose the MCP parent before ready() records its
+        # descendants. Adopt those children in this dedicated test process so
+        # even the broken baseline cannot leak a sandbox out of teardown.
+        cls.libc = ctypes.CDLL(None, use_errno=True)
+        previous = ctypes.c_int()
+        if cls.libc.prctl(37, ctypes.byref(previous), 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "PR_GET_CHILD_SUBREAPER")
+        cls.previous_subreaper = previous.value
+        if cls.libc.prctl(36, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "PR_SET_CHILD_SUBREAPER")
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.libc.prctl(36, cls.previous_subreaper, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "restore child subreaper")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cmux-code-mode-test-")
         self.addCleanup(self.temp.cleanup)
@@ -89,14 +108,28 @@ class CodeModeCancellationTests(unittest.TestCase):
         if self.process is not None:
             if self.process.poll() is None:
                 self.record_descendants(self.process.pid)
-            # pidfds cannot accidentally signal a reused PID. These are only the
-            # test's recorded descendants, including bwrap's separate session.
+                self.process.kill()
+            self.process.wait(timeout=5)
+            # The MCP's own children now belong to this test process, even if
+            # it exited before the readiness handshake. No global process scan.
+            children = Path(f"/proc/{os.getpid()}/task/{os.getpid()}/children").read_text().split()
+            for child in children:
+                self.record_descendants(int(child))
+            # pidfds cannot accidentally signal a reused PID. These are only
+            # children this test started or adopted as their nearest subreaper.
             for fd in reversed(list(self.owned.values())):
                 try:
                     signal.pidfd_send_signal(fd, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            self.process.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            for fd in self.owned.values():
+                select.select([fd], [], [], max(0, deadline - time.monotonic()))
+            for pid in self.owned:
+                try:
+                    os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    pass
             for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
                 stream.close()
         for fd in self.owned.values():
