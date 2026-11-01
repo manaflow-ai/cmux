@@ -16,16 +16,20 @@ import { Icon } from "../icons";
 import { t } from "../strings";
 import { rowsByKey } from "../schema";
 import { RowStatus, SettingRow } from "./SettingRow";
-import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
-import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
-import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
+import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
 import mascotMachine from "../../../agent-session/acpmux/mascots/ChiefMascotMachine.png";
 import mascotMachineCyan from "../../../agent-session/acpmux/mascots/ChiefMascotMachineCyan.png";
 import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMachineBlue.png";
 import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
 import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
-import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
 import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.png";
+import mascotFoxArctic from "../../../agent-session/acpmux/mascots/ChiefMascotFoxArctic.png";
+import mascotMachineViolet from "../../../agent-session/acpmux/mascots/ChiefMascotMachineViolet.png";
+import mascotMachineGold from "../../../agent-session/acpmux/mascots/ChiefMascotMachineGold.png";
+import mascotMoonRose from "../../../agent-session/acpmux/mascots/ChiefMascotMoonRose.png";
+import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
+import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
+import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
 
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
@@ -42,21 +46,37 @@ export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
   ...CHIEF_BUBBLE_COLORS,
 ]);
 
-/** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
+/** The characters in the setting's order (`HomeChiefPetSetting.mascots`: Series 1 without the orbs,
+ * Mochi, Series 2, then the orbs), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
  * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
 export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
-  { id: "orb", art: mascotOrb },
-  { id: "orb-spark", art: mascotOrbSpark },
-  { id: "orb-hood", art: mascotOrbHood },
+  { id: "fox", art: mascotFox },
   { id: "machine", art: mascotMachine },
   { id: "machine-cyan", art: mascotMachineCyan },
   { id: "machine-blue", art: mascotMachineBlue },
   { id: "moon", art: mascotMoon },
   { id: "moon-blue", art: mascotMoonBlue },
-  { id: "fox", art: mascotFox },
   { id: "mochi", art: mascotMochi },
+  { id: "fox-arctic", art: mascotFoxArctic },
+  { id: "machine-violet", art: mascotMachineViolet },
+  { id: "machine-gold", art: mascotMachineGold },
+  { id: "moon-rose", art: mascotMoonRose },
+  { id: "orb", art: mascotOrb },
+  { id: "orb-spark", art: mascotOrbSpark },
+  { id: "orb-hood", art: mascotOrbHood },
 ];
+
+/** The default character, orb (`HomeChiefPetSetting.defaultMascot`): by id, not the list's first. */
+export const CHIEF_PET_DEFAULT_MASCOT = "orb";
+
+/** The character `id` names; an unset or unknown id is the default, wherever it sits in the list. */
+export function chiefPetMascot(id: unknown): { id: string; art: string } {
+  return (
+    CHIEF_PET_MASCOTS.find((entry) => entry.id === id) ??
+    CHIEF_PET_MASCOTS.find((entry) => entry.id === CHIEF_PET_DEFAULT_MASCOT)!
+  );
+}
 
 /** The rail under the pet, as the pet draws it: compose and the chevron. */
 function Rail() {
@@ -100,7 +120,7 @@ export function ChiefPetCard({
   const gridLocked = locked(character);
   const enabled = shown.value === true;
   const value = character.value;
-  const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
+  const mascot = chiefPetMascot(value);
   // A locked grid previews nothing: a disabled card may never get its mouseleave or blur.
   const live = gridLocked ? null : previewed;
   const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === live) ?? mascot;
