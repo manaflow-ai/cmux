@@ -42,8 +42,15 @@ import Testing
     /// The pane-type chooser (#27004) sits beside the plus, so it hides, shows and stays for its menu with
     /// it: a hover-only plus never leaves the chevron alone next to an empty slot.
     @Test func thePaneTypeChooserFadesWithThePlus() throws {
+        let previousPlusButton = DesignSettings.shared.plusButton
+        let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        // This checks the reveal's end states, not the fade's progress on the display clock.
+        DesignSettings.shared.animationSpeed = .off
         DesignSettings.shared.plusButton = .hover
-        defer { DesignSettings.shared.plusButton = .hover }
+        defer {
+            DesignSettings.shared.plusButton = previousPlusButton
+            DesignSettings.shared.animationSpeed = previousAnimationSpeed
+        }
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
         strip.showsNewTabMenuButton = true

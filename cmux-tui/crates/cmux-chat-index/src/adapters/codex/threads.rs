@@ -240,10 +240,11 @@ pub(super) fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
         keys.get(id) == Some(key) && children.contains(id) == spawned.contains(id)
     });
     let whole = rows.is_empty();
-    let unread: Vec<&String> = keys.keys().filter(|id| !rows.contains_key(*id)).collect();
+    let unread: Vec<(&String, &Key)> =
+        keys.iter().filter(|(id, _)| !rows.contains_key(*id)).collect();
     // Every unread row is filtered out unless the filtered read returns it.
-    for id in &unread {
-        rows.insert((*id).clone(), (keys[*id].clone(), None));
+    for (id, key) in &unread {
+        rows.insert((*id).clone(), ((*key).clone(), None));
     }
     let read_row = |row: &Row<'_>| entry(row, db, &root, &real_root);
     if whole {
@@ -256,6 +257,7 @@ pub(super) fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
             let marks = vec!["?"; ids.len()].join(", ");
             let sql = format!("{} WHERE id IN ({marks}) AND {}", query.sql, query.filters);
             let mut stmt = conn.prepare(&sql)?;
+            let ids = ids.iter().map(|(id, _)| *id);
             let read = stmt.query_map(rusqlite::params_from_iter(ids), &read_row)?;
             keep(&mut rows, &keys, read)?;
         }

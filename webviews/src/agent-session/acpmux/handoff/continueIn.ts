@@ -24,6 +24,6 @@ export function canContinueIn(snapshot: AcpmuxSnapshot): boolean {
     !snapshot.queue.length &&
     !snapshot.handoff?.busy &&
     !reviewingHandoff(snapshot) &&
-    continueTargets(snapshot.catalog, snapshot.summary?.harness).length > 0
+    continueTargets(snapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family).length > 0
   );
 }

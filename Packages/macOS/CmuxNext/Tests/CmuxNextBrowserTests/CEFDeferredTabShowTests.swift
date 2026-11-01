@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 /// `PageTracker` stands in for the fork's `CmuxParentViewTracker`: it reads the host view's geometry
 /// on each `CmuxParentViewGeometryDidChange` post and each frame change of the host view itself, as
 /// the tracker does while it follows a superview chain it no longer has (a same-window reparent).
-@MainActor @Suite(.serialized) struct CEFDeferredTabShowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDeferredTabShowTests {
     /// A link opens a tab in a pane whose Chromium window is live: it joins as the active tab in the
     /// one `tab_add` (no second activation), layer hosting shows its browser, and the page is placed.
     @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedOnceAndPlaced() throws {
@@ -211,7 +212,129 @@ import Testing
         #expect(tracker.reads.last?.screenRect.size == NSSize(width: 420, height: 600))
     }
 
+    /// cmux#26037: with `browserResize.dragResize` at `resizeSync`, a divider drag makes the shown page's window wait
+    /// for its frame at each new size from the drag's first move until its release landed, with no held page size (the
+    /// page lays out live). The end reaches the page window that heard the start.
+    @Test func aResizeSyncDragMakesThePageWindowWaitUntilTheReleaseLanded() throws {
+        Self.setDragResize(.resizeSync)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(first.container)
+
+        TabSpyShim.resizeSyncs = []
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(host.hostView.layerHosting.inPaneDrag)
+        #expect(first.container.heldPageSize == nil, "the page lays out live")
+        let wait = try #require(TabSpyShim.resizeSyncs.last)
+        #expect(wait.browser == 10)
+        // The 16 ms default, under half the shortest frame of this host's displays.
+        #expect(wait.timeoutMs > 0 && wait.timeoutMs <= 16)
+        first.container.paneResizeGestureDidChange(active: false)
+        #expect(!host.hostView.layerHosting.inPaneDrag)
+        #expect(first.container.syncedDragHostings.isEmpty)
+        #expect(TabSpyShim.resizeSyncs.map(\.browser) == [10, 10])
+        #expect(TabSpyShim.resizeSyncs.last?.timeoutMs == 0, "a page in its own window stops waiting when the drag lands")
+    }
+
+    /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
+    /// the drag's end, which the listener holds weakly; it hands its share back as it leaves.
+    @Test func aContainerLeavingItsWindowMidDragEndsItsWait() throws {
+        Self.setDragResize(.resizeSync)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(first.container)
+
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(host.hostView.layerHosting.inPaneDrag)
+        first.container.removeFromSuperview()
+        #expect(!host.hostView.layerHosting.inPaneDrag)
+        #expect(first.container.syncedDragHostings.isEmpty)
+    }
+
+    /// A docked DevTools joins the wait when it opens after the first drag move, or when its parked
+    /// tab becomes visible. Hiding it again releases only its wait, while the shared page stays synced.
+    @Test(arguments: [false, true])
+    func dockedDevToolsJoiningAResizeSyncDragWaitsUntilHidden(_ initiallyParked: Bool) throws {
+        Self.setDragResize(.resizeSync)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(first.container)
+        first.devToolsController.layout.dock = .bottom
+
+        func openDevTools() {
+            first.devToolsController.willOpen()
+            first.devToolsController.opened(browser: 20, docked: true)
+        }
+        if initiallyParked {
+            openDevTools()
+            first.container.isHidden = true
+        }
+        first.container.paneResizeGestureDidChange(active: true)
+        if initiallyParked {
+            first.container.isHidden = false
+        } else {
+            openDevTools()
+        }
+
+        let devTools = try #require(first.devToolsController.views?.host.layerHosting)
+        #expect(devTools.inPaneDrag)
+        #expect(TabSpyShim.resizeSyncs.contains { $0.browser == 20 && $0.timeoutMs > 0 })
+        first.container.layoutContent()
+        first.container.isHidden = true
+        #expect(!devTools.inPaneDrag, "hidden DevTools spends no frame wait")
+        #expect(host.hostView.layerHosting.inPaneDrag, "the shared page keeps this container's drag share")
+        first.container.paneResizeGestureDidChange(active: false)
+        #expect(!host.hostView.layerHosting.inPaneDrag)
+        #expect(!devTools.inPaneDrag, "repeated layouts did not acquire duplicate shares")
+    }
+
+    /// Every other mode leaves the page window's wait alone.
+    @Test func aDragInAnotherModeMakesNoPageWindowWait() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(first.container)
+        defer { Self.setDragResize(nil) }
+        TabSpyShim.resizeSyncs = []
+        for mode in [BrowserDragResize.live, .hold, .synced] {
+            Self.setDragResize(mode)
+            first.container.paneResizeGestureDidChange(active: true)
+            #expect(!host.hostView.layerHosting.inPaneDrag, "\(mode)")
+            first.container.paneResizeGestureDidChange(active: false)
+        }
+        #expect(TabSpyShim.resizeSyncs.isEmpty)
+    }
+
     // MARK: Fixtures
+
+    /// Sets Debug Settings `browserResize.dragResize` (nil: the default).
+    private static func setDragResize(_ mode: BrowserDragResize?) {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([BrowserResizeTunables.dragResize.descriptor])
+        TunableStore.shared.set(BrowserResizeTunables.dragResize.key, mode.map { .choice($0.rawValue) })
+        #expect(BrowserResizeTunables.dragResize.value == mode ?? .default)
+    }
 
     /// A runtime that outlives the test: a shown tab schedules work (its side panel refresh) that
     /// reads its runtime through an unowned reference after the test returned.
@@ -267,7 +390,8 @@ import Testing
 /// Stand-in shim functions: `cmux_shim_create_window` reports the browser started,
 /// `cmux_shim_tab_add` records the window's browser it joins and its activate flag and, as
 /// production's shim does, runs the new tab's OnAfterCreated before it returns `addedBrowser`;
-/// `cmux_shim_tab_activate` and `cmux_shim_close` record the browser, `cmux_shim_create_window` its calls; `cmux_shim_fork_api_version` reports layer hosting
+/// `cmux_shim_tab_activate` and `cmux_shim_close` record the browser, `cmux_shim_create_window` its calls,
+/// `cmux_shim_browser_set_resize_sync` the browser and deadline (and takes it); `cmux_shim_fork_api_version` reports layer hosting
 /// (API 27, so a host's `CEFLayerHosting` follows the shown browser); every other function does
 /// nothing and returns 0.
 private nonisolated enum TabSpyShim {
@@ -276,6 +400,7 @@ private nonisolated enum TabSpyShim {
     nonisolated(unsafe) static var activated: [Int32] = []
     nonisolated(unsafe) static var closed: [Int32] = []
     nonisolated(unsafe) static var createWindowCalls = 0
+    nonisolated(unsafe) static var resizeSyncs: [(browser: Int32, timeoutMs: Int32)] = []
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
     static func reset() {
@@ -283,6 +408,7 @@ private nonisolated enum TabSpyShim {
         activated = []
         closed = []
         createWindowCalls = 0
+        resizeSyncs = []
         runtime = nil
     }
 
@@ -303,6 +429,10 @@ private nonisolated enum TabSpyShim {
             return 1
         }
         let close: @convention(c) (Int32) -> Void = { browser in TabSpyShim.closed.append(browser) }
+        let resizeSync: @convention(c) (Int32, Int32) -> Int32 = { browser, timeout in
+            TabSpyShim.resizeSyncs.append((browser, timeout))
+            return 1
+        }
         let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
@@ -311,6 +441,7 @@ private nonisolated enum TabSpyShim {
             case "cmux_shim_tab_add": unsafeBitCast(tabAdd, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_activate": unsafeBitCast(tabActivate, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_close": unsafeBitCast(close, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_browser_set_resize_sync": unsafeBitCast(resizeSync, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }

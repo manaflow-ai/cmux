@@ -1,0 +1,18 @@
+import Foundation
+
+/// NativePopupAction on the native popup wire.
+public struct NativePopupAction: Codable, Equatable, Sendable {
+    public var `id`: String
+    public var `label`: String
+    public var `icon`: String?
+    public var `disabled`: Bool?
+    public var `keepOpen`: Bool?
+
+    public init(id: String, label: String, icon: String? = nil, disabled: Bool? = nil, keepOpen: Bool? = nil) {
+        self.id = id
+        self.label = label
+        self.icon = icon
+        self.disabled = disabled
+        self.keepOpen = keepOpen
+    }
+}

@@ -89,13 +89,15 @@ export function TranscriptActivityRowShell({
   headerRef?: Ref<HTMLDivElement>;
   onClick?: MouseEventHandler<HTMLDivElement>;
 }) {
-  /* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */
+  // `onClick` is only the pointer's wider target: the whole line toggles, edge to edge, all but its
+  // own controls (headerToggle.ts). A caller that passes it puts its own toggle <button> in the line
+  // (DisclosureRow, with aria-expanded): that button is the keyboard and screen reader control. So
+  // the line takes no focus and no key handler, and `presentation` says the line is not a control.
   return (
     <div
       className={`${className ?? ""}${className ? " " : ""}cv-agent-activity-row`}
       ref={headerRef}
       onClick={onClick}
-      onKeyDown={() => undefined}
       role="presentation"
       {...attributes}
     >

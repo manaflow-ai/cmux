@@ -214,13 +214,13 @@ extension UpdaterService {
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
-            installAbandoned?()
+            abandonInstall()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
             // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
-            installAbandoned?()
+            abandonInstall()
             presentUpdateUI?()
             #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("failure_sheet_presented")

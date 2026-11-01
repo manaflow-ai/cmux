@@ -8,6 +8,10 @@ extension Strings {
     static func archivedFold(_ count: Int) -> String {
         String(localized: "sidebar.archivedFold.title", defaultValue: "Archived (\(count))", bundle: .module)
     }
+    /// The bottom Archive section's row (`SidebarLayout+ArchiveSection`).
+    static func archiveSection(_ count: Int) -> String {
+        String(localized: "sidebar.archiveSection.title", defaultValue: "Archive (\(count))", bundle: .module)
+    }
     static func showMore(_ count: Int) -> String {
         String(localized: "sidebar.showMore.title", defaultValue: "Show \(count) more", bundle: .module)
     }

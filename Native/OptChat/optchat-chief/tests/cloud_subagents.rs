@@ -421,6 +421,7 @@ fn cloud_subagents_go_to_the_least_busy_peer_and_resume_its_vm() {
 fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(FakeVms::default());
     let sp = pool_spawner(&h, &vms);
@@ -470,6 +471,12 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
     );
 }
 
+/// Turns `cloud.autoPause` on (default off, no auto pause) for the tests of
+/// the host's own pausing.
+fn auto_pause_on(h: &mut Harness) {
+    h.brain.set_setting("cloud.autoPause", "true").unwrap();
+}
+
 /// Pause answers: the first `fail` pauses of a peer fail (the VM said busy).
 #[derive(Default)]
 struct BusyVms {
@@ -516,6 +523,7 @@ fn cloud_auto_pause_idle_seconds_is_60_by_default_and_a_setting() {
     use optchat_chief::chief_settings::ChiefSettings;
     assert_eq!(ChiefSettings::default().cloud_auto_pause_idle_secs, 60);
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     let file = h.dir.path().join("settings.json");
     assert_eq!(ChiefSettings::load(&file).cloud_auto_pause_idle_secs, 60);
     let set = h
@@ -559,6 +567,7 @@ fn cloud_auto_pause_idle_seconds_is_60_by_default_and_a_setting() {
 fn a_refused_pause_is_tried_again() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let busy = Arc::new(BusyVms::default());
     busy.fail.store(1, std::sync::atomic::Ordering::SeqCst);
@@ -643,6 +652,7 @@ fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
         ..Owner::default()
     }));
     let mut h = Harness::configured(hdir, default_script(), owner, settings, log);
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> =
         Arc::new(optchat_chief::cloud_vms::CommandVms::in_home(&home));
@@ -761,6 +771,7 @@ fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
 fn host_shutdown_pauses_idle_cloud_vms_at_once_but_not_busy_ones() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(FakeVms::default());
     let sp = pool_spawner(&h, &vms);
@@ -1212,6 +1223,10 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     let recorder = Arc::new(CwdRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     // The VM's folder, missing on this host whatever it runs on: on a Linux
     // test host /home/agent/work may exist and hide the bug (a624, Oct 24).
     let vm_dir = h.dir.path().join("only-on-the-vm");
@@ -1291,6 +1306,10 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     let recorder = Arc::new(NameRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(
             &h,
@@ -1411,6 +1430,7 @@ fn with_no_pool_tool_set_up_subagents_stay_here() {
 fn a_subagents_own_vm_pauses_at_its_final_report() {
     use optchat_chief::brain::Input;
     let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
     h.agents.hold(true);
     let vms = Arc::new(PerAgentVms::default());
     let sp = per_agent(&mut h, &vms);
@@ -1547,6 +1567,7 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     }));
     let vms = Arc::new(PerAgentVms::default());
     let sp = per_agent(&mut h, &vms);
+    auto_pause_on(&mut h);
     let fleet = Arc::new(FakeFleet::default());
     h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);
     let a = sp.clone();
@@ -1634,4 +1655,77 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     let sub = h.brain.state().sub("a1").unwrap().1.clone();
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
+}
+
+/// No auto pause by default (Leo, 2026-10-30: "we're saying no auto pausing
+/// of the freestyle vms for now"): with `cloud.autoPause` unset, a pool VM
+/// with no live subagent, a subagent's own VM at its final report and every
+/// idle VM at host shutdown all keep running. `cloud.autoPause true` opts in.
+#[test]
+fn no_cloud_vm_auto_pauses_by_default() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::chief_settings::ChiefSettings;
+    assert!(!ChiefSettings::default().cloud_auto_pause);
+
+    // A shared pool VM: no live subagent, no idle wait, several ticks.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms.clone()), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    // The host stops: nothing pauses either.
+    h.brain.step(Input::Shutdown { signal: 15 });
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        pauses(&vms.calls, "cloud1"),
+        0,
+        "{:?}",
+        vms.calls.lock().unwrap()
+    );
+
+    // A subagent's own VM at its final report.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let own = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &own);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !calls_of(&own).iter().any(|c| c.starts_with("pause")),
+        "{:?}",
+        calls_of(&own)
+    );
+
+    // Opting in pauses it at the next tick, and the setting is saved.
+    let set = h.brain.set_setting("cloud.autoPause", "true").unwrap();
+    assert!(set.contains("cloud.autoPause = true"), "{set}");
+    assert!(ChiefSettings::load(&h.dir.path().join("settings.json")).cloud_auto_pause);
+    assert!(h.brain.set_setting("cloud.autoPause", "soon").is_err());
+    h.brain.step(Input::CloudTick);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&own).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        calls_of(&own).contains(&"pause chief-sub-a1".to_owned()),
+        "{:?}",
+        calls_of(&own)
+    );
 }

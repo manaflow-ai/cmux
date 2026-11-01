@@ -39,6 +39,20 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 self.check_source("guard files.count <= 64 else { return failure() }", 1, relative)
             self.check_source("let MAX_NEW_ATTACHMENTS = 1", 1, relative)
 
+    def test_retained_bounds_name_only_symbols_their_file_still_declares(self):
+        # A cap that was removed loses its exemption, so it cannot come back unreviewed.
+        root = SCRIPT.parents[2]
+        for relative, symbols in guard.RETAINED_BOUNDS.items():
+            path = root / relative
+            with self.subTest(path=relative):
+                self.assertTrue(path.is_file(), relative)
+            if not path.is_file():
+                continue
+            names = {token[0] for token in guard.code_tokens(path.read_text(encoding="utf-8"))}
+            for name in symbols:
+                with self.subTest(path=relative, name=name):
+                    self.assertIn(name, names, f"{relative} no longer has {name}: drop its exemption")
+
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):
             with self.subTest(name=name):

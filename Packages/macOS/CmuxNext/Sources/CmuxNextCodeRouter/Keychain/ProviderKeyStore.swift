@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import Foundation
 import Security
 
@@ -24,8 +24,12 @@ public struct ProviderKeyStoreError: Error, Sendable, Equatable, CustomStringCon
 public struct KeychainProviderKeyStore: ProviderKeyStoring {
     public let service: String
 
-    public init(service: String) {
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
+
+    public init(service: String, loginKeychain: LoginKeychain) {
         self.service = service
+        self.loginKeychain = loginKeychain
     }
 
     public static func service(bundleID: String?) -> String {
@@ -44,7 +48,7 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecReturnAttributes as String] = true
         query[kSecUseAuthenticationContext as String] = NoPromptContext.make()
         var result: CFTypeRef?
-        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
+        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
         return Set(items.compactMap { ($0[kSecAttrAccount as String] as? String).flatMap(AIProvider.init(rawValue:)) })
     }
@@ -70,7 +74,7 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         // No UI: an item another signature of this bundle id made is refused, never prompted for.
-        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return String(data: data, encoding: .utf8)
