@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
@@ -406,8 +408,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />
@@ -488,5 +491,12 @@ export const PauseCircle = (p: CvIconProps) => (
 export const ArrowRight = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
+  </Svg>
+);
+
+/** Opens somewhere else: the cue on a chip that opens another chat (AgentTag.tsx). */
+export const ArrowUpRight = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M5.25 10.75 10.75 5.25M6.25 5.25h4.5v4.5" />
   </Svg>
 );

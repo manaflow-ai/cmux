@@ -21,6 +21,8 @@ import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
+import { experimentArm } from "../../experiments/experiment";
+import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.
@@ -37,6 +39,14 @@ document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 installMessageMenuReporter(document);
 // Images and file chips drag out as real files, through the host (conversation/dragOut.ts).
 installDragOut(document);
+// LIVE BACKGROUND (experiment live-background, off by default): a slow shader behind the pane.
+{
+  const arm = experimentArm(liveBackground);
+  if (arm !== "off")
+    void import("../../ui/liveBackground/liveBackground").then(({ installLiveBackground }) =>
+      installLiveBackground(document, arm),
+    );
+}
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change

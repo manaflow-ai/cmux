@@ -93,12 +93,12 @@ async fn a_list_larger_than_a_page_is_read_whole_each_row_once() {
     let seen = Seen::default();
     let got = read_all(&list, plan(PAGE_ROWS), usize::MAX, &seen).await.unwrap();
     assert_eq!(ids(&got.rows), ids(&list.borrow()));
-    assert_eq!(seen.requests.get(), 3);
+    assert_eq!(seen.requests.get(), 2);
     assert_eq!(got.next, Some(Value::Null));
 }
 
 /// A fleet host, 2026-10-30: 3,700 sessions of about 9 KB come to 33 MB, past the 31 MiB a
-/// reply may hold. Its pages hold a quarter of that each.
+/// reply may hold. Later pages use the measured available space.
 #[tokio::test]
 async fn a_busy_hosts_list_goes_in_pages_under_the_message_limit() {
     let list = RefCell::new(sessions(3_700, 9_000));
@@ -107,9 +107,9 @@ async fn a_busy_hosts_list_goes_in_pages_under_the_message_limit() {
     let seen = Seen::default();
     let got = read_all(&list, plan(PAGE_ROWS), crate::rpc::MAX_MESSAGE_BYTES, &seen).await.unwrap();
     assert_eq!(got.rows.len(), 3_700);
-    assert_eq!(seen.requests.get(), 4);
+    assert_eq!(seen.requests.get(), 3);
     let largest = seen.largest.get();
-    assert!(largest < crate::rpc::MAX_MESSAGE_BYTES / 3, "{largest}");
+    assert!(largest < crate::rpc::MAX_MESSAGE_BYTES, "{largest}");
 }
 
 #[tokio::test]
@@ -363,4 +363,58 @@ async fn many_peer_copies_are_read_past_one_after_another() {
         got.rows.iter().map(key).collect::<Vec<_>>(),
         rows.iter().map(key).collect::<Vec<_>>()
     );
+}
+
+/// The reported host mirrors about 8,000 rows. Full pages must enumerate every
+/// local/peer identity without eight separately paced snapshot requests.
+#[tokio::test]
+async fn an_eight_thousand_row_peer_census_uses_fuller_pages() {
+    let mut rows = sessions(8_000, 3_000);
+    for (n, row) in rows.iter_mut().enumerate().skip(445) {
+        row["peer"] = json!(format!("peer-{}", n % 20));
+    }
+    let list = RefCell::new(rows);
+    // Same fake daemon, rows and size cap; the baseline enforces the old fixed
+    // request size while still exercising the production cursor/dedup reader.
+    let baseline = Seen::default();
+    let mut fixed = counted(&list, crate::rpc::MAX_MESSAGE_BYTES, Some(&baseline));
+    let started = std::time::Instant::now();
+    let before = read(json!({}), None, plan(PAGE_ROWS), keep, |mut params| {
+        params["limit"] = json!(PAGE_ROWS);
+        fixed(params)
+    })
+    .await
+    .unwrap();
+    let before_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let seen = Seen::default();
+    let started = std::time::Instant::now();
+    let got = read_all(&list, plan(PAGE_ROWS), crate::rpc::MAX_MESSAGE_BYTES, &seen).await.unwrap();
+    let after_ms = started.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(before.rows, *list.borrow());
+    assert_eq!(got.rows, before.rows);
+    assert_eq!(baseline.requests.get(), 8);
+    // A first page of PAGE_ROWS, then pages learned to fill three quarters of the 31 MiB limit
+    // (`fuller_page`): the rest of the 8,000 rows in one more.
+    assert_eq!(seen.requests.get(), 2);
+    assert!(seen.largest.get() < crate::rpc::MAX_MESSAGE_BYTES);
+    eprintln!(
+        "8000-row census: fixed={} requests, {before_ms:.3} ms; adaptive={} requests, {after_ms:.3} ms; largest={} bytes",
+        baseline.requests.get(),
+        seen.requests.get(),
+        seen.largest.get()
+    );
+}
+
+#[tokio::test]
+async fn larger_later_rows_shrink_the_learned_page_without_repeated_growth() {
+    let mut rows = sessions(4_000, 10);
+    for row in rows.iter_mut().skip(1_000) {
+        row["title"] = json!("x".repeat(8_000));
+    }
+    let list = RefCell::new(rows);
+    let seen = Seen::default();
+    let got = read_all(&list, plan(PAGE_ROWS), crate::rpc::MAX_MESSAGE_BYTES, &seen).await.unwrap();
+    assert_eq!(got.rows, *list.borrow());
+    assert!(seen.requests.get() < 20, "{}", seen.requests.get());
+    assert!(seen.largest.get() < crate::rpc::MAX_MESSAGE_BYTES);
 }

@@ -146,6 +146,19 @@ extension TabContentCache {
         }
     }
 
+    /// A person's own Open Desktop made the remote view tab `key` for `url`: that tab, and only
+    /// that one, is theirs (#29208). A page already made for it (asking for Connect) is made
+    /// again, connected; one the tab left for another address is not touched.
+    func personOpenedRemoteView(_ key: String, url: URL, scope: ActionRunScope?) {
+        guard let services = pageRequests.services else { return }
+        let tab = tabModel(key)
+        // A tab that already left the record keeps no approval it could use if the record came back.
+        if let tab, tab.url != url.absoluteString { return }
+        services.remoteViewPages.confirm(key, url: url, scope: scope)
+        guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab else { return }
+        showAppPage(url, in: tab)
+    }
+
     /// Replaces a page with the history page.
     func showHistoryPage(in tab: TabModel) { showAppPage(HistoryPageAddress.url, in: tab) }
 

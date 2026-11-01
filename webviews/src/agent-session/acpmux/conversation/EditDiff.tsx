@@ -5,12 +5,12 @@
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useState, type ComponentType } from "react";
 import { editPatch, type TurnFile } from "../diff";
-import { copyText } from "./clipboard";
+import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { EditDiffLoading } from "./EditDiffLoading";
 
 /// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
@@ -25,10 +25,9 @@ function useFindInFile(file: TurnFile) {
   const reveal = useContext(FindReveal);
   const text = useMemo(
     () =>
-      file.edits
-        .flatMap((edit) => edit.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text)))
-        .join("\n")
-        .toLocaleLowerCase(),
+      foldFind(
+        file.edits.flatMap((edit) => edit.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text))).join("\n"),
+      ),
     [file],
   );
   const hit = Boolean(
@@ -96,8 +95,8 @@ export function EditDiffFrame({
           className="cv-codeblock__action cv-edit-diff__copy"
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
-            void copyText(patches.join("")).then(
-              () => setCopied(true),
+            void copyTextResult(patches.join("")).then(
+              (accepted) => setCopied(accepted),
               () => setCopied(false),
             )
           }

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1255,
+    "entries": 1266,
     "shortcuts": 189
   },
   "sections": [
@@ -110,6 +110,12 @@
           "title": "Conversation Info…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.hideConversation",
+          "title": "Delete Conversation from List",
+          "shortcut": null,
+          "command": "cmux home hide"
         },
         {
           "id": "home.disableChannels",
@@ -476,6 +482,12 @@
           "title": "Show cmux",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.showHiddenConversations",
+          "title": "Show Hidden Conversations",
+          "shortcut": null,
+          "command": "cmux home show-hidden"
         },
         {
           "id": "history.show",
@@ -2878,6 +2890,12 @@
           "command": "cmux tab move-to-previous-pane"
         },
         {
+          "id": "tab.moveToSpace",
+          "title": "Move Tab to Space…",
+          "shortcut": null,
+          "command": "cmux tab move-to-space"
+        },
+        {
           "id": "tab.moveToWorkspace",
           "title": "Move Tab to Workspace…",
           "shortcut": null,
@@ -4834,6 +4852,12 @@
           "command": null
         },
         {
+          "id": "toggleFileEditorMinimap",
+          "title": "Toggle Editor Minimap",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.browserToggleOmnibar",
           "title": "Toggle Omnibar",
           "shortcut": null,
@@ -4938,6 +4962,12 @@
         {
           "id": "sidebar.section.toggleCollapsed",
           "title": "Collapse/Expand Section",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.compactList.toggle",
+          "title": "Compact Workspace List",
           "shortcut": null,
           "command": null
         },
@@ -5476,6 +5506,12 @@
           "command": null
         },
         {
+          "id": "agent.jumpToNextNeedingInput",
+          "title": "Go to Next Agent Needing Input",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "notifications.importSound",
           "title": "Import Notification Sound…",
           "shortcut": null,
@@ -5734,6 +5770,12 @@
           "command": null
         },
         {
+          "id": "agentChat.copyAcpmuxSessionFile",
+          "title": "Copy acpmux Session File",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.copyIdentifier",
           "title": "Copy Agent Identifier",
           "shortcut": null,
@@ -5758,8 +5800,20 @@
           "command": null
         },
         {
+          "id": "agentChat.copyHarnessConfigFile",
+          "title": "Copy Harness Config File",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.copyHarnessSessionID",
           "title": "Copy Harness Session ID",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyHarnessSettingsFile",
+          "title": "Copy Harness Settings File",
           "shortcut": null,
           "command": null
         },
@@ -5772,6 +5826,18 @@
         {
           "id": "agentChat.copySessionDetails",
           "title": "Copy Session Details",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copySessionFilePaths",
+          "title": "Copy Session File Paths",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyTranscriptFile",
+          "title": "Copy Transcript File",
           "shortcut": null,
           "command": null
         },

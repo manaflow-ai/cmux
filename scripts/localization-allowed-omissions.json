@@ -1,4 +1,8 @@
 {
+  "argument.value.dev": {
+    "class": "brand",
+    "source": "DEV"
+  },
   "cloud.workspaceSetup.setupClaude": {
     "class": "brand",
     "source": "Claude"
@@ -7087,6 +7091,14 @@
     "source": "Name",
     "identityLocales": {
       "de": "Name is the German noun for name; the translated entry remains required."
+    }
+  },
+  "settings.choice.newChatsInCloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "fr": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "it": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required."
     }
   }
 }

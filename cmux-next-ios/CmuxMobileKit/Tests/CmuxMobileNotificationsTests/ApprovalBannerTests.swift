@@ -17,6 +17,8 @@ import UserNotifications
     /// The service extension's own code (`ServicePush.opened`) on a sealed permission push.
     @Test func aSealedPermissionOpensAsTheMacsPrompt() throws {
         let (keys, macKey, pushKey) = try SealedPushTests.setUp()
+        // Signed in as the paired account: the service extension opens its sealed pushes.
+        try PushActiveAccount(store: keys.store).update(userID: "u1")
         let payload = Self.permission([("Allow once", "allow_once"), ("Deny", "reject_once")])
         let delivered = UNMutableNotificationContent()
         delivered.userInfo = try SealedPushTests.sealedPush(macKey: macKey, pushKey: pushKey, payload: payload)

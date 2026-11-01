@@ -305,6 +305,38 @@ fn terminal_connections_leave_slots_for_the_app() {
     assert_eq!(connections.active(), 0);
 }
 
+/// One terminal opening connections in a loop (an agent's hooks, a script
+/// running `cmux` in a pane) cannot take the terminal lane from the others: a
+/// terminal's first connection gets in whenever the lane has room, a further
+/// one only while that terminal then holds no more than the lane has left free.
+#[test]
+fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let first: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert!(
+        first.len() < MAX_TERMINAL_CONNECTIONS / 2 + 1,
+        "terminal 101 took {} of the {MAX_TERMINAL_CONNECTIONS} terminal connections",
+        first.len()
+    );
+    let second = claim_terminal_connection_from(&connections, 102)
+        .expect("another terminal's first connection finds room");
+    let third =
+        claim_terminal_connection_from(&connections, 103).expect("and so does a third terminal's");
+    assert!(
+        claim_connection(&connections).is_some(),
+        "the app's slots are untouched by the terminal lane"
+    );
+    let taken = first.len();
+    drop((first, second, third));
+    assert_eq!(connections.active(), 0);
+    let again: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert_eq!(again.len(), taken, "a terminal's released connections count no more against it");
+}
+
 /// #27669: connection threads parked on the registry lock outlived their CLI
 /// clients and held every slot, so the app's reconnects were refused
 /// `server.busy`. A client that hung up gives its slot to the next one; a live
@@ -358,15 +390,15 @@ fn hung_up_terminal_clients_give_back_their_terminal_slots() {
         .map(|_| {
             let (daemon_side, client) = UnixStream::pair().unwrap();
             clients.push(client);
-            claim_watched_terminal_connection(&connections, &daemon_side)
+            claim_watched_terminal_connection(&connections, &daemon_side, None)
                 .expect("terminal slot below its share")
         })
         .collect();
     let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
-    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side).is_none());
+    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side, None).is_none());
 
     clients.pop();
-    let next = claim_watched_terminal_connection(&connections, &live_daemon_side)
+    let next = claim_watched_terminal_connection(&connections, &live_daemon_side, None)
         .expect("the terminal slot of a client that hung up serves the next one");
     let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
     assert_eq!(snapshot.hung_up, 1);
