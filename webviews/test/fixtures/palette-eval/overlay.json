@@ -720,7 +720,19 @@
     "entry": {
       "actionID": "agentChat.copySessionFilePaths",
       "title": "Copy Session File Paths",
-      "keywords": ["agent", "chat", "session", "files", "paths", "claude.json", "settings.json", "config.toml", "transcript", "jsonl", "copy"],
+      "keywords": [
+        "agent",
+        "chat",
+        "session",
+        "files",
+        "paths",
+        "claude.json",
+        "settings.json",
+        "config.toml",
+        "transcript",
+        "jsonl",
+        "copy"
+      ],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copySessionFilePaths",
       "hasShortcut": false,
@@ -760,7 +772,18 @@
     "entry": {
       "actionID": "agentChat.copyHarnessConfigFile",
       "title": "Copy Harness Config File",
-      "keywords": ["agent", "chat", "harness", "config", "claude.json", "config.toml", "claude", "codex", "json", "copy"],
+      "keywords": [
+        "agent",
+        "chat",
+        "harness",
+        "config",
+        "claude.json",
+        "config.toml",
+        "claude",
+        "codex",
+        "json",
+        "copy"
+      ],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyHarnessConfigFile",
       "hasShortcut": false,
