@@ -58,6 +58,12 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
           const measurements = await popup.evaluate((menu) => {
             const edge = menu.getBoundingClientRect();
             const state = Boolean(menu.querySelector(".ui-menu-check, .acpmux-project-check"));
+            // An icon column only when a row carries an icon (schemas/menu-metrics iconX).
+            const icon = Boolean(
+              menu.querySelector(
+                ":is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-access-item-icon, .acpmux-project-badge, .acpmux-project-lead, svg)",
+              ),
+            );
             const rows = [
               ...menu.querySelectorAll<HTMLElement>(
                 ".ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item",
@@ -86,7 +92,7 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
                 height: box.height,
                 stateX: checkBox && checkBox.width > 0 ? checkBox.left + checkBox.width / 2 - edge.left : null,
                 textX,
-                expectedTextX: state ? 42 : 35,
+                expectedTextX: state ? (icon ? 42 : 22) : icon ? 35 : 15,
               };
             });
           });

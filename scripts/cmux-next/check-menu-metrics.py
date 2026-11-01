@@ -112,7 +112,7 @@ def web_violations(text):
     found = []
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
         selector, body = match.group(1).strip(), match.group(2)
-        if selector not in migrated and not selector.startswith(".ui-popup:is("):
+        if selector not in migrated and not selector.startswith(".ui-popup:not(.acpmux-quick-menu):is("):
             continue
         for declaration in body.split(";"):
             prop, sep, value = declaration.partition(":")

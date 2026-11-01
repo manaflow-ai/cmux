@@ -309,8 +309,10 @@
 .acpmux-access-item-icon { color: var(--agent-muted); }
 .acpmux-access-item .acpmux-menu-text { min-width: 0; }
 /* A mode's number is a key equivalent, quieter than its title, centred in an icon-wide box that ends
-   on the trail line, so the allowed rules' x below centres on the same column. */
-.acpmux-access-menu .ui-menu-item.acpmux-access-item .ui-menu-shortcut { min-inline-size: var(--cmux-menu-icon-size); color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); text-align: center; }
+   on the trail line, so the allowed rules' x below centres on the same column. The title keeps the
+   shortcut gap before it as its own end padding, so the box holds the number alone. */
+.ui-popup.acpmux-access-menu .ui-menu-item.acpmux-access-item .ui-menu-shortcut { min-inline-size: var(--cmux-menu-icon-size); padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); text-align: center; }
+.acpmux-access-item:has(.ui-menu-shortcut) .acpmux-menu-text { padding-inline-end: calc(var(--cmux-menu-shortcut-gap) - var(--cmux-menu-icon-gap)); }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin: 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
@@ -358,7 +360,8 @@
   align-items: center;
   column-gap: 8px;
   min-height: var(--ui-row-height);
-  padding: 0 calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) 0 var(--ui-row-padding-inline);
+  padding-block: 0;
+  padding-inline: var(--ui-row-padding-inline) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
 }
 .acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-grant-remove {
