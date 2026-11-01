@@ -171,8 +171,8 @@ pub(super) async fn handle(
                 "needsCode": s.needs_code,
                 "expiresAtMs": s.expires_at_ms,
             });
-            if let Some(code) = s.user_code {
-                reply["userCode"] = json!(code);
+            if let (Some(code), Some(obj)) = (s.user_code, reply.as_object_mut()) {
+                obj.insert("userCode".into(), json!(code));
             }
             Ok(reply)
         }
