@@ -232,6 +232,12 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Last workspace close keeps its group (2026-11-01)
+
+Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
+
+A workspace close removes only the workspace. The daemon close path and remote-close forwarding use the reducer's existing `item.delete` operation; the immediate sidebar edit also preserves the group. Every ancestor keeps its identity, order and fold, so the existing row close animation leaves its header in place, including with the currently pinned app FFI. Explicit Close Group and move/reorder/unpin cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and daemon workspace-close tests. The empty-group presentation is a separate change.
+
 ## Group editor opens in one frame (2026-10-29)
 
 - Leo 2026-10-24: "why the fuck would you fade in opening up a fucking menu? Just open the menu... Every single fucking instance." The group editor opens at final opacity and size without entrance motion; its placement, contents, colors and closing fade/shrink stay unchanged. This intentionally takes back #26400's opening animation. Native motion coverage: `PopupGrowMotionTests`, `PagePopupMotionTests`. Real light/dark app captures remain pending the coordinator's Swift HOLD #26809.
@@ -906,6 +912,12 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
   to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
   other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
   measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
+
+## Empty groups keep just their header (2026-11-01)
+
+Leo: "what do you feel about this placeholder situation? idk doesn't that plceholder text seem a bit wack?"
+
+An empty group now keeps only its header at rest. The header's existing + appears on hover or keyboard focus, and New Workspace in Group remains available through accessibility and the group menu. A workspace dragged into the empty group highlights its header; no permanent "No workspaces · drag one here" row is projected by either full layout or fast fold. This replaces the placeholder and always-visible row + from 0105692a41d / user 17912; creation and drop capabilities remain. `SidebarEmptyGroupTests` and `SidebarEmptyGroupAddButtonTests` cover layout, folding, drop targeting and creation. `SidebarEmptyGroupGalleryTests` compares the old placeholder, the chosen header-only design, and a permanent header +, each at rest, hover and drop in light/dark at 2x. Chosen: header-only, because it keeps group names easy to scan and reveals the action when needed. Design spec: leo-workspace `design/sidebar.md`.
 ## Search-aligned trailing controls and the single-space slot (2026-11-01)
 
 - 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the

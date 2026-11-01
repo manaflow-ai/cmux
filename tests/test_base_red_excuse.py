@@ -1240,6 +1240,20 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: Python is required"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
+    def test_successful_ok_diagnostic_wrapper_is_not_an_error(self):
+        successful = "ok: cmux Computer Use.app validation (error: expected nested helper diagnostic)"
+        self.gh.logs[2] = log(self.KIT, self.STEP, successful)
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, set())
+        self.assertEqual(errors, set())
+
+    def test_error_outside_ok_wrapper_remains_evidence(self):
+        self.gh.logs[2] = log(self.KIT, self.STEP,
+                              "error: cmux Computer Use.app validation failed")
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, set())
+        self.assertEqual(errors, {"error: cmux Computer Use.app validation failed"})
+
 
 class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     """A compile check with no verdict (the build-fleet controller unreachable or timed out) compiled
