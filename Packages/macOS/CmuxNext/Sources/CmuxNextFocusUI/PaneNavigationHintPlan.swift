@@ -1,4 +1,4 @@
-import CmuxNextActions
+public import CmuxNextActions
 
 /// Which modifier-hold chip text each pane of the focused screen gets: its Focus Pane 1…9 key,
 /// then the key of every pane-navigation action (Focus Pane Left/Right/Above/Below, Previous/Next
@@ -8,32 +8,38 @@ import CmuxNextActions
 /// The keys come from `label`, which reads the window's resolved binding table (user rebinds,
 /// keybindings.json removals, Ghostty keybinds); an action with no key under the held modifiers
 /// gets no text. Pure: no AppKit, no registry.
-struct PaneNavigationHintPlan<Pane: Hashable> {
+public struct PaneNavigationHintPlan<Pane: Hashable> {
     /// Where a pane-navigation action moves focus from the focused pane.
-    enum Move: CaseIterable {
+    public enum Move: CaseIterable {
         case left, right, up, down, previous, next
     }
 
     /// The pane-navigation actions, in chip order after the pane's number.
-    static var actions: [(id: ActionID, move: Move)] {
+    public static var actions: [(id: ActionID, move: Move)] {
         [("focusLeft", .left), ("focusRight", .right), ("focusUp", .up), ("focusDown", .down),
          ("focusPreviousPane", .previous), ("focusNextPane", .next)]
     }
 
     /// Every action whose key keeps the hints up while the modifier stays held (focus moves, the chips follow).
-    static var keepsHintsUp: Set<ActionID> { Set(actions.map(\.id) + ["focusPaneByNumber"]) }
+    public static var keepsHintsUp: Set<ActionID> { Set(actions.map(\.id) + ["focusPaneByNumber"]) }
 
     /// The screen's panes in Focus Next Pane order.
-    var order: [Pane]
+    public var order: [Pane]
     /// The pane that has focus.
-    var focused: Pane
+    public var focused: Pane
     /// The pane each directional move reaches from `focused` (nil: no pane that way).
-    var neighbor: (Move) -> Pane?
+    public var neighbor: (Move) -> Pane?
+
+    public init(order: [Pane], focused: Pane, neighbor: @escaping (Move) -> Pane?) {
+        self.order = order
+        self.focused = focused
+        self.neighbor = neighbor
+    }
 
     /// Chip text per pane, in `order`; panes with no key under the held modifiers are left out.
     ///
     /// - Parameter label: The key text for an action (with its 1…9 digit for Focus Pane 1…9), or nil.
-    func chips(label: (ActionID, Int?) -> String?) -> [(pane: Pane, text: String)] {
+    public func chips(label: (ActionID, Int?) -> String?) -> [(pane: Pane, text: String)] {
         var texts: [Pane: [String]] = [:]
         for (index, pane) in order.enumerated() where index < 8 || index == order.count - 1 {
             // 9 is always the last pane, as Focus Pane 1…9 picks it.

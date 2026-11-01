@@ -328,7 +328,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
   })
 
-  it("keeps owned cleanup available after disabling development and stays inert elsewhere", async () => {
+  it("keeps owned cleanup available after disabling it, and answers in staging and production when on", async () => {
     const off = new PlatformMachines(createExecutionContext(), { ...(env as object), PLATFORM_MACHINES: undefined } as never)
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
@@ -340,11 +340,12 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await off.destroy(c, machine)).toEqual({ ok: true, value: { deleted: true } })
     const own = reply(await stub.submit(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, frame("cloud.machine.create", { size: SIZE })))
     expect(await off.destroy(c, own.value.machine.id)).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
+    // No environment gate: with the flag on, staging and production reach the team's CloudDO (its plan decides creates).
     for (const environment of ["staging", "production"]) {
-      const inert = new PlatformMachines(createExecutionContext(), { ...(env as object), ENVIRONMENT: environment, PLATFORM_MACHINES: "on" } as never)
-      expect(await inert.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off" })
-      expect(await inert.find(c, name)).toMatchObject({ ok: false, code: "platform.machines_off" })
-      expect(await inert.destroy(c, machine)).toMatchObject({ ok: false, code: "platform.machines_off" })
+      const on = new PlatformMachines(createExecutionContext(), { ...(env as object), ENVIRONMENT: environment, PLATFORM_MACHINES: "on" } as never)
+      expect(await on.find(c, nameOf())).toEqual({ ok: true, value: null })
+      expect(await on.providerInfo(c)).toMatchObject({ ok: true, value: { available: true } })
+      expect(await on.destroy(c, own.value.machine.id)).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
     }
   })
 
