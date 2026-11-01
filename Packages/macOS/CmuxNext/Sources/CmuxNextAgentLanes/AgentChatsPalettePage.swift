@@ -39,19 +39,18 @@ public struct AgentChatsPalettePage {
 
     /// The page, starting with `initialQuery` typed (the more row of Search opens it with Search's query).
     public func page(initialQuery: String = "") -> PalettePageSpec {
+        let counts = PastPageCounts()
         var spec = PalettePageSpec(id: "agentChats", title: AgentChatsPaletteStrings.title, placeholder: AgentChatsPaletteStrings.placeholder,
                                    symbol: "bubble.left.and.bubble.right", providers: [], initialQuery: initialQuery,
                                    onCancel: { [windows] in windows?.close(Self.window) },
-                                   queryResults: { [windows, history, open] query in
-                                       Self.answers(query, windows: windows, history: history, open: open)
+                                   queryResults: { [windows, history, open, counts] query in
+                                       Self.answers(query, windows: windows, history: history, counts: counts, open: open)
                                    },
                                    filtersByQuery: false)
-        // Search cuts the chats to its share: this row says how many more match and opens this page with the query.
-        spec.moreRow = { [self, windows] notShown, query in
-            let window = windows?.window(Self.window)
-            let answered = window?.rows.count ?? 0
-            let hidden = notShown + max(0, (window?.total ?? answered) - answered)
-            return Self.moreInSearch(hidden: hidden, page: self.page(initialQuery: query))
+        // Search cuts the chats to its share: this row says how many more match (the cut rows and those past the
+        // answer's page, as the answer counted them) and opens this page with the query.
+        spec.moreRow = { [self, counts] notShown, query in
+            Self.moreInSearch(hidden: notShown + counts.pastPage(query), page: self.page(initialQuery: query))
         }
         // acpmux connected, or its index came ready: the shown query is asked again.
         spec.onSourceChange = { [windows] changed in
@@ -78,7 +77,7 @@ public struct AgentChatsPalettePage {
     ///     ranks a chat chosen before as the palette did; nil: none.
     ///   - open: Opens a chat by key (the app's Open Chat path).
     static func answers(_ query: String, windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) async -> String?,
-                        open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
+                        counts: PastPageCounts? = nil, open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
         // The choice history is encoded off the main thread first; a query the palette moved past by
         // then (its stream ended) opens no window, so an older spec never replaces a newer one.
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,14 +85,14 @@ public struct AgentChatsPalettePage {
         let task = Task { @MainActor in
             let encoded = text.isEmpty || windows == nil ? nil : await history(query)
             guard !Task.isCancelled else { return continuation.finish() }
-            for await rows in answers(query, windows: windows, history: encoded, open: open) { continuation.yield(rows) }
+            for await rows in answers(query, windows: windows, history: encoded, counts: counts, open: open) { continuation.yield(rows) }
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
         return stream
     }
 
-    static func answers(_ query: String, windows: AcpmuxChatWindows?, history: String? = nil,
+    static func answers(_ query: String, windows: AcpmuxChatWindows?, history: String? = nil, counts: PastPageCounts? = nil,
                         open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         guard let windows else {
@@ -114,6 +113,8 @@ public struct AgentChatsPalettePage {
             if let total = windows.window(window).total, total > rows.count {
                 shown.append(text.isEmpty ? moreChatsNotice(more: total - rows.count) : moreNotice(shown: rows.count, total: total))
             }
+            // How many matching chats this answer leaves past its page, kept with the query (Search's more row).
+            counts?.record(query, pastPage: max(0, (windows.window(window).total ?? rows.count) - rows.count))
             continuation.yield(shown)
             continuation.finish()
         }
@@ -149,6 +150,16 @@ public struct AgentChatsPalettePage {
         let text = AgentChatsPaletteStrings.moreChats(more)
         return PaletteItem(id: "agentChats.more", title: text, symbol: "info.circle", isEnabled: false,
                            primary: PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}))
+    }
+
+    /// How many matching chats each query's answer left past its page, recorded when it answered: the more row
+    /// reads it after the window closed or moved on to another spec.
+    final class PastPageCounts {
+        private var byQuery: [String: Int] = [:]
+
+        func record(_ query: String, pastPage: Int) { byQuery[query] = pastPage }
+
+        func pastPage(_ query: String) -> Int { byQuery[query] ?? 0 }
     }
 
     /// Owns one query's follower (released with its stream).

@@ -305,4 +305,42 @@ struct ContributedAnswersTests {
         #expect(palette.model.selectedRowID != first, "End did not move: \(palette.model.selectedRowID ?? "nil")")
         #expect(palette.model.selectedRowID?.hasPrefix("history:") == true, "selected: \(palette.model.selectedRowID ?? "nil")")
     }
+
+    /// Review 5 F2: an answer that changes nothing on screen (an empty answer, no stand-ins) delivers nothing: no
+    /// list reload, no reducer pass.
+    @Test func anEmptyAnswerDeliversNothing() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("quokka"))
+        await palette.model.settle()
+        await Self.until { chats.streams["quokka"] != nil }
+        let version = palette.model.resultsVersion
+        await chats.refuse("quokka")
+        for _ in 0..<50 { await Task.yield() }
+        #expect(palette.model.resultsVersion == version, "an empty answer redelivered \(palette.model.resultsVersion - version) times")
+    }
+
+    /// Review 5 note 3: on a full page that shows an older query's chats, navigation's rows are the rows on screen
+    /// (the shown and selectable lists cut the ranked rows at the same row), so the selection is never off screen.
+    @Test func navigationRowsAreAllOnScreenWithStandIns() async {
+        let chats = Chats(), ran = Ran()
+        let many = (0..<450).map { Self.item("history:a\($0)", "a page \($0)", ran: ran) }
+        let (palette, registry) = Self.palette(chats: chats, ran: ran, extraHistory: many)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("a"))
+        await palette.model.settle()
+        await chats.answer("a", (0..<5).map { Self.item("chat:a\($0)", "a chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "chat:a0" } }
+        palette.model.send(.setQuery("a "))
+        await palette.model.settle()
+        #expect(palette.model.rows.contains { $0.id == "chat:a0" }, "the old chats stand in")
+        let shown = Set(palette.model.rows.map(\.id))
+        let offScreen = (palette.model.nav.top?.rows ?? []).map(\.id).filter { !shown.contains($0) }
+        #expect(offScreen.isEmpty, "navigation rows not on screen: \(offScreen.prefix(5))")
+    }
 }

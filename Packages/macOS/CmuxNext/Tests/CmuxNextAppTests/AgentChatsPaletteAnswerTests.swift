@@ -117,6 +117,41 @@ import Testing
         #expect(changes == 2, "the index that was not ready answered")
     }
 
+    /// Review 5 note 2: Search's more row counts the chats past acpmux's page from the answer itself, so it stays
+    /// right after the chats page's window closed (the person went back from the pushed Agent Chats page).
+    @Test(.timeLimit(.minutes(1))) func theMoreRowKeepsItsCountAfterTheWindowCloses() async throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let page = AgentChatsPalettePage(windows: windows, history: { _ in nil }, open: { _ in }).page()
+        let stream = try #require(page.queryResults)("idle")
+        for _ in 0..<500 where !sent.contains(where: { $0["query"] as? String == "idle" }) { await Task.yield() }
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        let keys = (0..<200).map { "codex:\($0)" }
+        let rows: [[String: Any]] = (0..<200).map { ["key": keys[$0], "sessionId": "\($0)", "harness": "codex", "title": "Idle \($0)", "updatedMs": 1_000] }
+        let message: [String: Any] = ["window": AgentChatsPalettePage.window, "gen": NSNumber(value: generation), "revision": 1,
+                                      "full": true, "keys": keys, "rows": rows, "hasMore": true, "total": 250]
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: message)))
+        for await _ in stream {}
+        page.onCancel?()
+        let more = try #require(page.moreRow)(5, "idle")
+        #expect(more.title.contains("55"), "5 cut plus 50 past the page: \(more.title)")
+    }
+
+    /// Review 5 note 4: ChatsFeed reads acpmux's `ready: false` answer as not ready (not a refusal), a `stale` answer
+    /// as neither, and keeps each window request's spec generation until its answer.
+    @Test func chatsFeedReadsNotReadyAndKeepsTheGeneration() throws {
+        let notReady = ChatsFeed.Message(line: Data(#"{"jsonrpc":"2.0","id":5,"result":{"window":"palette.chats","ready":false}}"#.utf8))
+        #expect(notReady == .answered(id: 5, failed: false, notReady: true))
+        let stale = ChatsFeed.Message(line: Data(#"{"jsonrpc":"2.0","id":6,"result":{"window":"palette.chats","gen":1,"stale":true,"ready":false}}"#.utf8))
+        #expect(stale == .answered(id: 6, failed: false, notReady: false))
+        let refused = ChatsFeed.Message(line: Data(#"{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"bad"}}"#.utf8))
+        #expect(refused == .answered(id: 7, failed: true, notReady: false))
+        let request = ChatsFeed.windowRequest(method: "_acpmux/chats_window", params: ["window": "palette.chats", "gen": UInt64(4)])
+        #expect(request?.window == "palette.chats" && request?.generation == 4, "\(String(describing: request))")
+        #expect(ChatsFeed.windowRequest(method: "_acpmux/chats_window_close", params: ["window": "palette.chats"]) == nil)
+    }
+
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
     /// more match than the page holds, the page says so in a last row that runs nothing.
     @Test func morePastThePageIsShownAsANoticeRow() async throws {

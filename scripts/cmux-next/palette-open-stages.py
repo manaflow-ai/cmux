@@ -24,8 +24,13 @@ first shows its final ranked rows) and key.palette_query_answer (to the frame th
 answer for it, with its row count), read with perf-signposts.py's `log stream` recording (a Release or bench build
 has them too); and the longest main-thread stall while the word is typed (`debug.hangs`). Each as p50/p95/p99/max.
 The key p95 <= 4 ms budget (`// perf-hot: 4ms palette-key`) is reported, never gated.
---seed-chats N gives the app's acpmux a store of N stored chats titled "Idle-cost chat <i>" (idle_cost_load: two
-template chats made by the bundle's acpmux on a peer daemon, then copies), so type a word they match ("idle cost").
+--seed-chats N writes N Claude Code transcripts where acpmux's chat index reads them: the app runs with a HOME of its
+own under /tmp, and the transcripts go in its `.claude/projects` (a default root of cmux-chat-index's roots table;
+acpmux's own session store is not indexed, and the daemon gets HOME but not CLAUDE_CONFIG_DIR). The account's own
+~/.claude is never read or written; the app's control socket stays in the account's state folder.
+Each chat's first prompt is "Idle cost chat <i>: tidy the build scripts", so type a word they match ("idle"). Before
+typing, the bench asks the app's acpmux for the word until its index answers with rows (window_total > 0), and
+refuses to measure otherwise.
 --stress builds the STRESS session (perf-stress-session.py) before typing. STRESS needs a 1600 x 1000 pt window, which a
 1920 x 1080 display under the menu bar and Dock cannot hold: --vdisplay HZ first makes a 1920 x 1200 virtual main
 display (scripts/ci/frame-pacing/vdisplay.m, as split-spring.sh --vdisplay) for the run.
@@ -183,6 +188,9 @@ def search_typing(word):
         rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
         keys.append(round((time.monotonic() - started) * 1000, 3))
         time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
+        # The chat rows on screen for this key (Search's Agent Chats section; at the base, ranked chat rows).
+        shown = (rpc("debug.palette.capture", {"path": os.path.join(SCRATCH, "key.png")}) or {}).get("rows") or []
+        CHAT_ROWS.append(sum(1 for row in shown if str(row).startswith("chat:")))
     time.sleep(0.4)  # test harness: the last key's answer lands
     hangs = rpc("debug.hangs") or {}
     closed = rpc("debug.key", {"key": "escape", "target": "palette"})
@@ -229,6 +237,10 @@ def search_report(word):
           f"{parsed['lost']} lost", flush=True)
     diagnosis = acpmux_diagnosis(word)
     print(f"  acpmux for {word!r}: {json.dumps(diagnosis)[:400]}", flush=True)
+    measured_chats = CHAT_ROWS[-len(keys):] if keys else []
+    with_chats = sum(1 for n in measured_chats if n > 0)
+    print(f"  chat rows on screen per key: {with_chats}/{len(measured_chats)} keys showed chats "
+          f"(mean {round(sum(measured_chats) / len(measured_chats), 1) if measured_chats else 0})", flush=True)
     if not keys:
         row("Search typed keys", "keys timed", "none", False)
         return {}
@@ -244,8 +256,13 @@ def search_report(word):
     row("Search typed keys", "key rpc p95 <= 4 ms (report only)",
         f"p95 {table['key_rpc'].get('p95')} ms, {len(keys)} keys", True)
     if opts.seed_chats:
-        row("Search chats answers", "acpmux answered typed queries", f"{len(answers)} answers", bool(answers))
-    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls, "acpmux": diagnosis}
+        # The base has no answer path (its chats are ranked rows): chats on screen is the check that holds for both.
+        row("Search chats shown", "chat rows on screen after typed keys", f"{with_chats}/{len(measured_chats)} keys",
+            with_chats > 0)
+    table["keys_with_chat_rows"] = with_chats
+    table["chat_rows_mean"] = round(sum(measured_chats) / len(measured_chats), 1) if measured_chats else 0
+    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls, "acpmux": diagnosis,
+            "chat_rows": measured_chats}
 
 
 def acpmux_diagnosis(word):
@@ -292,20 +309,40 @@ def acpmux_diagnosis(word):
 
 
 def seed_chats(count):
-    """An acpmux store of `count` stored chats for the app (idle_cost_load's seeding); its ACPMUX_HOME."""
-    import idle_cost_load as icl  # noqa: E402  (PeerDaemon, read_chat, seed_store)
-    root = os.path.join(SCRATCH, "chats")
-    os.makedirs(root, exist_ok=True)
-    peer = icl.PeerDaemon(APP, root, os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle_cost_agent.py"))
-    peer.start()
-    try:
-        answered, closed = peer.templates()
-    finally:
-        peer.stop()
-    home = os.path.join(root, "acpmux")
-    seeded = icl.seed_store(home, count, 0.6, answered, closed)
-    print(f"seeded chats: {json.dumps(seeded)}", flush=True)
+    """`count` Claude Code transcripts in a HOME of the bench's own (`<home>/.claude/projects`); that HOME.
+
+    Under /tmp, not the step's temp dir: a worker's temp dir may be on another volume, where no chat root is listed
+    (cmux-tui/crates/acpmux/tests/chats_window.rs). One second apart, a day ago, so acpmux's newest-first order is
+    known. Each is the one user record Claude Code writes first (cmux-chat-index's claude adapter reads its prompt)."""
+    home = tempfile.mkdtemp(prefix="palbench-home-", dir="/tmp")
+    projects = os.path.join(home, ".claude", "projects")
+    day_ago = time.time() - 86_400
+    for i in range(count):
+        session = f"00000000-0000-4000-8000-{i:012d}"
+        folder = os.path.join(projects, f"-work-p{i % 40}")
+        os.makedirs(folder, exist_ok=True)
+        record = {"type": "user", "isSidechain": False, "cwd": f"/work/p{i % 40}", "sessionId": session,
+                  "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(day_ago + i)),
+                  "message": {"role": "user", "content": f"Idle cost chat {i}: tidy the build scripts"}}
+        path = os.path.join(folder, f"{session}.jsonl")
+        with open(path, "w") as handle:
+            handle.write(json.dumps(record) + "\n")
+        os.utime(path, (day_ago + i, day_ago + i))
+    print(f"seeded chats: {count} Claude Code transcripts under {projects}", flush=True)
     return home
+
+
+def wait_for_index(word, seconds=180):
+    """Asks the app's acpmux for `word` until its index answers with rows; the last diagnosis."""
+    deadline = time.monotonic() + seconds
+    diagnosis = {}
+    while time.monotonic() < deadline:
+        diagnosis = acpmux_diagnosis(word)
+        if (diagnosis.get("window_total") or diagnosis.get("window_rows") or 0) > 0:
+            break
+        time.sleep(3)  # test harness: the index scans the seeded transcripts in the background
+    print(f"acpmux index for {word!r}: {json.dumps(diagnosis)[:400]}", flush=True)
+    return diagnosis
 
 
 def summarize(label, samples):
@@ -353,6 +390,7 @@ def cleanup():
 
 
 VDISPLAY = None
+CHAT_ROWS = []  # chat rows on screen after each typed key (search_typing)
 
 
 def start_vdisplay(hz):
@@ -396,7 +434,7 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     if opts.search_keys and opts.seed_chats:
-        env["ACPMUX_HOME"] = seed_chats(opts.seed_chats)
+        env["HOME"] = seed_chats(opts.seed_chats)
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
     launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
@@ -427,6 +465,10 @@ def main():
             spec.loader.exec_module(stress)
             summary = stress.Stress(rpc, log=lambda message: print(message, flush=True)).build()
             print("STRESS-SESSION", json.dumps(summary)[:600], flush=True)
+        if opts.seed_chats:
+            index = wait_for_index(opts.search_keys.split()[0])
+            if not ((index.get("window_total") or index.get("window_rows") or 0) > 0) and not str(index.get("error") or "").startswith("no acpmux"):
+                row("acpmux index", f"rows for {opts.search_keys!r} before typing", json.dumps(index)[:300], False)
         report = {"tag": TAG, "stress": opts.stress, "seed_chats": opts.seed_chats, "search_keys": search_report(opts.search_keys)}
         if opts.json:
             with open(opts.json, "w") as handle:

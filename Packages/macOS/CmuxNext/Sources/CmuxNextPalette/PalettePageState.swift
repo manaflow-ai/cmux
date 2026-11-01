@@ -33,8 +33,13 @@ final class PageState {
     var answerQueries: [String: String] = [:]
     /// The answers that lead the page (its main content, `PaletteContributedAnswers.leads`).
     var leadingAnswers = Set<String>()
-    /// The answers `answeredQuery` still waits for, within their bound (`PaletteContributedAnswers.holdLimit`).
+    /// The answers `answeredQuery` still waits for: each request ends with rows, with none, or when the query moves on.
     var awaitedAnswers = Set<String>()
+    /// What the answers looked like at the last delivery (`PaletteModel.answerFingerprint`): a redelivery that
+    /// would show the same is skipped.
+    var deliveredAnswerFingerprint: [String]?
+    /// A redelivery is scheduled for this main-thread turn (`PaletteModel.scheduleRedelivery`).
+    var redeliveryScheduled = false
     var answerTasks: [Task<Void, Never>] = []
     /// The page's source-change subscriptions (`PalettePageSpec.onSourceChange`), held while it is open.
     var sourceTokens: [AnyObject] = []
