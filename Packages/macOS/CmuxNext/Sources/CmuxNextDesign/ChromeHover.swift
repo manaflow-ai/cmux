@@ -20,12 +20,16 @@ public final class ChromeHover {
         public var focused: Bool
         /// The control is the current one (an active item); hover adds nothing.
         public var selected: Bool
+        /// The control opened something that is still open (a toggle that is on): it keeps the hover
+        /// fill wherever the pointer is, also in calm mode, which paints no pointer hover.
+        public var lit: Bool
 
-        public init(hovering: Bool = false, pressed: Bool = false, focused: Bool = false, selected: Bool = false) {
+        public init(hovering: Bool = false, pressed: Bool = false, focused: Bool = false, selected: Bool = false, lit: Bool = false) {
             self.hovering = hovering
             self.pressed = pressed
             self.focused = focused
             self.selected = selected
+            self.lit = lit
         }
     }
 
@@ -68,6 +72,7 @@ public final class ChromeHover {
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
         if state.selected { return Palette.selectionFill }
+        if state.lit { return rest == nil ? Palette.hoverFill : raisedHoverFill }
         // Calm mode (`ui.calm`): the pointer paints no hover fill.
         guard state.hovering, DesignSettings.shared.showsHoverFills else { return rest }
         return rest == nil ? Palette.hoverFill : raisedHoverFill

@@ -23,6 +23,18 @@
 //! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
+//! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
+//! killed every background shell and background subagent of a coordinator, hours of work; Leo:
+//! "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING"). Background work sends signs of work of
+//! its own after the turn stopped (a subagent's progress, its model's stream), so it reads as an
+//! agent working through the cancel, and the restart took it all down with the process. While a
+//! background process or background subagent runs ([`Hub::runs_background_work`]), the escalation
+//! sends the second cancel and then ends only acpmux's turn (`stop_escalated` step `spared`), as
+//! an agent that went quiet gets; the process and its background work run on and report when
+//! they end. Stopping them stays its own act: a process's kill (`_acpmux/process/kill`) or a
+//! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
+//! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
+//!
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
@@ -184,7 +196,26 @@ impl Hub {
             Self::force_cancel(&session, &current);
             return;
         };
+        // Its background work would end with the process: only the turn ends (module docs).
+        if self.runs_background_work(&session) {
+            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent works on after two cancels, beside background work: ending only its turn");
+            self.append(
+                &session,
+                "mux",
+                "stop_escalated",
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work"}),
+            );
+            Self::force_cancel(&session, &current);
+            return;
+        }
         self.restart_stopped_agent(&session, &child, &current).await;
+    }
+
+    /// A background process (`processes.rs`) or a background subagent (`subagents.rs`) of the
+    /// session still runs: work that outlives the turn and ends with the agent's process.
+    pub(super) fn runs_background_work(&self, session: &Session) -> bool {
+        self.any_process_running(session)
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
     }
 
     /// After a turn ends, with its turn lock still held: starts the agent a Stop ended

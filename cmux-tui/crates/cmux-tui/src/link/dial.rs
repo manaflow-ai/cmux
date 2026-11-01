@@ -56,7 +56,7 @@ where
     O: Overlay,
 {
     let Ok(request) = read_line(&mut caller, MAX_LINE_BYTES).await else { return };
-    let resolver = CloudResolver::new(super::cloud::RelaySource);
+    let resolver = CloudResolver::new(super::cloud::RelaySource::unavailable());
     serve_dial_line(caller, &request, overlay, pairings, &resolver, None).await;
 }
 

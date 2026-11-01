@@ -340,6 +340,16 @@ class PullRequestTiers(unittest.TestCase):
                 for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
                     self.assertEqual(result[tier], "false", tier)
 
+    def test_the_selector_lint_table_runs_no_mac_compile(self):
+        """#29032 changed only scripts/cmux-next/objc-selector-table.json, which the crash-class lint
+        reads on Linux, and waited on the fleet Release compile."""
+        for path in ("scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
+                     "scripts/cmux-next/check-objc-selectors.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
     def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
         swift = f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
         mixed, alone = tiers(["images/cmux-vm/inputs.lock.json", swift]), tiers([swift])
@@ -956,6 +966,15 @@ class WorkflowRoute(unittest.TestCase):
         base = self.base_without("    name: cmux-next checks (god files, concurrency, crash safety, l10n)",
                                  "    name: cmux-next checks (old)")
         self.assertEqual(self.route_with_base(base)["macos"], "false")
+
+    def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
+        """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it
+        runs none. Any other job output may still name a Mac."""
+        import cmux_next_route as route_module
+        portable = ("vars.CI_X && needs.portable-placement.outputs.mini_runner || "
+                    "needs.portable-placement.outputs.linux_runner || 'blacksmith-16vcpu-ubuntu-2404'")
+        self.assertTrue(route_module.linux_values(portable))
+        self.assertFalse(route_module.linux_values(portable.replace("portable-placement", "macos-placement")))
 
     def test_a_swift_change_beside_it_routes_as_without_it(self):
         swift = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"

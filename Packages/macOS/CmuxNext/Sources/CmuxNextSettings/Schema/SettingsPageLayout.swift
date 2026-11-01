@@ -227,7 +227,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
-                "sidebar.showSearchButton", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
+                "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
                 "home.channelsEnabled",
             ]),
             card("settings.pageGroup.workspaceCards", "Workspace Hover Cards", [
@@ -313,10 +313,13 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],
-        // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-        // removes the ones you added. Agent integrations (optional help, collapsed) installs the
-        // hooks that report an agent's state, through `cmux agent hook`.
-        trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations])
+        // Computer Use (#28997) comes first: its card draws the on/off switch, the guided setup
+        // and the helper's grants together, and the `settings.group.computerUse` rows (the page
+        // does not draw that group a second time). Harnesses lists every harness; Your Agents
+        // (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations
+        // (optional help, collapsed) installs the hooks that report an agent's state, through
+        // `cmux agent hook`.
+        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations])
 
     // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
     // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
@@ -401,7 +404,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
         // Phone access sits beside the account it signs in with and the machines list. The
         // Machines card draws Machine Colors on its rows (a color well per machine).
-        groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
+        groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors"),
+                 group("settings.group.cloudWorkspaces")],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines])
 
     // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

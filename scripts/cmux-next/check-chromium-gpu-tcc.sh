@@ -13,6 +13,8 @@
 set -euo pipefail
 app="${1:?usage: check-chromium-gpu-tcc.sh APP_PATH}"
 app="${app%/}"
+# ps prints the resolved path (/tmp is /private/tmp on macOS).
+[[ -d "$app" ]] && app="$(cd "$app" && pwd -P)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/gpu-tcc.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
