@@ -1184,8 +1184,8 @@ jobs:
   # nightly bundles only the macOS daemon, and nightly-next promotes only a
   # commit whose tree is published. publish-windows and publish-tree-windows
   # then add the Windows daemon to this commit's publication and to the tree
-  # (completion-windows.json), the same republication a cmux-tui-pin-* push
-  # makes for a tree published without Windows.
+  # (completion-windows.json); a later dispatch with include_windows does the
+  # same for a tree published without Windows.
   #
   # Only a workflow_dispatch with include_windows builds it. No Windows release
   # ships, and this leg spent two Blacksmith Windows jobs (about 24 min, p90 32)
