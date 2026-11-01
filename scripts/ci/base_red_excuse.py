@@ -226,6 +226,14 @@ NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for 
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
+# The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
+# the package.  A failed prerequisite (especially a cancelled-before-start runner job) leaves that value
+# empty, so this check has no result of its own.  It must be rerun together with its host job; comparing its
+# fail-closed diagnostic with the base would turn missing evidence into an apparent PR red.
+GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
+GENERATED_NO_VERDICT = re.compile(
+    r"^(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
+)
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -401,6 +409,15 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
+
+
+def generated_no_verdict(log: str) -> str | None:
+    """The shared generated-files check's fail-closed prerequisite diagnostic, if it printed one.
+
+    ``test_reds.lines_of`` removes the runner's echoed shell script, which also contains the ``echo
+    ::error::`` branch.  Only the live annotation is evidence that the prerequisite produced no verdict.
+    """
+    return next((text for text in test_reds.lines_of(log) if GENERATED_NO_VERDICT.match(text)), None)
 
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
@@ -671,6 +688,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
+                          "re-run its prerequisite and this dependent job together")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:
