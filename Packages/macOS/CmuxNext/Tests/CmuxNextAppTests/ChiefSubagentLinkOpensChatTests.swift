@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextDaemon
@@ -84,7 +85,11 @@ struct ChiefSubagentLinkOpensChatTests {
             tabs.localHost = AgentSessionRef.host(installID: "chief-link-test")
             tabs.holdsTabs = { _ in true }
             tabs.chiefHost = ChiefHome.tabHost(muxHome: homes.app)
-            tabs.chiefHomes = ChiefHomeDirectory(parents: [homes.base], work: BackgroundWork(), environment: { _ in nil })
+            // The host the app wires (AgentTabs+Wiring): an acpmux host on the app's own daemons.
+            tabs.chiefHomes = ChiefHomeDirectory(parents: [homes.base], work: BackgroundWork(), environment: { _ in nil }) {
+                [daemons = services.acpmuxDaemons, peerApprover = tabs.peerApprover] in
+                AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
+            }
             try #require(tabs.canHostChat, "this build has no agent page")
             let refusals = Refusals()
             let shown = services.registry.refusalObserver
