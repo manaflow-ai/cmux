@@ -4790,6 +4790,8 @@ export class AcpmuxDirectClient {
     this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
+    // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
+    this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
       const ended = this.rows.openBackground(turn.id, event.seq);
