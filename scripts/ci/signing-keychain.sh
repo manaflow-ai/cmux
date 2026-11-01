@@ -88,35 +88,6 @@ search_list_file() {
   printf '%s/search-list\n' "$state_dir"
 }
 
-default_keychain_file() {
-  printf '%s/default-keychain\n' "$state_dir"
-}
-
-save_default_keychain() {
-  local file
-  file="$(default_keychain_file)"
-  [ -e "$file" ] && return 0
-  if "$SECURITY_TOOL" default-keychain -d user \
-      | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file.tmp" \
-      && [ -s "$file.tmp" ]; then
-    mv -f "$file.tmp" "$file"
-  else
-    rm -f "$file.tmp"
-    : > "$file.failed"
-  fi
-}
-
-restore_default_keychain() {
-  local file entry
-  file="$(default_keychain_file)"
-  [ -n "$state_dir" ] || return 0
-  if [ -s "$file" ]; then
-    IFS= read -r entry < "$file" || true
-    [ -n "$entry" ] && [ -e "$entry" ] && "$SECURITY_TOOL" default-keychain -d user -s "$entry" || true
-  fi
-  rm -f "$file" "$file.tmp" "$file.failed"
-}
-
 save_search_list() {
   # The user search list before create replaces it: written whole (a temporary file moved into place) and only
   # after list-keychains succeeded. When the capture fails, a marker says so and delete falls back to the login
@@ -182,7 +153,6 @@ create_keychain() {
   # silently produced "Unknown format in import" on owned Macs).
   password="$(uuidgen)"
   save_search_list
-  save_default_keychain
   "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || true
   "$SECURITY_TOOL" create-keychain -p "$password" "$name"
   # Written before the import, so a failed import is still found and deleted.
@@ -197,9 +167,6 @@ create_keychain() {
     "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
   fi
   "$SECURITY_TOOL" list-keychains -d user -s "$name"
-  # notarytool store-credentials writes its profile to the default keychain;
-  # make this job's temporary keychain the default and restore it on delete.
-  "$SECURITY_TOOL" default-keychain -d user -s "$name"
   refresh_trust_agent
   if [ "$empty" -eq 1 ]; then
     echo "Empty signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
@@ -280,7 +247,6 @@ delete_keychains() {
   done
   if [ -n "$state_dir" ]; then
     rm -rf "$state_dir"/certificate.* 2>/dev/null || true
-    restore_default_keychain
     restore_search_list
   fi
   if [ "${#names[@]}" -gt 0 ]; then
