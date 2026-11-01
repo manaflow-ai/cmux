@@ -142,8 +142,9 @@ final class CloudMoveAsks {
     private func answer(_ answer: Answer, tab: String, services: AppServices) {
         guard let ask = asks[tab] else { return }
         // An old card cannot grant or start a move after a Cloud account/team change.
-        // Launch offers are a separate Retry flow with a pinned machine.
-        if !offered.contains(tab), ask.scope != Self.scope(services), answer != .notNow, answer != .dismiss {
+        // Launch offers are a separate Retry flow with a pinned machine. Declining and
+        // "Ask first next time" (which revokes the original scope's grant) only take authority away.
+        if !offered.contains(tab), ask.scope != Self.scope(services), ![.notNow, .dismiss, .askFirst].contains(answer) {
             show(tab, .failed, CloudMoveAskStrings.noMove, [.dismiss], services: services)
             return
         }

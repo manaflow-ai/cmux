@@ -21,7 +21,8 @@ struct CloudMoveAlwaysGrants {
         }
     }
 
-    private struct Grant: Codable, Hashable {
+    /// One stored grant. Internal for ``DebugCloudMove``'s read and seed only.
+    struct Grant: Codable, Hashable {
         let userID: String
         let teamID: String
         let cloudOrigin: String
@@ -52,17 +53,27 @@ struct CloudMoveAlwaysGrants {
             memory = entries
             return
         }
-        let sorted = entries.sorted { ($0.userID, $0.teamID, $0.cloudOrigin, $0.folder) <
+        Self.store(Array(entries), in: defaults)
+    }
+
+    /// Every grant kept in `defaults`; a missing or damaged preference reads as none.
+    static func stored(in defaults: UserDefaults) -> [Grant] {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let entries = try? JSONDecoder().decode([Grant].self, from: data) else { return [] }
+        return entries
+    }
+
+    /// Replaces the grants kept in `defaults`, in a stable order.
+    static func store(_ entries: [Grant], in defaults: UserDefaults) {
+        let sorted = Set(entries).sorted { ($0.userID, $0.teamID, $0.cloudOrigin, $0.folder) <
             ($1.userID, $1.teamID, $1.cloudOrigin, $1.folder) }
         if let data = try? JSONEncoder().encode(sorted) {
-            defaults.set(data, forKey: Self.defaultsKey)
+            defaults.set(data, forKey: defaultsKey)
         }
     }
 
     private func grants(in defaults: UserDefaults?) -> Set<Grant> {
         guard let defaults else { return memory }
-        guard let data = defaults.data(forKey: Self.defaultsKey),
-              let entries = try? JSONDecoder().decode([Grant].self, from: data) else { return [] }
-        return Set(entries)
+        return Set(Self.stored(in: defaults))
     }
 }
