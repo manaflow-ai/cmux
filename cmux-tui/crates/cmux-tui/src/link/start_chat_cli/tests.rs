@@ -462,7 +462,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let mut copy = copy_of(&folder, "web");
     assert_eq!(copy.local_chat(), app.to_string_lossy());
     assert!(!copy.source_trusted(), "no acpmux home: never trusted");
-    copy.acpmux_home = Some(home.clone());
+    copy.acpmux_home = Some(home);
     let ledger = ledger_in(dir.path());
     let answer = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
     assert_eq!(answer["source_trusted"], json!(false), "{answer}");
@@ -470,7 +470,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     std::fs::write(&record, json!({ (chat): "trusted" }).to_string()).unwrap();
     let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
     assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
-    let failed = StartCopy { key: key(), ..copy.clone() }
+    let failed = StartCopy { key: key(), ..copy }
         .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
 }
