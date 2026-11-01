@@ -3,7 +3,7 @@
 
 use cmux_vm::exit;
 use serde_json::{Value, json};
-use wiremock::matchers::{body_json, header, method, path, query_param};
+use wiremock::matchers::{body_json, body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -2522,4 +2522,247 @@ async fn client_session_revoke_at_a_terminal_needs_the_typed_session_id() {
     let revoked = cli_with_prompt(&args, &env, &mut typed).await;
     assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
     assert_eq!(typed.asked, 1);
+}
+
+#[tokio::test]
+async fn run_exits_with_the_command_status_when_cleanup_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": VM_ID, "state": "running" })),
+        )
+        .mount(&server)
+        .await;
+    // Every exec answers "3" with no output: the work directory, the launch,
+    // then a poll that reads exit status 3 and nothing more.
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "3\n\n\n", "stderr": "" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["run", "--", "exit", "3"]).await;
+    assert_eq!(out.code, 3, "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains(&format!("vm {VM_ID} was not cleaned up")),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains("delete"), "{}", out.stderr);
+}
+
+#[tokio::test]
+async fn run_fails_fast_and_deletes_a_vm_whose_answer_has_no_state() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // A successful answer without a state: never treated as "starting",
+    // which would keep a billable VM polling for the whole boot deadline.
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        cli(&server, &["run", "--", "true"]),
+    )
+    .await
+    .expect("run kept polling a VM whose answer has no state");
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains("state"), "{}", out.stderr);
+}
+
+/// The guest command that removes the run's archives on every exit path.
+const REMOVE_ARCHIVES: &str = "rm -f /tmp/cmux-run.tgz /tmp/cmux-pull.tgz /tmp/cmux-pull.tgz.rc";
+
+/// A server for a kept run: the VM is created, runs, and is paused once.
+/// Every exec not matched by a test's own mocks answers exit status 0 with
+/// no output: a work directory of "0", then a poll that reads status 0.
+async fn kept_run_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": VM_ID, "state": "running" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/pause")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("paused")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "0\n\n\n", "stderr": "" })),
+        )
+        .with_priority(10)
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Answers the guest commands that contain `needle` with `exit_code`.
+async fn exec_answers(server: &MockServer, needle: &str, exit_code: i32, times: u64) {
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(body_string_contains(needle))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "exitCode": exit_code,
+            "stdout": "",
+            "stderr": if exit_code == 0 { "" } else { "refused by the test" },
+        })))
+        .with_priority(1)
+        .expect(times)
+        .mount(server)
+        .await;
+}
+
+fn sync_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("cmux-vm-run-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.rs"), "fn main() {}").unwrap();
+    dir
+}
+
+#[tokio::test]
+async fn a_kept_run_removes_a_partly_uploaded_sync_archive() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "cat > /tmp/cmux-run.tgz", 1, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 0, 1).await;
+    let dir = sync_dir("upload-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--sync",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!("vm {VM_ID} paused")),
+        "{}",
+        out.stderr
+    );
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_kept_run_removes_a_sync_archive_that_failed_to_unpack() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "cat > /tmp/cmux-run.tgz", 0, 1).await;
+    exec_answers(&server, "tar -xzf /tmp/cmux-run.tgz", 2, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 0, 1).await;
+    let dir = sync_dir("unpack-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--sync",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(!out.stderr.contains("could not remove"), "{}", out.stderr);
+    server.verify().await;
+    // The unpack itself removes the archive once tar ends, failure included.
+    let requests = server.received_requests().await.unwrap();
+    let unpack = requests
+        .iter()
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .find(|body| body.contains("tar -xzf /tmp/cmux-run.tgz"))
+        .unwrap();
+    assert!(
+        unpack.contains("r=$?; rm -f /tmp/cmux-run.tgz; [ $r -eq 0 ]"),
+        "{unpack}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_kept_run_reports_pull_archives_it_could_not_remove() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "tar -czf", 1, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 1, 1).await;
+    let dir = sync_dir("pull-cleanup-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--pull",
+            "dist",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("could not remove the run's archives from the kept VM"),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains(REMOVE_ARCHIVES), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!("vm {VM_ID} paused")),
+        "{}",
+        out.stderr
+    );
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

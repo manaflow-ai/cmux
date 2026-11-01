@@ -82,6 +82,7 @@ async function render(
   draft?: string,
   plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
   onPlusCommand?: (id: string) => void,
+  extra: Record<string, unknown> = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -106,6 +107,7 @@ async function render(
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: APP, label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -215,6 +217,20 @@ test("a chat with turns gets no suggestion", async () => {
       summary: { sessionId: "chat", cwd: APP, turnCount: 1 } as never,
       rows: [user("Hi", 1)],
     }),
+  );
+  expect(shown()).toBe(IDLE);
+});
+
+// The suggestion is a new chat's, as the location strip is (locationRow.ts): an existing chat that
+// opens, or whose summary arrived before its rows, never offers one (Leo 2026-10-30, on an existing
+// tab's composer showing a new chat's controls).
+test("an existing chat opening or loading its rows gets no suggestion", async () => {
+  // The host has not said which chat this is yet.
+  await render(fresh([prChat()]), undefined, undefined, undefined, undefined, undefined, { chatKnown: false });
+  expect(shown()).toBe(IDLE);
+  // Its summary (four turns) arrived, its history rows not yet.
+  await render(
+    noChat([prChat()], { sessionId: "chat", summary: { sessionId: "chat", cwd: APP, turnCount: 4 } as never }),
   );
   expect(shown()).toBe(IDLE);
 });

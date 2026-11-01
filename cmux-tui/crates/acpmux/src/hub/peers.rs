@@ -235,12 +235,12 @@ impl Hub {
         if stopped {
             tracing::warn!(peer = %name, "it stopped before its connect attempt settled");
         } else if !done {
-            tracing::warn!(peer = %name, state = %peer["state"], "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
+            tracing::warn!(peer = %name, state = %peer.get("state").unwrap_or(&serde_json::Value::Null), "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
         }
         let waited = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let mut wait = json!({"settled": done, "waitedMs": waited, "peer": peer});
         if stopped {
-            wait["stopped"] = Value::Bool(true);
+            wait.set("stopped", Value::Bool(true));
         }
         wait
     }
@@ -519,7 +519,10 @@ impl Hub {
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        let old_lane = summary
+            .get("lane")
+            .and_then(Value::as_object)
+            .is_some_and(|lane| !lane.contains_key("title") || !lane.contains_key("requiresOpen"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
@@ -1436,6 +1439,18 @@ mod tests {
             }),
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
+    }
+
+    #[test]
+    fn an_older_peers_agent_lane_requires_open_even_with_a_title() {
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "child", "status": "running", "parent": "coordinator",
+                "indicator": "working", "lane": {"state": "working", "title": "Review"}
+            }),
+        );
+        assert_eq!(summary["lane"]["requiresOpen"], true);
     }
 
     #[test]

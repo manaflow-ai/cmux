@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A window's overlay host panel closes with its window. Ordered out only, it stayed in the app's
 /// window list, open, for as long as anything held the host, and work that reached a closed window
 /// late made a new panel that nothing closed (the test window census, 2026-10-28).
-@MainActor @Suite(.serialized) struct WindowOverlayHostCloseTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct WindowOverlayHostCloseTests {
     private static func window(onScreen: Bool) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)

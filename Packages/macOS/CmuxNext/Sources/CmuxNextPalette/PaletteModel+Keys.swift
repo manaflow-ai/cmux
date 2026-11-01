@@ -67,6 +67,7 @@ extension PaletteModel {
             guard query.isEmpty else { return false }
             // A tree page goes up first; at its top Backspace pops it.
             if leaveLevel() { return true }
+            if removeLastToken() { return true }
             send(.backspaceOnEmpty)
         case .enterRow:
             _ = enterSelectedRow()
@@ -78,6 +79,13 @@ extension PaletteModel {
             return false
         }
         return true
+    }
+
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() {
+        guard pendingClose else { return }
+        pendingClose = false
+        handle(.closeItem)
     }
 
     /// Cmd-W. With the selected row's close command: runs it, keeps the
