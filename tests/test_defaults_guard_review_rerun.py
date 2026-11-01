@@ -149,16 +149,16 @@ class Rerun(unittest.TestCase):
             event_path.write_text(json.dumps(event))
             log = root / "calls.jsonl"
             gh = root / "gh"
-            gh.write_text(f"#!{sys.executable}\n" + textwrap.dedent(f'''\
-                import json, os, sys
+            gh.write_text(f"#!{sys.executable}\n" + textwrap.dedent('''\
+                import os, sys
                 args = sys.argv[1:]
                 with open(os.environ["CALL_LOG"], "a") as log:
                     log.write("called\\n")
                 endpoint = next(arg for arg in args if arg.startswith("repos/"))
                 if "/pulls/" in endpoint:
-                    print(json.dumps({{"base": {{"ref": "feat-cmux-next"}}, "head": {{"repo": {{"full_name": os.environ["REPO"]}}, "sha": {fetched_head!r}}}}))
+                    print(os.environ["PR_RESPONSE"])
                 elif "/issues/comments/" in endpoint:
-                    print(json.dumps({{"author_association": {fetched_association!r}, "body": "Review (router): SHIP at {HEAD}\\nEvidence: focused checks passed"}}))
+                    print(os.environ["COMMENT_RESPONSE"])
                 else:
                     sys.exit("unexpected API endpoint")
                 '''))
@@ -166,7 +166,11 @@ class Rerun(unittest.TestCase):
             output = root / "output"
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
                    "EVENT_PATH": str(event_path), "REPO": REPO, "PR_NUMBER": "7",
-                   "COMMENT_ID": "8", "GITHUB_OUTPUT": str(output), "CALL_LOG": str(log)}
+                   "COMMENT_ID": "8", "GITHUB_OUTPUT": str(output), "CALL_LOG": str(log),
+                   "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next"},
+                                              "head": {"repo": {"full_name": REPO}, "sha": fetched_head}}),
+                   "COMMENT_RESPONSE": json.dumps({"author_association": fetched_association,
+                                                   "body": event["comment"]["body"]})}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
@@ -192,7 +196,7 @@ class Rerun(unittest.TestCase):
         self.assertEqual(calls, ["called", "called"])
         self.assertNotIn("eligible=true", output)
 
-    def test_event_association_is_only_a_prefilter_hint(self):
+    def test_event_association_does_not_replace_api_authority(self):
         result, calls, output = self.invoke_authoritative(event_association="CONTRIBUTOR")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["called", "called"])
