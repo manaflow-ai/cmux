@@ -21,7 +21,10 @@ await requireBrowserLane("spinner-phase.test.ts", async () => {
 
   const src = path.resolve(import.meta.dir, "../src");
   const css = (file: string) => readFileSync(path.join(src, file), "utf8");
-  const style = css("pages/shared/desktop.css") + css("agent-session/acpmux/conversation/conversation.css");
+  const style =
+    css("pages/shared/desktop.css") +
+    css("agent-session/acpmux/conversation/spinner.css") +
+    css("agent-session/acpmux/conversation/conversation.css");
   const bundle = await Bun.build({
     entrypoints: [path.join(import.meta.dir, "support/installSpinnerClock.entry.ts")],
     target: "browser",

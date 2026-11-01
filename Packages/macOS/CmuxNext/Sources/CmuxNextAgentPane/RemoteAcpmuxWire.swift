@@ -13,9 +13,11 @@ import os
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
 /// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
 /// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
-/// an observer never types). Every other method, and any
-/// frame that names another session, is answered `remote.unsupported`: nothing on the other
-/// machine changes a mode, reads a folder or spawns a process from here.
+/// an observer never types), and the person's model, mode and option picks (`session/set_model`,
+/// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
+/// `agent-session-settings-v1`; the host already checked their gesture and full-access rule).
+/// Every other method, and any frame that names another session, is answered
+/// `remote.unsupported`: nothing on the other machine reads a folder or spawns a process from here.
 ///
 /// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
 /// first send, cx-k21v) starts the chat on that machine through the host's start
@@ -213,6 +215,19 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
                 return Self.json(AgentPaneReply.success(["src": source]))
             }
+        case "session/set_model", "session/set_mode", "session/set_config_option":
+            // The person's pick (the host checked its gesture and full-access rule, and took its
+            // ticket off): that machine's daemon sends it to acpmux on this chat's session only,
+            // and acpmux's answer goes back as it is (a config option's names the whole list).
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let setting = Self.setting(method, params) else { return refuse(id, method) }
+            run(id) { client in
+                switch setting {
+                case .model(let model): return try await client.setModel(model)
+                case .mode(let mode): return try await client.setMode(mode)
+                case .config(let config, let value): return try await client.setConfig(id: config, value: value)
+                }
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -249,6 +264,25 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
         }
         return try await client.media(path: path)
+    }
+
+    /// What a setting frame asks for; nil when a value is missing or not text.
+    enum Setting: Sendable, Equatable {
+        case model(String)
+        case mode(String)
+        case config(String, String)
+    }
+
+    static func setting(_ method: String, _ params: [String: Any]) -> Setting? {
+        let text = { (key: String) in (params[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        switch method {
+        case "session/set_model": return text("modelId").map(Setting.model)
+        case "session/set_mode": return text("modeId").map(Setting.mode)
+        case "session/set_config_option":
+            guard let config = text("configId"), let value = text("value") else { return nil }
+            return .config(config, value)
+        default: return nil
+        }
     }
 
     // MARK: Start

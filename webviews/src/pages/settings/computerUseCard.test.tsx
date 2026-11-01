@@ -1,6 +1,6 @@
-// Agents > Computer Use Setup: the card shows the helper's real grants (host lists
-// `computer_use`, the app's ComputerUseSetup), follows each change live, says why the grants are
-// unknown while Computer Use is off, and its buttons run the shared catalog actions.
+// Agents > Computer Use: one card holds the on/off switch (computerUse.enabled), Guided Setup (the
+// onboarding step, #28997) and the helper's real grants (host lists `computer_use`, the app's
+// ComputerUseSetup); it follows each change live and its buttons run the shared catalog actions.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import type { ComputerUseState } from "./ops";
@@ -33,7 +33,7 @@ test("the card shows each grant and follows a change without a reload", async ()
   page.unmount();
 });
 
-test("off, the grants are unknown and the card says to turn Computer Use on", async () => {
+test("off, the card hides the grants and Guided Setup offers to turn Computer Use on", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   const off: ComputerUseState = { phase: "off", accessibility: null, screen_recording: null, helper: null };
   await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: off }));
@@ -41,7 +41,44 @@ test("off, the grants are unknown and the card says to turn Computer Use on", as
   const element = card(page.container)!;
   expect(element.dataset.phase).toBe("off");
   expect(grants(element)).toEqual([]);
-  expect(element.textContent).toContain("Turn on Computer Use");
+  expect(element.querySelector('[data-action="palette.computerUse.accessibility"]')).toBeNull();
+  expect(element.textContent).toContain("Turns on Computer Use and walks you through");
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-action="palette.computerUse.setup"]')!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" &&
+        (entry.params as { action: string }).action === "palette.computerUse.setup",
+    ),
+  ).toBe(true);
+  page.unmount();
+});
+
+test("the card draws the Computer Use switch once, and the switch turns Computer Use off", async () => {
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "computerUse.enabled": true } } });
+  await settle();
+  const element = card(page.container)!;
+  for (const key of ["computerUse.enabled", "computerUse.driver", "computerUse.livePreview"]) {
+    expect(element.querySelector(`[data-row-key="${key}"]`)).not.toBeNull();
+    expect(page.container.querySelectorAll(`[data-row-key="${key}"]`)).toHaveLength(1);
+  }
+  // The switch comes first, then Guided Setup.
+  const rows = [...element.querySelectorAll<HTMLElement>("[data-row-key], [data-action-row]")];
+  expect(rows[0]!.dataset.rowKey).toBe("computerUse.enabled");
+  expect(rows[1]!.querySelector('[data-action="palette.computerUse.setup"]')).not.toBeNull();
+  const toggle = element.querySelector<HTMLButtonElement>('[data-row-key="computerUse.enabled"] [role="switch"]')!;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => toggle.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.settings.set" &&
+        (entry.params as { key: string; value: unknown }).key === "computerUse.enabled" &&
+        (entry.params as { value: unknown }).value === false,
+    ),
+  ).toBe(true);
   page.unmount();
 });
 
@@ -77,7 +114,7 @@ test("driver upstream in a build without its helper says Legacy runs instead", a
   page.unmount();
 });
 
-test("the buttons run the shared actions; a policy lock hides the card", async () => {
+test("the buttons run the shared actions; a policy lock leaves only the rows", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
   for (const action of [
@@ -100,7 +137,11 @@ test("the buttons run the shared actions; a policy lock hides the card", async (
     }),
   );
   await settle();
-  expect(card(page.container)).toBeNull();
+  const locked = card(page.container)!;
+  expect(locked.dataset.phase).toBe("disabled_by_policy");
+  expect(locked.querySelector("[data-action]")).toBeNull();
+  expect(grants(locked)).toEqual([]);
+  expect(locked.querySelector('[data-row-key="computerUse.enabled"]')).not.toBeNull();
   page.unmount();
 });
 
@@ -115,7 +156,7 @@ test("a failed helper has one Restart Helper action and recovers on a host updat
   await settle();
   const element = card(page.container)!;
   expect(element.textContent).toContain("The cmux Computer Use helper did not respond.");
-  const buttons = element.querySelectorAll("button");
+  const buttons = element.querySelectorAll<HTMLButtonElement>("button[data-action]");
   expect(buttons.length).toBe(1);
   expect(buttons[0]!.textContent).toBe("Restart Helper");
   await act(async () => buttons[0]!.click());

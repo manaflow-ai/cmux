@@ -196,6 +196,62 @@ class WriteFeedTests(FeedWriteCase):
                        env=env, check=True, capture_output=True, text=True)
         self.assertIn("tag_status=updated", self.output.read_text())
 
+    def test_failed_handoff_retry_reaches_checked_live_bytes_then_recreates_handoff(self) -> None:
+        from test_nightly_next_recovery import run_recheck
+
+        source = "a" * 40
+        # Attempt one commits CAS, then the artifact service fails. Nothing
+        # reached the GitHub release job; attempt two must recreate its input.
+        self.assertEqual(self.run_with([None], [0], source_sha=source), 0)
+        accepted = self.path.read_bytes()
+        self.calls.clear()
+        self.output.write_text("")
+        recheck = run_recheck(200, (200,), source="own", attempt=2)
+        self.assertEqual(recheck.returncode, 0, recheck.stderr)
+
+        job = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]["publish-nightly"]
+        values = {"needs.decide.outputs.should_publish": "true", "needs.decide.outputs.track": "nightly-next",
+                  "steps.recheck.outputs.already_published": recheck.output.get("already_published", ""),
+                  "steps.gate.outputs.refused": ""}
+
+        def runs(name):
+            condition = next(s for s in job["steps"] if s.get("name") == name)["if"]
+            for key, value in values.items():
+                condition = condition.replace(key, repr(value))
+            return eval(condition.replace("&&", "and"), {"__builtins__": {}}, {})
+
+        self.assertTrue(runs("Final publication gate"))
+        self.assertTrue(runs("Upload nightly-next appcasts to R2"))
+        # The accepted-build branch reads live bytes, without another PUT.
+        self.assertEqual(self.run_with([accepted], [], source_sha=source), 0)
+        values["steps.upload_next_appcasts.outputs.feed_current"] = "true"
+        self.assertIn("feed_current=true", self.output.read_text())
+        self.assertEqual(self.calls, [])
+        self.assertTrue(runs("Hand the published feed to the GitHub release job"))
+        self.assertTrue(runs("Upload the published feed for the GitHub release job"))
+        work = Path(self.dir.name)
+        (work / "nightly-out").mkdir()
+        (work / "nightly-out" / self.path.name).write_bytes(self.path.read_bytes())
+        env = {**os.environ, "NIGHTLY_FEEDS": self.path.name, "RUNNER_TEMP": str(work)}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-next-hand-feed.sh")],
+                       cwd=work, env=env, check=True, capture_output=True, text=True)
+        self.assertEqual((work / "next-github" / self.path.name).read_bytes(), accepted)
+
+    def test_handoff_retry_rechecks_source_and_a_race_after_the_early_check(self) -> None:
+        from test_nightly_next_recovery import run_recheck
+
+        recheck = run_recheck(200, (200,), source="own", attempt=2)
+        self.assertEqual(recheck.returncode, 0, recheck.stderr)
+        self.assertNotEqual(recheck.output.get("already_published"), "true")
+        for build in (200, 300):
+            with self.subTest(live_build=build):
+                self.output.write_text("")
+                live = feed((build, "newer-source-download", 1), source={build: "b" * 40}).encode()
+                self.assertEqual(self.run_with([live], [], source_sha="a" * 40), 0)
+                self.assertEqual(self.calls, [])
+                self.assertIn("publication_refused=true", self.output.read_text())
+                self.assertNotIn("feed_current=true", self.output.read_text())
+
     def test_the_same_build_number_with_a_different_source_is_refused(self) -> None:
         live = feed((200, "x", 1), source={200: "b" * 40}).encode()
         self.assertEqual(self.run_with([live], [], source_sha="a" * 40), 0)

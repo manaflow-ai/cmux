@@ -23,6 +23,9 @@ def verdict(text):
         judged = re.search(r"judged=(\d+)", last)
         if not judged or not int(judged.group(1)):
             return "NOVERDICT no iteration was judged"
+        kills = re.search(r"kills=(\{[^}]*\})", last)
+        if kills and kills.group(1) == "{}":
+            return "NOVERDICT no iteration killed anything (only refusals or not-run iterations)"
         lost = re.search(r"chaos_lost=(\d+)", last)
         if lost and int(lost.group(1)):
             return "NOVERDICT the chaos process ended early"

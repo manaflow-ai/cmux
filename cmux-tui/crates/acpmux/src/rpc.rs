@@ -60,10 +60,11 @@ impl RpcError {
     }
 }
 
-/// The most one JSON-RPC message takes on any acpmux transport. The app accepts 32 MiB frames and
-/// the daemon accepts 64 MiB WebSocket frames, so 31 MiB leaves room for the envelope and a peer
-/// relay's metadata without falling back to a connection-reset failure.
-pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
+/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
+/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
+/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
+/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
+pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
 
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
@@ -565,6 +566,12 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// An agent CLI's own sign-in on this machine (`agent_login.rs`): the
+    /// unix socket, the local app and the owner's own peer daemon.
+    pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
+    pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.

@@ -414,7 +414,7 @@ async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() 
         local,
         overlay_b.clone(),
         peers_b.clone(),
-        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource)),
+        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource::unavailable())),
         Arc::from("{}"),
     ));
     let mut caller = tokio::net::UnixStream::connect(local_path).await.unwrap();

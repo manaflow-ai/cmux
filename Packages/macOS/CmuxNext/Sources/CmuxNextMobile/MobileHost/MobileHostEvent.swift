@@ -13,6 +13,8 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needToken
     /// acpmux is unknown or refused a connection (it restarted elsewhere).
     case needAcpmux
+    /// Fresh app-server carrier facts for one bounded Rust request.
+    case needCloudLinks(request: UInt64)
     /// A phone's link is up.
     case phoneUp(MobileHostPhoneLink)
     /// A phone's link moved to another path (`direct`, `relay`, `turn`).
@@ -57,6 +59,9 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .needToken
         case "need_acpmux":
             self = .needAcpmux
+        case "need_cloud_links":
+            guard let request = wire.request else { return nil }
+            self = .needCloudLinks(request: request)
         case "phone_up":
             guard let session = wire.sessionId, let phone = wire.phoneDeviceId else { return nil }
             self = .phoneUp(MobileHostPhoneLink(sessionID: session, phoneDeviceID: phone,

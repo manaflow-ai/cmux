@@ -1139,6 +1139,52 @@ def side_run(*, queued_at=0, started_at=None, gate_done_at=None, done_at=None):
 
 
 class SideLanes(unittest.TestCase):
+    def test_shared_dev_dispatch_keeps_completed_delivery_work(self):
+        # Parse the actual shared-workflow event: this is a side lane, not E2E.
+        for title_key in ("name", "display_title"):
+            with self.subTest(title_key=title_key):
+                payload = side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                                     event="workflow_dispatch", pull_requests=[],
+                                     **{title_key: f"cmux NEXT DEV daily · {HEAD}"})
+                target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+                self.assertIsInstance(target, rescue.Target)
+                self.assertTrue(target.side)
+                self.assertFalse(target.e2e)
+                clock = Clock()
+                api = FakeAPI(clock, lambda _: [
+                    {**job("dev-daily-build", status="completed", runner="mini"),
+                     "conclusion": "success"},
+                    job("dev-daily-publish", labels=[MINI]),
+                ])
+                result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                                       log=lambda _: None)
+                self.assertIn("started delivery work", result)
+                self.assertNotIn("cancel", api.calls)
+                self.assertNotIn("force-cancel", api.calls)
+                self.assertNotIn("rerun", api.calls)
+                self.assertNotIn("rerun-failed", api.calls)
+
+    def test_shared_workflow_ordinary_dispatch_remains_rescuable(self):
+        for title in ("", f"cmux-next · {HEAD}", f"cmux-next tip Swift suite · {HEAD}"):
+            with self.subTest(title=title):
+                target = rescue.target_from_event(side_event(
+                    path=rescue.CMUX_NEXT_WORKFLOW_PATH, event="workflow_dispatch",
+                    pull_requests=[], display_title=title), "manaflow-ai/cmux")
+                self.assertFalse(rescue.is_delivery_target(target))
+                clock = Clock()
+                api = FakeAPI(clock, lambda _: [job("swift-test", labels=[MINI])])
+                rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+                self.assertIn("cancel", api.calls)
+                self.assertIn("rerun", api.calls)
+
+    def test_shared_workflow_pull_request_title_is_not_delivery(self):
+        target = rescue.target_from_event(side_event(
+            path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+            name=f"cmux NEXT DEV daily · {HEAD}",
+            display_title=f"cmux NEXT DEV daily · {HEAD}"), "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertFalse(rescue.is_delivery_target(target))
+
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
             target = rescue.target_from_event(side_event(path=path), "manaflow-ai/cmux")

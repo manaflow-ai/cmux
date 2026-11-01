@@ -180,14 +180,15 @@ public final class FeedStore {
             guard items != oldValue else { return }
             // Events read before (this launch or an earlier one) stay read when the Mac
             // reports them again.
-            if items.contains(where: { !$0.isRead && readIDs.contains($0.id) }) {
+            if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
                 items = items.map { item in
                     var item = item
-                    if readIDs.contains(item.id) { item.isRead = true }
+                    if readSet.contains(item.id) { item.isRead = true }
                     return item
                 }
                 return
             }
+            reindex()
             recordReadMarks()
             refreshDerived()
             #if DEBUG
@@ -215,7 +216,21 @@ public final class FeedStore {
     }
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
     @ObservationIgnored private var readMarks: FeedReadMarks?
-    @ObservationIgnored private var readIDs: [String] = []
+    @ObservationIgnored private var readIDs: [String] = [] {
+        didSet { readSet = Set(readIDs) }
+    }
+    /// `readIDs` as a set: every items write checks each item against it.
+    @ObservationIgnored private var readSet: Set<String> = []
+    /// Where each item is in `items`, by id: lookups from the live ledger (one per entry,
+    /// per tree update) were linear scans.
+    @ObservationIgnored private var itemIndex: [String: Int] = [:]
+
+    private func reindex() {
+        var index: [String: Int] = [:]
+        index.reserveCapacity(items.count)
+        for (offset, item) in items.enumerated() where index[item.id] == nil { index[item.id] = offset }
+        itemIndex = index
+    }
 
     private func recordReadMarks() {
         let read = items.filter(\.isRead).map(\.id)
@@ -248,13 +263,15 @@ public final class FeedStore {
         self.readMarks = readMarks
         let readIDs = readMarks?.load() ?? []
         self.readIDs = readIDs
-        let read = Set(readIDs)
+        readSet = Set(readIDs)
+        let read = readSet
         self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
             var item = item
             if read.contains(item.id) { item.isRead = true }
             return item
         }
         self.answersLocally = answersLocally
+        reindex()
         refreshDerived()
     }
 
@@ -311,6 +328,19 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+
+    /// Marks several events read in one write (the Mac's reads arrive together).
+    public func markRead(_ ids: some Sequence<String>) {
+        var next = items
+        var changed = false
+        for id in ids {
+            guard let index = itemIndex[id], !next[index].isRead else { continue }
+            next[index].isRead = true
+            changed = true
+        }
+        if changed { items = next }
+    }
+
     /// Mark All Notifications as Read: every event in the Feed, in one write.
     public func markAllRead() {
         guard items.contains(where: { !$0.isRead }) else { return }
@@ -320,6 +350,7 @@ public final class FeedStore {
             return item
         }
     }
+
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)
@@ -387,8 +418,9 @@ public final class FeedStore {
     /// answered); nothing counts as newly arrived.
     public func mergeHistory(_ history: [FeedItem]) {
         var next = items
+        var positions = itemIndex
         for item in history {
-            if let index = next.firstIndex(where: { $0.id == item.id }) {
+            if let index = positions[item.id] {
                 var merged = item
                 merged.isRead = next[index].isRead
                 merged.isDone = next[index].isDone
@@ -400,13 +432,14 @@ public final class FeedStore {
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
+                positions[item.id] = next.count
                 next.append(item)
             }
         }
         setItems(next.sorted { $0.createdAt > $1.createdAt })
     }
 
-    public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
+    public func item(id: String) -> FeedItem? { itemIndex[id].map { items[$0] } }
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
@@ -612,7 +645,7 @@ public final class FeedStore {
     }
 
     private func mutate(_ id: String, _ body: (inout FeedItem) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = itemIndex[id] else { return }
         var item = items[index]
         body(&item)
         // An unchanged item is not written (no re-render, no save).

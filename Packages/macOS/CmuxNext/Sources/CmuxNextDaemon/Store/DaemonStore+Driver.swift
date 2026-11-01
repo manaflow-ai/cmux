@@ -30,6 +30,10 @@ final class EventInbox: Sendable {
         /// Events replaced by a newer one since creation (debug).
         var coalesced = 0
         var framePending = false
+        /// Includes events a collapsed inbox discarded because the next tree snapshot covers them.
+        var receivedThrough: UInt64 = 0
+        /// Only batches taken for synchronous application may be acknowledged by a snapshot.
+        var takenThrough: UInt64 = 0
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
         var echoes: Set<ClientTransactionID> = []
@@ -48,6 +52,7 @@ final class EventInbox: Sendable {
     /// Returns true when the caller must schedule a frame.
     func append(_ envelope: DaemonEventEnvelope) -> Bool {
         state.withLock { state in
+            state.receivedThrough = max(state.receivedThrough, envelope.sequence)
             if state.collapsed {
                 Self.keep(envelope, in: &state)
             } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
@@ -121,10 +126,14 @@ final class EventInbox: Sendable {
         }
     }
 
+    /// The event frontier already handed to the store, excluding buffered or pump-delayed events.
+    var takenThrough: UInt64 { state.withLock { $0.takenThrough } }
+
     /// Takes everything buffered and clears the pending-frame flag.
     func take() -> [DaemonEventEnvelope] {
         state.withLock { state in
             state.framePending = false
+            state.takenThrough = state.receivedThrough
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
@@ -277,8 +286,12 @@ extension DaemonStore {
                 let diff = await snapshotDiff(of: tree)
                 apply(snapshot: tree, diff: diff)
                 snapshotBarrier = max(snapshotBarrier, barrier)
-                snapshotCoveredPersonal(through: barrier)
-                advanceAppliedSequence(to: barrier)
+                // The tree holds no session/sidebar state. Its transport barrier may include events
+                // still in the inbox or its pump; only events the store took are safe to acknowledge.
+                // Keep snapshotBarrier above uncapped: it still supersedes their tree deltas.
+                let consumed = min(barrier, driver.inbox.takenThrough)
+                snapshotCoveredPersonal(through: consumed)
+                advanceAppliedSequence(to: consumed)
                 resyncPacer.reset()
                 if seedAgents { apply(agents: try await driver.connection.agents()) }
             } catch {
