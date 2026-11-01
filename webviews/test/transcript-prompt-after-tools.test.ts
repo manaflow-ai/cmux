@@ -6,9 +6,11 @@
 // In gallery entry agent-pane.prompt-after-tool-rows (a running turn: three one-line tool rows, a
 // steer, two more calls), measured in Chromium in light and dark: the room from the tool line over
 // the steer's bubble to the bubble's top equals the room from the bubble's bottom to the next tool
-// line, to 0.5px. The bubble's meta row (time, Copy, Retry) shows on hover only, so the bubble's own
-// box is its edge; the meta row sits inside the room under it. Both neighbours are 22px tool lines
-// whose text is centred the same way in its line, so equal boxes mean equal ink.
+// line, to 0.5px, and that room is the turn gap (grid.md 5.5, 32px; manaflow-ai/cmux#27580). Before
+// that it was 4px over the bubble and 38px under it. The bubble's meta row (time, Copy, Retry) shows
+// on hover only, so the bubble's own box is its edge; the meta row sits inside the room under it.
+// Both neighbours are tool lines whose text is centred the same way in its line, so equal boxes
+// mean equal ink.
 // design/chat-transcript.md "Prompts after tool rows".
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -24,6 +26,8 @@ await requireBrowserLane("transcript-prompt-after-tools.test.ts", async () => {
     { name: "Catppuccin Mocha", file: "dark" },
   ];
   const TOLERANCE = 0.5;
+  /** grid.md 5.5's turn gap: between the person's prompt and any other transcript element. */
+  const TURN_GAP = 32;
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -95,20 +99,14 @@ await requireBrowserLane("transcript-prompt-after-tools.test.ts", async () => {
   for (const theme of THEMES)
     test(`a prompt after tool rows is centred in its gap (${theme.name})`, async () => {
       const page = await open("centered", theme.name);
-      const earlier = await open("tight", theme.name);
       try {
         const room = await measure(page);
-        const before = await measure(earlier);
         console.log(`PROMPT_GAP centered ${theme.file} ${JSON.stringify(room)}`);
-        console.log(`PROMPT_GAP tight ${theme.file} ${JSON.stringify(before)}`);
         expect(room).toBeDefined();
         expect(Math.abs(room!.above - room!.below)).toBeLessThanOrEqual(TOLERANCE);
-        // Only the room over the bubble moves: under it nothing changes.
-        expect(before).toBeDefined();
-        expect(Math.abs(room!.below - before!.below)).toBeLessThanOrEqual(TOLERANCE);
+        expect(Math.abs(room!.above - TURN_GAP)).toBeLessThanOrEqual(TOLERANCE);
       } finally {
         await page.close();
-        await earlier.close();
       }
     });
 });

@@ -29,7 +29,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CMUX_TUI_STATE_MOUNT_HELPER_PATH, readImageManifest } from "./devbox-image-common";
-import { cmuxTuiInstallCommand, parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiInstallCommand, cmuxTuiServiceInstallCommand, parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const argValues = (name: string): string[] =>
   process.argv.flatMap((arg, index) => (arg === name && process.argv[index + 1] ? [process.argv[index + 1]] : []));
@@ -97,7 +97,7 @@ const freestyle = new Freestyle({ apiKey, ...(process.env.FREESTYLE_API_URL ? { 
 const runDir = `${GUEST_DIR}/run-${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14)}-${source.commit.slice(0, 12)}`;
 const launch = [
   `mkdir -p ${runDir}`,
-  writeFileCommand(`${runDir}/install.cmd`, cmuxTuiInstallCommand(source)),
+  writeFileCommand(`${runDir}/install.cmd`, `set -e\n${cmuxTuiInstallCommand(source)}\n${cmuxTuiServiceInstallCommand()}`),
   writeFileCommand(`${runDir}/upgrade.sh`, guestScript),
   writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript),
   `(setsid nohup sh ${runDir}/upgrade.sh ${source.sha256} ${source.commit} ${runDir} ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} </dev/null >/dev/null 2>&1 &)`,
