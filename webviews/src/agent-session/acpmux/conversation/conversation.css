@@ -104,6 +104,11 @@
   --cv-note-gap: var(--cv-status-gap-plain);
   /* A plain reply's share of that gap over a status row: the step's 2px top margin is the rest. */
   --cv-status-gap-plain-over: calc(var(--cv-status-gap-plain) - 2px);
+  /* Over the person's prompt right after a tool or one-line row (model.ts `statusEdge`
+     `before-prompt`): the room the prompt has under its bubble, so the bubble sits in the middle of
+     its gap (Leo, 2026-11-01: "this is too close to tool calls, center it"). Under the bubble: its
+     meta gap and line, the message gap, then the next step's 2px top. */
+  --cv-prompt-gap: calc(var(--cv-reply-room) + var(--cv-tool-run-top-gap));
   /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--ds-space-2, 8px);
@@ -2039,6 +2044,17 @@ pre.cv-math-source {
 /* Gallery versions of the room around a short interim note in a run of calls
    (agent-pane.interim-prose-gap): `tight` is the earlier 3px, `snug` the message gap, `roomy` the
    turn gap. Capture-only comparisons. */
+/* Gallery versions of the room over a prompt after tool rows (agent-pane.prompt-after-tool-rows):
+   `tight` is the earlier tool run gap, `turn` the turn gap, `block` grid.md's block gap. */
+:root[data-transcript-prompt-gap="tight"] {
+  --cv-prompt-gap: var(--cv-tool-run-bottom-gap);
+}
+:root[data-transcript-prompt-gap="turn"] {
+  --cv-prompt-gap: var(--cv-turn-gap);
+}
+:root[data-transcript-prompt-gap="block"] {
+  --cv-prompt-gap: var(--grid-gap-block, 24px);
+}
 :root[data-transcript-note-gap="tight"] {
   --cv-note-gap: 3px;
 }
@@ -5171,6 +5187,13 @@ article.acpmux-row.acpmux-row--before-reply {
 }
 article.acpmux-row.acpmux-row--before-reply-plain {
   padding-bottom: var(--cv-status-gap-plain);
+}
+/* A tool or one-line row over the person's prompt takes the room the prompt has under its bubble,
+   so the bubble sits in the middle of its gap (--cv-prompt-gap above;
+   test/transcript-prompt-after-tools.test.ts). After the line rows' own padding, so it wins. */
+article.acpmux-row.acpmux-row--before-prompt {
+  min-height: 0;
+  padding-bottom: var(--cv-prompt-gap);
 }
 :is(.acpmux-row--before-reply, .acpmux-row--before-reply-plain) .cv-disclosure.cv-received {
   margin-bottom: 0;

@@ -1363,13 +1363,29 @@ function isToolRun(row: AcpmuxRow): boolean {
 /// under a prompt (a turn that starts with a tool) keeps its own spacing, so `prev`, the drawn row
 /// above, is read for that side alone. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
 /// `--cv-status-gap`, `--cv-status-gap-plain`).
-export type StatusEdge = "before-status" | "before-status-plain" | "before-reply" | "before-reply-plain";
+///
+/// A status or one-line row right over the person's own prompt (`before-prompt`) takes the room the
+/// prompt has under its bubble (its meta gap and line, the message gap, the next step's 2px top), so
+/// the bubble sits in the middle of its gap (Leo, 2026-11-01, on a steer nearly touching the tool
+/// line over it: "this is too close to tool calls, center it"; conversation.css `--cv-prompt-gap`).
+/// Not on a legacy turn's last row (`lastTurn`), whose turn gap stays.
+export type StatusEdge =
+  | "before-status"
+  | "before-status-plain"
+  | "before-reply"
+  | "before-reply-plain"
+  | "before-prompt";
+/// The person's own prompt: not another agent's message, a notice or bookkeeping, nor a task's result.
+const isOwnPrompt = (row: AcpmuxRow | undefined) =>
+  row !== undefined && row.kind === "user" && row.incoming === undefined && row.received === undefined;
 export const statusEdge = (
   row: AcpmuxRow,
   next: AcpmuxRow | undefined,
   prev: AcpmuxRow | undefined,
 ): StatusEdge | undefined =>
-  row.kind === "assistant"
+  isOwnPrompt(next) && row.lastTurn !== true && (isStatusRow(row) || isLineRow(row))
+    ? "before-prompt"
+    : row.kind === "assistant"
     ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
       isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
       ? hasReplyActions(row, next)
@@ -1387,12 +1403,15 @@ export const statusEdge = (
 /// 2px top margin; between the copies inside an opened fold, the plain gap.
 const STATUS_GAP = META_GAP + META_ROW + TOOL_RUN_TOP;
 const STATUS_GAP_PLAIN = 12;
+/// The room over the person's prompt after a status row (conversation.css `--cv-prompt-gap`): what
+/// the prompt has under its bubble, its meta gap and line, the message gap and the next step's top.
+const PROMPT_GAP = META_GAP + META_ROW + MESSAGE_GAP + TOOL_RUN_TOP;
 /// How much a row's estimate changes at a status edge, against the bottom it has elsewhere.
 function statusDelta(row: AcpmuxRow, edge: StatusEdge | undefined): number {
   if (edge === "before-status") return -MESSAGE_GAP;
   if (edge === "before-status-plain") return STATUS_GAP_PLAIN - TOOL_RUN_TOP - MESSAGE_GAP;
   if (edge === undefined) return 0;
-  const gap = edge === "before-reply" ? STATUS_GAP : STATUS_GAP_PLAIN;
+  const gap = edge === "before-prompt" ? PROMPT_GAP : edge === "before-reply" ? STATUS_GAP : STATUS_GAP_PLAIN;
   // A tool run and a one-line row (another agent's line, a notice) both end at the run gap elsewhere.
   if (row.kind === "activity" || isLineRow(row)) return gap - TOOL_RUN_BOTTOM;
   return gap - MESSAGE_GAP;

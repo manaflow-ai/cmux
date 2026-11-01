@@ -445,6 +445,32 @@ test("a status row under a prompt keeps its own spacing over the reply", () => {
     expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
 });
 
+test("a tool row over the person's prompt is estimated with the room the prompt has under its bubble", () => {
+  // Leo, 2026-11-01, on a steer nearly touching the tool line over it: "this is too close to tool
+  // calls, center it". The run (2px over its 22px row) ends 38px over the prompt's bubble, the room
+  // the prompt has under it: its 4px meta gap and 24px meta row, the 8px message gap and the next
+  // step's 2px top (conversation.css --cv-prompt-gap). Another agent's message is not the person's
+  // prompt, and a legacy turn's last row keeps its turn gap.
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const steer = { id: "s", version: 1, at: 2, kind: "user", text: "Stop the idle ones too.", steer: "landed" };
+  const message = {
+    ...steer,
+    incoming: { kind: "message", message: { name: "lane", sessionId: "x", text: "hi", raw: "hi" } },
+  };
+  const [overPrompt] = heightsOf([run, steer]);
+  const [alone] = heightsOf([run]);
+  expect(statusEdge(run as AcpmuxRow, steer as AcpmuxRow, undefined)).toBe("before-prompt");
+  expect(overPrompt).toBe(2 + 22 + 38);
+  expect(alone).toBe(2 + 22 + 4);
+  expect(statusEdge(run as AcpmuxRow, message as AcpmuxRow, undefined)).not.toBe("before-prompt");
+  expect(statusEdge({ ...run, lastTurn: true } as AcpmuxRow, steer as AcpmuxRow, undefined)).toBeUndefined();
+});
+
 // Leo, 2026-10-25: "when I'm seeing all of these agent messages back and forth, that's when it
 // sort of, like, gets confused ... trying to scroll down slowly as you're streaming in text output".
 // A folded run (the Codex-style runs, on by default) keeps every message it sent another agent in
