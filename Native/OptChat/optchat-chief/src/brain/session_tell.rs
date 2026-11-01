@@ -130,6 +130,11 @@ pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> Strin
         .filter(|session| refusal(session).is_none())
         .collect();
     eligible.sort_unstable_by(|a, b| (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id)));
+    let duplicates: std::collections::HashSet<String> = eligible
+        .windows(2)
+        .filter(|pair| pair[0].name == pair[1].name)
+        .map(|pair| pair[0].name.clone())
+        .collect();
     let total = eligible.len();
     if total == 0 {
         return "outcome: done. No acpmux sessions to tell.".to_owned();
@@ -145,6 +150,9 @@ pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> Strin
         .take(LISTED)
         .map(|s| {
             let mut row = format!("- {PREFIX}{} ({}, {})", s.name, s.harness, status(s));
+            if duplicates.contains(s.name.as_str()) {
+                row.push_str(" [ambiguous name: rename one session before telling]");
+            }
             if let Some(line) = s
                 .last_message
                 .as_ref()
@@ -344,6 +352,25 @@ mod tests {
 
         let past = sessions_list(&sessions, 300);
         assert!(past.contains("offset 300 is past the 300"), "{past}");
+    }
+
+    #[test]
+    fn session_list_marks_duplicate_names_as_unsafe_to_tell() {
+        let mut first = summary("dup", json!({}));
+        first.session_id = "one".into();
+        let mut second = summary("dup", json!({}));
+        second.session_id = "two".into();
+        let independent = summary("unique", json!({}));
+        let list = sessions_list(&[first, second, independent], 0);
+        assert_eq!(list.matches("[ambiguous name:").count(), 2, "{list}");
+        assert!(
+            list.contains("- session:unique (claude, idle)"),
+            "{list}"
+        );
+        assert!(
+            !list.contains("session:unique (claude, idle) [ambiguous"),
+            "{list}"
+        );
     }
 
     #[test]
