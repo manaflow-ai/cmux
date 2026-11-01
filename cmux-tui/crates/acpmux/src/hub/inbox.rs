@@ -644,12 +644,17 @@ fn first_work_waits(session: &Session) -> bool {
 }
 
 /// Whether a prompt is the person's own (module docs): no other agent's message, and none of
-/// acpmux's own deliveries of them (a notice, a digest, the turn cap's notice).
+/// acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's retry, a cut
+/// turn's automatic continuation), whose turns take notices and steers as before.
 pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
+    let auto_resume =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("auto_resume");
     agent.is_none()
+        && !auto_resume
         && !is_notice(provenance)
         && !super::digest::inbox_digest::is_digest(provenance)
         && !super::turn_cap::is_notice(provenance)
+        && !super::subagent_retry::is_retry(provenance)
 }
 
 /// Whether the running turn is one the person's own prompt started: no notice and no other
@@ -1224,7 +1229,14 @@ impl Hub {
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
-        session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
+        let persons = persons_turn(session);
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        inbox.refused_at = 0;
+        // What waits as the person's own turn starts would have gone into it: due at its end. A
+        // notice in flight that is refused comes back new, and its review marks it so.
+        if persons && inbox.items.iter().any(|i| !i.noticed) {
+            inbox.held_by_person = true;
+        }
     }
 
     /// A prompt was written to its agent (a turn's in `run_prompt_joined`, a steer's in

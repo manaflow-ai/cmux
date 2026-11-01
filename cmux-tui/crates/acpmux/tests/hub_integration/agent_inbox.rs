@@ -436,6 +436,18 @@ async fn a_notice_never_goes_into_the_persons_turn_and_runs_on_its_own_after_it(
     let at = |pid: &str| all.iter().position(|m| m["promptId"] == pid).unwrap();
     assert!(at("p-me") < at(notices[0]["promptId"].as_str().unwrap()), "{all:?}");
     assert_eq!(all[at("p-me")]["text"], words.as_str(), "the person's words as written");
+    // The turn says so in its log, so a restart keeps it the person's (`hosts.rs`).
+    let started: Vec<Value> = hub
+        .events(&id, 0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "turn_started")
+        .map(|r| r.msg)
+        .collect();
+    let of =
+        |turn: &Value| started.iter().find(|m| m["turnId"] == *turn).unwrap()["persons"].clone();
+    assert_eq!(of(&json!(mine)), true, "{started:?}");
+    assert_eq!(of(&notices[0]["turnId"]), false, "{started:?}");
     let _ = std::fs::remove_file(gate);
 }
 

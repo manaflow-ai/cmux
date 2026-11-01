@@ -788,7 +788,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
