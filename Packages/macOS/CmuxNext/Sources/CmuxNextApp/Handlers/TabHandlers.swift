@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFiles
 import CmuxNextLayout
 
@@ -278,11 +279,11 @@ enum TabHandlers {
                 // On one of several selected tabs, Pin pins them all unless all are pinned (Chrome's Pin Tabs).
                 let strip = invocation.actsOnTabSelection ? ctx.services.paneController(for: pane)?.stripModel : nil
                 let ids = strip?.actingTabs(for: StripTabID(tab.id)) ?? [StripTabID(tab.id)], pin = strip?.pinsAll(ids) ?? !tab.pinned
-                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin) }
+                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin, machineID: invocation.targetMachineID) }
             }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin, machineID: invocation.targetMachineID)
         })
         // A tab only this app holds (an internal page, a session-only browser tab) has no daemon
         // record to pin: its menu has no Pin row, rather than one that refuses.
@@ -292,7 +293,7 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            guard let id = invocation.target?.id, let (tab, _) = ctx.targetTab(id, invocation) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
@@ -304,17 +305,29 @@ enum TabHandlers {
     }
 
     /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
-    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> URL? {
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> (file: URL, machine: DaemonService, tab: String)? {
         let s = ctx.services
         guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
-        let page = LocalPageTab.page(of: FilePageHandlers.providerKey(id, s)), file = FilePageHandlers.file(ofTab: id, s)
-        return FileOpenKind.otherView(asText: asText, editorFile: page == FilePageKind.editor.page ? file : nil, markdownFile: page == FilePageKind.markdown.page ? file : nil,
-                                      pageURL: s.locateTab(id)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString)
+        let key = FilePageHandlers.providerKey(id, s)
+        if let kind = FilePageKind.allCases.first(where: { $0.page == LocalPageTab.page(of: key) }) {
+            guard let location = FilePageHandlers.service(kind, s).location(key),
+                  location.machine.isLocal || FilePageKind.isMarkdown(location.file),
+                  let file = FileOpenKind.otherView(asText: asText, editorFile: kind == .editor ? location.file : nil,
+                                                   markdownFile: kind == .markdown ? location.file : nil, pageURL: nil) else { return nil }
+            return (file, location.machine, id)
+        }
+        guard let file = FileOpenKind.otherView(asText: asText, editorFile: nil, markdownFile: nil,
+                                                pageURL: ctx.targetTab(id, invocation)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString) else { return nil }
+        return (file, s.daemon, id)
     }
 
     private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
-        guard let file = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
-        ctx.services.linkOpener.openFile(file, from: ctx.services.locateTab(invocation.target?.id ?? "").flatMap { ctx.services.paneController(for: $0.1) }, asText: asText); return .done
+        guard let location = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        // The source pane is the tab's own, found on its machine (#28731), as the menu row resolved it.
+        let source = ctx.targetTab(location.tab, invocation).flatMap { ctx.services.paneController(for: $0.1) }
+            ?? ctx.services.paneController(showingTab: location.tab) // an app-only tab (a Cloud file page) has no store record
+        ctx.services.linkOpener.openFile(location.file, on: location.machine, from: source, asText: asText)
+        return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.
