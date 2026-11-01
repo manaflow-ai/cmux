@@ -170,6 +170,7 @@ pub(super) struct Fixture {
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) turn_prepare_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) turn_unsupported: bool,
+    pub(super) turn_scope_ready: Option<Arc<AtomicBool>>,
     pub(super) turn_initialize_malformed: bool,
 }
 
@@ -191,7 +192,9 @@ fn serve(
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" if fixture.turn_initialize_malformed => Some(json!({})),
             "initialize" => Some(json!({"_meta":{"acpmux":{"capabilities":
-                if fixture.turn_unsupported { vec![] } else { vec!["agent-session-turn-rewind-v1"] }}}})),
+                if fixture.turn_unsupported || fixture.turn_scope_ready.as_ref().is_some_and(|ready| !ready.load(Ordering::Acquire)) {
+                    vec![]
+                } else { vec!["agent-session-turn-rewind-v1"] }}}})),
             "agent-session-turn-prepare" => {
                 let answer = json!({"session":SESSION,"turn":params["authorization"]["turn"],
                     "generation":params["generation"],"attempt_id":params["attempt_id"]});

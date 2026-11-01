@@ -251,3 +251,62 @@ fn uncertain_turn_support_fails_attach_instead_of_allowing_uncaptured_prompts() 
     assert!(!identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     fake.no_frame();
 }
+
+#[test]
+fn scoped_attach_hands_off_unscoped_acpmux_once_and_rechecks_before_attach() {
+    let ready = Arc::new(AtomicBool::new(false));
+    let fake = FakeAcpmux::start_with(
+        "turn-handoff",
+        Fixture { turn_scope_ready: Some(ready.clone()), ..Fixture::default() },
+    );
+    let mux = mux_with(&fake, "turn-handoff");
+    configure_turns(&mux);
+    let calls = Arc::new(AtomicU64::new(0));
+    let count = calls.clone();
+    mux.set_acpmux_handoff(Some(Arc::new(move || {
+        count.fetch_add(1, Ordering::AcqRel);
+        ready.store(true, Ordering::Release);
+        Ok(())
+    })));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "turn-handoff");
+    let reply = attach(&mut client, surface);
+    assert_eq!(reply["ok"], true);
+    assert_eq!(reply["data"]["cloud_turn_supported"], true);
+    // Discovery, post-handoff verification, then discovery on the actual stream.
+    for _ in 0..3 {
+        assert_eq!(fake.frame()["method"], "initialize");
+    }
+    assert_eq!(fake.frame()["method"], "_acpmux/attach");
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+    let surface = agent_tab(&mux, Some(SESSION));
+    assert_eq!(attach(&mut client, surface)["ok"], true);
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn failed_scope_handoff_never_attaches_or_restarts_repeatedly() {
+    let fake = FakeAcpmux::start_with(
+        "turn-handoff-old",
+        Fixture { turn_unsupported: true, ..Fixture::default() },
+    );
+    let mux = mux_with(&fake, "turn-handoff-old");
+    configure_turns(&mux);
+    let calls = Arc::new(AtomicU64::new(0));
+    let count = calls.clone();
+    mux.set_acpmux_handoff(Some(Arc::new(move || {
+        count.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    })));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "turn-handoff-old");
+    assert_code(&attach(&mut client, surface), "agent_session.unavailable");
+    for _ in 0..2 {
+        assert_eq!(fake.frame()["method"], "initialize");
+    }
+    fake.no_frame();
+    assert_code(&attach(&mut client, surface), "agent_session.unavailable");
+    assert_eq!(fake.frame()["method"], "initialize");
+    fake.no_frame();
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+}

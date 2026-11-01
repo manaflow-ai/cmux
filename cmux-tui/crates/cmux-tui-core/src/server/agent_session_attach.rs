@@ -90,6 +90,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessions {
     cloud_turn: RwLock<Option<CloudTurnConfig>>,
+    cloud_scope_handoff_attempted: AtomicBool,
     socket: RwLock<inventory_socket::SocketState>,
     #[cfg(test)]
     inventory_socket_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,

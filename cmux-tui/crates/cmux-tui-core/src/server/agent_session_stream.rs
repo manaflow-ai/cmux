@@ -18,6 +18,16 @@ pub(super) fn connect_and_attach(
 ) {
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
+    let configured_owner = author.is_none()
+        && !read_only
+        && sessions.cloud_turn.read().unwrap_or_else(|e| e.into_inner()).is_some();
+    if configured_owner
+        && let Err(refusal) = agent_session_start::reconcile_cloud_scope(&mux, &socket)
+    {
+        release(sessions);
+        refuse(&writer, id, refusal);
+        return;
+    }
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
@@ -44,10 +54,7 @@ pub(super) fn connect_and_attach(
             return;
         }
     };
-    let cloud_turn_supported = if author.is_none()
-        && !read_only
-        && sessions.cloud_turn.read().unwrap_or_else(|e| e.into_inner()).is_some()
-    {
+    let cloud_turn_supported = if configured_owner {
         match turn::support(&link) {
             Ok(supported) => supported,
             Err(refusal) => {
