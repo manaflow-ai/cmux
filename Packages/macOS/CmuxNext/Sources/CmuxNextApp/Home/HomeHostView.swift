@@ -214,12 +214,11 @@ final class HomeHostView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation): each Chief of
         // this conversation wears its Home row's avatar beside a group's bubbles, again after a
         // swap (a Chief's picture or text, the pet character a Chief with none wears).
-        avatarsWatch = Task { [weak self, weak service, weak services] in
+        avatarsWatch = Task { [weak self, weak service] in
             for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
                 guard let service else { return [:] }
                 let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-                let fallback = HomeHostView.defaultTileAvatar(picture: services?.chosenPicture(of: nil))
-                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
+                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: .chiefDefault)  // own picks: chiefFaces
             }) {
                 self?.transcript.setChiefBubbleAvatars(avatars)
             }

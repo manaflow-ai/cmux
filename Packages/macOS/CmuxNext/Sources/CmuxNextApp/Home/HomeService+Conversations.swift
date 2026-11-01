@@ -36,7 +36,7 @@ extension HomeService {
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: HomeHostView.defaultTileAvatar(picture: services.chosenPicture(of: nil)),
+                         fallback: .chiefDefault,  // each Chief's own pick is in chiefFaces
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -158,7 +158,7 @@ extension HomeService {
             rows: { [weak self] in HomeArchivedChiefs(self?.directory.archivedChiefs ?? [], me: store.me?.id).visible(store.rows) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.chosenPicture(of: nil)) },
+            defaultChiefAvatar: { .chiefDefault },  // never the default Chief's pick on another Chief's row
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
             chiefNames: { [weak self] in self?.chiefNames ?? [:] })
@@ -277,7 +277,7 @@ extension HomeService {
     /// text, else its own upload or picked character (`AppServices.chosenPicture(of:)`), so one Chief's
     /// never shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
-        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
         #if DEBUG
         chiefs.formUnion(debugChiefs)
         #endif
