@@ -3520,6 +3520,9 @@ jobs:
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+          # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the
+          # verify jobs on the watched owned pool, not blind on Blacksmith macOS.
+          UNREAD_OWNED_FALLBACK: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && '1' || '' }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
       # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
