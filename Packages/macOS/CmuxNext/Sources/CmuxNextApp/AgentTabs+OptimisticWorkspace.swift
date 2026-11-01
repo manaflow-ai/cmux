@@ -78,8 +78,7 @@ extension AgentTabStore {
                 self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                // A chat its page started before the store answered binds now, as in ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)``.
-                if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) }
+                if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) } // a chat its page started first binds now (as `open`)
                 return key.rawValue
             } catch {
                 fail()
