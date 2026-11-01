@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -361,15 +362,20 @@ test("inline effort picks a different model and its level together; model names 
     await settle();
   };
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(4);
+  // The running Model A lists its own two levels and the session-only Ultracode (3); Model B only
+  // its one (the menu held 4 levels across both rows before each got its own dropdown).
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
   expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
+  expect((await openEffort(document, "Model B")).map((item) => item.getAttribute("aria-label"))).toEqual([
+    "Model B · Low",
+  ]);
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
-  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(effortPicks).toEqual(["ultracode"]);
   expect(picks).toEqual([]);
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model B · Low"))!.click());
   expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
   await settle();
   await open();
@@ -383,7 +389,7 @@ test("inline effort picks a different model and its level together; model names 
   expect(picks.at(-1)?.effort).toBeUndefined();
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Low"))!.click());
   expect(effortPicks).toEqual(["ultracode", "low"]);
   expect(picks.at(-1)?.id).toBe("b");
   expect(picks).toHaveLength(2);
@@ -391,11 +397,11 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
   await act(async () => root!.render(<InlineHarness omitInlineEffort />));
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
 });
 
@@ -457,7 +463,7 @@ test.each([
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  await act(async () => (document.querySelector(`[aria-label="Model A · ${name}"]`) as HTMLElement).click());
+  await act(async () => (await effortLevel(document, `Model A · ${name}`))!.click());
   // The level goes through the reported option (Ultracode is no catalog effort a combo could land);
   // Fast goes through the combo, which maps it onto the option's plain tier, never the toggle, which
   // would restore a remembered ultrafast.
@@ -574,8 +580,8 @@ test("the running model keeps session-only effort levels and calls effort.onPick
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
-  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(picked).toEqual(["ultracode"]);
 });
 
@@ -689,7 +695,7 @@ for (const location of ["top", "more", "provider"] as const) {
       });
       await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
       await settle();
-      const segments = document.querySelectorAll(".acpmux-quick-effort-segment");
+      const segments = await openEffort(document);
       const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
         row.textContent?.startsWith("Effort"),
       );
@@ -800,4 +806,87 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   const text = document.querySelector(".acpmux-quick-note")?.textContent?.trim();
   expect(text).toBe("No models yet. Refresh to ask the agent again.");
   expect(text).not.toBe("No matching models");
+});
+
+// Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING FAST MODE FOR FUCKIGN CODEX". Another tab's
+// models get the same Fast mode row and effort column as the chat's own: the row holds the choice
+// (off as the menu opens) and a model picked there lands with it.
+test("another tab whose models honor Fast mode draws the Fast row and lands its pick with it", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const picks: QuickModel[] = [];
+  function OtherTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          fast: { checked: false, onChange() {} },
+          families: {
+            current: "claude",
+            onPick: (model) => picks.push(model),
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [{ id: "opus", name: "Opus", family: "claude", efforts: ["low", "medium"], canFast: true }],
+              },
+              {
+                id: "codex",
+                name: "Codex",
+                more: [],
+                models: [
+                  {
+                    id: "sol",
+                    name: "Sol",
+                    family: "codex",
+                    efforts: ["low", "medium", "high"],
+                    defaultEffort: "medium",
+                    canFast: true,
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OtherTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!.click());
+  await settle();
+  // The effort column names the level a pick lands, at rest.
+  const row = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  expect(row.hasAttribute("data-held")).toBe(true);
+  expect(row.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("aria-checked")).toBe("false");
+  await act(async () => fast.click());
+  await settle();
+  expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
+  const sol = [...document.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  await act(async () => sol.click());
+  await settle();
+  expect(picks.map(({ id, fast }) => ({ id, fast }))).toEqual([{ id: "sol", fast: true }]);
 });

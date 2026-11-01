@@ -54,8 +54,25 @@ impl Hub {
             None => (None, by_key(&summaries, query, &own)),
         };
         if found.is_empty() {
-            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown)));
+            let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
+            // Close names only for a caller that may read them all: never a peer daemon's or a
+            // read-only machine's connection (`names_hosts`).
+            if link.is_some() || !names_hosts {
+                return Err(e);
+            }
+            // The names it nearly matched, as `Hub::unknown_session` gives them.
+            let names = summaries.iter().filter_map(|s| s.get("name")?.as_str());
+            let close = crate::session_name::candidates(names, query);
+            if close.is_empty() {
+                return Err(e);
+            }
+            let list = crate::session_name::candidate_list(&close);
+            let shown_close: Vec<&String> =
+                close.iter().take(crate::session_name::CANDIDATES_SHOWN).collect();
+            return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
+                .with_data(json!({"candidates": shown_close})));
         }
+        let found = follow_moves(found, &summaries, &own);
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
             "session": matches.first(),
@@ -171,9 +188,41 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
     found
 }
 
+/// `found`, with each chat that moved away (`movedTo`) after where it went: the copy it moved to
+/// (on the host the move names, with the id it has there) joins the matches when it is listed,
+/// and every moved-away copy ranks after every live one. A link written while the chat ran here
+/// (a PR footer naming this host) so leads to where it runs now; a moved-away copy whose
+/// target is not listed stays, its card saying where it went.
+fn follow_moves<'a>(found: Vec<&'a Value>, summaries: &'a [Value], own: &str) -> Vec<&'a Value> {
+    let mut out: Vec<&Value> = Vec::new();
+    for s in found {
+        let to = &s["movedTo"];
+        if let Some(id) = to["sessionId"].as_str() {
+            let host = to["host"].as_str().unwrap_or(own);
+            let there = summaries.iter().find(|t| {
+                t["sessionId"].as_str() == Some(id) && host_of(t, own).eq_ignore_ascii_case(host)
+            });
+            if let Some(there) = there
+                && !out.iter().any(|o| std::ptr::eq(*o, there))
+            {
+                out.push(there);
+            }
+        }
+        if !out.iter().any(|o| std::ptr::eq(*o, s)) {
+            out.push(s);
+        }
+    }
+    // Stable: the order within live and within moved-away copies stays.
+    out.sort_by_key(|s| s["movedTo"].is_object());
+    out
+}
+
 /// The sessions `key` names: ids take precedence over names. A bare name includes every
 /// host, so a local chat cannot hide a peer's chat with the same name from control callers.
-/// Qualified names select their host; bead ids still find the sessions that carry them.
+/// Qualified names select their host; bead ids still find the sessions that carry them. A
+/// sub-session's short name (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+/// `session_name::ends_with_segments`) names it only where no id, name or prefix does: a bare
+/// one on every host, `HOST/SHORT` on that host only.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
@@ -210,9 +259,27 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
         if !exact.is_empty() {
             return exact;
         }
-        return on_host.into_iter().filter(|s| key_prefix(s, rest)).collect();
+        let prefixed: Vec<&Value> =
+            on_host.iter().copied().filter(|s| key_prefix(s, rest)).collect();
+        if !prefixed.is_empty() || rest.contains('/') {
+            return prefixed;
+        }
+        return by_short_name(on_host, rest);
     }
-    summaries.iter().filter(|s| key_prefix(s, key)).collect()
+    let prefixed: Vec<&Value> = summaries.iter().filter(|s| key_prefix(s, key)).collect();
+    if !prefixed.is_empty() {
+        return prefixed;
+    }
+    // A bare short name, on every host, only where nothing above matched: several are the tie
+    // a control caller refuses.
+    by_short_name(summaries.iter().collect(), key)
+}
+
+/// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
+fn by_short_name<'a>(rows: Vec<&'a Value>, key: &str) -> Vec<&'a Value> {
+    rows.into_iter()
+        .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
+        .collect()
 }
 
 /// Keep the CLI's unique id/name prefixes, collecting all candidates before a control
@@ -259,6 +326,7 @@ fn card(s: &Value, own: Option<&str>) -> Value {
         "beads": crate::beads::of_tags(&s["tags"]),
         "peerState": s["peerState"],
         "stale": s["stale"],
+        "movedTo": s["movedTo"],
         "link": link_of(s, host),
     })
 }
@@ -344,6 +412,31 @@ mod tests {
     }
 
     #[test]
+    fn a_link_to_a_moved_chat_leads_to_where_it_runs_now() {
+        // m1 ran on desk-mac and moved to gcp-1, keeping its ids (`transfer_in.rs`).
+        let rows = vec![
+            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "fix", "family": "codex",
+                   "harness": "codex", "status": "closed",
+                   "movedTo": {"host": "gcp-1", "sessionId": "m1", "cwd": "/home/cmux/w"}}),
+            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "gcp-1/fix",
+                   "family": "codex", "harness": "codex", "peer": "gcp-1", "status": "idle"}),
+        ];
+        let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=desk-mac");
+        let found = follow_moves(by_link(&rows, &footer, "desk-mac"), &rows, "desk-mac");
+        assert_eq!(found[0]["peer"], "gcp-1", "the live copy first: {found:?}");
+        assert!(found[1]["movedTo"].is_object());
+        // By id or name too, and the target joins even when only the moved copy matched.
+        let found = follow_moves(by_key(&rows, "desk-mac/fix", "desk-mac"), &rows, "desk-mac");
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0]["peer"], "gcp-1");
+        // A target not listed (its peer is gone): the moved copy answers, saying where it went.
+        let alone = &rows[..1];
+        let found = follow_moves(by_key(alone, "m1", "desk-mac"), alone, "desk-mac");
+        assert_eq!(found.len(), 1);
+        assert_eq!(card(found[0], Some("desk-mac"))["movedTo"]["host"], "gcp-1");
+    }
+
+    #[test]
     fn a_key_finds_by_id_then_host_and_name_then_bare_name() {
         let rows = rows();
         assert_eq!(ids(&by_key(&rows, "hb/m2", "big-red")), ["m2"]);
@@ -366,6 +459,43 @@ mod tests {
         assert_eq!(ids(&by_bead(&named, "cx-ab1.2")), ["m3"]);
         assert_eq!(card(&rows[2], Some("big-red"))["beads"], json!(["cx-ab1.2"]));
         assert_eq!(card(&rows[0], Some("big-red"))["beads"], json!([]));
+    }
+
+    /// A sub-session (`PARENT/SHORT`) is found by its short name, here or on a peer, on a `/`
+    /// boundary only, and only when no whole name matches.
+    #[test]
+    fn a_sub_session_is_found_by_its_short_name() {
+        let mut rows = rows();
+        rows.push(json!({"sessionId": "m5", "name": "claude-sr2/mac-ci-3", "harness": "claude"}));
+        rows.push(json!({"sessionId": "m6", "name": "hb/claude-sr2/mac-ci-4", "peer": "hb",
+                         "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m5"]);
+        assert_eq!(ids(&by_key(&rows, "mac-ci-4", "mac-a")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "hb/mac-ci-4", "mac-a")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "mac-a/mac-ci-3", "mac-a")), ["m5"]);
+        assert!(by_key(&rows, "ci-3", "mac-a").is_empty());
+        rows.push(json!({"sessionId": "m7", "name": "mac-ci-3", "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m7"], "a whole name wins");
+    }
+
+    /// Review of #27791: a host-qualified key keeps that host's exact name first, and a short
+    /// name never crosses to another host.
+    #[test]
+    fn a_host_qualified_short_name_stays_on_its_host_after_its_exact_names() {
+        let rows = vec![
+            json!({"sessionId": "m1", "name": "lane", "harness": "claude"}),
+            json!({"sessionId": "m2", "name": "parent/hb/lane", "harness": "claude"}),
+            json!({"sessionId": "m3", "name": "cg/parent/hb/x", "peer": "cg", "harness": "claude"}),
+            json!({"sessionId": "m4", "name": "a/x", "harness": "claude"}),
+        ];
+        assert_eq!(ids(&by_key(&rows, "hb/lane", "hb")), ["m1"]);
+        assert!(by_key(&rows, "nohost/x", "hb").is_empty());
+        assert_eq!(ids(&by_key(&rows, "hb/x", "hb")), ["m4"], "on host hb only, not cg's m3");
+        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m3", "m4"], "a bare one: both, a tie");
+        // A prefix still wins, as before short names.
+        let mut rows = rows;
+        rows.push(json!({"sessionId": "m5", "name": "xy", "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m5"]);
     }
 
     #[test]

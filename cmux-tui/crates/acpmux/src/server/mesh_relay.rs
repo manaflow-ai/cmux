@@ -587,7 +587,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let result = match op {
         "start" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, params).await,
         "stop" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_CLOSE, params).await,
-        // `session/resume` replays history for a newly attached ACP client. The CLI's
+        // ACP's `session/resume` reattaches a client to the session. The CLI's
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
@@ -796,7 +796,7 @@ pub async fn deliver(
             prompt_id: Some(prompt_id.to_owned()),
             detail: Some(why),
         }),
-        Err((why, Next::Retry)) => {
+        Err((why, Next::Retry | Next::Unsent)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

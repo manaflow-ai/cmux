@@ -266,3 +266,117 @@ async fn the_time_a_request_waits_in_the_queue_counts_toward_its_deadline() {
     assert_eq!(started.elapsed(), Duration::from_secs(60), "queue time not counted");
     let _keep = taker.await.unwrap();
 }
+
+/// A peer absent for a day stays visible but stops making minute-by-minute attempts.
+#[tokio::test(start_paused = true)]
+async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
+    let (tx, mut notices) = mpsc::channel(64);
+    // Invalid WebSocket URL fails without network I/O or a real SSH process.
+    let peer = Peer::new("gone", "invalid://peer", None, None, tx);
+    peer.with_link(|link| {
+        link.down(crate::store::now_ms() - 86_400_001, Duration::ZERO);
+    });
+    let running = tokio::spawn(peer.clone().run());
+    let (_, _, first) = notices.recv().await.unwrap();
+    assert!(matches!(first, PeerNotice::Disconnected(_)));
+    // The hub saves the peer cache while handling this notice, so the parked deadline must
+    // already be set: otherwise a daemon update mid-wait probes again at once.
+    let parked_until = peer.link().next_retry_at.expect("deadline set before the notice");
+    assert!(parked_until > crate::store::now_ms(), "the saved deadline is already past");
+    let early = tokio::time::timeout(Duration::from_secs(120), notices.recv()).await;
+    let refusal = tokio::time::timeout(
+        Duration::from_millis(1),
+        peer.request(method::SESSION_NEW, json!({})),
+    )
+    .await;
+    let later = tokio::time::timeout(Duration::from_secs(3_661), notices.recv()).await;
+    peer.stop();
+    running.await.unwrap();
+    assert!(early.is_err(), "a day-old outage retried within two minutes");
+    assert!(later.is_ok(), "a parked peer must continue hourly attempts");
+    let refusal = refusal.expect("a parked peer refuses immediately").unwrap_err();
+    assert_eq!(reason(&refusal), Some("peer_unreachable"));
+}
+
+/// The watch list is published before ready: a cache write of that list must not leave
+/// yesterday's outage persisted after the handshake recovers.
+#[tokio::test]
+async fn recovery_clears_an_outage_saved_before_the_handshake_completed() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ro");
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+    let hub = crate::hub::Hub::new(cfg, store);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "invalid://peer", None, None, tx);
+    hub.peers.lock().unwrap().insert("box".into(), peer.clone());
+    let old = crate::store::now_ms() - 86_400_001;
+    peer.with_link(|l| {
+        l.down(old, Duration::ZERO);
+    });
+    let mut settled = peer.settled();
+    let post = |notice| hub.peer_notices.send(("box".into(), peer.generation, notice));
+    post(PeerNotice::Disconnected("gone".into())).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
+    peer.with_link(|l| l.opened(crate::store::now_ms()));
+    post(PeerNotice::Sessions(vec![])).await.unwrap();
+    // A Connected notice is a hub-consumption barrier; it does not make Link ready.
+    post(PeerNotice::Connected).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
+    let read = || -> Value {
+        serde_json::from_slice(&std::fs::read(dir.path().join("peers/box.json")).unwrap()).unwrap()
+    };
+    assert_eq!(read()["downSince"], old, "watch list preceded ready");
+    peer.with_link(|l| l.ready(crate::store::now_ms()));
+    post(PeerNotice::Connected).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
+    let saved = read();
+    assert!(saved["downSince"].is_null(), "resolved outage persisted: {saved}");
+    // A fresh process restores this cache and has one transient failure: normal cadence.
+    let mut restored = Link::default();
+    restored.seed(saved["lastSeen"].as_u64());
+    restored.seed_outage(saved["downSince"].as_u64());
+    restored.down(crate::store::now_ms(), Duration::ZERO);
+    assert!(
+        restored.retry_delay(&mut Backoff::default(), crate::store::now_ms(), 1.0) <= Backoff::CAP
+    );
+}
+
+/// Boot settles the peer immediately without probing it; an explicit replacement still
+/// retries immediately, even when this host has never answered (lastSeen is absent).
+#[tokio::test(start_paused = true)]
+async fn parked_boot_settles_without_probing_but_manual_replacement_retries() {
+    for manual in [false, true] {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let peer = Peer::new("absent", "invalid://peer", None, None, hub.peer_notices.clone());
+        if manual {
+            peer.seed_last_seen(None);
+        }
+        let now = crate::store::now_ms();
+        peer.seed_cached_link(None, Some(now - 86_400_001), Some(now + 3_600_000));
+        hub.peers.lock().unwrap().insert("absent".into(), peer.clone());
+        let mut settled = peer.settled();
+        let running = tokio::spawn(peer.clone().run());
+        tokio::time::timeout(Duration::from_secs(1), settled.changed())
+            .await
+            .expect("startup wait settles without waiting for hourly retry")
+            .unwrap();
+        let attempts = peer.link().attempts;
+        let refused = tokio::time::timeout(
+            Duration::from_millis(1),
+            peer.request(method::SESSION_NEW, json!({})),
+        )
+        .await;
+        tokio::time::advance(Duration::from_secs(120)).await;
+        tokio::task::yield_now().await;
+        let later_attempts = peer.link().attempts;
+        peer.stop();
+        running.await.unwrap();
+        assert_eq!(attempts, u32::from(manual), "manual={manual}");
+        assert_eq!(later_attempts, attempts, "no extra attempt within two minutes");
+        assert_eq!(reason(&refused.expect("fast refusal").unwrap_err()), Some("peer_unreachable"));
+    }
+}

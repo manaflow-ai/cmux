@@ -21,10 +21,6 @@ import CmuxNextTabs
 /// Answers what it opened, or `error`.
 @MainActor
 enum DebugObjectMenu {
-    /// The tab or pane menu this opened last (its folders are walked by their rows); nil after a workspace menu,
-    /// which a synthesized right-click opens, so its folders are typed.
-    private static weak var popped: NSMenu?
-
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
@@ -34,7 +30,7 @@ enum DebugObjectMenu {
             switch menu {
             case "workspace":
                 guard let workspace = controller.state.workspaceID else { return failure("the window shows no workspace") }
-                popped = nil
+                services.debugFixtures.objectMenu = nil // a synthesized right-click opens it: its folders are typed
                 answer["menu"] = DebugMouse.send(["row": .string(workspace), "button": .string("right"),
                                                   "window": .string(controller.state.id)], services: services)
             case "tab", "pane":
@@ -56,7 +52,7 @@ enum DebugObjectMenu {
                 // (`folders`, `dismiss`) would wait for the menu to close. A run-loop perform leaves the queue free,
                 // as a real right-click does.
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
-                popped = shown
+                services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
             default:
                 return failure("menu is workspace, tab or pane")
@@ -64,7 +60,7 @@ enum DebugObjectMenu {
         }
         if let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue), !folders.isEmpty {
             let events: [NSEvent]
-            if let menu = popped {
+            if let menu = services.debugFixtures.objectMenu {
                 // A menu this holds: Down to each folder's row, then Right, as a person's arrow keys would.
                 guard let keys = arrowKeys(folders, in: menu, window: window) else {
                     return failure("no enabled folder \(folders.joined(separator: " > ")) in the open menu")

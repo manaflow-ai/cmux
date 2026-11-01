@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20: "when I'm switching to and from workspaces, we shouldn't be having these wild-ass
@@ -11,7 +12,7 @@ import Testing
 /// frames at the old size on the first frame back, then jumped to the new one. The window keeps the
 /// outgoing workspace until they drew at the new size; at the size it was parked at, a workspace
 /// shows at once.
-@MainActor @Suite(.serialized) struct WorkspaceSwitchRedrawHoldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceSwitchRedrawHoldTests {
     /// A chat's page: it drew before, and draws again at a new size when told to.
     final class DrawnPage: NSView, WorkspacePageRedrawing {
         var hasDrawnFrame = true

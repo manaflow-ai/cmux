@@ -44,7 +44,9 @@ import Testing
 
     @Test func genericStepsAreNeverCounted() {
         let progress = Self.progress(["Telling a31", "Starting 2 agents", "Checking on a31", "Checking on a7"])
-        #expect(progress.summary == "›")
+        // No lone "›" row ("›" over "Running · 4s", user 2026-10-30): a click on the line still lists the steps.
+        #expect(progress.summary == nil)
+        #expect(progress.rows == [progress.current])
         let mixed = Self.progress(["Running ls", "Running pwd", "Telling a31", "Starting 2 agents", "Checking on a31"])
         #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " ›")
         for text in [progress.summary, mixed.summary].compactMap({ $0 }) {
@@ -132,14 +134,39 @@ import Testing
         #expect(wide.lead == "Ran 3 commands · Read 2 files › Waiting for a31's tests")
         #expect(wide.last == "Starting agents · 7s")
         let now = TextDraw.width("Starting agents · 7s", font: font)
-        let narrow = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now + 80)
-        let lead = try #require(narrow.lead)
-        #expect(lead.hasSuffix("…"))
+        let room = now + TextDraw.width(HomeNoticeRows.separator, font: font) + TextDraw.width("Ran 3 commands…", font: font) + 1
+        let narrow = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: room)
+        #expect(narrow.lead == "Ran 3 commands…")
         #expect(narrow.last == "Starting agents · 7s")
-        #expect(TextDraw.width(lead + HomeNoticeRows.separator + narrow.last, font: font) <= now + 80 + 0.5)
         let tight = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now - 20)
         #expect(tight.lead == nil)
         #expect(tight.last.hasSuffix("…"))
+    }
+
+    /// User 2026-10-29: the status line over the iMessage typing bubble cut its steps mid-word ("Ran 3 co…").
+    /// The folded steps give way whole parts at a time: a stub is dropped, never drawn.
+    @Test(arguments: [CGFloat(0), 6, 20, 40, 60, 90, 140, 200, 260])
+    func theStepsNeverCutMidWord(extra: CGFloat) {
+        let font = HomeFonts.system(ofSize: 11)
+        let notice = "Ran 3 commands · Read 2 files ›\nWaiting for a31's tests\nChecking on a31 · 2m 10s"
+        let now = TextDraw.width("Checking on a31 · 2m 10s", font: font)
+        let fit = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now + extra)
+        #expect(fit.last == "Checking on a31 · 2m 10s")
+        let allowed: Set<String?> = [nil, "Ran 3 commands…", "Ran 3 commands · Read 2 files ›",
+                                     "Ran 3 commands · Read 2 files › Waiting for a31's tests"]
+        #expect(allowed.contains(fit.lead), "lead: \(fit.lead ?? "nil")")
+        let drawn = fit.lead.map { HomeNoticeRows.joined([$0, fit.last]) } ?? fit.last
+        #expect(TextDraw.width(drawn, font: font) <= now + extra + 0.5)
+    }
+
+    /// A cut right after the folded steps keeps their "›" whole, with no "…" or dot after it:
+    /// "Ran 3 commands · Read 2 files › Checking on a31 · 2m 10s".
+    @Test func aCutAfterTheFoldKeepsItsChevron() {
+        let font = HomeFonts.system(ofSize: 11)
+        let notice = "Ran 3 commands · Read 2 files ›\nWaiting for a31's tests\nChecking on a31 · 2m 10s"
+        let line = "Ran 3 commands · Read 2 files › Checking on a31 · 2m 10s"
+        let fit = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: TextDraw.width(line, font: font) + 2)
+        #expect(fit.lead == "Ran 3 commands · Read 2 files ›")
     }
 
     @Test func aNewThoughtShowsWithoutWaitingForTheClock() {

@@ -14,24 +14,16 @@ import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
-import { CopyButton } from "./CopyButton";
-import { experimentArm } from "../../../experiments/experiment";
-import { hoverActions } from "../../../ui/hoverActions.experiment";
-import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
-import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { toolResult, type ToolResult } from "./toolResult";
-import { Markdown } from "./Markdown";
+import { toolResult } from "./toolResult";
+import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
-import { useMoreBelow } from "./moreBelow";
-import { rowFailed, toolFailure } from "./toolFailure";
+import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -61,7 +53,7 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
+export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -112,10 +104,16 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // the call is open: a closed row parses nothing.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
-  const result = useMemo(
-    () => (shell || !tool.output || !fold.present ? undefined : toolResult(tool.output, cleanText, strip)),
-    [shell, tool.output, fold.present, strip],
-  );
+  // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
+  const source = callOutput(tool, failure);
+  const result = useMemo(() => {
+    if (shell || !source || !fold.present) return undefined;
+    return toolResult(source, cleanText, strip, {
+      kind: tool.kind,
+      title: tool.title,
+      description: tool.description,
+    });
+  }, [shell, tool.description, tool.kind, source, tool.title, fold.present, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
   const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
@@ -136,7 +134,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
-          <BackgroundMark background={background} />
+          <BackgroundMark background={background} showActivity={!grouped} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
@@ -149,15 +147,19 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       )}
     </>
   );
+  // Every call's line opens (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis
+  // EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"): opened, a line that is no shell's (whose
+  // Shell block shows its whole command) wraps to its whole label, so a search pattern, a URL or a
+  // path cut at the row's edge reads whole, and a call with no output opens to that alone.
   return (
     <>
-      {opens || shell || hasDiff ? (
+      {opens || shell || hasDiff || label ? (
         <button
           type="button"
-          className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
           data-tool-id={tool.id}
           aria-expanded={open}
-          aria-controls={open ? detailsId : undefined}
+          aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
           ref={fold.headerRef}
           onClick={fold.toggle}
         >
@@ -201,61 +203,6 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     </>
   );
 });
-
-/// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
-/// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
-/// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
-/// a fade, with Show all N lines (BlockParts.tsx).
-function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; reveal: number }) {
-  const t = useT();
-  const raw = useOutput(result.text, reveal);
-  const [wrap] = useBlockWrap("output");
-  // All the output's lines, though a long one draws only its end until opened.
-  const preview = usePreview(lineCount(raw.text), reveal);
-  const shown = previewedOutput(raw, preview);
-  const body = useSidewaysRef<HTMLPreElement>();
-  // A Markdown result scrolls at a fixed height: its bottom edge fades while more lies under it.
-  const markdown = useMoreBelow<HTMLDivElement>(result.lang === "markdown" ? result.text : undefined);
-  // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does.
-  if (result.lang === "markdown")
-    return (
-      <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
-        <div ref={markdown} className="cv-tool-output__box cv-tool-output__markdown selectable">
-          {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
-          <Markdown plainCode>{result.text}</Markdown>
-        </div>
-      </div>
-    );
-  return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      <div className="cv-tool-output__box">
-        <span className="cv-tool-output__actions">
-          <WrapButton kind="output" />
-          {experimentArm(hoverActions) === "all" && (
-            <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
-          )}
-        </span>
-        <pre
-          ref={body}
-          className="cv-tool-output selectable"
-          data-wrap={wrap}
-          data-preview={preview.attribute}
-          data-lang={result.lang === "json" ? "json" : undefined}
-          {...SIDEWAYS_SCROLLER}
-        >
-          {shown.cut && (
-            <span className="cv-output-cut" aria-hidden="true">
-              …{"\n"}
-            </span>
-          )}
-          {shown.shown && <Lines text={shown.shown} />}
-        </pre>
-      </div>
-      <PreviewMore preview={preview} />
-      {!preview.long && <OutputMore output={shown} />}
-    </div>
-  );
-}
 
 /// The images a call returned or wrote, shown under its row whether or not it is open: a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),

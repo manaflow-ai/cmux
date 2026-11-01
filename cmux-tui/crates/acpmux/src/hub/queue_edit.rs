@@ -299,13 +299,15 @@ impl Hub {
                 class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
+                message_id: None,
+                message_sender: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
-        let images = super::prompt_images::keep(&run.blocks);
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
@@ -392,6 +394,8 @@ impl Hub {
                     class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

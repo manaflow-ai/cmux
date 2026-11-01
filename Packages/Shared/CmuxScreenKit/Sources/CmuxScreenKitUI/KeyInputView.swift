@@ -7,10 +7,22 @@ import UIKit
 /// arrows) and sticky Control, Option and Command, which apply to the next key.
 final class KeyInputView: UIView, UIKeyInput {
     weak var session: ScreenSession?
-    private lazy var bar = KeyBar(owner: self)
+    private var loadedBar: KeyBar?
+    private var bar: KeyBar {
+        if let loadedBar { return loadedBar }
+        let bar = KeyBar(owner: self)
+        loadedBar = bar
+        return bar
+    }
 
     override var canBecomeFirstResponder: Bool { true }
     override var inputAccessoryView: UIView? { bar }
+
+    /// The latched ⌃⌥⌘ for a click (they release after it, as after a key);
+    /// none before the keyboard was ever shown.
+    func takeModifiers() -> [VNCKeysym] {
+        loadedBar?.takeModifiers() ?? []
+    }
 
     var hasText: Bool { true }
     var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }

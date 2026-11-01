@@ -37,6 +37,8 @@ final class HomeService {
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
+    /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
+    @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.

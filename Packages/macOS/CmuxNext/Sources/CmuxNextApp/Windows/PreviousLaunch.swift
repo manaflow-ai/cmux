@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 
 /// What the previous app launch left open, as this launch restored it: the windows its saved

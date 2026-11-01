@@ -5,11 +5,12 @@ import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The Machines section's joined machines (Labs `labs.machineJoin`): rows from `cmux machine list`
 /// (none while the switch is off), Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
-@MainActor @Suite(.serialized) struct JoinedMachineRowsTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
     // The suite is serialized and each test drives one store, so no two calls race.
     nonisolated final class Fake: @unchecked Sendable {
@@ -392,6 +393,8 @@ import Testing
     @Test func theRowShowsItsWholeNameAndNoSpinnerWhenIdleInAWindow() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"))
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()

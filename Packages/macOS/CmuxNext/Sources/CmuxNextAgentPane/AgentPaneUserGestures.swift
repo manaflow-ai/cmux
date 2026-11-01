@@ -21,6 +21,7 @@ import CmuxNextCompat
     /// A real user event reached the pane. `click`: a click on the page or the native permission
     /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
     public func record(click: Bool = false) {
+        questionReturn = nil
         last = now()
         lastScope = last
         if click { lastClick = last }
@@ -29,6 +30,24 @@ import CmuxNextCompat
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).
     public static let answerWindow: TimeInterval = 1.5
     private var lastClick: TimeInterval?
+    /// A distinct native witness for one nonrepeating Chromium Return. New page input revokes
+    /// it, including posted input; repeats of a held key do not create or revoke a witness.
+    /// No generic gesture uptime can manufacture this.
+    private var questionReturn: UUID?
+
+    func recordQuestionReturn(_ isPersonReturn: Bool) {
+        questionReturn = isPersonReturn ? UUID() : nil
+    }
+
+    var questionReturnWitness: UUID? { questionReturn }
+
+    func consumeQuestionReturn(_ witness: UUID) -> Bool {
+        guard questionReturn == witness else { return false }
+        questionReturn = nil
+        // The key cannot also send a prompt or another granting frame.
+        last = nil
+        return true
+    }
 
     /// Whether the person clicked in the pane (or pressed the permission shortcut) just now: an
     /// Allow needs that, not a gesture left by typing, so a click another process posts on Allow
@@ -48,6 +67,11 @@ import CmuxNextCompat
     public func consume() -> Bool {
         guard let last else { return false }
         self.last = nil
+        // A normal granting frame (including a reserved ticket) wins the
+        // person's one grant credit. It must also revoke a Return witness
+        // captured by Chromium, so the same physical key cannot authorize a
+        // second granting request when the two paths race.
+        questionReturn = nil
         return now() - last <= Self.lifetime
     }
 
@@ -58,6 +82,8 @@ import CmuxNextCompat
     public func consumeForSend() -> Bool {
         guard last != nil else { return false }
         last = nil
+        // Sending a queued prompt is another granting use of the gesture.
+        questionReturn = nil
         return true
     }
 
@@ -377,14 +403,23 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
         questions.withLock { $0[permissionId] ?? nil }
     }
 
-    /// The item ids and prompts of `request.toolCall._meta.acpmux.question`, when it is an object.
+    /// The item ids and prompts of a question request. Claude Code's native
+    /// `AskUserQuestion` shape predates the normalized acpmux envelope, so its
+    /// answer keys come from `toolCall.rawInput.questions[].question`.
     static func questionKeys(_ request: [String: Any]) -> Set<String>? {
-        guard let question = AcpmuxPermissionPrompt.question(request) else { return nil }
-        var keys = Set<String>()
-        for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
-            for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
+        if let question = AcpmuxPermissionPrompt.question(request) {
+            var keys = Set<String>()
+            for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
+                for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
+            }
+            return keys
         }
-        return keys
+        let tool = request["toolCall"] as? [String: Any]
+        let meta = tool?["_meta"] as? [String: Any]
+        guard (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion",
+              let questions = (tool?["rawInput"] as? [String: Any])?["questions"] as? [Any] else { return nil }
+        let keys = questions.compactMap { ($0 as? [String: Any])?["question"] as? String }
+        return Set(keys)
     }
 
     /// True when the pane saw `permissionId` offer `optionId` and the stored value says it does not

@@ -52,6 +52,31 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     if let Some(page) = tab["conversation"]["page"].as_str() {
         public.set("page", json!(page));
     }
+    // Keep the canonical agent-tab identity in closed history so clients can
+    // still recognize a New Tab that became a chat. Host/install metadata is
+    // daemon-owned and stays private; the public record carries only the
+    // session id and harness type needed to identify the chat.
+    if let Some(agent) = tab
+        .get("conversation")
+        .and_then(|conversation| conversation.get("agent_session"))
+        .and_then(Value::as_object)
+    {
+        public.set("kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
+        let string_or_null = |key: &str| {
+            agent
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map_or(Value::Null, |value| json!(value))
+        };
+        public.set(
+            "agent_session",
+            json!({
+                "session": string_or_null("session"),
+                "harness": string_or_null("harness"),
+            }),
+        );
+    }
     if reopens_empty(tab) {
         public.set("empty", json!(true));
     }
@@ -366,6 +391,43 @@ pub(crate) fn keep_members(
     let evicted =
         crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
     Ok(public_item_in(&record, &evicted))
+}
+
+/// The newest group whose workspace member recorded closed workspace
+/// `workspace` (a `ws_` id), and that member's index. None when no group
+/// holds it (live, closed before its id was recorded, or deleted from the
+/// history). For `closed.reopen {workspace}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_workspace(
+    connection: &Connection,
+    workspace: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `ws_` id is hex after its prefix. Its `_` is a LIKE wildcard, so LIKE only narrows the
+    // candidates; the exact `closed_workspace_id` check below decides.
+    let Some(suffix) = workspace.strip_prefix("ws_") else {
+        return Ok(None);
+    };
+    if !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([workspace], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record.get("members").and_then(Value::as_array).cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["kind"] == "workspace"
+                && member["closed_workspace_id"].as_str() == Some(workspace)
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
 }
 
 /// The newest group that holds tab `tab` (a `tab_` id) and the index of its

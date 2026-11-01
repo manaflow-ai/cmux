@@ -80,9 +80,13 @@ impl Mux {
         for (receipt, settle) in settled {
             settle_one(state, &receipt, settle);
         }
-        // Subscribers read the new head (publishing takes neither the
-        // registry nor state).
-        self.publish_resource_event();
+        // Subscribers read the new head. Only the journal event: the
+        // caller holds the registry and state, and publish_resource_event
+        // also publishes pending terminal directories, which takes state
+        // (a self-deadlock here) and then the registry. A directory still
+        // pending is published by the terminal's next output or the next
+        // committed graph change.
+        self.publish_journal_event();
     }
 }
 

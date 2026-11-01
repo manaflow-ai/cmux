@@ -45,6 +45,8 @@ pub enum EventKinds {
 #[schemars(deny_unknown_fields)]
 pub struct AttachParams {
     pub session_id: String,
+    /// Wait for restart-time log restoration before answering; false serves the page immediately.
+    pub wait_logs: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's
     /// updates arrive as ACP `session/update` and acpmux's own as
@@ -98,6 +100,10 @@ pub struct AttachResult {
     pub page_through: u64,
     /// Who has the chat open now, this attachment included (`hub/presence.rs`).
     pub presence: super::presence::PresenceNote,
+    /// The prompt that opened the turn the page starts inside, when the page starts inside one
+    /// with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
+    /// acpmux leaves it out, and its client reads it with `_acpmux/events`.
+    pub turn_opener: Option<SessionEvent>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -113,6 +119,9 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    pub prompt_index: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
