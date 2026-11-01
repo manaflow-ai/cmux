@@ -3443,6 +3443,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # The routing App's budget can run out (run 41335987427): a failed read retries with this.
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
@@ -3455,6 +3457,7 @@ jobs:
         env:
           PLATFORM: linux
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.LINUX_RUNNER }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
