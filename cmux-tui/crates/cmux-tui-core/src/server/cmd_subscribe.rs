@@ -58,6 +58,8 @@ pub(super) fn subscribe_command(
     let page_events = super::origin_gate::page_relay_events(mux, client);
     // Its events are never tree deltas: render none only to drop them.
     let tree_deltas = tree_deltas && page_events.is_none();
+    // A remote device hears nothing of an incognito workspace (#31210).
+    let mut incognito = super::incognito_remote::EventFilter::default();
     let pending_pairings = if trusted_pairing_client && page_events.is_none() {
         mux.pending_pairings()
     } else {
@@ -288,6 +290,9 @@ pub(super) fn subscribe_command(
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
+            if incognito.hides(&event_mux, client, &event, &value) {
+                continue;
+            }
             if let Some(events) = page_events
                 && !value
                     .field("event")

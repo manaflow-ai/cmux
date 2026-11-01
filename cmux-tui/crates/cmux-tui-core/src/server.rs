@@ -2739,6 +2739,7 @@ use journal_stream::{
 };
 
 mod incognito_orphans;
+mod incognito_remote;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
