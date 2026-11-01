@@ -131,7 +131,10 @@ fn cloud_repo_install_links_are_checked_on_sync_and_when_reading_old_records() {
     // Old versions could persist links that the new writer rejects. Reading
     // one must not expose it or prevent a validated connector fallback.
     for url in crate::cloud_repos::tests::UNSAFE_INSTALL_URLS {
-        change(&mux, |doc| doc.set("install_url", json!(url))).unwrap();
+        change(&mux, |doc| {
+            doc.set("install_url", json!(url));
+        })
+        .unwrap();
         assert!(install_url(&mux).unwrap().is_none());
     }
 }
