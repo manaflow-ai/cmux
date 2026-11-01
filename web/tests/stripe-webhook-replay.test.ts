@@ -160,6 +160,19 @@ describe("Stripe webhook inbox drain", () => {
     expect(leases).toEqual([15 * 60_000, 25 * 60_000]);
   });
 
+  test("claims nothing while an unkeyed row of the pre-inbox build is held", async () => {
+    const { replay, store, enqueue } = replayer({
+      applySubscriptionUpdate: async () => ({ scope: "user", stackUserId: "user_1", isActive: true }),
+    });
+    await enqueue("evt_a", 10, "sub_a");
+    await store.inbox.record({ id: "evt_old_build", type: "invoice.paid", payloadHash: "h", objectKey: null, createdAt: null });
+    // What the pre-inbox build's insert gets from the column default.
+    Object.assign(store.rows.get("evt_old_build")!, { leaseExpiresAt: new Date(NOW.getTime() + 15 * 60_000) });
+
+    expect(await replay(NOW)).toEqual({ attempted: 0, succeeded: 0, failed: 0 });
+    expect(store.rows.get("evt_a")?.processedAt).toBeNull();
+  });
+
   test("records an event Stripe no longer serves as a failure for the alert", async () => {
     const { replay, store, enqueue } = replayer({
       applySubscriptionUpdate: async () => ({ scope: "user", stackUserId: "user_1", isActive: true }),

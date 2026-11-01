@@ -186,6 +186,20 @@ describe("Stripe webhook inbox store", () => {
     expect(await inbox.claim("evt_old_build", later, new Date(later.getTime() + MINUTE))).toMatchObject({ attempts: 1 });
   });
 
+  dbTest("while an unkeyed row of the pre-inbox build is held, the inbox claims nothing", async () => {
+    await sql!`insert into stripe_webhook_events (id, type, payload_hash) values ('evt_old_build', 'invoice.paid', 'h')`;
+    await inbox.record(entry("evt_new", "sub_any"));
+    await inbox.record(entry("evt_unkeyed", null, "charge.refunded"));
+    const now = new Date();
+    expect(await inbox.claim("evt_new", now, new Date(now.getTime() + MINUTE))).toBeNull();
+    expect(await inbox.claim("evt_unkeyed", now, new Date(now.getTime() + MINUTE))).toBeNull();
+
+    // The inbox's own unkeyed claims are not mistaken for that build's.
+    const later = new Date(now.getTime() + 16 * MINUTE);
+    expect(await inbox.claim("evt_unkeyed", later, new Date(later.getTime() + MINUTE))).toMatchObject({ attempts: 1 });
+    expect(await inbox.claim("evt_new", later, new Date(later.getTime() + MINUTE))).toMatchObject({ attempts: 1 });
+  });
+
   dbTest("rows stored before the inbox columns existed are drained", async () => {
     await sql!`
       insert into stripe_webhook_events (id, type, payload_hash, error, created_at, lease_expires_at)

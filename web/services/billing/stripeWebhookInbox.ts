@@ -129,6 +129,7 @@ export function createDrizzleStripeWebhookInbox(
             .limit(1);
           if (holder) return null;
         }
+        if (await heldByPreInboxBuild(tx, id, now)) return null;
         const [claimed] = await tx
           .update(events)
           .set({ attempts: sql`${events.attempts} + 1`, leaseExpiresAt: leaseUntil })
@@ -188,6 +189,31 @@ export function createDrizzleStripeWebhookInbox(
       return rows.map((row) => row.id);
     },
   };
+}
+
+type InboxTx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+/**
+ * Rollout barrier. The pre-inbox build stores no object key, so its lease
+ * (the column default) cannot be matched to a sibling event; while any row it
+ * wrote is still held, the inbox claims nothing. Only that build leaves a
+ * live lease with no attempt counted: the inbox stores rows unleased and
+ * counts an attempt with every lease it takes. After the cutover this finds
+ * nothing within one lease (the partial due index covers the scan).
+ */
+async function heldByPreInboxBuild(tx: InboxTx, id: string, now: Date): Promise<boolean> {
+  const [held] = await tx
+    .select({ id: events.id })
+    .from(events)
+    .where(and(
+      isNull(events.processedAt),
+      isNull(events.objectKey),
+      eq(events.attempts, 0),
+      gt(events.leaseExpiresAt, now),
+      ne(events.id, id),
+    ))
+    .limit(1);
+  return Boolean(held);
 }
 
 function heldBy(claim: StripeWebhookClaim) {

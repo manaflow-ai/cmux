@@ -59,6 +59,16 @@ export function memoryStripeWebhookInbox(clock: () => Date = () => new Date()) {
           ) return null;
         }
       }
+      for (const other of rows.values()) {
+        if (
+          other.id !== id &&
+          !other.processedAt &&
+          other.objectKey === null &&
+          other.attempts === 0 &&
+          other.leaseExpiresAt &&
+          other.leaseExpiresAt > now
+        ) return null;
+      }
       row.attempts += 1;
       row.leaseExpiresAt = leaseUntil;
       return { id, attempts: row.attempts };
