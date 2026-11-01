@@ -13,8 +13,11 @@ fn own_class(label: &str) {
     let bg = unsafe {
         libc::getpriority(4 /* PRIO_DARWIN_PROCESS */, 0)
     };
-    // SAFETY: qos_class_self has no preconditions.
-    let qos = unsafe { libc::qos_class_self() } as u32;
+    unsafe extern "C" {
+        fn qos_class_self() -> u32;
+    }
+    // SAFETY: qos_class_self (pthread/qos.h) has no preconditions.
+    let qos = unsafe { qos_class_self() };
     // SAFETY: getpriority(PRIO_PROCESS, 0) reads this process's nice value.
     let nice = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
     eprintln!("BGPROBE {label} own darwin_bg={bg} qos=0x{qos:x} nice={nice}");
