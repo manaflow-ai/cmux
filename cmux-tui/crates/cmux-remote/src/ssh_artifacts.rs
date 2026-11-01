@@ -315,10 +315,53 @@ pub async fn pinned_linux_payload(
     arch: &str,
     identity: &str,
 ) -> Result<Option<PinnedPayload>, BootstrapError> {
+    let Some((pin, source)) = resolve_linux_pin(arch, identity).await? else { return Ok(None) };
+    let path = match source {
+        PinSource::Bundled(path) => path,
+        PinSource::Published(published) => fetch_published(&published).await?,
+    };
+    Ok(Some(PinnedPayload { path, sha256: pin.sha256, commit: pin.commit }))
+}
+
+/// The pin [`pinned_linux_payload`] would install (its SHA-256 and the
+/// commit that published it), resolved the same way but without downloading
+/// the payload: what `cmux link machine pin` answers for the app's legacy
+/// machine update.
+pub async fn pinned_linux_pin(
+    arch: &str,
+    identity: &str,
+) -> Result<Option<LinuxPin>, BootstrapError> {
+    Ok(resolve_linux_pin(arch, identity).await?.map(|(pin, _)| pin))
+}
+
+/// This client's pinned Linux build for a machine: its SHA-256 (lowercase)
+/// and the commit that published it (a tree-mode bundle's may be an earlier
+/// commit than its own, of the same cmux-tui tree).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxPin {
+    pub sha256: String,
+    pub commit: String,
+}
+
+/// Where a resolved Linux pin's file is: shipped beside the manifest, or to
+/// be downloaded from the immutable release.
+enum PinSource {
+    Bundled(PathBuf),
+    Published(PublishedPayload),
+}
+
+async fn resolve_linux_pin(
+    arch: &str,
+    identity: &str,
+) -> Result<Option<(LinuxPin, PinSource)>, BootstrapError> {
     let executable = std::env::current_exe().map_err(BootstrapError::Io)?;
     let cache = default_payload_cache();
     let source =
         PayloadSource { base_url: PUBLISHED_BASE_URL, cache: cache.as_deref(), proxy_pac: None };
+    let pin = |sha256: &str, commit: &str| LinuxPin {
+        sha256: sha256.to_ascii_lowercase(),
+        commit: commit.to_owned(),
+    };
     match payload(&executable, identity, "linux", arch, &source)? {
         None => {
             // No manifest ships with this build. CI (cmux-tui-artifacts)
@@ -327,15 +370,10 @@ pub async fn pinned_linux_payload(
             // build, and the download is still checked against that pin.
             let Some(cache) = cache else { return Ok(None) };
             let published = match published_manifest(PUBLISHED_BASE_URL, identity).await {
-                Some(manifest) => published_pin(
-                    PUBLISHED_BASE_URL,
-                    identity,
-                    "linux",
-                    arch,
-                    &manifest,
-                    &cache,
-                )?
-                .map(|pin| (pin, identity.to_owned())),
+                Some(manifest) => {
+                    published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
+                        .map(|pin| (pin, identity.to_owned()))
+                }
                 None => match bundled_tree_key(&executable) {
                     Some(key) => {
                         published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache).await?
@@ -344,8 +382,7 @@ pub async fn pinned_linux_payload(
                 },
             };
             let Some((published, commit)) = published else { return Ok(None) };
-            let path = fetch_published(&published).await?;
-            Ok(Some(PinnedPayload { path, sha256: published.sha256.to_ascii_lowercase(), commit }))
+            Ok(Some((pin(&published.sha256, &commit), PinSource::Published(published))))
         }
         Some(Payload::Bundled(path)) => {
             // The manifest's own pin, which `payload` matched the file against.
@@ -353,19 +390,10 @@ pub async fn pinned_linux_payload(
                 .and_then(|pinned| pinned.platform("linux", arch).transpose())
                 .transpose()?
                 .ok_or_else(|| BootstrapError::Configuration("the Linux pin went away".into()))?;
-            Ok(Some(PinnedPayload {
-                path,
-                sha256: pinned.sha256.to_ascii_lowercase(),
-                commit: identity.to_owned(),
-            }))
+            Ok(Some((pin(&pinned.sha256, identity), PinSource::Bundled(path))))
         }
         Some(Payload::Published(published)) => {
-            let path = fetch_published(&published).await?;
-            Ok(Some(PinnedPayload {
-                path,
-                sha256: published.sha256.to_ascii_lowercase(),
-                commit: identity.to_owned(),
-            }))
+            Ok(Some((pin(&published.sha256, identity), PinSource::Published(published))))
         }
         Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
             "a Linux payload resolved to this client's own build".into(),

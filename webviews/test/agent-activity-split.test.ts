@@ -1,7 +1,8 @@
 // The Agent Activity page's split view in a narrow pane (480 px, the gallery's narrow width): the
 // selected agent's title stays on one line beside its status, and Stop, Pause and Watch all stay
 // on screen (they wrap under the title when the header runs out of room) instead of the title
-// wrapping one word per line and Watch running off the edge. The session list gives up width to
+// wrapping one word per line and Watch running off the edge. The toolbar's layout picker stays on
+// screen too, because its search field gives up width first. The session list gives up width to
 // the detail first. At the normal width the header is one line.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -51,12 +52,17 @@ await requireBrowserLane("agent-activity-split.test.ts", async () => {
         return {
           titleLines: lineTops.size,
           buttonsRight: Math.max(...buttons.map((b) => b.right)),
+          // The segments, not the fieldset: the fieldset shrinks and lets its segments overflow it.
+          layoutPickerRight: Math.max(
+            ...[...document.querySelectorAll("nav .segment")].map((s) => s.getBoundingClientRect().right),
+          ),
           headerLines: new Set([...header.children].map((c) => Math.round(c.getBoundingClientRect().top / 8))).size,
         };
       });
       await page.close();
       expect(m.titleLines).toBe(1);
       expect(m.buttonsRight).toBeLessThanOrEqual(width);
+      expect(m.layoutPickerRight).toBeLessThanOrEqual(width);
       if (width >= 1000) expect(m.headerLines).toBe(1);
     });
   }

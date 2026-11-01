@@ -92,6 +92,14 @@ struct CloudStartChatMachineTests {
         let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
         #expect(unsigned["user"] == nil)
         #expect(unsigned["workspace"] == nil)
+        #expect(unsigned["credential_on_stdin"] as? Bool == false)
+        // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
+        let hot = CloudStartChat.planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
+                                             local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
+        let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
+        #expect(ensure["local"] as? String == "/Users/me/src/paint")
+        #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
+        #expect(ensure["credential_on_stdin"] as? Bool == true)
     }
 
     /// A folder the page named is copied only as the pane checked it.

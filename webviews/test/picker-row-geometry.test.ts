@@ -44,8 +44,7 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       icon: ".acpmux-env-icon, .acpmux-project-badge",
       title: ".acpmux-menu-label",
       section: ".ui-combobox-pinned, .ui-combobox-scroll",
-      // This Mac and Cloud, then the other machines under a hairline (no section names).
-      sectionStart: ":has(> .acpmux-env-row[data-divider])",
+      // This Mac and Cloud, one line each: no sections and no hairline.
       level: "fail",
     },
     {

@@ -10,6 +10,7 @@ import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.ex
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
+import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
@@ -35,6 +36,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   startedSessionCards,
   threadMinimapLayout,
   threadMinimapHeight,
+  threadMinimapGutter,
   newTabHeadline,
   threadMinimapLit,
   threadMinimapMark,
