@@ -159,7 +159,10 @@ class FocusedTestMap(unittest.TestCase):
         routed = cmux_next_route.route(ROOT, "pull_request", [path], set())
         # The comparison is about which targets are selected, not the per-car cap: past SWIFT_CAP the
         # plan defers every Swift target to the candidate (#25696 took CmuxNextFiles' route to 10).
-        with mock.patch.object(focused_tests, "SWIFT_CAP", len(routed.tests)):
+        self.assertFalse(routed.full, "a CmuxNextFiles source routes to a target set, not everything")
+        self.assertTrue(routed.tests, "a CmuxNextFiles source routes to at least one test target")
+        # Headroom over the routed count, so a target only the plan selects shows in the diff.
+        with mock.patch.object(focused_tests, "SWIFT_CAP", len(routed.tests) + 50):
             got = focused_tests.plan(ROOT, [path])
         self.assertEqual(sorted(s["filter"] for s in got["swift"] if s["package"] == "Packages/macOS/CmuxNext"),
                          sorted(routed.tests))
