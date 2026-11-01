@@ -491,10 +491,10 @@ final class TabCell {
             let geometry = TitleFadeGeometry(
                 textWidth: textWidth, span: span, visibleWidth: visibleWidth,
                 leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
-                // The ellipsis is the clipping cue for middle truncation. Keep
-                // the retained suffix opaque instead of fading it under the
-                // close button/badge mask.
-                fadeWidth: isMiddleTruncated ? 0 : m.titleFadeWidth,
+                // Keep the existing trailing fade for every clipped title;
+                // the rest width above keeps the suffix inside that visible
+                // area before the close button or badge.
+                fadeWidth: m.titleFadeWidth,
                 restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
