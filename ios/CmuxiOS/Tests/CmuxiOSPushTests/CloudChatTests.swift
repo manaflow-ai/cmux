@@ -66,6 +66,15 @@ func cloudAttentionPayload() {
     #expect(attention?.kind == .permission)
     #expect(attention?.sessionID == "s1")
     #expect(CloudChatAttention(userInfo: ["session_id": "s1"]) == nil)
+    #expect(CloudChatAttention(userInfo: [
+        "cmux.cloud.kind": "unknown", "cmux.cloud.session_id": "s1",
+    ]) == nil)
+    #expect(CloudChatAttention(userInfo: [
+        "cmux.cloud.kind": "done", "cmux.cloud.session_id": "",
+    ]) == nil)
+    #expect(CloudChatAttention(userInfo: [
+        "cmux.cloud.kind": "question", "cmux.cloud.body": "missing session",
+    ]) == nil)
 }
 
 @Test("Cloud relay accepts an acknowledgement before the assistant reply exists")
