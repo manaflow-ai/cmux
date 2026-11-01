@@ -277,6 +277,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             openThread(rootID: model.message.id)
             return
         }
+        if let replies = cell.cellLayout?.quoteRepliesFrame, replies.contains(local), let parent = model.message.replyToID {
+            openThread(rootID: parent)
+            return
+        }
         if let quote = cell.cellLayout?.quoteFrame, quote.contains(local), let parent = model.message.replyToID {
             openThread(rootID: parent)
             return

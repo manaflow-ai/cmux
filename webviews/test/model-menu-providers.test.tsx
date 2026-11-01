@@ -384,8 +384,9 @@ test("More models names each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  // The default symbols layout names More models "Legacy models".
   const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("More models"),
+    item.textContent?.startsWith("Legacy models"),
   )!;
   expect(more).toBeDefined();
   await act(async () => more.click());

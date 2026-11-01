@@ -149,7 +149,10 @@ test("the turn's opener comes with the attach page, not a read after it", async 
   try {
     expect(waves).toBeLessThanOrEqual(2);
     // No `_acpmux/events` read of the turn's prompts: the attach named it.
-    expect(sent.filter((request) => request.method === "_acpmux/events")).toEqual([]);
+    // (The rail's one prompt index read, direct.ts readPromptIndex, is not a read of the opener.)
+    expect(
+      sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true),
+    ).toEqual([]);
   } finally {
     close();
   }
@@ -165,7 +168,7 @@ test("an acpmux that does not name the opener still has it read", async () => {
     if (method === "_acpmux/attach") delete reply.turnOpener;
   });
   try {
-    const reads = sent.filter((request) => request.method === "_acpmux/events");
+    const reads = sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true);
     expect(reads.length).toBe(1);
     expect(reads[0]!.params).toMatchObject({ kinds: ["user_message"], limit: 16 });
   } finally {

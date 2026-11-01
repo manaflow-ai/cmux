@@ -529,7 +529,7 @@ def run_session(session):
                      env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     try:
         try:
-            bench.launch(timeout=180, settle=5.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             note(f"{session}: the app did not come up: {error.reason}")
             results.setdefault("launch_failures", []).append({"session": session, "reason": error.reason,

@@ -101,7 +101,7 @@ async fn restart_interrupts_a_blocked_writer_and_bounds_the_close() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     out.send("x".repeat(1 << 20)).await.unwrap();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown.clone()));
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown.clone(), Default::default()));
     tokio::task::yield_now().await;
     shutdown.close_clients();
     let before = tokio::time::Instant::now();
@@ -126,7 +126,7 @@ async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_cod
         } else {
             stop.send(()).unwrap();
         }
-        let task = tokio::spawn(write(sink, outbound, stopped, shutdown));
+        let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
         let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
             .await
             .unwrap()
@@ -151,7 +151,7 @@ async fn ordinary_shutdown_uses_a_normal_close_code() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     shutdown.normal_shutdown();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown));
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
     let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
         .await
         .unwrap()
@@ -198,7 +198,7 @@ async fn a_writer_that_sees_the_close_before_the_normal_stop_closes_normally() {
     let (_stop, stopped) = oneshot::channel();
     let shared = WsShutdown::default();
     let (local, _draining) = shared.listener();
-    let task = tokio::spawn(write(sink, outbound, stopped, local.clone()));
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
     tokio::task::yield_now().await;
     // The listener's close of its clients reaches the writer first.
     local.close_clients();
@@ -229,7 +229,7 @@ async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
     let (stop, stopped) = oneshot::channel();
     let shared = WsShutdown::default();
     let (local, _draining) = shared.listener();
-    let task = tokio::spawn(write(sink, outbound, stopped, local.clone()));
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
     tokio::task::yield_now().await;
     shared.restart();
     stop.send(()).unwrap();

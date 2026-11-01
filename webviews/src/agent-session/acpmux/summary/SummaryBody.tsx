@@ -52,6 +52,7 @@ export function SummaryBody({
   subagents,
   commands,
   onStopCommand,
+  onOpenTasksInPane,
   workflow,
   workflowActions,
   workflows,
@@ -77,6 +78,8 @@ export function SummaryBody({
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
   onStopCommand?: (processId: string) => Promise<unknown>;
+  /// Opens Session Info's complete Background tasks section beside the chat.
+  onOpenTasksInPane?: () => void;
   /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
   workflow?: WorkflowSummary;
   workflowActions?: WorkflowActions;
@@ -140,7 +143,7 @@ export function SummaryBody({
     summary.scheduled.length === 0;
   return (
     <>
-      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
+      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} onOpenInPane={onOpenTasksInPane} />
       <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
       <WorkflowSummaries
         key={workflows?.[0]?.sessionId}
