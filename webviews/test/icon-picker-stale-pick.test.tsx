@@ -31,16 +31,18 @@ afterAll(() => {
   }
 });
 
-test("a pick that resolves after a newer session opened is not sent", async () => {
+const ASSET = `svg:sha256-${"a".repeat(64)}`;
+
+/** Mounts the picker with a host whose URL download is held until `release` is called. */
+async function mountWithHeldDownload() {
   const { mountIconPicker } = await import("../src/pages/icon-picker/mount");
   const { IconPickerOps } = await import("../src/pages/icon-picker/host");
-  type Call = { op: string; params: Record<string, unknown> };
-  const calls: Call[] = [];
+  const finishes: Array<Record<string, unknown>> = [];
   let release!: (reply: unknown) => void;
   let openSession!: (session: unknown) => void;
   const client = {
     call: (op: string, params: Record<string, unknown>) => {
-      calls.push({ op, params });
+      if (op === IconPickerOps.finish) finishes.push(params);
       if (op === IconPickerOps.assetFromURL) return new Promise((resolve) => (release = resolve));
       return Promise.resolve(null);
     },
@@ -50,10 +52,10 @@ test("a pick that resolves after a newer session opened is not sent", async () =
     },
     handle: () => () => {},
   };
+  host.replaceChildren();
   const picker = mountIconPicker(host, client as never);
   await act(async () => {});
   await act(async () => openSession({ id: "a", tab: "svg", assets: true }));
-
   const view = host.ownerDocument.defaultView!;
   const url = host.querySelector<HTMLInputElement>('input[type="url"]')!;
   await act(async () => {
@@ -64,42 +66,23 @@ test("a pick that resolves after a newer session opened is not sent", async () =
     url.dispatchEvent(new view.Event("input", { bubbles: true }));
   });
   await act(async () => {
-    host.querySelector("form.icon-asset-url")!.dispatchEvent(new view.Event("submit", { bubbles: true, cancelable: true }));
+    host
+      .querySelector("form.icon-asset-url")!
+      .dispatchEvent(new view.Event("submit", { bubbles: true, cancelable: true }));
   });
-  expect(calls.map((call) => call.op)).toContain(IconPickerOps.assetFromURL);
+  return { picker, finishes, release: (reply: unknown) => act(async () => release(reply)) };
+}
 
+test("a pick that resolves after a newer session opened is not sent", async () => {
+  const { picker, finishes, release } = await mountWithHeldDownload();
   // The popover closes and opens for another target before the download answers.
   await act(async () => picker.open({ id: "b", tab: "emoji" }));
-  await act(async () => release({ icon: "svg:late" }));
-
-  expect(calls.filter((call) => call.op === IconPickerOps.finish)).toEqual([]);
+  await release({ icon: ASSET });
+  expect(finishes).toEqual([]);
 });
 
 test("a pick in the current session is sent with its id", async () => {
-  const { mountIconPicker } = await import("../src/pages/icon-picker/mount");
-  const { IconPickerOps } = await import("../src/pages/icon-picker/host");
-  const finishes: Array<Record<string, unknown>> = [];
-  const client = {
-    call: (op: string, params: Record<string, unknown>) => {
-      if (op === IconPickerOps.finish) finishes.push(params);
-      return Promise.resolve(null);
-    },
-    subscribe: async () => () => {},
-    handle: () => () => {},
-  };
-  host.replaceChildren();
-  const picker = mountIconPicker(host, client as never);
-  await act(async () => picker.open({ id: "c", tab: "emoji" }));
-  await act(async () => {
-    host.ownerDocument.dispatchEvent(
-      new (host.ownerDocument.defaultView!.KeyboardEvent)("keydown", { key: "Escape", bubbles: true }),
-    );
-  });
-  const search = host.querySelector<HTMLInputElement>(".icon-picker-search")!;
-  await act(async () =>
-    void search.dispatchEvent(
-      new (host.ownerDocument.defaultView!.KeyboardEvent)("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-    ),
-  );
-  expect(finishes).toEqual([{ session: "c", cancel: true }]);
+  const { finishes, release } = await mountWithHeldDownload();
+  await release({ icon: ASSET });
+  expect(finishes).toEqual([{ session: "a", value: ASSET }]);
 });
