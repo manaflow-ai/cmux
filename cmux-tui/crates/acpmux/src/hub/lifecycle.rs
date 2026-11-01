@@ -281,7 +281,7 @@ impl Hub {
         };
         let (session, created_stops) = session;
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
-        if let Err(e) = self.store.save(&session.meta()) {
+        if let Err(e) = self.write_meta(&session) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
             // A list built meanwhile showed it (`list_guard.rs`).

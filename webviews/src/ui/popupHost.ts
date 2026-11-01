@@ -148,6 +148,9 @@ export function popupItems(
     copy
       .querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"],[data-popup-skip]')
       .forEach((node) => node.remove());
+    // A row's muted description (`data-popup-detail`) follows its title after a dash: the host draws
+    // one line of text, and the two ran together ("PlanPlan reads and p…", Leo 2026-10-31).
+    copy.querySelectorAll("[data-popup-detail]").forEach((node) => node.prepend(" — "));
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
     return {
       id,

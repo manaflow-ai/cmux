@@ -82,7 +82,7 @@ extension WorkspaceRowView {
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
-            agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
+            agentMark.setTint(waits ? Palette.attention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
@@ -132,7 +132,7 @@ extension WorkspaceRowView {
 
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the tab
         // count (a fixed slot, the same with or without hover), close-or-badge, then the other marks.
-        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the

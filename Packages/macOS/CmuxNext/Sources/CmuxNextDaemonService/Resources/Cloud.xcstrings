@@ -11816,6 +11816,137 @@
           }
         }
       }
+    },
+    "cloud.failed.resizeNeedsSizeOrDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@)、--disk (GiB 単位の整数。4 GiB 刻み、最大 256、拡張のみ)、またはその両方を指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر ‎--size‎ ‏(%@)‏ أو ‎--disk‎ بعدد صحيح من GiB (بخطوات 4 GiB، حتى 256، للزيادة فقط)، أو كليهما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite --size (%@), --disk s cijelim brojem GiB (koraci od 4 GiB, do 256, samo povećanje) ili oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv --size (%@), --disk med et helt antal GiB (trin på 4 GiB, op til 256, kun forøgelse) eller begge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib --size (%@), --disk mit einer ganzen Zahl GiB (in 4-GiB-Schritten, bis 256, nur vergrößern) oder beides an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica --size (%@), --disk con un número entero de GiB (pasos de 4 GiB, hasta 256, solo para aumentar) o ambos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez --size (%@), --disk avec un nombre entier de Gio (par pas de 4 Gio, jusqu’à 256, agrandissement uniquement), ou les deux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specifica --size (%@), --disk con un numero intero di GiB (passi di 4 GiB, fino a 256, solo in aumento) o entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន --size (%@), --disk ជាចំនួនគត់នៃ GiB (ជំហាន 4 GiB រហូតដល់ 256 បង្កើនតែប៉ុណ្ណោះ) ឬទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), --disk(GiB 단위 정수, 4 GiB 단위, 최대 256, 늘리기만 가능) 또는 둘 다 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi --size (%@), --disk med et helt antall GiB (trinn på 4 GiB, opptil 256, kun økning) eller begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj --size (%@), --disk z całkowitą liczbą GiB (co 4 GiB, do 256, tylko zwiększanie) lub oba."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe --size (%@), --disk com um número inteiro de GiB (passos de 4 GiB, até 256, só aumenta) ou ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите --size (%@), --disk с целым числом ГиБ (шаг 4 ГиБ, до 256, только увеличение) или оба."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุ --size (%@), --disk เป็นจำนวนเต็มของ GiB (ทีละ 4 GiB สูงสุด 256 ขยายได้อย่างเดียว) หรือทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), tam sayı GiB değeriyle --disk (4 GiB adımlarla, en fazla 256, yalnızca büyütme) ya da ikisini birden verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть --size (%@), --disk із цілим числом ГіБ (крок 4 ГіБ, до 256, лише збільшення) або обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền --size (%@), --disk với số GiB nguyên (bước 4 GiB, tối đa 256, chỉ tăng), hoặc cả hai."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入 --size（%@）、--disk（GiB 整数，以 4 GiB 为步长，最大 256，只能增大），或两者都传。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入 --size（%@）、--disk（GiB 整數，以 4 GiB 為級距，最大 256，只能增加），或兩者都傳。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
