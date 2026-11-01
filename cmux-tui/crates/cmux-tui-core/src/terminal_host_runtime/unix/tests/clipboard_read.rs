@@ -731,6 +731,95 @@ fn fake_owner_host(
     Ok(hello.requested_rights)
 }
 
+/// A host that answers one smart owner handshake up to its Ready in one
+/// write and then closes the link at once (a host that ends right then).
+fn fake_owner_host_closing_after_ready(
+    mut stream: UnixStream,
+    record: TerminalHostRecord,
+) -> anyhow::Result<()> {
+    stream.set_read_timeout(Some(SAFETY_BOUND))?;
+    let hello_frame = read_required_frame(&mut stream, "owner hello")?;
+    let version = hello_frame.version;
+    let hello = ClientHello::decode(&hello_frame.payload)?;
+    let response = HostHello {
+        selected_version: version,
+        granted_rights: hello.requested_rights,
+        terminal_id: hello.terminal_id,
+        incarnation: HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?),
+    };
+    let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
+    host_hello.version = version;
+    host_hello.request_id = hello_frame.request_id;
+    host_hello.flags = hello_frame.flags & (FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);
+    let snapshot = HostSnapshot {
+        cols: 80,
+        rows: 24,
+        cell_pixels: DEFAULT_CELL_PIXELS,
+        replay: Vec::new(),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: test_kitty_state(),
+        sequence_boundary: 0,
+        colors: TerminalColorOverrides::default(),
+        pid: None,
+        command: vec!["/bin/sh".into()],
+        cwd: None,
+        osc_progress: String::new(),
+        program_status: None,
+        shell_activity: None,
+    };
+    let mut bytes = Vec::new();
+    write_frame(&mut bytes, &host_hello)?;
+    for (kind, payload) in [
+        (MessageKind::Snapshot, encode_snapshot_for_version(&snapshot, version, false)?),
+        (MessageKind::Colors, encode_terminal_color_overrides(&TerminalColorOverrides::default())),
+        (MessageKind::Ready, Vec::new()),
+    ] {
+        let mut frame = Frame::new(kind, payload);
+        frame.version = version;
+        frame.sequence = 5;
+        write_frame(&mut bytes, &frame)?;
+    }
+    stream.write_all(&bytes)?;
+    stream.shutdown(std::net::Shutdown::Both)?;
+    Ok(())
+}
+
+/// A host that ends right after its Ready: the owner's attach reads the
+/// closed link as such. On macOS `setsockopt` refuses a socket whose peer
+/// closed with EINVAL, and the attach failed with "Invalid argument" while
+/// clearing its read timeout, where Linux reads the end (the same bug class
+/// as the terminal holder's link, #30740). Many tries: the host's close must
+/// come before the owner clears its timeout, which it does in most tries.
+#[test]
+fn an_attach_to_a_host_that_closes_after_ready_never_fails_on_the_timeout() {
+    for attempt in 0..40 {
+        let (record_path, mut record, lease) = record_fixture("attach-closed-after-ready");
+        record.supports_terminal_metadata = false;
+        let (daemon, host) = UnixStream::pair().unwrap();
+        let host_record = record.clone();
+        let host = thread::spawn(move || fake_owner_host_closing_after_ready(host, host_record));
+        let attachment = connect_record_at_version(
+            record,
+            record_path.clone(),
+            SAFETY_BOUND,
+            PROTOCOL_VERSION,
+            true,
+            daemon,
+            OwnerIntent::Surface,
+        );
+        host.join().unwrap().unwrap();
+        drop(lease);
+        let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        if let Err(error) = attachment {
+            let einval = error.chain().any(|cause| {
+                cause.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
+                    == Some(libc::EINVAL)
+            });
+            assert!(!einval, "attempt {attempt}: the attach failed on its timeout: {error:#}");
+        }
+    }
+}
+
 fn connect_to_fake_host(
     supports_clipboard_read: bool,
     protocol_version: u16,

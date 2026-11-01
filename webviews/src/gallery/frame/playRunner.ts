@@ -36,6 +36,8 @@ declare global {
   interface Window {
     cmuxGalleryInput?: InputDriver;
     cmuxGalleryStep?: StepStill;
+    /** Opt-in receipt evidence, captured before the measurement's observers and clock start. */
+    cmuxGalleryBeforeStep?: (step: { step: string }) => Promise<void>;
     cmuxGalleryPlayReport?: PlayReport;
   }
 }
@@ -351,6 +353,7 @@ async function measured(
   checks: PlayChecks,
   run: () => Promise<void>,
 ): Promise<StepReport> {
+  if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
   const shifts: Shift[] = [];
@@ -492,7 +495,7 @@ export async function runPlay(
     target: Element | null,
     run: () => void | Promise<void>,
   ): Promise<void> => {
-    steps.push(
+    await record(
       await measured(name, action, target, anchors, checks, async () => {
         await run();
       }),

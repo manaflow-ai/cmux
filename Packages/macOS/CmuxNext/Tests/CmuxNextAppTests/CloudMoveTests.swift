@@ -14,7 +14,7 @@ import Testing
 /// chat tab, sent as the CLI sends it (`action.run`, `cli: true`, origin `cli`, a `tab:` target)
 /// to the app's real action registry. This Mac is a real cmux-tui daemon; the Cloud machine is a
 /// second real daemon reached the way the app reaches a machine's link socket
-/// (`DaemonService.start(remote:)` on a ``CloudMachineSession``). `cmux link sync push` and
+/// (`DaemonService.start(remote:)` on a ``CloudMachineSession``). `cmux link seed push` and
 /// `cmux link agent move` are a stand-in `cmux` that records its arguments and answers their
 /// JSON lines as the case asks; the Rust suites cover those CLIs against daemons (link_sync.rs,
 /// link_agent_move.rs, cloud_move_journey.rs).
@@ -31,10 +31,10 @@ struct CloudMoveTests {
             let moved = try await move.read()
 
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
-            #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
+            #expect(moved.calls.first == ["link", "seed", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
                                                      "--to-socket", move.vmSocket, "--cwd", synced, "--interrupt",
-                                                     "--sync", "push", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
+                                                     "--sync", "seed", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
                                                      "--sync-remote", synced, "--vm-kind", "none"],
                     "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
@@ -197,7 +197,7 @@ struct CloudMoveTests {
             while move.calls().count < 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
             let after = await move.toolCards(waiting: false)?.first.flatMap { Self.text($0, "text") }
             let again = try #require(move.calls().dropFirst().first, "Retry did not run the move again: \(move.calls()); card: \(after ?? "none")")
-            #expect(Array(again.prefix(5)) == ["link", "sync", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
+            #expect(Array(again.prefix(5)) == ["link", "seed", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
         }
     }
 
@@ -263,7 +263,7 @@ struct CloudMoveTests {
                 let deadline = ContinuousClock.now + .seconds(origin == .cli ? 30 : 10)
                 while move.calls().count < before + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
                 let ran = move.calls().dropFirst(before).map { Array($0.prefix(3)) }
-                if origin == .cli { #expect(ran == [["link", "sync", "push"], ["link", "agent", "move"]], "\(ran)") }
+                if origin == .cli { #expect(ran == [["link", "seed", "push"], ["link", "agent", "move"]], "\(ran)") }
                 // The stop's own bookkeeping, after its last call.
                 try? await Task.sleep(for: .milliseconds(300))
             }
@@ -280,7 +280,7 @@ struct CloudMoveTests {
             let moved = try await move.read()
             let calls = Array(moved.calls.dropFirst(before))
             #expect(calls.first == ["link", "machine", "update", "--socket", move.vmSocket], "\(calls)")
-            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "push"], ["link", "agent", "move"]], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "push"], ["link", "agent", "move"]], "\(calls)")
             #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
             #expect(!moved.macStillHasTab)
         }
@@ -325,7 +325,9 @@ struct CloudMoveTests {
             let card = try #require(cards.first, "no card in the chat")
             #expect(move.calls().isEmpty, "the agent's run moved the chat: \(move.calls())")
             #expect(Self.text(card, "state") == "ask")
-            #expect(Self.actionIDs(card) == ["move", "notNow", "always"])
+            // A signed-out chat can approve one move, but has no Cloud identity for an "Always" grant.
+            let canRemember = move.services.cloud.auth.isSignedIn && move.services.cloud.auth.user != nil && move.services.cloud.auth.teamID != nil
+            #expect(Self.actionIDs(card) == (canRemember ? ["move", "notNow", "always"] : ["move", "notNow"]))
             let id = try #require(Self.text(card, "id"))
 
             // Page script can't answer for the person.
@@ -623,7 +625,7 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
-    /// `link sync push` creates the synced folder (not in `tabFailed`, so the machine's terminal
+    /// `link seed push` creates the synced folder (not in `tabFailed`, so the machine's terminal
     /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
     /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
     /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
@@ -637,7 +639,7 @@ struct CloudMoveTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push")
+            "link seed push")
                 [ '\(mode)' = syncTimeout ] && exec sleep 30
                 if [ '\(mode)' = syncOutdated ]; then
                     echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated"}'

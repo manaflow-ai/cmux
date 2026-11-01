@@ -233,7 +233,7 @@ export default agentPaneEntry({
       },
     },
     "environment-picker": {
-      note: "Play: in a new chat, click the computer control under the composer; the picker lists this Mac, the person's machines and Cloud.",
+      note: "Play: in a new chat, click the environment control under the composer; the picker lists This Mac and Cloud (the machines are its right-click menu's Machines…).",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat,
       play: async (ctx) => {

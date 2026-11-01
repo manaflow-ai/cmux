@@ -1,0 +1,8 @@
+/* The gallery's line-height comparison for a box-drawing diagram (CodeBlockDiagram.gallery.tsx). The
+   shipped value is conversation.css `.cv-codeblock--diagram .cv-code-plain` (snug). */
+[data-gallery-diagram-lines="normal"] .cv-codeblock--diagram .cv-code-plain {
+  line-height: normal;
+}
+[data-gallery-diagram-lines="tall"] .cv-codeblock--diagram .cv-code-plain {
+  line-height: var(--cv-codeblock-line-height, 20px);
+}

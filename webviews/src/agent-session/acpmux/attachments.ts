@@ -9,6 +9,7 @@ import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
+import { videoFrameBlocks } from "./composer/videoPrompt";
 
 export type ComposerAttachment = {
   id: string;
@@ -356,7 +357,7 @@ export type OrderedDraftPart =
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
  * as a link to its copy (intakeFiles.ts). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -550,7 +551,11 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+    // A video's frames note and frames follow its link (composer/videoPrompt.ts).
+    blocks.push(
+      { type: "resource_link", uri: fileUri(attachment.path), name: attachment.name },
+      ...videoFrameBlocks(attachment),
+    );
   if (attachment.kind === "image" && attachment.originalPath)
     blocks.push({
       type: "resource_link",

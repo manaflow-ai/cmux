@@ -339,6 +339,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.chiefEngine"),
             // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
             group("settings.group.chiefReactions"),
+            // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
+            group("settings.group.chiefSubagents"),
         ],
         lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices])
 
