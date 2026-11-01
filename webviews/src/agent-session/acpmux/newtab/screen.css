@@ -439,17 +439,6 @@
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
 }
-/* Codex's look keeps the controls in the box's own row under the field (cmux #28901), as the chat's
-   Codex box does (composerLocation.css): +, the mic and Send are the same one 28 px control, + stands
-   as far off the box's left as Send off its right and both as far over the row's bottom, the inset
-   Claude's look gives New Tab's + (so + keeps one column in both looks). */
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers {
-  padding: 0 var(--acpmux-composer-inset) var(--acpmux-composer-inset);
-}
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers :is(.acpmux-mic, .acpmux-send) {
-  width: var(--acpmux-composer-control);
-  height: var(--acpmux-composer-control);
-}
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
   width: 24px;

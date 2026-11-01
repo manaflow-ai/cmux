@@ -382,6 +382,7 @@ async fn another_agents_steer_goes_in_when_no_prompt_waits() {
 #[tokio::test]
 async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     let (hub, mut c, id, running, turn, mine, gate, next) = turn_with_a_waiting_prompt().await;
+    assert!(hub.resolve(&id).unwrap().turn().unwrap().persons, "the running turn is the person's");
     let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
                        "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}});
     let steer = c.send(method::SESSION_PROMPT, steer).await;

@@ -19,6 +19,7 @@ enum DebugPaletteCapture {
         let model = services.palette.model
         result["query"] = .string(model.query)
         result["selected"] = model.selectedItem.map { .string($0.title) } ?? .null
+        result["rows"] = .array(model.rows.map { .string($0.id) })
         return .object(result)
     }
 
