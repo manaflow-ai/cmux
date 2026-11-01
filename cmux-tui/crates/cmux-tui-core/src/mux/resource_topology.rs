@@ -161,6 +161,15 @@ struct PaneAddOptions<'a> {
     on_exit: Option<TerminalOnExit>,
 }
 
+/// The terminal a new pane starts (`effect_spawn_pane_surface`) when it is not a browser pane.
+struct PaneTerminalSpawn {
+    argv: Option<Vec<String>>,
+    cwd: Option<String>,
+    size: Option<(u16, u16)>,
+    name: Option<String>,
+    on_exit: Option<TerminalOnExit>,
+}
+
 struct TerminalEffectOptions {
     argv: Option<Vec<String>>,
     cwd: Option<String>,
