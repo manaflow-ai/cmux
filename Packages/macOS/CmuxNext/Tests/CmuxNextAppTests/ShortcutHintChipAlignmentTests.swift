@@ -137,7 +137,10 @@ struct ShortcutHintChipAlignmentTests {
             for item in items {
                 let fill = try #require(harness.drawnFill(item), "\(c.testDescription): \(item) draws no fill")
                 let chip = try #require(chips[item], "\(c.testDescription): \(item) has no chip; chips \(chips.keys)")
-                let edge = fill.maxX - SidebarStyle.horizontalInset
+                // The shared trailing slot reserves the resize band's clearance (bb5fb9695d26)
+                // and therefore is one point inside the compact row inset. Keep hints on that
+                // settled slot instead of the pre-resize-clearance horizontal inset.
+                let edge = fill.minX + SidebarStyle.trailingColumnStart(rowWidth: fill.width) + SidebarStyle.trailingSlotSide
                 #expect(abs(chip.maxX - edge) <= Self.tolerance,
                         "\(c.testDescription): \(item)'s chip ends at \(chip.maxX), the rows' trailing content edge is \(edge) (fill \(fill))")
                 #expect(abs(chip.midY - fill.midY) <= Self.tolerance,
