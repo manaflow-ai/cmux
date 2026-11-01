@@ -31,10 +31,15 @@ public final class SandboxRunFollower {
         public var tells: Set<SandboxRunEnd.Outcome>
         /// The path errors name (`/api/runs`).
         public var path: String
+        /// Whether the owner's list can bring a task back after a relaunch (hand-offs): its incognito ids are
+        /// then kept until that list answers (``keepIncognito(listed:)``). Otherwise (Runs) nothing brings an
+        /// unsaved incognito task back, so its id is dropped at the next sign-in.
+        public var relisted: Bool
 
         public init(wait: @escaping @Sendable (String, String?, Int?) async throws -> Data, read: @escaping @Sendable (Data) -> CloudTaskRead,
-                    defaultsKey: String, maximumAge: TimeInterval, tells: Set<SandboxRunEnd.Outcome>, path: String) {
+                    defaultsKey: String, maximumAge: TimeInterval, tells: Set<SandboxRunEnd.Outcome>, path: String, relisted: Bool = false) {
             (self.wait, self.read, self.defaultsKey, self.maximumAge, self.tells, self.path) = (wait, read, defaultsKey, maximumAge, tells, path)
+            self.relisted = relisted
         }
 
         /// Sandboxed Runs (hq#3367): the server caps a task at 12 minutes; every end is told.
@@ -69,10 +74,14 @@ public final class SandboxRunFollower {
     /// starts: a cancel that races the send's hand-off still ends silently.
     private var cancelledHere: [String] = []
     /// Incognito tasks that may still be open, newest last (ids only, as the incognito ledger keeps). Never
-    /// evicted for count: an id goes when its task ends or the server no longer shows it (403, 404). Their
-    /// records are never saved, so one found again after a relaunch (a hand-off in the owner's list) is
-    /// given back its flag (#31040).
+    /// evicted for count: an id goes when its task ends, the server no longer shows it (403, 404), or it is
+    /// neither followed nor in the owner's list once that answers (``keepIncognito(listed:)``; a Run's at the
+    /// next sign-in, #31208). Their records are never saved, so one found again after a relaunch (a hand-off
+    /// in the owner's list) is given back its flag (#31040).
     private var incognitoIDs: [String] = []
+    /// The account of each id in ``incognitoIDs`` (none: saved before owners were kept). An owner's list prunes
+    /// only that owner's ids, so another account's sign-in never takes a hand-off's flag away.
+    private var incognitoOwners: [String: String] = [:]
     private var user: String?
 
     public convenience init(wait: @escaping Wait, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
@@ -91,6 +100,7 @@ public final class SandboxRunFollower {
             ended = saved.ended
             cancelledHere = saved.cancelled ?? []
             incognitoIDs = saved.incognito ?? []
+            incognitoOwners = saved.incognitoOwners ?? [:]
         }
     }
 
@@ -115,6 +125,8 @@ public final class SandboxRunFollower {
         }
         guard let user else { return }
         prune()
+        // Nothing brings an unsaved incognito Run back, whichever account made it.
+        if !source.relisted { pruneIncognito(listed: [], owner: nil) }
         tellUntold(of: user)
         for record in following { start(record) }
     }
@@ -153,6 +165,7 @@ public final class SandboxRunFollower {
     private func add(_ record: SandboxRunRecord) {
         var record = record
         if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id) }
+        if incognitoIDs.contains(record.id), incognitoOwners[record.id] == nil { incognitoOwners[record.id] = record.user }
         if incognitoIDs.contains(record.id) { record.incognito = true }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
@@ -180,6 +193,32 @@ public final class SandboxRunFollower {
         (record.changed, record.running) = (latest, running ? true : nil)
         records[id] = record
         save()
+    }
+
+    /// The signed-in owner's list answered with `listed`: an incognito id neither followed nor listed is
+    /// dropped. Its task ended while the app was stopped (never resumed, its record isn't saved), so nothing
+    /// else would ever remove it (#31208).
+    /// Only the signed-in user's ids (and ones saved without an owner) are pruned: another account's list can't show them.
+    public func keepIncognito(listed: Set<String>) {
+        guard let user else { return }
+        pruneIncognito(listed: listed, owner: user)
+    }
+
+    /// Drops the incognito ids of `owner` (nil: every account) that are neither followed nor `listed`.
+    private func pruneIncognito(listed: Set<String>, owner: String?) {
+        let gone = incognitoIDs.filter { id in
+            guard records[id] == nil, !listed.contains(id) else { return false }
+            return owner == nil || (incognitoOwners[id] ?? owner) == owner
+        }
+        guard !gone.isEmpty else { return }
+        for id in gone { forgetIncognito(id) }
+        save()
+    }
+
+    /// Task `id` is no longer an incognito task that may be open (the caller saves).
+    private func forgetIncognito(_ id: String) {
+        incognitoIDs.removeAll { $0 == id }
+        incognitoOwners[id] = nil
     }
 
     /// Whether task `id` is followed now or ended here (still kept).
@@ -224,7 +263,7 @@ public final class SandboxRunFollower {
                     return
                 } catch CloudAPIError.http(let status, _, _, _, _) where status == 403 || status == 404 {
                     // The server doesn't show this Run to this account any more: nothing to wait for.
-                    self.incognitoIDs.removeAll { $0 == id }
+                    self.forgetIncognito(id)
                     return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 } catch {
                     answer = .unreadable
@@ -258,7 +297,7 @@ public final class SandboxRunFollower {
         guard let record = records.removeValue(forKey: id) else { return }
         let silent = silent || (cancelledHere.contains(id) && outcome == .cancelled) || !source.tells.contains(outcome)
         cancelledHere.removeAll { $0 == id }
-        incognitoIDs.removeAll { $0 == id }
+        forgetIncognito(id)
         // Saved untold first: a crash before the banner leaves it to the next launch, never lost;
         // marked told once ``onEnd`` ran, so it is never told twice.
         ended.append(SandboxRunEnded(record: record, outcome: outcome, card: Self.card(snapshot), at: now(), told: silent))
@@ -348,7 +387,7 @@ public final class SandboxRunFollower {
     private func save() {
         // Nothing of an incognito chat's tasks outlives this run (leo-workspace design/spaces.md "Incognito").
         let saved = Saved(following: following.filter { $0.incognito != true }, ended: ended.filter { $0.record.incognito != true }, cancelled: cancelledHere,
-                          incognito: incognitoIDs)
+                          incognito: incognitoIDs, incognitoOwners: incognitoOwners)
         if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: source.defaultsKey) }
     }
 
@@ -359,6 +398,8 @@ public final class SandboxRunFollower {
         var cancelled: [String]?
         /// The ids of incognito tasks still open (``incognitoIDs``).
         var incognito: [String]?
+        /// The account of each of those ids (``incognitoOwners``).
+        var incognitoOwners: [String: String]?
     }
 
     /// The part of a final snapshot the Run's card needs: its receipt.
