@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: the opt-in content hold (`sidebar.slideHoldsContent`, Debug Settings) changes the content's frame once, to
+  where it lands, and leaves it still while the sidebar slides. Leo, verbatim: "when i toggle the sidebar on and off I
+  STILL SEE THE ENTIRE OTHER PART OF THE APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK". The hold kept the widest width
+  of the slide and rode the sidebar's moving edge: a show slid the old wide layout across and laid it out narrower at
+  the landing. It now takes the landing width at the start and pins the content to the card's far edge
+  (`ContentHold.pinsTrailingEdge`), still one layout per toggle. The default stays #29894's (the content follows the card
+  every frame). Regression: `SidebarSlideHoldsContentTests`; display-tick trace of both modes
+  `SidebarToggleContentTraceTests`.
 - 2026-11-01: hiding and showing the sidebar no longer snaps when the slide lands (#29894, carry of #28894; commit
   27992af55ed). Leo, verbatim: "also the toggle of opening and closing the left sidebar it's just too wonky it snaps and
   jitters after it overshoots and needs to correct itself". The sidebar edge already eased out with no overshoot; the

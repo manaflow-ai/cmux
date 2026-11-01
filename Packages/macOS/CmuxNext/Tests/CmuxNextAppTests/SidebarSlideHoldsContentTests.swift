@@ -242,9 +242,9 @@ struct SidebarSlideHoldsContentTests {
         #expect(CEFClipShape.path(bounds: inside, clips: [card]) == nil, "a page inside the card is a plain rectangle")
     }
 
-    /// A sidebar on the right moves the card's trailing edge: the content rides that one. A
-    /// workspace withdrawn hidden (no autoresizing mask) is left where it is.
-    @Test func aRightSidebarSlideRidesTheTrailingEdge() {
+    /// A sidebar on the right moves the card's trailing edge: the content is pinned to the leading
+    /// one. A workspace withdrawn hidden (no autoresizing mask) is left where it is.
+    @Test func aRightSidebarSlidePinsTheLeadingEdge() {
         let card = MainPaneCardView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         card.setCornerRadius(10)
         let content = NSView(frame: card.bounds)
@@ -253,10 +253,12 @@ struct SidebarSlideHoldsContentTests {
         withdrawn.autoresizingMask = []
         card.addSubview(withdrawn)
         card.addSubview(content)
-        card.contentHold = MainPaneCardView.ContentHold(width: 500, ridesTrailingEdge: true)
-        #expect(content.frame == CGRect(x: -100, y: 0, width: 500, height: 300))
+        card.contentHold = MainPaneCardView.ContentHold(width: 500, pinsTrailingEdge: false)
+        #expect(content.frame == CGRect(x: 0, y: 0, width: 500, height: 300))
         card.setFrameSize(CGSize(width: 450, height: 300))
-        #expect(content.frame == CGRect(x: -50, y: 0, width: 500, height: 300))
+        #expect(content.frame == CGRect(x: 0, y: 0, width: 500, height: 300))
+        card.contentHold = MainPaneCardView.ContentHold(width: 350, pinsTrailingEdge: true)
+        #expect(content.frame == CGRect(x: 100, y: 0, width: 350, height: 300), "a show's narrower content is pinned to the far edge")
         card.contentHold = nil
         #expect(content.frame == card.bounds)
         #expect(withdrawn.frame == CGRect(x: 0, y: 0, width: 10, height: 10))
