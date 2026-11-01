@@ -11,7 +11,7 @@ import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
 import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
-import { callOutput, shellOutput } from "./toolFailure";
+import { callOutput, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 
@@ -51,12 +51,14 @@ function drawnText(item: AcpmuxActivity): string {
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
   // A cmux script draws its script, calls, result and logs (McpCallRows.tsx CmuxExecDetails).
-  if (call && isCmuxExec(call)) {
+  const failure = call ? toolFailure(tool) : undefined;
+  if (call && isCmuxExec(call) && failure?.kind !== "hook") {
     const parts = execParts(execView(tool, call.args), cleanText);
     return execText(parts, parts.rawResponse ? prettyOutput(tool.output, strip) : undefined);
   }
   if (call) {
-    const result = mcpOutputResult(tool.output, strip, call.tool);
+    const output = failure?.kind === "hook" ? failure.output : tool.output;
+    const result = mcpOutputResult(output, strip, call.tool);
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
     return [prettyValue(call.args), text].filter(Boolean).join("\n");
   }

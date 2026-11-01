@@ -1,18 +1,14 @@
-// Opening or closing anything in the transcript never moves the reader's view: the line they
+// Away from the bottom, opening or closing a disclosure keeps the reader's view: the line they
 // clicked (a tool group, a tool, command or MCP call, a folded thought, a settled run, "Worked for",
 // a subagent group, a failure's Details) stays where it was on screen while what it opens or closes
 // lays out and its fold plays (fold.ts). VirtualTranscript holds it (App.tsx): each placement pass
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Followed to the latest row, the opened body grows down from the clicked line, so the view no
-// longer shows the latest row and stops following it (Jump to latest shows); a body that still
-// leaves the latest row in view keeps following. Closing at the transcript's end holds the line too
-// (Leo, ask-a736047107: "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP"):
-// the click keeps the content at least as tall as the view's end (`foldRoomFor`), so what closed
-// leaves room under the rows instead of the browser clamping the offset and bringing every row down
-// by it. That room follows the view's end as the reader scrolls up and goes once the rows grow back
-// into it (`trimmedFoldRoom`); a send and Jump to latest drop it (App.tsx).
+// Tool/work disclosures clicked at or near the end instead pin the bottom and move the thread
+// as one stack (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
+// near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
+// reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
@@ -46,6 +42,11 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// re-placed a tall prompt under the pointer and its Show less missed the click. The reader's own
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
+
+/// Whether the physical scroller is at (or within the normal follow deadband of) its end.
+export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
+  return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
+}
 
 export type FoldAnchor = {
   toggle: HTMLElement;
