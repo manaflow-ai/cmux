@@ -183,7 +183,8 @@ struct DaemonRestartTests {
         standIn.mark(standIn.stuck)
         let before = standIn.ensures().count
         try Self.press(try #require(retry))
-        await Self.wait { Self.shown("daemon.restart", in: view) != nil }
+        // Restart already shows, so wait for Retry Now's own ensure.
+        await Self.wait { standIn.ensures().count > before }
         #expect(standIn.ensures().count > before)
         #expect(Self.shown("daemon.restart", in: view) != nil)
 
