@@ -102,6 +102,24 @@ public nonisolated struct HostChecklist: Equatable, Sendable {
         rows.first { $0.status == .done(.fail) }
     }
 
+    /// A run in one line: steps finished, of how many, and the one running now (nil when none is).
+    public nonisolated struct Summary: Equatable, Sendable {
+        public var done: Int
+        public var total: Int
+        public var current: HostStep?
+    }
+
+    public var summary: Summary {
+        let done = rows.count { if case .done = $0.status { true } else { false } }
+        return Summary(done: done, total: rows.count, current: rows.first { $0.status == .running }?.step)
+    }
+
+    /// A step failed or warned: the card opens the whole checklist with its fixes. A skip or a fix
+    /// the run made itself needs nobody.
+    public var needsPerson: Bool {
+        rows.contains { $0.status == .done(.fail) || $0.status == .done(.warn) }
+    }
+
     private mutating func markNextRunning() {
         let start = (rows.lastIndex { if case .done = $0.status { true } else { false } }).map { $0 + 1 } ?? 0
         guard let next = rows[start...].firstIndex(where: { $0.status == .pending }) else { return }

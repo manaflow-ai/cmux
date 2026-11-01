@@ -262,16 +262,21 @@ impl Hub {
 
     /// The cancelled end Quit Everything gives a turn in progress (`settle_cancelled`).
     fn write_cancelled(&self, s: &Arc<Session>, turn: &TurnInfo) {
-        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
-        // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq, "trigger": turn.trigger});
+        self.end_trigger_background(s, &turn.turn_id);
+        // Trigger results stay in the journal without moving the human-facing last turn.
         self.record_last_turn(s, &result);
         self.append(s, "mux", "turn_result", result);
     }
 
     /// Save every session's meta and sync the event log to disk.
     pub fn flush(&self) {
+        // Each chat's last change is on disk before this returns, also while another save of it
+        // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
-            self.save_meta(&s);
+            if let Err(e) = self.write_meta(&s) {
+                tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
+            }
         }
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");

@@ -1039,8 +1039,17 @@ console.log(JSON.stringify({ ok, bad, crashed }));
 
 
 def test_both_promote_decisions_pass_the_train_verifier() -> None:
+    import yaml
+
     assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
-    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
+    # Each job that verifies the train checks out the verifier. Read the parsed workflow: the two
+    # jobs share their checkout step through a YAML anchor (#30471), so its text appears once.
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    verifying = [job for job in jobs.values() if "verifyTrain: guard.trainVerifier(" in yaml.safe_dump(job)]
+    assert len(verifying) == 2
+    for job in verifying:
+        sparse = [str((step.get("with") or {}).get("sparse-checkout", "")) for step in job["steps"]]
+        assert any("scripts/ci/nightly_next_train.py\n" in paths for paths in sparse), job["steps"][0]
 
 
 def test_by_default_a_tip_without_a_release_compile_is_promoted_itself() -> None:

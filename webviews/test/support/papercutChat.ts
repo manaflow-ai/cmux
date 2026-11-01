@@ -262,9 +262,9 @@ export async function papercutPane(
   return { open, close, methods, prompts, record, drop, sent };
 }
 
-/// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`
-/// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
-export async function inspectorPushAlways(page: Page, on = true) {
+/// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`
+/// event sets it (chatDisplay.ts). By default Session Info floats and never takes a column.
+export async function sessionInfoPushAlways(page: Page, on = true) {
   await page.evaluate(async (on) => {
     // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
     // so this is the module the page already loaded.

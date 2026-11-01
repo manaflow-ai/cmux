@@ -15,7 +15,7 @@
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
@@ -56,7 +56,7 @@ export type TrayItem =
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
-/// it runs (inspector/processes.ts `backgroundCommands` merged it in, `processId`); one only the
+/// it runs (session-info/processes.ts `backgroundCommands` merged it in, `processId`); one only the
 /// transcript knows shows only while a turn runs, since the transcript cannot tell a command that
 /// ended unseen (a peer's chat, whose registry this acpmux cannot list) from one that runs.
 export function trayItems(
@@ -159,11 +159,25 @@ function versionOf(key: string): number {
   return (hash >>> 0) % 1_000_003;
 }
 
-function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
+/// A done line or card keeps the background turn its group belongs to (conversation/backgroundTurns.ts),
+/// so a quiet turn's closed line folds it with the rest of that turn.
+function doneLine(
+  agent: Subagent,
+  endedAt: number,
+  cache: DoneLineCache,
+  made: Set<string>,
+  inBackground?: string,
+): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const key = [agent.state, agent.name, agent.startedAt, endedAt, agent.stopReason ?? "", retryKey(agent)].join(
-    "\u0000",
-  );
+  const key = [
+    agent.state,
+    agent.name,
+    agent.startedAt,
+    endedAt,
+    agent.stopReason ?? "",
+    retryKey(agent),
+    inBackground ?? "",
+  ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;
@@ -173,6 +187,7 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
     at: endedAt,
     kind: SUBAGENT_DONE,
     subagents: [{ ...agent, endedAt }],
+    ...(inBackground !== undefined && { inBackground }),
   };
   cache.set(id, { key, row });
   return row;
@@ -221,11 +236,18 @@ function cardKey(node: Subagent): string {
 /// A workflow's card row, one per workflow so each row is one card's height (model.ts).
 function workflowCard(row: AcpmuxRow, node: Subagent, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${WORKFLOW_CARD}:${node.id}`;
-  const key = cardKey(node);
+  const key = `${cardKey(node)}\u0000${row.inBackground ?? ""}`;
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;
-  const card: AcpmuxRow = { id, version: versionOf(key), at: row.at, kind: WORKFLOW_CARD, subagents: [node] };
+  const card: AcpmuxRow = {
+    id,
+    version: versionOf(key),
+    at: row.at,
+    kind: WORKFLOW_CARD,
+    subagents: [node],
+    ...(row.inBackground !== undefined && { inBackground: row.inBackground }),
+  };
   cache.set(id, { key, row: card });
   return card;
 }
@@ -259,7 +281,7 @@ export function withSubagentLines(
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
-      const line = doneLine(agent, endedAt, cache, made);
+      const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
   });

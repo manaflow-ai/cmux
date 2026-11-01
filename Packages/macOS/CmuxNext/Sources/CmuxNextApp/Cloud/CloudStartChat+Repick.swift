@@ -29,12 +29,6 @@ extension CloudStartChat {
     /// these. A relaunched App has none, and a pick there does what it did before.
     @MainActor static var started: [String: Started] = [:]
 
-    /// Logs whether the start's harness login was passed to `machine` (+Login): it never fails the start,
-    /// and a chat on a machine that got none still offers Set up credentials on its turn.
-    static func logLogin(_ passed: Bool, machine: String, services: AppServices) {
-        services.cloud.logger.info("cloud start chat: harness login \(passed ? "passed" : "not passed", privacy: .public) to \(machine, privacy: .private)")
-    }
-
     /// The page's runner for `cloud.repickChat`: `view` is the pane of the chat on the machine it was on.
     static func repickRunner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any] {
         { [weak tabs, weak services] view, repick in

@@ -39,7 +39,7 @@
     "method": "debug.agent_pane",
     "params": {
      "action": "click",
-     "selector": "button.acpmux-chat-inspector-toggle"
+     "selector": "button.acpmux-session-info-toggle"
     }
    },
    "wait": 1.5,
