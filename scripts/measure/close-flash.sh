@@ -4,7 +4,8 @@
 # each close's debug.action_budget commit time and outcome, in an ACTIVE app: the close button's ~100 ms nested flash
 # draws only there). It launches and activates an app, so it runs alone and needs a logged-in console (an owned mini).
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/close-flash.sh --ref <sha> \
-#     --artifact artifacts/close-flash/report.json [--arg=--config=bench] [--arg=--close-rounds=25] [--arg=--arm=base]
+#     --artifact artifacts/close-flash/report.json --arg=--config=bench --arg=--kinds=closeWindow [--arg=--close-rounds=25]
+# The close key needs Debug Settings (DevTools: a Debug compile): --arg=--config=debug with the default --kinds.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # A step's checkout has empty submodules: reload.sh needs Ghostty's headers (GhosttyKit itself comes
