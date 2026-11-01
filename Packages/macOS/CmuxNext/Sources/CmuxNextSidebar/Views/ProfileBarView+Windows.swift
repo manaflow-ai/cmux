@@ -91,10 +91,11 @@ extension ProfileBarView {
             let elsewhere = elsewhere(profile)
             let current = profile.id == model.activeProfileID
             let title = elsewhere == nil || current ? profile.name : Strings.spaceInAnotherWindow(profile.name)
-            let row = SwitcherMenuItem(title: title) { [weak self] in self?.model.send(.switchProfile(profile.id)) }
+            let opensChoices = elsewhere != nil && !current
+            let model = model
+            let row = SwitcherMenuItem(title: title, handler: opensChoices ? nil : { model.send(.switchProfile(profile.id)) })
             row.state = current ? .on : .off
-            if let elsewhere, !current {
-                row.handler = nil
+            if let elsewhere, opensChoices {
                 row.submenu = choiceMenu(profile.id, SpaceSwitcherLogic.choices(for: elsewhere, hereIsIncognito: model.windowIsIncognito))
             }
             menu.addItem(row)
@@ -144,9 +145,10 @@ private nonisolated struct WindowMarkInputs: Equatable, Sendable {
 
 /// A switcher menu row that runs its handler (AppKit calls menu actions on the main thread).
 nonisolated final class SwitcherMenuItem: NSMenuItem {
-    nonisolated(unsafe) var handler: (@MainActor @Sendable () -> Void)?
+    /// Nil for a row that only opens its submenu.
+    let handler: (@MainActor @Sendable () -> Void)?
 
-    init(title: String, handler: @escaping @MainActor @Sendable () -> Void) {
+    init(title: String, handler: (@MainActor @Sendable () -> Void)?) {
         self.handler = handler
         super.init(title: title, action: #selector(fire), keyEquivalent: "")
         target = self
