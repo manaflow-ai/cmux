@@ -212,14 +212,14 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
             "The machine reply was invalid; reconnect and retry.".into(),
         )
     })?;
-    if reply["id"] != "cloud-repo" {
+    if reply.get("id").and_then(Value::as_str) != Some("cloud-repo") {
         return Err(fail(
             sent_kind,
             "transport.failed",
             "The machine answered another request; reconnect and retry.".into(),
         ));
     }
-    if reply["ok"] == true {
+    if reply.get("ok").and_then(Value::as_bool) == Some(true) {
         return reply.get("data").cloned().ok_or_else(|| {
             fail(
                 sent_kind,
@@ -230,8 +230,12 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
     }
     Err(fail(
         FailureKind::Rejected,
-        reply["error_code"].as_str().unwrap_or("repo.unavailable"),
-        reply["error"].as_str().unwrap_or("Reconnect to the Cloud machine and retry.").to_owned(),
+        reply.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
+        reply
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Reconnect to the Cloud machine and retry.")
+            .to_owned(),
     ))
 }
 

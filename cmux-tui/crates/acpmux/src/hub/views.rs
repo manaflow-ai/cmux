@@ -608,7 +608,7 @@ impl Hub {
         // their first names, and its running background commands (`running_work`).
         let work = running_work(
             session,
-            summary["turn"].is_object(),
+            summary.get("turn").is_some_and(Value::is_object),
             self.running_processes_read(session),
         );
         summary.set("subagentsRunning", json!(work.subagents));
