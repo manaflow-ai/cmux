@@ -287,6 +287,7 @@ extension PaletteModel {
         state.rankedProvisional = provisional
         state.rankedComplete = complete
         let joined = Self.joined(sections, state: state)
+        state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
         let held = joined.held
         let sections = joined.shown
         state.lastSections = sections

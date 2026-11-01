@@ -182,16 +182,15 @@ public final class ChatsFeed {
 
     /// The window and spec generation a request opens, kept until its answer (nil for any other request).
     nonisolated static func windowRequest(method: String, params: [String: any Sendable]) -> (window: String, generation: UInt64?)? {
-        nil
+        guard method == "_acpmux/chats_window", let window = params["window"] as? String else { return nil }
+        return (window, params["gen"] as? UInt64)
     }
 
     /// One request on the connection: it is encoded on the connection's own serial queue, so the
     /// main thread does no JSON work and the requests keep their order.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
-        if method == "_acpmux/chats_window", let window = params["window"] as? String {
-            windowRequests[requestID] = (window, params["gen"] as? UInt64)
-        }
+        if let request = Self.windowRequest(method: method, params: params) { windowRequests[requestID] = request }
         let id = requestID
         connection.send {
             let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params as [String: Any]]

@@ -69,7 +69,7 @@ extension PaletteModel {
                     }
                     state.answerSections[section.id] = rows.isEmpty ? nil : PaletteResultSection(section: section, rows: rows)
                     state.answerQueries[section.id] = rows.isEmpty ? nil : query
-                    self.redeliverAnswers(state)
+                    self.scheduleRedelivery(state)
                 }
                 // The query's answer is complete. None (refused, not connected, no match): its stand-ins leave.
                 guard !Task.isCancelled, let self, let state, state.answeredQuery == query else { return }
@@ -78,7 +78,7 @@ extension PaletteModel {
                     state.answerQueries[section.id] = nil
                 }
                 state.awaitedAnswers.remove(section.id)
-                self.redeliverAnswers(state)
+                self.scheduleRedelivery(state)
             })
         }
     }
@@ -97,11 +97,27 @@ extension PaletteModel {
         }
     }
 
+    /// Redelivers the page's rows with its answers once in this main-thread turn, however many answers changed in
+    /// it (a yield and the stream's end come together).
+    func scheduleRedelivery(_ state: PageState) {
+        guard !state.redeliveryScheduled else { return }
+        state.redeliveryScheduled = true
+        // task-owner: one main-actor hop per turn that changed an answer; it ends at once
+        Task { @MainActor [weak self, weak state] in
+            guard let state else { return }
+            state.redeliveryScheduled = false
+            self?.redeliverAnswers(state)
+        }
+    }
+
     /// Shows the ranked rows again with the answers, only when those ranked rows are the current
-    /// query's (an answer that lands first waits for them: the rank's own delivery adds it). When the
-    /// rows above the selected one grew, the list scrolls to keep the selected row in view.
+    /// query's (an answer that lands first waits for them: the rank's own delivery adds it), and only when what
+    /// a delivery would show or hold changed: an answer that changes nothing on screen (an empty one, with no
+    /// stand-ins to take off) costs no list reload and no reducer pass. When the rows above the selected one
+    /// grew, the list scrolls to keep the selected row in view.
     func redeliverAnswers(_ state: PageState) {
         guard let ranked = state.rankedSections, state.rankedGeneration == state.generation else { return }
+        guard Self.answerFingerprint(state) != state.deliveredAnswerFingerprint else { return }
         let shown = state === current
         let before = shown ? rows.firstIndex { $0.id == selectedRowID } : nil
         deliver(ranked, to: state, generation: state.generation, provisional: state.rankedProvisional,
@@ -122,9 +138,22 @@ extension PaletteModel {
         guard !current.isEmpty || !standIns.isEmpty else { return (ranked, ranked, held) }
         let more = state.moreRows(forQuery: state.query)
         let shown = withAnswers(ranked, answers: current + standIns, leading: state.leadingAnswers, more: more)
-        let selectable = standIns.isEmpty ? shown
-            : withAnswers(ranked, answers: current, leading: state.leadingAnswers, more: more)
+        // The same rows without the stand-in sections: one cut of the ranked rows for both, so every row
+        // navigation may select is on screen.
+        let standInIDs = Set(standIns.map(\.section.id))
+        let selectable = standIns.isEmpty ? shown : shown.filter { !standInIDs.contains($0.section.id) }
         return (shown, selectable, held)
+    }
+
+    /// What the page's answers make a delivery show and hold: each answer section's rows and the query they
+    /// answer, the awaited answers and the leading ones. Equal fingerprints deliver the same rows.
+    static func answerFingerprint(_ state: PageState) -> [String] {
+        var parts = state.answerSections.keys.sorted().map { id in
+            "\(id)|\(state.answerQueries[id] ?? "")|" + (state.answerSections[id]?.rows.map(\.id).joined(separator: ",") ?? "")
+        }
+        parts.append("awaited:" + state.awaitedAnswers.sorted().joined(separator: ","))
+        parts.append("query:" + state.query)
+        return parts
     }
 
     /// `ranked` with the answers: a leading answer first, any other after the best ranked section (where
