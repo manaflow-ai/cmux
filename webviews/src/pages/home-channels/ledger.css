@@ -36,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
