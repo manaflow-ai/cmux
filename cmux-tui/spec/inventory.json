@@ -577,6 +577,7 @@
       "cloud-inbox-list",
       "cloud-requests-list",
       "cloud-selfhost-info",
+      "cloud-environment",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",

@@ -293,6 +293,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
+    @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -328,6 +329,7 @@ public final class AgentPaneModel {
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
         case .reply(let reply) where reply.isPassive: break
+        case .cloudEnvironment(let request) where request.action != "update": break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -473,6 +475,12 @@ public final class AgentPaneModel {
             if sessionId == nil { handoffSession = session }
             return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
+        case .cloudEnvironment(let request):
+            guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
+            if request.action == "update", !transport.gestures.consume() {
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await onCloudEnvironment(request)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")

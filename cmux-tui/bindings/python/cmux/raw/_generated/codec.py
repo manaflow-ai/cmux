@@ -260,6 +260,7 @@ MODEL_BY_PATH = {
     'commands/cloud-conversation-thread/request': models.CloudConversationThreadRequest,
     'commands/cloud-conversation-typing/request': models.CloudConversationTypingRequest,
     'commands/cloud-conversation-unsubscribe/request': models.CloudConversationUnsubscribeRequest,
+    'commands/cloud-environment/request': models.CloudEnvironmentRequest,
     'commands/cloud-host-replica-clear/request': models.CloudHostReplicaClearRequest,
     'commands/cloud-host-replica-set/request': models.CloudHostReplicaSetRequest,
     'commands/cloud-host-replica-status/request': models.CloudHostReplicaStatusRequest,

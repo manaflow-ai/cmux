@@ -57,6 +57,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_TYPING = new CommandMetadata("cloud-conversation-typing", Authority.LOCAL_ADMIN, 12, "cloud-conversation-typing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_UNSUBSCRIBE = new CommandMetadata("cloud-conversation-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_ENVIRONMENT = new CommandMetadata("cloud-environment", Authority.LOCAL_ADMIN, 12, "cloud-environments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_CLEAR = new CommandMetadata("cloud-host-replica-clear", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_SET = new CommandMetadata("cloud-host-replica-set", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_STATUS = new CommandMetadata("cloud-host-replica-status", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -347,6 +348,7 @@ public final class Commands {
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);
         values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
         values.put("cloud-conversation-unsubscribe", CLOUD_CONVERSATION_UNSUBSCRIBE);
+        values.put("cloud-environment", CLOUD_ENVIRONMENT);
         values.put("cloud-host-replica-clear", CLOUD_HOST_REPLICA_CLEAR);
         values.put("cloud-host-replica-set", CLOUD_HOST_REPLICA_SET);
         values.put("cloud-host-replica-status", CLOUD_HOST_REPLICA_STATUS);

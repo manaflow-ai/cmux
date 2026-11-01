@@ -45,7 +45,7 @@ public nonisolated struct AgentPageOps {
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods)
-            .union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

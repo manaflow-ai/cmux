@@ -13,6 +13,7 @@
 mod attachments;
 mod contract;
 mod error;
+mod environments;
 mod host_replica;
 mod service;
 mod session;

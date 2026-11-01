@@ -2,6 +2,17 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "cloud-environment": {
+      "spec": "leo-workspace design/cloud.md",
+      "aliases": ["cloud environment", "setup script", "network secrets"],
+      "paths": [
+        "webviews/src/pages/cloud/EnvironmentSheet.tsx",
+        "webviews/src/pages/cloud/EnvironmentFields.tsx",
+        "webviews/src/pages/cloud/environment.css",
+        "webviews/src/pages/cloud/environmentModel.ts",
+        "webviews/src/pages/cloud/environmentStore.ts"
+      ]
+    },
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
       "checklist": "design/model-picker.md#checklist",

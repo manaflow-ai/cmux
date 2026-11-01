@@ -79,6 +79,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
+import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -13287,6 +13288,7 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
+        <CloudEnvironmentEditor />
         <DeleteChatDialog
           open={deleteConfirmOpen}
           onOpenChange={(next) => {

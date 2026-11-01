@@ -1,0 +1,70 @@
+.cloud-environment-sheet {
+  inset-block-start: max(16px, 6vh);
+  inset-block-end: auto;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - max(16px, 6vh) - 16px);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
+  border-radius: var(--radius-lg, 12px);
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+  box-shadow: var(--elevation-2);
+  font-family: var(--font-ui, system-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.env-heading { display: flex; align-items: center; gap: 12px; padding: 24px; }
+.env-heading h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; line-height: var(--text-heading--line-height); }
+.env-close { margin-inline-start: auto; }
+.env-body { border: 0; margin: 0; padding: 8px 24px 24px; min-width: 0; }
+.env-fields { display: flex; flex-direction: column; gap: 16px; }
+.env-field { display: flex; flex-direction: column; gap: 12px; }
+.env-field small, .env-note, .env-row-detail, .env-editor-foot { color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 65%, transparent)); font-family: var(--font-ui, system-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height); }
+.env-note { margin: 0; }
+.cloud-environment-sheet input:not([type="radio"], [type="checkbox"], [type="file"]), .cloud-environment-sheet textarea {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--cmux-field-background, var(--cmux-background, Canvas));
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+  user-select: text;
+}
+.cloud-environment-sheet input[readonly] { padding-inline: 0; border-color: transparent; background: transparent; }
+.env-rows { display: flex; flex-direction: column; gap: 12px; }
+.env-drill { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 10px; background: transparent; color: inherit; text-align: start; font: inherit; }
+.env-drill > span:first-child { min-width: 0; }
+.env-row-title, .env-row-detail { display: block; overflow-wrap: anywhere; }
+.env-row-detail { margin-block-start: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.env-drill:hover, .env-icon:hover, .env-button:hover { background: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent)); }
+.env-icon { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: inherit; min-width: 28px; min-height: 28px; font: inherit; }
+.env-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-block-start: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
+.env-button { padding: 8px 12px; border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 8px; background: var(--cmux-control-background, var(--cmux-elevated-background, Canvas)); color: inherit; font: inherit; }
+.env-primary { background: var(--cmux-text, CanvasText); color: var(--cmux-background, Canvas); }
+.env-primary:hover { background: color-mix(in srgb, var(--cmux-text, CanvasText) 90%, transparent); }
+.cloud-environment-sheet button:disabled { opacity: 0.5; }
+.env-error { color: var(--cmux-status-danger-text, var(--cmux-text, CanvasText)); }
+.env-modes { border: 0; padding: 0; display: flex; gap: 24px; }
+.env-modes legend { margin-block-end: 12px; }
+.env-modes label, .env-checkbox { display: flex; align-items: center; gap: 8px; }
+.env-value-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; }
+.env-add { align-self: flex-start; }
+.env-editor { border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 8px; overflow: hidden; }
+.env-editor-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-block-end: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
+.env-language { border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 12px; padding: 4px 8px; }
+.env-file { position: relative; margin-inline-start: auto; overflow: hidden; }
+.env-file input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.env-file:focus-within { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
+.env-code { display: flex; height: min(34vh, 20em);
+  min-height: 12em; }
+.env-code pre, .cloud-environment-sheet .env-code textarea { font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: var(--text-body); line-height: 1.6; }
+.env-code pre { flex: 0 0 44px; margin: 0; padding: 12px 8px; box-sizing: border-box; text-align: end; overflow: hidden; color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 65%, transparent)); user-select: none; }
+.env-code textarea { resize: none; border: 0; border-radius: 0; padding: 12px 8px; background: transparent; }
+.env-editor-foot { padding: 8px 12px; border-block-start: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
+.env-link { align-self: flex-start; border: 0; background: transparent; padding: 0; color: inherit; font: inherit; text-decoration: underline; }
