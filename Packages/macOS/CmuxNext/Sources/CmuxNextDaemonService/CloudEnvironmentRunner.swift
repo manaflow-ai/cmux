@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// Runs the native Cloud environment request after the app supplies its signed-in token.

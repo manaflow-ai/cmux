@@ -1,5 +1,5 @@
-import CmuxNextAgentPane
-import CmuxNextDaemon
+public import CmuxNextAgentPane
+public import CmuxNextDaemon
 import Foundation
 
 /// The app's local repository catalog bridge. Keeping the daemon request here leaves the app

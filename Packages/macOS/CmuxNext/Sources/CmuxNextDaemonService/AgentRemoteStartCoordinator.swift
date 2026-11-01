@@ -1,5 +1,5 @@
-import CmuxNextAgentPane
-import CmuxNextDaemon
+public import CmuxNextAgentPane
+public import CmuxNextDaemon
 
 /// Coordinates the keyed remote start handshake shared by tab hosts.
 public enum AgentRemoteStartCoordinator {
