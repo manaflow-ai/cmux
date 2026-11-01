@@ -178,3 +178,62 @@ fn an_export_is_refused_outside_a_seed_or_into_its_folder() {
     assert_eq!(status["error_code"], "seed.since_mismatch", "{status}");
     assert!(!bundle.exists());
 }
+
+/// A secret whose name is not UTF-8 stays out of WORK: it is excluded by
+/// its raw name, never by a lossy spelling.
+#[test]
+fn a_secret_with_a_non_utf8_name_never_goes() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let (world, folder, first) = seeded("export-nonutf8");
+    let name = std::ffi::OsStr::from_bytes(b".env-\xff");
+    std::fs::write(folder.join(name), "SECRET=1\n").unwrap();
+    write(&folder.join("a"), "a\nchanged\n");
+    let service = world.service();
+    let bundle = world.home.join("back.bundle");
+    let status = export(&service, &export_params(&folder, &first, &bundle));
+    assert_eq!(status["state"], "done", "{status}");
+    let fetched = fetch_bundle(&world, &bundle);
+    let work = status["work"].as_str().unwrap();
+    let files = git(&fetched, &["ls-tree", "-r", "-z", "--name-only", work]);
+    assert!(!files.contains(".env"), "{files:?}");
+    let grep = Command::new("git")
+        .arg("-C")
+        .arg(&fetched)
+        .args(["grep", "-q", "SECRET", work])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .status()
+        .unwrap();
+    assert!(!grep.success(), "the secret's contents went in WORK");
+}
+
+/// A retry of a finished export whose answer was lost is the same job,
+/// even though its bundle now exists.
+#[test]
+fn a_retried_export_returns_the_same_job() {
+    let (world, folder, first) = seeded("export-retry");
+    write(&folder.join("a"), "a\nchanged\n");
+    let service = world.service();
+    let bundle = world.home.join("back.bundle");
+    let params = export_params(&folder, &first, &bundle);
+    let job = service.call("git.seed.export", &params).unwrap()["job"].clone();
+    assert_eq!(wait(&service, job.as_str().unwrap())["state"], "done");
+    assert!(bundle.exists());
+    assert_eq!(service.call("git.seed.export", &params).unwrap()["job"], job);
+}
+
+/// A change to the stash alone is a change: its objects go in a bundle.
+#[test]
+fn a_stash_only_change_is_exported() {
+    let (world, folder, first) = seeded("export-stash");
+    write(&folder.join("a"), "a\nstashed on the machine\n");
+    git(&folder, &["stash", "-q"]);
+    let service = world.service();
+    let bundle = world.home.join("back.bundle");
+    let status = export(&service, &export_params(&folder, &first, &bundle));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["work"], first.work.as_str(), "the working tree is the seed's");
+    assert_eq!(status["unchanged"], false, "{status}");
+    let stash = status["stash"].as_str().unwrap();
+    let fetched = fetch_bundle(&world, &bundle);
+    assert_eq!(git(&fetched, &["rev-parse", "refs/cmux-back/stash"]), stash);
+}

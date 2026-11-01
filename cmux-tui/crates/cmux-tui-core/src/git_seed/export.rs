@@ -129,7 +129,10 @@ impl Export {
         let index = commit(&snapshot.index, &head, snapshot::INDEX_MESSAGE).map_err(wrap)?;
         let work = commit(&snapshot.work, &index, snapshot::WORK_MESSAGE).map_err(wrap)?;
         let stash = self.read(&["rev-parse", "--verify", "--quiet", "refs/stash^{commit}"]);
-        let unchanged = work == self.params.since_work;
+        // Unchanged only when WORK and the stash are the record's whose WORK
+        // is `since_work` (the last seed or export): a stash-only change
+        // still needs its objects sent.
+        let unchanged = work == self.params.since_work && stash == self.recorded_stash();
         let mut bundle_bytes = 0;
         if !unchanged {
             self.record(&head, &index, &work, stash.as_deref()).map_err(wrap)?;
@@ -149,6 +152,17 @@ impl Export {
             self.job.exported(fields);
         }
         Ok(())
+    }
+
+    /// The stash of the folder's record (`refs/cmux-seed/*` or
+    /// `refs/cmux-back/*`) whose WORK is `since_work`; None when there is
+    /// none. No record also counts as no stash, and a stash then is a change.
+    fn recorded_stash(&self) -> Option<String> {
+        let record = ["refs/cmux-seed", "refs/cmux-back"].into_iter().find(|record| {
+            self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/work")]).as_deref()
+                == Some(self.params.since_work.as_str())
+        })?;
+        self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/stash")])
     }
 
     /// `refs/cmux-back/*` name exactly this export's commits.

@@ -25,7 +25,7 @@ pub struct Snapshot {
     pub index: String,
     pub work: String,
     /// The untracked paths left out of `work` (a nested repository ends in
-    /// `/`).
+    /// `/`), for display (a name that is not UTF-8 is shown lossily).
     pub left_out: Vec<String>,
 }
 
@@ -67,9 +67,11 @@ impl Snapshot {
             // `.` plus an exclude per path left out: `add -A` never reads a
             // nested repository (one with no commit would fail it).
             let mut pathspecs = b".\0".to_vec();
+            // The raw names: a name that is not UTF-8 is excluded as it is,
+            // never by a lossy spelling that matches nothing.
             for path in &left_out {
                 pathspecs.extend_from_slice(b":(exclude,literal)");
-                pathspecs.extend_from_slice(path.trim_end_matches('/').as_bytes());
+                pathspecs.extend_from_slice(path.strip_suffix(b"/").unwrap_or(path));
                 pathspecs.push(0);
             }
             std::fs::write(&list, pathspecs).map_err(io_failure)?;
@@ -82,6 +84,8 @@ impl Snapshot {
                 &mut |_| {},
             )?;
             let work = tree()?;
+            let left_out =
+                left_out.iter().map(|path| String::from_utf8_lossy(path).into_owned()).collect();
             Ok(Self { index, work, left_out })
         })();
         let _ = std::fs::remove_file(&copy);
@@ -90,16 +94,19 @@ impl Snapshot {
     }
 }
 
-/// Untracked paths that stay where they are: nested repositories and
-/// likely secrets.
-fn left_out(git: &Git, credential: &Credential, folder: &Path) -> Result<Vec<String>, Failure> {
+/// Untracked paths that stay where they are, as git's raw bytes: nested
+/// repositories and likely secrets.
+fn left_out(git: &Git, credential: &Credential, folder: &Path) -> Result<Vec<Vec<u8>>, Failure> {
     let listed =
         git.quiet(Some(folder), credential, &["ls-files", "-z", "--others", "--exclude-standard"])?;
     Ok(listed
         .split(|byte| *byte == 0)
         .filter(|path| !path.is_empty())
-        .map(|path| String::from_utf8_lossy(path).into_owned())
-        .filter(|path| path.ends_with('/') || super::secrets::reason(folder, path).is_some())
+        .filter(|path| {
+            path.ends_with(b"/")
+                || super::secrets::reason(folder, &String::from_utf8_lossy(path)).is_some()
+        })
+        .map(<[u8]>::to_vec)
         .collect())
 }
 

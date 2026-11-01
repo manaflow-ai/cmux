@@ -284,11 +284,13 @@ impl GitSeedService {
                 message: "the folder is not a seed of a repository".into(),
             });
         }
-        place::output(&self.roots, &params.bundle, &folder)?;
         let mut jobs = self.jobs();
+        // A retry whose answer was lost is the same job, even once its bundle
+        // is written.
         if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
             return Ok(json!({ "job": id }));
         }
+        place::output(&self.roots, &params.bundle, &folder)?;
         let id = new_id();
         let job = Arc::new(Job {
             id,
