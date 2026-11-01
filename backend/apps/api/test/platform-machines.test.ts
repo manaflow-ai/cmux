@@ -437,7 +437,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     // A provider refusal is final for that attempt; the next call starts a new one at the new revision.
     const next = { vcpu: 8, memGiB: 16, diskGiB: 64 }
     await stub.fakeControl({ resize_refuse: 1 } as never)
-    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "cloud.provider.refused", retryable: false })
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, retryable: false, message: expect.stringContaining("resize refused") })
     expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
     // A provider call that did not answer stays pending: retries answer indeterminate, never a second intent.
     await stub.fakeControl({ fail_next: 1 } as never)
