@@ -11,11 +11,11 @@ struct FeedInboxHeader: View {
     let hasUnread: Bool
     let canRefresh: Bool
     let canAddConnection: Bool
-    /// The host can send a reply to a report (the Feed page), so the Reports tab is offered.
-    var showsReports = false
     let markRead: () -> Void
     let refresh: () -> Void
     let addConnection: () -> Void
+    /// The host can send a reply to a report (the Feed page), so the Reports tab is offered.
+    var showsReports = false
     @Environment(\.feedColors) private var colors
 
     var body: some View {

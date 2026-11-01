@@ -12,9 +12,12 @@ struct FeedInboxView: View {
     var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var filter = FeedInboxFilter()
+    /// The first appearance picks GitHub when it is connected; switching tabs swaps the shown
+    /// child, which appears again, and must not pick it again.
+    @State private var pickedConnection = false
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if filter.connection == .reports {
                 VStack(spacing: 0) {
                     header(hasUnread: false, markRead: {})
@@ -25,6 +28,8 @@ struct FeedInboxView: View {
             }
         }
         .onAppear {
+            guard !pickedConnection else { return }
+            pickedConnection = true
             if model.githubConnectionEnabled { filter.connection = .github }
         }
     }
