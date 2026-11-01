@@ -8,7 +8,6 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -112,7 +111,6 @@ button.cv-agentmsg__name:focus-visible {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: var(--grid-gap);
   min-width: 0;
   /* The tool rows' line, so a message row is as tall as the rows around it (Leo, 2026-11-01:
      "doesn't make sense for these to be spaced differently"). */
@@ -154,8 +152,8 @@ button.cv-agentmsg__name:focus-visible {
    -1.5px margin, plus the 8px gap). */
 .cv-agentmsg__card {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0 0 0 var(--grid-transcript-text-gap);
+  margin: 2px 0 4px var(--cv-message-indent);
+  padding: 7px 11px;
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -184,9 +182,8 @@ button.cv-agentmsg__name:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--grid-gap);
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
+  gap: 5px;
+  margin: 0 0 6px var(--cv-message-indent);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -196,8 +193,7 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--agent-status-failure);
 }
 .cv-agentmsg__output.cv-tool-output {
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
+  margin: 0 0 6px var(--cv-message-indent);
 }
 
 /* Opened, the line names its other chat whole: the panel under it never names it (Leo,

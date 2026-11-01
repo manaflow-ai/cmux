@@ -40,9 +40,9 @@
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
-  --cv-edge: var(--grid-icon-box);
+  --cv-edge: var(--page-edge, 18px);
   /* Resolved where it is used: 100% is the pane's width there. */
-  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -51,54 +51,71 @@
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Session Info) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
-  /* Content heights exclude outer rhythm: model.ts places the virtual stack using the same
-     schema values. Nested stacks use gap; children never add an outer margin. */
-  --cv-meta-gap: 0px;
-  --cv-meta-row: var(--grid-transcript-action-control);
-  --cv-message-gap: 0px;
-  --cv-turn-gap: 0px;
-  --cv-continuation-gap: 0px;
-  --cv-tool-row-height: var(--grid-row);
-  --cv-glyph-slot: var(--grid-transcript-icon-box);
-  --cv-glyph-line: var(--grid-transcript-icon-box);
-  --cv-disclosure-slot: var(--grid-transcript-icon-box);
-  --cv-footer-control-slot: var(--grid-transcript-action-control);
-  /* #28629's message indent on the grid: a message card's content starts on the text column. */
-  --cv-message-inline-gap: var(--grid-gap);
-  --cv-message-indent: var(--grid-transcript-text-gap);
-  --cv-footer-chevron-slot: var(--cv-footer-control-slot);
-  --cv-footer-gap: 0px;
-  --cv-tool-run-bottom-gap: 0px;
-  --cv-tool-run-top-gap: 0px;
-  --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
-  /* Base's names for the lines below, on the grid (grid.md 5.5): the gap is the stack's, so a line
-     adds none of its own. */
-  /* Another agent's message line, an inbox line and the heads of a report batch or the waiting
-     group: the tool rows' line, so every one-line row is one height (Leo, 2026-11-01: "doesn't make
-     sense for these to be spaced differently", #29965). */
+  /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
+     bands). A message's meta row (a prompt's age, ticks and actions; a reply's footer) is one
+     compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
+     model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
+  --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
+  --cv-meta-row: 24px; /* the meta row's line */
+  /* Another agent's message line, an inbox line, and the head of a report batch or of the group of
+     messages that wait: the tool rows' line, so every one-line row is one height (Leo, 2026-11-01:
+     "doesn't make sense for these to be spaced differently"). */
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
-  --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
-  --cv-disclosure-line-height: var(--grid-row);
-  /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,
-     2026-10-30: "see how claude code has those centered tool calls / id like more alignment too"):
-     the block gap on both sides already centres it, so the status gaps add nothing (model.ts
-     STATUS_GAP, STATUS_GAP_PLAIN). */
-  --cv-status-gap: 0px;
-  --cv-status-gap-plain: 0px;
-  --cv-status-gap-plain-over: 0px;
-  /* #30865's reply room and #30400's note gap on the grid: the stack's block gap is the room under a
-     reply and around a note, so neither adds its own. */
-  --cv-reply-room: 0px;
-  --cv-note-gap: 0px;
+  --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
+  --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
+  --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
+  --cv-continuation-gap: var(--cv-message-gap); /* the same assistant's next turn */
+  /* Under a reply that something follows (model.ts keepsReplyRoom): the 2026-10-30 action row's room. */
+  --cv-reply-room: calc(var(--cv-meta-gap) + var(--cv-meta-row) + var(--cv-message-gap));
+  /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
+     after the run before the next reply. Gallery-only attributes compare this against the prior
+     roomier rhythm without adding a product setting. */
+  --cv-tool-row-height: 22px;
+  /* A DisclosureRow line (a received message, a sub-session): 26px in 2px margins, which model.ts
+     estimates. */
+  --cv-disclosure-line-height: 26px;
+  /* Every transcript status/control starts from one centered glyph slot. The Session Info rows use
+     the same slot from styles.css so a tool, Worked for, Received and peer row share one center line.
+     MessageActions.tsx uses the same shared footer slots. */
+  --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
+  --cv-glyph-line: var(--acpmux-glyph-line, 20px);
+  --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  /* Content below a transcript row starts after its glyph slot and the shared inline gap.
+     Keep this in the transcript grid so a message card follows the row when the glyph slot
+     changes, instead of carrying a second local pixel indent. */
+  --cv-message-inline-gap: 8px;
+  --cv-message-indent: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-message-inline-gap));
+  --cv-footer-control-slot: var(--cv-meta-row, 24px);
+  --cv-footer-chevron-slot: var(--cv-footer-control-slot);
+  --cv-footer-gap: 0px;
+  --cv-tool-run-bottom-gap: 4px;
+  /* Over a tool run (`.cv-tools`' top margin) and over every one-line row (`.acpmux-row--line`). */
+  --cv-tool-run-top-gap: 2px;
+  /* A status row between two replies (a tool run, a subagent's or a background command's end,
+     another agent's message: model.ts `isStatusRow`) sits in the middle of the gap, as Claude Code
+     desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more
+     alignment too"). Above it, the reply's action row (its meta gap and line) and the step's 2px top
+     margin; below it, as much (model.ts STATUS_GAP). Inside an opened "Worked for", whose replies
+     draw no action row, the plain gap on both sides (STATUS_GAP_PLAIN). */
+  --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + 2px);
+  --cv-status-gap-plain: 12px;
+  /* Above and below a short interim note folded into a run of calls (.cv-tool-note). */
+  --cv-note-gap: var(--cv-status-gap-plain);
+  /* A plain reply's share of that gap over a status row: the step's 2px top margin is the rest. */
+  --cv-status-gap-plain-over: calc(var(--cv-status-gap-plain) - 2px);
+  /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
   --cv-status-reply-tail: 0px;
-  --cv-tool-gap: var(--grid-gap);
-  /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
-     MISALIGN THINGS"; test/transcript-meta-columns-browser.test.ts): the 16 box on col-left, the
-     words one grid gap after it (col-left + 24). */
+  --cv-tool-gap: var(--ds-space-2, 8px);
+  /* One icon column for every transcript meta row: a tool row, a sent message, a received or inbox
+     message, a background task, a sub-session or subagent card. Each starts its icon at the row's
+     left edge (no inset of its own), in the same slot, with its words the same distance after it
+     (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN MISALIGN THINGS"; test/transcript-meta-columns-browser.test.ts). */
   --cv-row-icon: var(--cv-glyph-slot);
-  --cv-row-icon-gap: var(--grid-gap);
-  --cv-tool-text-inset: var(--grid-transcript-text-gap);
+  --cv-row-icon-gap: calc(var(--cv-tool-gap) - 1.5px);
+  /* Where a tool row's words start: the glyph slot, less the glyph's 1.5px overlap, and the gap. A
+     line under a row (a failure's cause, an opened message, a step's thought) starts here too. */
+  --cv-tool-text-inset: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-tool-gap));
   --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
@@ -139,7 +156,7 @@
 /* The date over the first prompt of a day (DateLine.tsx). */
 .cv-date-line {
   display: block;
-  padding-top: 0;
+  padding-top: 8px;
   text-align: center;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -167,7 +184,7 @@
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--grid-gap) var(--grid-cards-padding);
+  padding: var(--cv-bubble-padding, 8px 12px);
   border-radius: 10px;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -923,9 +940,6 @@
 /* ---------- Markdown ---------- */
 
 .cv-md {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -1754,11 +1768,11 @@ pre.cv-math-source {
   position: relative;
   box-sizing: border-box;
   width: 100%;
-  height: var(--grid-row);
+  height: var(--cv-worked-height, 27px);
   padding-top: 0;
   display: flex;
   align-items: center;
-  gap: var(--grid-gap);
+  gap: var(--cv-worked-gap, 2px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
@@ -1876,8 +1890,8 @@ pre.cv-math-source {
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
-  height: var(--grid-row);
-  padding-top: 0;
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
+  padding-top: calc(var(--cv-live-gap) + 2px);
 }
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
    Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
@@ -1997,10 +2011,7 @@ pre.cv-math-source {
 }
 
 .cv-tools {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-block);
-  margin: 0;
+  margin: 2px 0 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -2139,8 +2150,6 @@ pre.cv-math-source {
 .cv-tool__text {
   flex: 0 1 auto;
   min-width: 0;
-  /* Counts ("Ran 12 commands", +3 -1) take tabular figures: a changing value never moves its neighbours. */
-  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2218,8 +2227,8 @@ pre.cv-math-source {
 .cv-thought {
   display: flex;
   align-items: flex-start;
-  gap: var(--grid-gap);
-  padding-block: 0;
+  gap: 6px;
+  padding-block: 3px;
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
@@ -2231,7 +2240,7 @@ pre.cv-math-source {
 .cv-thought.is-full {
   flex-direction: column;
   align-items: stretch;
-  gap: var(--grid-gap-inner);
+  gap: 0;
 }
 .cv-thought__label {
   flex: none;
@@ -2266,9 +2275,9 @@ pre.cv-math-source {
 /* A flex item already, so no display here: the live viewport's column (above) keeps its own. */
 .cv-thought__body,
 .cv-thought.is-full .cv-thought__text {
-  margin: 0;
-  padding-left: var(--grid-icon-box);
-  box-shadow: inset 1px 0 var(--cv-rule);
+  margin: 2px 0 6px 7px;
+  padding-left: 16px;
+  border-left: 1px solid var(--cv-rule);
   line-height: 20px;
   overflow: hidden;
 }
@@ -2658,24 +2667,16 @@ button.cv-video-frames__frame:focus-visible {
 
 /* An opened group's calls hang off a hairline under the group's glyph (ToolGroupRow.tsx). */
 .cv-tool-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-block);
-  margin: 0;
-  padding-left: var(--grid-icon-box);
-  box-shadow: inset 1px 0 var(--cv-rule);
+  margin-left: 7.5px;
+  padding-left: 14.5px;
+  border-left: 1px solid var(--cv-rule);
 }
 /* Commands, reads and searches list flush under their line, one glyph and line per call, as the
    Codex desktop app lists "Ran commands". */
 .cv-tool-group.is-flat {
   margin-left: 0;
   padding-left: 0;
-  box-shadow: none;
-}
-/* "+K more" lines up with the calls' text, past their glyphs. */
-.cv-tool-group.is-flat .cv-tool-group__more {
-  display: flex;
-  padding-left: var(--grid-transcript-text-gap);
+  border-left: 0;
 }
 /* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
    run first in full, then a row per step. By default each step is a normal tool row in the
@@ -3166,7 +3167,6 @@ button.cv-video-frames__frame:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
-  height: var(--grid-row);
   box-sizing: border-box;
   padding-block: 0;
   padding-inline: 0;
@@ -3639,7 +3639,6 @@ a.cv-sha:focus-visible {
   justify-content: flex-start;
   gap: 8px;
   min-height: var(--cv-meta-row);
-  padding-inline-start: 0;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
@@ -3800,10 +3799,7 @@ a.cv-sha:focus-visible {
    row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
    the reader points at the reply or a button in it has keyboard focus. */
 .cv-reply-actions {
-  position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
-  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
-  margin: 0;
+  margin-top: var(--cv-meta-gap);
   opacity: 0;
 }
 .acpmux-assistant:hover .cv-reply-actions,
@@ -4924,9 +4920,8 @@ a.cv-sha:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--grid-row);
-  margin: 0;
-  padding-inline-start: 0;
+  min-height: 24px;
+  margin: 4px 0 8px;
   font-size: var(--text-body);
   color: var(--cv-text-muted);
   letter-spacing: var(--text-body--letter-spacing);
@@ -5124,23 +5119,47 @@ a.cv-sha:focus-visible {
   color: var(--agent-status-failure);
 }
 
+/* A one-line row that is not a tool run (model.ts `isLineRow`: another agent's message, a notice, an
+   inbox notice, a report batch's or the waiting group's head) takes a one-call tool run's frame: 2px
+   over its line, the run gap under it, no 34px floor. Beside another step row it joins as one does
+   (below), so tool, message, inbox and fold rows all sit one 22px line apart (Leo, 2026-11-01:
+   "doesn't make sense for these to be spaced differently"; test/transcript-row-pitch-browser.test.ts).
+   The turn's last row keeps the turn gap. */
+.acpmux-row.acpmux-row--line {
+  min-height: 0;
+  padding-top: var(--cv-tool-run-top-gap);
+}
+/* The element selector outranks the user row's message gap (styles.css); the status edges below,
+   as specific and later, still give a line between two replies its centred room. */
+article.acpmux-row.acpmux-row--line {
+  padding-bottom: var(--cv-tool-run-bottom-gap);
+}
+article.acpmux-row.acpmux-row--line.acpmux-row--last-turn {
+  padding-bottom: var(--cv-turn-gap);
+}
+.acpmux-row.acpmux-row--line.acpmux-row--after-step {
+  padding-top: 0;
+}
+article.acpmux-row.acpmux-row--line.acpmux-row--before-step {
+  padding-bottom: 0;
+}
 /* A notice's tool line (IncomingMessageCard.tsx IncomingNotice) takes the row's width: the row is a
-   user row, which puts its content at the end (#29965). */
+   user row, which puts its content at the end. */
 .acpmux-row--line .cv-tools {
   flex: 1;
   min-width: 0;
   margin-top: 0;
 }
-/* The virtual transcript owns all outer spacing. Measured heights are content only;
-   paint containment would clip the action glyphs and their overhanging hit boxes. */
-article.acpmux-row {
+/* One rhythm for steps (tool calls, thoughts, a background task's end, the one-line rows above)
+   across transcript rows: a step row next to another adds no gap, so they sit one tool row apart
+   as inside one row (Leo 2026-10-13). */
+.acpmux-row.acpmux-row--before-step,
+.acpmux-row.acpmux-row--after-step {
+  /* A row's 34px floor would put the gap back under a one-step row. */
   min-height: 0;
-  padding-block: 0;
-  margin-block: 0;
-  contain: layout;
 }
-article.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) {
-  height: 0;
+.acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
 }
 /* A status row between two replies sits in the middle of the gap (model.ts `statusEdge`,
    --cv-status-gap above): the reply over it ends at its action row, and the row under it ends that
@@ -5188,20 +5207,45 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
 }
-.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
-  position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
-  top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+/* A reply's footer hugs it as a prompt's meta row does, and closes the turn with the turn gap. */
+.acpmux-row.acpmux-assistant.acpmux-row--before-footer {
+  /* A one-line reply's 34px floor would put the band back above its footer. */
+  min-height: 0;
+  padding-bottom: var(--cv-meta-gap);
 }
-/* The last footer's gap to the composer is the block gap too (transcriptGrid.ts tailGap), so its
-   glyphs keep the same 4 under the message as every other footer. */
-/* A footer over a prompt sits in the middle of the turn gap under its reply: its line as far from the
-   reply's last line as from the prompt (Leo, 2026-10-31: "padding after == padding before that kinda
-   thing all around", #29860). The reply's line box ends a half-leading under its text, so the line
-   rises by about half of that. A footer over more of the same agent, or one ending the chat, stays
-   centred in the block gap (transcriptGrid.ts restBand). */
-.acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer):not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
-  top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
+/* The footer's line sits in the middle of the room between the reply's last line and what follows
+   (Leo, 2026-10-31: "when i hover this little whatever time ago copy sound ellipsis thing should be
+   centered in between the two things you're saying in between / so padding after == padding before
+   that kinda thing all around"). The reply's text box ends a line's half-leading (about 3px) over
+   its row, then the meta gap: 7px over the line against the turn gap's 16px under it. The line
+   moves down inside its own row by half that difference (--cv-footer-drop), taken off its bottom
+   padding, so every footer keeps its height (model.ts estimates, the running line it replaces) and
+   nothing around it moves. Over the same agent's next reply, whose first line has the same
+   half-leading, it moves half as far. test/agent-pane-transcript-spacing.test.ts measures it. */
+.acpmux-row.acpmux-turnSummary {
+  --cv-footer-drop: var(--ds-space-1, 4px);
+  /* An empty footer's absolute hover controls still need their complete line. */
+  min-height: var(--cv-meta-row);
+  padding-top: var(--cv-footer-drop);
+  padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
+}
+/* The chat's last footer keeps the normal turn gap above the composer. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
+  padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
+}
+/* The footer that ends the chat has no next row to centre on: under it is the rest gap over the
+   composer (model.ts REST_GAP), so its line stays put. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer:not(:has(~ .acpmux-row)) {
+  --cv-footer-drop: 0px;
+}
+.acpmux-row.acpmux-turnSummary.acpmux-row--continuation-footer {
+  --cv-footer-drop: 2px;
+  padding-bottom: calc(var(--cv-continuation-gap) - var(--cv-footer-drop));
+}
+/* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
+   the normal turn rhythm without a permanent runway below every turn. */
+.acpmux-row.acpmux-row--last-turn {
+  padding-bottom: var(--cv-turn-gap);
 }
 
 /* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
@@ -5364,52 +5408,6 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
-/* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
-.cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
-.cv-md > :first-child,
-.cv-md > :last-child {
-  margin-block: 0;
-}
-.cv-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-inner);
-}
-.cv-list > li { margin-block: 0; }
-.cv-tool-run {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-block);
-}
-.cv-tool-note { margin: 0; }
-.cv-tool-label {
-  display: inline-flex;
-  max-width: 100%;
-  vertical-align: bottom;
-  white-space: pre;
-  font-variant-numeric: tabular-nums;
-}
-.cv-tool-label__subject {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
-/* One ordinary space between the verb and its subject: never a flex gap, never padding spaces. */
-.cv-tool-label__space { flex: none; }
-/* A count summary's verb takes its own width, not the column's (ToolVerb.tsx `tight`). */
-.cv-tool__verb.is-tight::after { content: none; }
-.cv-tool__verb { flex: none; }
-/* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot. */
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__actions,
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__body > .cv-user__actions {
-  position: absolute;
-  right: calc(-1 * var(--cv-action-overhang));
-  top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
-  margin: 0;
-  padding: 0;
-}
-
 
 .cv-repo-recovery {
   /* The repository choices are a <fieldset> (a named group): no fieldset border, padding or min width. */
