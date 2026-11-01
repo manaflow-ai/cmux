@@ -120,9 +120,9 @@ extension WindowManager {
         var ids = value.discarding
         for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
         for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
-        // The daemon closes ephemeral workspaces itself; the ledger keeps
-        // only incognito workspaces it does not know as such.
+        // The daemon closes ephemeral workspaces itself; the ledger keeps only incognito workspaces it does not know as such.
         incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
+        PhoneIncognitoHiding.publish(ids, self)
     }
 
     /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows
