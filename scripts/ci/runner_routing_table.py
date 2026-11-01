@@ -399,7 +399,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             elif (job.get("environment") not in (None, "ci-routing-agent")
                   or sensitive.search(json.dumps([workflow.get("env", {}), job]))):
                 issue = "cannot authorize release/signing credentials or operations"
-            elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "nightly-identity-legacy-published-in"}:
+            elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "published-in"}:
                 issue = "cannot authorize release/signing or credentialed publication routes"
             if issue:
                 problems.append(f"hosted_light_jobs[{key!r}] {issue}")
