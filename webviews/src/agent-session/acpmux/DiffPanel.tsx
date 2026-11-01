@@ -264,6 +264,12 @@ export function DiffPanel({
     },
     writeKeys,
   );
+  // A folder found outside a repository is checked again on each scope load (a scope switch or
+  // Refresh), so a repository made while the view is open brings Commit and Push back.
+  const recheckRepository = git.recheck;
+  useEffect(() => {
+    if (load.state !== "loading") recheckRepository();
+  }, [load, recheckRepository]);
   const commitMessage = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (commitOpen) commitMessage.current?.focus();

@@ -1,5 +1,5 @@
 // l10n-allow-file: fixture workflow names in assertions, not shipped UI.
-// The Inspector's Background tasks lists the chat's Claude workflows (Labs): a running one with
+// Session Info's Background tasks lists the chat's Claude workflows (Labs): a running one with
 // its counts, tokens, description, phases with a dot per agent, the running phase open with its
 // model and agents, and the phases no agent started yet as plain rows with no label (Leo,
 // 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Workflow · Finished · 7 agents", its phases
@@ -10,8 +10,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/session-info/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -97,11 +97,11 @@ test("workflow agent rows never send a workflow agent id to the ordinary subagen
   expect(legacyOpened).toBe(false);
 });
 
-test("the shipped Inspector renders workflow agents as normal content until a workflow opener is supplied", () => {
+test("the shipped Session Info renders workflow agents as normal content until a workflow opener is supplied", () => {
   for (const variant of ["compact", "detail", "grid"] as const) {
     const document = new JSDOM(
       renderToStaticMarkup(
-        <ChatInspector
+        <SessionInfo
           workflows={summaries("running")}
           onStopWorkflow={async () => undefined}
           onOpenSubagent={() => undefined}
@@ -119,9 +119,9 @@ test("the shipped Inspector renders workflow agents as normal content until a wo
   }
 });
 
-test("the Inspector renders enabled workflow buttons when a workflow opener is supplied", () => {
+test("Session Info renders enabled workflow buttons when a workflow opener is supplied", () => {
   const document = new JSDOM(
-    renderToStaticMarkup(<ChatInspector workflows={summaries("running")} onOpenWorkflowAgent={() => undefined} />),
+    renderToStaticMarkup(<SessionInfo workflows={summaries("running")} onOpenWorkflowAgent={() => undefined} />),
   );
   const buttons = document.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-workflow-agent button");
   expect(buttons.length).toBe(3);
