@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
+use super::trust::trusted_at;
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
     origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, valid_environment,
@@ -321,6 +322,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         local: local.into(),
         subpath: subpath.into(),
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
+        acpmux_home: None,
     }
 }
 
@@ -424,6 +426,54 @@ fn copy_answer_reports_clone_timing_only() {
     assert_eq!(cached["seed_phase"], json!("cached"));
     assert_eq!(cached["copied"], json!(false));
     assert_copy_timings(&cached);
+}
+
+/// Capture at ff3f8c9b (2026-11-01): a send to Cloud from a folder this Mac trusts opened its copy on
+/// the machine behind "Trust the cloud-proof repo?", and the first message never went. The copy
+/// answers whether this Mac's acpmux trusts the chat's folder (its own record, as `acp.trust.get`
+/// reads it), so the App records the same answer for the copy there; anything else is asked there.
+#[test]
+fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
+    let dir = scratch();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let project = root.join("paint");
+    let app = project.join("web");
+    std::fs::create_dir_all(&app).unwrap();
+    let home = root.join("acpmux");
+    std::fs::create_dir_all(&home).unwrap();
+    let paths = |record: &Path| acpmux::trust::Paths {
+        claude_json: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        record: record.to_path_buf(),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let record = home.join("trust.json");
+    let folder = project.to_string_lossy().into_owned();
+    // No answer yet: asked on the machine.
+    assert!(!trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, json!({ (folder.clone()): "trusted" }).to_string()).unwrap();
+    assert!(trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, json!({ (folder.clone()): "untrusted" }).to_string()).unwrap();
+    assert!(!trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, "not json").unwrap();
+    assert!(!trusted_at(&paths(&record), &folder), "unreadable trust is not trusted");
+
+    // The answer is for the chat's folder (`subpath` in the copied one), and only with a home given.
+    let mut copy = copy_of(&folder, "web");
+    assert_eq!(copy.local_chat(), app.to_string_lossy());
+    assert!(!copy.source_trusted(), "no acpmux home: never trusted");
+    copy.acpmux_home = Some(home);
+    let ledger = ledger_in(dir.path());
+    let answer = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(answer["source_trusted"], json!(false), "{answer}");
+    let chat = app.to_string_lossy().into_owned();
+    std::fs::write(&record, json!({ (chat): "trusted" }).to_string()).unwrap();
+    let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
+    let failed = StartCopy { key: key(), ..copy }
+        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
+    assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
 }
 
 #[test]
