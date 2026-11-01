@@ -185,13 +185,40 @@ try {
     dcl: number;
     scriptKiB: number;
     scripts: string[];
+    forced: { writes: number; writeMs: number; reads: number; readMs: number; byClass: Record<string, number> };
   };
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
-    await page.addInitScript((latestText) => {
+    await page.addInitScript(([latestText, instrument]) => {
+      const forced = { writes: 0, writeMs: 0, reads: 0, readMs: 0, byClass: {} as Record<string, number> };
+      (window as unknown as { __forced: typeof forced }).__forced = forced;
+      // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
+      // or read after a DOM change is where the browser lays out synchronously).
+      if (instrument) {
+        const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+        Object.defineProperty(Element.prototype, "scrollTop", {
+          ...top,
+          set(this: Element, value: number) {
+            const started = performance.now();
+            top.set!.call(this, value);
+            forced.writes += 1;
+            forced.writeMs += performance.now() - started;
+            const key = String(this.className).split(" ")[0] || this.tagName;
+            forced.byClass[key] = (forced.byClass[key] ?? 0) + 1;
+          },
+        });
+        const rect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+          const started = performance.now();
+          const box = rect.call(this);
+          forced.reads += 1;
+          forced.readMs += performance.now() - started;
+          return box;
+        };
+      }
       const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
       (window as unknown as { __open: typeof state }).__open = state;
       const afterPaint = (done: () => void) => requestAnimationFrame(() => setTimeout(done, 0));
@@ -223,7 +250,7 @@ try {
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    }, LATEST);
+    }, [LATEST, process.env.INSTRUMENT === "1"] as const);
     attachedAt = 0;
     arrivals = new Map();
     socketOpenedAt = 0;
@@ -239,11 +266,13 @@ try {
     );
     const got = await page.evaluate(() => {
       const state = (window as unknown as { __open: Record<string, number> }).__open;
+      const forced = (window as unknown as { __forced: unknown }).__forced;
       const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
       const scripts = performance.getEntriesByType("resource").filter((r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js")) as PerformanceResourceTiming[];
       return {
         ...state,
         origin: performance.timeOrigin,
+        forced,
         dcl: nav.domContentLoadedEventEnd,
         scriptKiB: scripts.reduce((sum, r) => sum + r.decodedBodySize, 0) / 1024,
         scripts: scripts
@@ -270,6 +299,7 @@ try {
       dcl: got.dcl!,
       scriptKiB: got.scriptKiB!,
       scripts: got.scripts as unknown as string[],
+      forced: got.forced as Round["forced"],
     };
   };
 
@@ -329,6 +359,12 @@ try {
         median((r) => r.scriptKiB).toFixed(0),
       ].join(" | "),
     );
+    if (process.env.INSTRUMENT === "1") {
+      const last = rounds.at(-1)!.forced;
+      console.log(
+        `forced layout in one load: scrollTop writes ${last.writes} (${last.writeMs.toFixed(1)} ms) ${JSON.stringify(last.byClass)}, getBoundingClientRect reads ${last.reads} (${last.readMs.toFixed(1)} ms)`,
+      );
+    }
     console.log(`scripts loaded (${rounds[0]!.scripts.length}): ${rounds[0]!.scripts.slice(0, 12).join(", ")}`);
     console.log(
       "attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest",
