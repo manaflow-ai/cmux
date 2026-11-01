@@ -10029,6 +10029,15 @@ permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.
 
+A running turn: `agent-transfer-begin {interrupt: true}` stops it, and this
+daemon's acpmux queues its continuation first, so the turn goes on where the
+chat lands, or here if the move does not happen
+(`agent-transfer-continues-v1`). `cmux link agent move --interrupt` asks for
+the Stop only from a source that lists that capability; an older one would
+stop the turn for good, so there the begin is refused while the turn runs. A
+chat that is compacting is refused too (`transfer.busy`): a Stop then would
+withdraw its queued prompts.
+
 A receive id is not tied to the connection that made it: another trusted
 local connection of the same user may write, finish or abort it (the pump
 may reconnect). That grants nothing new: the folder comes from the daemon's

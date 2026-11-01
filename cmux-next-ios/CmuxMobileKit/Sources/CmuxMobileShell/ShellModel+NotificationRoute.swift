@@ -70,6 +70,12 @@ extension ShellModel {
     /// tab. Returns false while the Mac's tree has not arrived, so the shell
     /// tries again when it does.
     func openRoute(_ route: NotificationRoute) -> Bool {
+        if let cloud = route.cloud {
+            cancelRestore()
+            tab = .home
+            cloudChats = CloudChatsPresentation(attention: cloud)
+            return true
+        }
         // Signed in, but the live link is not attached yet (a cold launch while
         // the account settles): no Mac's tree can be read, so `decide` would
         // settle for the Feed. Wait instead; ShellView tries again once the link is

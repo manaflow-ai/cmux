@@ -91,6 +91,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {

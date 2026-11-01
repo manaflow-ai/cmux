@@ -264,8 +264,10 @@ impl SubagentTree {
                 .map(|t| truncate_label(&t));
             match at {
                 Some(at) => {
-                    if self.running[at].1.is_none() {
-                        self.running[at].1 = label;
+                    if let Some(slot) = self.running.get_mut(at)
+                        && slot.1.is_none()
+                    {
+                        slot.1 = label;
                     }
                 }
                 None => self.running.push((id.to_owned(), label)),

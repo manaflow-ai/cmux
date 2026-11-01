@@ -665,6 +665,8 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        for relay in session.cloudChats.values { relay.retire() }
+        session.cloudChats.removeAll()
         session.link.send(.target(nil))
         // Its data on screen is last-known now, and nothing says it is connected.
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
