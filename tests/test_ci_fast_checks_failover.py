@@ -152,6 +152,13 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(receipt and receipt.get("skipped_display"))
 
+    def test_display_marker_in_a_shell_comment_does_not_skip_a_failure(self) -> None:
+        result, receipt = self.run_fast_checks_script(
+            "cmux-ci run --script failing.sh # --display"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(receipt and receipt.get("skipped_display"))
+
     def test_missing_non_display_command_stays_a_real_failure(self) -> None:
         result, receipt = self.run_fast_checks_script("definitely-missing-fast-check-command")
         self.assertEqual(result.returncode, 127)
