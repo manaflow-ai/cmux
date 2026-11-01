@@ -46,7 +46,7 @@ struct HintRun {
             throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame (\(stream.idleFrames) idle, stop error \(stream.stopError ?? "none"))")
         }
         var failures: [String] = []
-        let off = try golden("off", captured: first, failures: &failures)
+        let off = try golden("off", captured: Self.image(first), failures: &failures)
         let on = try golden("on", captured: Self.image(shown), failures: &failures)
         guard let off, let on else { return failures }
         let period = fixture.display.refreshPeriod
@@ -83,7 +83,7 @@ struct HintRun {
         let frames = stream.capturedImages
         guard let first = frames.first?.image else { throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame") }
         var failures: [String] = []
-        guard let off = try golden("off", captured: first, failures: &failures) else { return failures }
+        guard let off = try golden("off", captured: Self.image(first), failures: &failures) else { return failures }
         for frame in frames {
             let (misses, worst) = Self.compare(frame.image, off)
             if misses > 0 {
@@ -145,18 +145,26 @@ struct HintRun {
         guard image.width == off.width, image.height == off.height else { return Reading(time: time, opacity: .nan, misses: image.pixels.count, worst: 255) }
         var numerator = 0.0, denominator = 0.0
         for index in image.pixels.indices where off.pixels[index] != on.pixels[index] {
-            for (shown, (a, b)) in zip(Self.channels(image.pixels[index]), zip(Self.channels(off.pixels[index]), Self.channels(on.pixels[index]))) where abs(b - a) >= 8 {
-                numerator += Double(shown - a) * Double(b - a)
-                denominator += Double(b - a) * Double(b - a)
+            let shown = Self.channels(image.pixels[index]), a = Self.channels(off.pixels[index]), b = Self.channels(on.pixels[index])
+            for channel in 0..<4 where abs(b[channel] - a[channel]) >= 8 {
+                let span = Double(b[channel] - a[channel])
+                numerator += Double(shown[channel] - a[channel]) * span
+                denominator += span * span
             }
         }
         let opacity = denominator > 0 ? min(max(numerator / denominator, 0), 1) : 0
         var misses = 0, worst = 0
         for index in image.pixels.indices {
             let shown = Self.channels(image.pixels[index]), a = Self.channels(off.pixels[index]), b = Self.channels(on.pixels[index])
-            let difference = (0..<4).map { abs(Double(shown[$0]) - (Double(a[$0]) + (Double(b[$0]) - Double(a[$0])) * opacity)).rounded() }.max() ?? 0
-            worst = max(worst, Int(difference))
-            if Int(difference) > CmdHintPixelTests.tolerance { misses += 1 }
+            var difference = 0
+            for channel in 0..<4 {
+                let low = Double(a[channel]), high = Double(b[channel])
+                let blend: Double = low + (high - low) * opacity
+                let apart = Int(abs(Double(shown[channel]) - blend).rounded())
+                difference = max(difference, apart)
+            }
+            worst = max(worst, difference)
+            if difference > CmdHintPixelTests.tolerance { misses += 1 }
         }
         return Reading(time: time, opacity: opacity, misses: misses, worst: worst)
     }
