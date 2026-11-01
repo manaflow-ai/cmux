@@ -9,8 +9,15 @@ import Testing
 /// GPU audit 2026-10-21, offender #1: the sidebar's show/hide slide moved the main pane's edge on
 /// every frame, and the card resized its content with it, so every pane, terminal and Chromium page
 /// laid out at a new width per frame (6.7 to 7.4 ms of main thread a frame, 81 to 89% of a 120 Hz
-/// frame). This opt-in prototype keeps one width for the whole slide, the widest the card reaches, rides
-/// the moving edge, and lays out once: at the start of a hide, at the landing of a show.
+/// frame). The hold (`sidebar.slideHoldsContent`, opt-in in Debug Settings since #29894; the default
+/// follows the card every frame) takes the content's landing width when the slide starts and lays
+/// it out once.
+///
+/// Leo, 2026-11-01: "when i toggle the sidebar on and off I STILL SEE THE ENTIRE OTHER PART OF THE
+/// APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK". The hold used to keep the widest width and ride
+/// the sidebar's moving edge, so a show slid the old wide layout across and laid it out narrower at
+/// the landing. The held content is now pinned to the card's far edge: it does not move on screen,
+/// and its frame changes once per toggle, at the start, to the frame it lands at.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSlideHoldsContentTests {
     /// What a workspace does (`WorkspaceContentView`): its layout child has no autoresizing mask
@@ -76,7 +83,10 @@ struct SidebarSlideHoldsContentTests {
         withHold(nil) { #expect(!SidebarTunables.slideHoldsContent.value) }
     }
 
-    @Test func aHideSizesTheContentOnceAndItRidesTheEdge() throws {
+    /// The content's frame in window coordinates: what a person sees move.
+    private func onScreen(_ content: NSView) -> CGRect { content.convert(content.bounds, to: nil) }
+
+    @Test func aHideSizesTheContentOnceAndItStaysPut() throws {
         try withHold(true) {
             let (window, root, content) = openRoot()
             defer { window.close() }
@@ -85,25 +95,28 @@ struct SidebarSlideHoldsContentTests {
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
             let held = card.width + sidebar
-            #expect(content.frame == CGRect(x: 0, y: 0, width: held, height: card.height), "a hide lays the content out at its landing width first")
+            #expect(content.frame == CGRect(x: -sidebar, y: 0, width: held, height: card.height), "a hide lays the content out at its landing width first")
+            let start = onScreen(content)
             var edge = root.contentHost.frame.minX
             for step in [0.75, 0.5, 0.25, 0] as [CGFloat] {
                 frame(root, width: sidebar * step)
                 #expect(root.contentHost.frame.minX < edge, "the card's edge follows the sidebar")
                 edge = root.contentHost.frame.minX
-                // The width is what the hold pins; the height follows the card (the window's
-                // first layout passes can still move the card's top inset by a few points).
-                #expect(content.frame == CGRect(x: 0, y: 0, width: held, height: root.contentHost.bounds.height),
-                        "frame at \(step): the content resized to \(content.frame.width) mid-slide")
+                #expect(content.frame.width == held, "frame at \(step): the content resized to \(content.frame.width) mid-slide")
+                #expect(abs(onScreen(content).minX - start.minX) < 0.5 && abs(onScreen(content).maxX - start.maxX) < 0.5,
+                        "frame at \(step): the content moved on screen from \(start) to \(onScreen(content))")
             }
             root.sidebar.isWidthAnimating = false
             #expect(root.contentHost.contentHold == nil)
             #expect(content.frame == root.contentHost.bounds)
             #expect(abs(content.frame.width - held) < 0.5)
+            #expect(abs(onScreen(content).minX - start.minX) < 0.5, "the landing moved the content: \(start) -> \(onScreen(content))")
         }
     }
 
-    @Test func aShowKeepsTheWideContentUntilTheLanding() throws {
+    /// The bug Leo saw: a show kept the old wide layout through the slide, riding the sidebar's
+    /// edge, and laid it out narrower when the slide landed.
+    @Test func aShowSizesTheContentOnceAtTheStartAndItStaysPut() throws {
         try withHold(true) {
             let (window, root, content) = openRoot()
             defer { window.close() }
@@ -113,32 +126,40 @@ struct SidebarSlideHoldsContentTests {
             try #require(sidebar > 0 && abs(content.frame.width - wide) < 0.5)
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(0, sidebar)
+            let landing = wide - sidebar
+            #expect(content.frame.width == landing, "a show lays the content out at its landing width first")
+            let start = onScreen(content)
             for step in [0.25, 0.5, 0.75, 1] as [CGFloat] {
                 frame(root, width: sidebar * step)
-                #expect(content.frame.minX == 0 && content.frame.width == wide,
-                        "frame at \(step): the content resized to \(content.frame.width) mid-slide")
+                #expect(content.frame.width == landing, "frame at \(step): the content resized to \(content.frame.width) mid-slide")
+                #expect(abs(onScreen(content).minX - start.minX) < 0.5 && abs(onScreen(content).maxX - start.maxX) < 0.5,
+                        "frame at \(step): the content moved on screen from \(start) to \(onScreen(content))")
             }
+            let beforeLanding = content.frame
             root.sidebar.isWidthAnimating = false
-            #expect(content.frame == root.contentHost.bounds, "the landing fits the content to the card once")
-            #expect(abs(content.frame.width - (wide - sidebar)) < 0.5)
+            #expect(content.frame == root.contentHost.bounds)
+            #expect(content.frame == beforeLanding, "the landing changed the content's frame: \(beforeLanding) -> \(content.frame)")
         }
     }
 
-    /// A toggle mid-slide turns the animation around from where it is: the content keeps the
-    /// widest width either leg needs instead of resizing for the second one.
-    @Test func aSlideThatTurnsAroundKeepsOneWidth() throws {
+    /// A toggle mid-slide turns the animation around from where it is: the content takes the new
+    /// leg's landing width at once and keeps it, so the landing changes nothing.
+    @Test func aSlideThatTurnsAroundTakesTheNewLandingWidth() throws {
         try withHold(true) {
             let (window, root, content) = openRoot()
             defer { window.close() }
-            let sidebar = root.sidebar.frame.width, held = root.contentHost.frame.width + sidebar
+            let sidebar = root.sidebar.frame.width, shownWidth = root.contentHost.frame.width
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
             frame(root, width: sidebar / 2)
             root.sidebar.onWidthMotionStart?(sidebar / 2, sidebar)
+            #expect(content.frame.width == shownWidth)
             frame(root, width: sidebar)
-            #expect(content.frame.width == held)
+            #expect(content.frame.width == shownWidth)
+            let beforeLanding = content.frame
             root.sidebar.isWidthAnimating = false
             #expect(content.frame == root.contentHost.bounds)
+            #expect(content.frame == beforeLanding)
         }
     }
 
