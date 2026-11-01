@@ -325,6 +325,13 @@ final class ChatRowCell: UICollectionViewCell {
     /// The row's revision and disclosures this cell draws (set when configured): what its
     /// measurements are of.
     var shown: ChatRowAttributes.Shown?
+
+    /// A row is never inset by the window's safe area. A cell under the status bar (or the
+    /// transcript's header, which the collection view reports as its top safe area for the edge
+    /// effect) passed that inset to its hosted view, which padded itself by it: the row was
+    /// measured, and kept, up to 62 pt taller than it draws anywhere else.
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+
     /// The row's height measured before at a width for what it shows now (set when configured).
     /// It stands in for the first sizing pass after a configure only: a later pass comes from the
     /// content itself changing size, which is measured.
@@ -1060,6 +1067,7 @@ final class ChatRowLookup {
         let marked = id == findMarked
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowView(row: row, context: context)
+
                 // VoiceOver hears which row holds Find in Chat's current match.
                 .accessibilityAddTraits(marked ? .isSelected : [])
                 // Rows whose views keep their own state (a question's answers, a code card shown in
