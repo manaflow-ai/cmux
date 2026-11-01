@@ -85,8 +85,12 @@ import Testing
         // f004cef0aa9), and never covers the avatar's square when the row is too narrow for both.
         #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
         #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
-        let mirrored = h.sidebar.bounds.maxX - (chip.minX - h.sidebar.bounds.minX) - search.width
-        let searchX = max(chip.maxX, mirrored)
+        // Search follows the shared trailing slot (bb5fb9695d26), whose compact inset
+        // includes resize-band clearance and may differ from the avatar's mirrored inset.
+        let columnX = SidebarStyle.trailingColumnFrame(sidebarWidth: h.sidebar.bounds.width,
+                                                        centerY: 0,
+                                                        side: search.width).minX
+        let searchX = max(chip.maxX, columnX)
         #expect(abs(search.minX - searchX) <= 0.5, "search \(search) not at the row's right end \(searchX) (avatar \(chip))")
         #expect(search.minX >= chip.maxX - 0.25, "search \(search) covers the avatar's square \(chip)")
 
