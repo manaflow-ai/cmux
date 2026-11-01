@@ -1262,6 +1262,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const ended = this.backgroundEnds.get(id);
     this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
     this.backgroundEnds.delete(id);
+    // An older page read later: rows its events made before this record was heard are the turn's too.
+    for (const [rowId, order] of this.order) {
+      if (this.local.has(rowId) || order <= seq || (ended !== undefined && order >= ended.seq)) continue;
+      const row = this.get(rowId);
+      if (!row || row.kind === BACKGROUND_TURN || row.kind === "user" || row.inBackground === id) continue;
+      const tagged = { ...row, inBackground: id };
+      super.set(rowId, tagged);
+      const at = this.orderedIndex.get(rowId);
+      if (this.ordered && at !== undefined) this.ordered[at] = tagged;
+      this.snapshot = undefined;
+      this.transcriptSummaryVersion = {};
+    }
     return ended?.turn;
   }
 
@@ -4717,8 +4729,11 @@ export class AcpmuxDirectClient {
     const { state, ...turn } = record;
     const id = backgroundTurnRowId(turn.id);
     const existing = this.rows.get(id);
-    // Its text never runs on into the reply before it, nor the next turn's into its own.
+    // Its text, tool calls and plan never run on into the turn before it, nor the next turn's into its
+    // own: a real turn that opens with a tool call or a thought gets a row of its own.
     this.endAssistantSegment();
+    this.streamingActivity = undefined;
+    this.planRow = undefined;
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
       const ended = this.rows.openBackground(turn.id, event.seq);
