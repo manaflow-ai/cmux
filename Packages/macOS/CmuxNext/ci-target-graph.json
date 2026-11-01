@@ -775,6 +775,15 @@
       ],
       "packages": []
     },
+    "CmuxNextCloudTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
+      "targets": [
+        "CmuxNextCloud"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCloudUI": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
