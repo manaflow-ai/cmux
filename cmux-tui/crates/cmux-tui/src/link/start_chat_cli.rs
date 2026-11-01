@@ -660,10 +660,9 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                         }
                         if let Some(setup) = body.get("setup").cloned().or_else(|| {
                             setup_state(environment, has_snapshot(body.get("snapshot")))
-                        }) {
-                            if let Some(object) = line.as_object_mut() {
-                                object.insert("setup".into(), setup);
-                            }
+                        }) && let Some(object) = line.as_object_mut()
+                        {
+                            object.insert("setup".into(), setup);
                         }
                     }
                     line
