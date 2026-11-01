@@ -61,7 +61,7 @@ pub(super) fn judge_daemon(
     probe: &Probe,
     want: Option<u16>,
 ) -> (Verdict, u16) {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let listening = listener_port(probe);
     // A daemon bound without a usable config (`--listen`, no token) keeps
     // its port when the config is written.
@@ -123,7 +123,7 @@ pub(super) fn judge_daemon(
                 // `~/.local/bin/acpmux`), so compare what each resolves to.
                 let used_real = used_path.as_deref().map(|u| probe.resolved(u));
                 let current_binary = probe.bins.iter().any(|(path, build)| {
-                    build.as_deref() == Some(crate::hub::BUILD)
+                    build.as_deref() == Some(crate::hub::build())
                         && (Some(path.as_str()) == used_path.as_deref()
                             || Some(probe.resolved(path)) == used_real)
                 });

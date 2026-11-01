@@ -32,14 +32,18 @@ public actor MobileHostSupervisor {
         /// The app's simulator surface sources; nil when this build cannot stream
         /// simulators (hostd then refuses `surface`).
         public var surfaceHosts: (any MobileHostSurfaceHosting)?
+        /// Current new-architecture carriers; fetched for every phone request, never cached here.
+        public var cloudLinks: @Sendable () async -> [MobileHostCloudLink]
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
-                    surfaceHosts: (any MobileHostSurfaceHosting)? = nil) {
+                    surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
+                    cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil) {
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
+            self.cloudLinks = cloudLinks ?? { [] }
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -281,6 +285,13 @@ public actor MobileHostSupervisor {
                 await tokens.request()
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case let .needCloudLinks(request):
+                // task-owner: one bounded hostd request; sends only to the child that asked.
+                // Looking up an install token must not hold up pairing or token control lines.
+                Task {
+                    let links = await inputs.cloudLinks()
+                    if let line = MobileHostLaunch.cloudLinksLine(request: request, links: links) { child.send(line) }
+                }
             case .pairRequest, .unpaired:
                 await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):

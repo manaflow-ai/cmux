@@ -98,6 +98,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               probe.remove();
               return {
                 box: bounds(box),
+                composer: bounds(composer),
                 controls,
                 bar: bounds(bar),
                 dots: dots ? bounds(dots) : null,
@@ -122,6 +123,11 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const axis = geometry.controls[0]!.cy;
               for (const control of geometry.controls) expect(Math.abs(control.cy - axis)).toBeLessThanOrEqual(0.5);
               expect(geometry.box.bottom - geometry.bar.bottom).toBeLessThanOrEqual(0.5);
+              // The box stands a 12 px floor over the composer's bottom, never on it (Leo 2026-11-01:
+              // "so there's not so much uncomfortable tangent line at the bottom"), and the row is 44 px
+              // with + as far off the box's left as off its bottom.
+              expect(Math.abs(geometry.composer.bottom - geometry.box.bottom - 12)).toBeLessThanOrEqual(0.5);
+              expect(Math.abs(geometry.bar.bottom - geometry.bar.top - 44)).toBeLessThanOrEqual(0.5);
               // Every control fits the box, none over another, at a split pane's width too (review of
               // #28901: the plain footer's infinite fit width kept the full labels at 280 px).
               const row = [...geometry.controls].sort((a, b) => a.left - b.left);

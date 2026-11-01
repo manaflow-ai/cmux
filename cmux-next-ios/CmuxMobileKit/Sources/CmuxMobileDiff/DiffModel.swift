@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// One changed file. Built from full texts (ACP `{type:"diff", path, oldText, newText}`),
 /// which allows expanding hidden context, or parsed from a unified diff.
@@ -10,12 +11,18 @@ public struct DiffFile: Identifiable, Hashable, Sendable {
     public var id: String { path }
     public var path: String
     public var oldPath: String?
-    public var status: Status
+    public var status: Status { didSet { summarize() } }
     /// Every line of the file in diff order (context, deletions, additions). For a
     /// parsed unified diff, only the lines inside hunks, with `gaps` between them.
-    public var lines: [DiffLine]
+    public var lines: [DiffLine] { didSet { summarize() } }
     /// True when `lines` covers the whole file (context can be expanded freely).
     public var hasFullContext: Bool
+    /// Added and removed line counts, counted once per content (rows and headers read them every body).
+    public private(set) var additions = 0
+    public private(set) var deletions = 0
+    /// FNV-1a over the status and the lines' kinds and texts: the viewed mark's fingerprint
+    /// (`DiffViewedStore.key`), hashed once per content instead of per lookup.
+    public private(set) var contentHash: UInt64 = 0
 
     public init(path: String, oldPath: String? = nil, status: Status, lines: [DiffLine], hasFullContext: Bool) {
         self.path = path
@@ -23,6 +30,34 @@ public struct DiffFile: Identifiable, Hashable, Sendable {
         self.status = status
         self.lines = lines
         self.hasFullContext = hasFullContext
+        summarize()
+    }
+
+    private mutating func summarize() {
+        var additions = 0
+        var deletions = 0
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        func mix(_ string: String) {
+            for byte in string.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01B3
+            }
+            hash ^= 0x0A
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        mix(status.rawValue)
+        for line in lines {
+            switch line.kind {
+            case .added: additions += 1
+            case .removed: deletions += 1
+            case .context: break
+            }
+            mix(line.kind.fingerprintName)
+            mix(line.text)
+        }
+        self.additions = additions
+        self.deletions = deletions
+        contentHash = hash
     }
 
     /// Builds a file diff from the old and new contents (nil old text = new file).
@@ -41,6 +76,42 @@ public struct DiffFile: Identifiable, Hashable, Sendable {
     /// edit separate; merging the first snippet's old text with the last one's new text
     /// compared two different snippets.
     public init(path: String, edits: [(oldText: String?, newText: String)]) {
+        // A turn's change set is rebuilt from its edits whenever a view asks for it: the line
+        // diff (Myers plus word diffs) runs once per distinct edit list, not once per ask.
+        let key = EditsKey(path: path, edits: edits.map { EditsKey.Edit(oldText: $0.oldText, newText: $0.newText) })
+        if let cached = Self.editsCache.withLock({ $0[key] }) {
+            self = cached
+            return
+        }
+        self.init(uncachedPath: path, edits: edits)
+        let made = self
+        Self.editsCache.withLock { cache in
+            if cache.count >= Self.editsCacheLimit { cache.removeAll(keepingCapacity: true) }
+            cache[key] = made
+        }
+    }
+
+    struct EditsKey: Hashable, Sendable {
+        struct Edit: Hashable, Sendable {
+            var oldText: String?
+            var newText: String
+        }
+
+        var path: String
+        var edits: [Edit]
+    }
+
+    static let editsCacheLimit = 64
+    private static let editsCache = Mutex<[EditsKey: DiffFile]>([:])
+    /// Line diffs computed per path (the memoization tests read it; DEBUG only).
+    #if DEBUG
+    static let editsDiffCounts = Mutex<[String: Int]>([:])
+    #endif
+
+    private init(uncachedPath path: String, edits: [(oldText: String?, newText: String)]) {
+        #if DEBUG
+        Self.editsDiffCounts.withLock { $0[path, default: 0] += 1 }
+        #endif
         guard let first = edits.first else {
             self.init(path: path, status: .modified, lines: [], hasFullContext: false)
             return
@@ -78,41 +149,60 @@ public struct DiffFile: Identifiable, Hashable, Sendable {
         return lines
     }
 
-    public var additions: Int { lines.count { $0.kind == .added } }
-    public var deletions: Int { lines.count { $0.kind == .removed } }
-
     public var fileName: String { (path as NSString).lastPathComponent }
     public var directory: String {
         let dir = (path as NSString).deletingLastPathComponent
         return dir.isEmpty ? "" : dir + "/"
     }
 
-    /// Hunks with `context` lines around each change (GitHub default 3).
+    /// Hunks with `context` lines around each change (GitHub default 3). O(lines): the ranges
+    /// and each header's declaration come from one forward pass (a backward search per hunk
+    /// was O(hunks x lines) and stalled the transcript on a long rewrite).
     public func hunks(context: Int = 3) -> [DiffHunk] {
-        let changed = lines.indices.filter { lines[$0].kind != .context || lines[$0].isGap }
-        guard !changed.isEmpty else { return [] }
-        var ranges: [ClosedRange<Int>] = []
-        for index in changed {
-            let low = max(0, index - context)
-            let high = min(lines.count - 1, index + context)
-            if let last = ranges.last, low <= last.upperBound + 1 {
-                ranges[ranges.count - 1] = last.lowerBound...max(last.upperBound, high)
-            } else {
-                ranges.append(low...high)
+        let ranges = DiffRows.changeRanges(lines, context: context)
+        guard !ranges.isEmpty else { return [] }
+        var hunks: [DiffHunk] = []
+        hunks.reserveCapacity(ranges.count)
+        var declaration: String?
+        var scanned = 0
+        for range in ranges {
+            // The nearest declaration strictly above the hunk.
+            while scanned < range.lowerBound {
+                let trimmed = lines[scanned].text.trimmingCharacters(in: .whitespaces)
+                if DiffHunk.isDeclaration(trimmed) { declaration = trimmed }
+                scanned += 1
             }
+            hunks.append(DiffHunk(file: self, range: range, declaration: declaration))
         }
-        return ranges.map { DiffHunk(file: self, range: $0) }
+        return hunks
     }
 
     /// The first `count` lines of the change as unified text (transcript snippets).
     public func unifiedPreview(maxLines: Int = 12) -> (lines: [DiffLine], remaining: Int) {
-        let hunkLines = hunks(context: 1).flatMap { Array(lines[$0.range]) }
-        return (Array(hunkLines.prefix(maxLines)), max(0, hunkLines.count - maxLines))
+        // The ranges only (no headers), counted without copying the lines past the preview.
+        var preview: [DiffLine] = []
+        var total = 0
+        for range in DiffRows.changeRanges(lines, context: 1) {
+            total += range.count
+            if preview.count < maxLines { preview += lines[range].prefix(maxLines - preview.count) }
+        }
+        return (preview, max(0, total - maxLines))
     }
 }
 
 public struct DiffLine: Hashable, Sendable {
-    public enum Kind: Hashable, Sendable { case context, added, removed }
+    public enum Kind: Hashable, Sendable {
+        case context, added, removed
+
+        /// The name as the viewed fingerprint has always hashed it (`"\(kind)"`), without the interpolation.
+        var fingerprintName: String {
+            switch self {
+            case .context: "context"
+            case .added: "added"
+            case .removed: "removed"
+            }
+        }
+    }
 
     public var kind: Kind
     public var oldNumber: Int?
@@ -146,19 +236,20 @@ public struct DiffHunk: Identifiable, Hashable, Sendable {
     public var range: ClosedRange<Int>
     public var header: String
 
-    init(file: DiffFile, range: ClosedRange<Int>) {
+    init(file: DiffFile, range: ClosedRange<Int>, declaration: String?) {
         self.range = range
-        let slice = file.lines[range]
-        let oldStart = slice.first { $0.oldNumber != nil }?.oldNumber ?? 0
-        let newStart = slice.first { $0.newNumber != nil }?.newNumber ?? 0
-        let oldCount = slice.count { $0.kind != .added }
-        let newCount = slice.count { $0.kind != .removed }
-        // A cheap "function context" like git: the nearest preceding line that looks like a declaration.
-        let declaration = file.lines[..<range.lowerBound].last { line in
-            let t = line.text.trimmingCharacters(in: .whitespaces)
-            return ["func ", "def ", "fn ", "class ", "struct ", "function ", "impl ", "extension ", "enum "].contains { t.hasPrefix($0) || t.contains(" " + $0) }
-        }?.text.trimmingCharacters(in: .whitespaces)
-        header = "@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@" + (declaration.map { " " + $0 } ?? "")
+        header = DiffRows.headerText(file.lines[range], declaration: declaration)
+    }
+}
+
+extension DiffHunk {
+    static let declarationKeywords = ["func ", "def ", "fn ", "class ", "struct ", "function ", "impl ", "extension ", "enum "]
+
+    /// A line (trimmed) that reads as a declaration: a hunk header's function context.
+    static let spacedDeclarationKeywords = declarationKeywords.map { " " + $0 }
+
+    static func isDeclaration(_ trimmed: String) -> Bool {
+        declarationKeywords.contains { trimmed.hasPrefix($0) } || spacedDeclarationKeywords.contains { trimmed.contains($0) }
     }
 }
 

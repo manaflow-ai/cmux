@@ -124,10 +124,18 @@ struct MarkdownParser {
     }
 
     func parse() -> [MarkdownBlock] {
+        parseWithStarts().blocks
+    }
+
+    /// The blocks and the line each one starts on.
+    func parseWithStarts() -> (blocks: [MarkdownBlock], starts: [Int]) {
         var blocks: [MarkdownBlock] = []
+        var starts: [Int] = []
         var index = 0
+        var blockStart = 0
         func append(_ kind: MarkdownBlock.Kind) {
             blocks.append(MarkdownBlock(id: blocks.count, kind: kind))
+            starts.append(blockStart)
         }
         while index < lines.count {
             let line = lines[index]
@@ -136,6 +144,7 @@ struct MarkdownParser {
                 index += 1
                 continue
             }
+            blockStart = index
             // Fenced code.
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 let fence = String(trimmed.prefix(3))
@@ -254,7 +263,7 @@ struct MarkdownParser {
             }
             append(.paragraph(body.joined(separator: "\n")))
         }
-        return blocks
+        return (blocks, starts)
     }
 
     private static func startsBlock(_ trimmed: String, raw: Substring) -> Bool {

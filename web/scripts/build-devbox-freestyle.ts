@@ -115,6 +115,10 @@ import {
   devboxBubblewrapSha256,
   devboxBubblewrapUrl,
   devboxBubblewrapVersion,
+  devboxAgentDesktopInstallCommand,
+  devboxAgentDesktopSha256,
+  devboxAgentDesktopUrl,
+  devboxAgentDesktopVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -343,6 +347,15 @@ try {
   await step(
     "cua-driver",
     `curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=${cuaVersion} CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version`,
+  );
+
+  // agent-desktop: the Dockerfile's pinned release archive (URL and SHA-256)
+  // through the same install command (a test keeps them identical). It acts
+  // on the desktop through /etc/cmux/desktop-env.sh, like cua-driver; the
+  // verifier proves a snapshot of a desktop window.
+  await step(
+    "agent-desktop",
+    devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion()),
   );
 
   // Pinned coding agents on the base's Node: the exact Dockerfile pins
