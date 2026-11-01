@@ -488,6 +488,7 @@ pub(super) async fn handle(
             result["session"] = Value::String(scope.session.clone());
             Ok(result)
         }
-        _ => unreachable!(),
+        // `expected` is one of the three above, set from the method just before.
+        _ => Err(RpcError::method_not_found(m)),
     }
 }
