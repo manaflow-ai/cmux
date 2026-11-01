@@ -44,6 +44,20 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
+    /// One-shot machine-daemon forwarding for page-host actions, including when the page's ACP
+    /// transport itself is local to this Mac.
+    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+        let result: Result<Data, any Error>
+        do {
+            result = .success(try await client.cloudRepository(method: method, params: params, timeout: timeout))
+        } catch {
+            result = .failure(error)
+        }
+        await client.close()
+        return try result.get()
+    }
+
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?

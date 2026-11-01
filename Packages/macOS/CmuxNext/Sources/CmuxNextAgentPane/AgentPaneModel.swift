@@ -77,6 +77,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
+    /// For a Cloud chat, forwards machine actions through its tab host even while the page's
+    /// ACP transport is a local connection.
+    @ObservationIgnored public var onCloudRepositoryRemote: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -480,7 +483,8 @@ public final class AgentPaneModel {
         case .cloudRepository(let request):
             return await request.reply(localSocketPath: transport.socketPath ?? "", machineSocketPath: transport.acpmuxSocket ?? transport.socketPath ?? "",
                                        remoteChat: remoteChat, sessionID: sessionId,
-                                       request: transport.cloudRepository, localRequest: onCloudRepositoryLocal)
+                                       request: transport.cloudRepository ?? onCloudRepositoryRemote,
+                                       localRequest: onCloudRepositoryLocal)
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
             if request.action == "update", !transport.gestures.consume() {
