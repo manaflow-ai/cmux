@@ -6034,6 +6034,22 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "locks": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLocks"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "hook_queue": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHookQueue"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6042,7 +6058,44 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "locks is present only when the request names it in include.",
+    "hook_queue is present only when the request names it in include and the session serves a socket."
+   ]
+  },
+  "ServerStatsHookQueue": {
+   "kind": "object",
+   "fields": {
+    "queued_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reset_dropped_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "undeliverable_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+    "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+    "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6241,6 +6294,193 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsLockSiteDetail": {
+   "kind": "object",
+   "fields": {
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_total_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_max_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_p99_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_total_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_max_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_p99_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "hold_p99_us and wait_p99_us are power-of-two bucket bounds: at most twice the true value and never above the matching maximum."
+   ]
+  },
+  "ServerStatsLockDetail": {
+   "kind": "object",
+   "fields": {
+    "wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "contended_acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stalls": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockHolder"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_stall": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockStall"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "sites": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "by_hold_total": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockSiteDetail"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "by_hold_p99": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockSiteDetail"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+    "sites counts the distinct acquiring source locations since daemon start.",
+    "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
+   ]
+  },
+  "ServerStatsLocks": {
+   "kind": "object",
+   "fields": {
+    "registry": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockDetail"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockDetail"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
    ]
   },
   "GuestUrlOpenResult": {
@@ -16639,7 +16879,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -23095,6 +23335,14 @@
       "presence": "optional",
       "nullable": false,
       "default": false
+     },
+     "cursor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -23105,7 +23353,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-requests-list": {

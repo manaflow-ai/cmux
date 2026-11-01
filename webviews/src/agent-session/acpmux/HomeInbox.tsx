@@ -253,14 +253,16 @@ function InboxRow({
           <AgentMark agent={item.who.harness} size={14} reserve />
         </span>
         <span className="acpmux-home-inbox-text">
-          <span className="acpmux-home-inbox-ask">{ask}</span>
+          <span className="acpmux-home-inbox-ask" title={ask}>
+            {ask}
+          </span>
           {item.detail && (
             <span className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined} title={item.detail}>
               {item.detail}
             </span>
           )}
           {look !== "compact" && (
-            <span className="acpmux-home-inbox-where">
+            <span className="acpmux-home-inbox-where" title={where}>
               <span className="acpmux-home-inbox-kind">{t(KINDS[item.kind])}</span>
               {where && ` · ${where}`}
             </span>

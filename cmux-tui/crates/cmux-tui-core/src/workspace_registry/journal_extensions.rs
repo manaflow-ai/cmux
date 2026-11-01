@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 const MAX_PRODUCER_EVENTS: usize = 64;
 const MAX_PRODUCER_MANIFEST_BYTES: usize = 1024 * 1024;
-const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
@@ -1916,12 +1916,25 @@ impl WorkspaceRegistry {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
-    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+    /// Returns up to 256 free pages; true while an incremental-vacuum
+    /// registry still has free pages for a later call.
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
-        self.connection.get().execute_batch("PRAGMA incremental_vacuum(256);")?;
-        Ok(())
+        let db = self.connection.get();
+        // SQLite frees one page per step of this pragma, so it must be stepped
+        // until done: `execute_batch` steps once and freed a single page.
+        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut steps = vacuum.raw_query();
+        while steps.next()?.is_some() {}
+        drop(steps);
+        drop(vacuum);
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for a later call.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(mode == 2 && free > 0)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {

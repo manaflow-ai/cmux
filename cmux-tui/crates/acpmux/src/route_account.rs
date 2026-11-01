@@ -25,6 +25,19 @@ pub fn home_var(family: &str) -> Option<&'static str> {
     }
 }
 
+/// `VAR=<home> <command>` when the CLI runs in an account home of its own.
+pub(crate) fn login_command(
+    command: Option<String>,
+    home: Option<(&str, &Path)>,
+) -> Option<String> {
+    let command = command?;
+    let Some((var, home)) = home else { return Some(command) };
+    let home = home.display().to_string();
+    let safe = home.chars().all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c));
+    let home = if safe { home } else { format!("'{}'", home.replace('\'', r"'\''")) };
+    Some(format!("{var}={home} {command}"))
+}
+
 /// `accountHome` of a route/add request: absent or null is none; anything
 /// else must be a path ([`validate`]), never an empty or non-string value
 /// that would quietly mean the default login.

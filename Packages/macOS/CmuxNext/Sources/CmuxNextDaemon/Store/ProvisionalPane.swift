@@ -41,11 +41,11 @@ public struct ProvisionalPane: Sendable, Hashable {
     }
 
     /// A fresh provisional terminal pane that opens as a new column (New Column): `width` is its
-    /// viewport fraction; `widths` and `treeWidth` are the width changes it brings
-    /// (``ProvisionalColumn``); `left` opens it before the target's column (New Column Left).
-    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil, left: Bool = false) {
+    /// viewport fraction; `left` opens it before the target's column (New Column Left). The
+    /// columns there keep their widths (R3b).
+    @MainActor public init(columnWidth width: Double, left: Bool = false) {
         self.init(tab: nil)
-        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth, left: left)
+        column = ProvisionalColumn(paneHandle: handle, width: width, left: left)
     }
 
     /// A fresh provisional terminal pane that opens as a new row of `height` permille (New Row).

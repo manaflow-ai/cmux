@@ -55,6 +55,38 @@ class Compare(unittest.TestCase):
         self.assertEqual(verdict.kind, "unexplained")
 
 
+class SwiftCompileDrops(unittest.TestCase):
+    BASE = {"native": "true", "macos": "true", "scheme": "true", "generated": "false", "swift": "false",
+            "daemon": "true", "full": "false", "swift_targets": ""}
+
+    def test_dropped_swift_compiles_with_the_reason_are_explained(self):
+        new = dict(self.BASE, native="false", scheme="false")
+        reason = ["cmux-tui/crates/acpmux/src/peer.rs is Rust the daemon tier builds (no Swift compile reads it)"]
+        self.assertEqual(replay.explain(self.BASE, new, reason).kind, "explained")
+        self.assertEqual(replay.explain(self.BASE, dict(self.BASE, native="false"), reason).kind, "explained")
+
+    def test_without_the_reason_they_stay_unexplained(self):
+        new = dict(self.BASE, native="false", scheme="false")
+        self.assertEqual(replay.explain(self.BASE, new, []).kind, "unexplained")
+
+    def test_the_reason_explains_no_other_dropped_tier(self):
+        reason = ["x (no Swift compile reads it)"]
+        for change in ({"daemon": "false"}, {"native": "false", "macos": "false"}, {"native": "false", "swift_targets": "A"}):
+            with self.subTest(change=change):
+                self.assertEqual(replay.explain(self.BASE, dict(self.BASE, **change), reason).kind, "unexplained")
+
+    def test_the_real_router_explains_its_own_rust_routes(self):
+        """The replay of a Rust-only PR against a router that compiled the app for it passes."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import cmux_next_route as route_module
+        for files in (["cmux-tui/crates/acpmux/src/peer.rs"], ["cmux-tui/crates/cmux-wg/src/lib.rs"]):
+            with self.subTest(files=files):
+                result = route_module.route(ROOT, "pull_request", files, set())
+                after = route_module.outputs(result)
+                before = dict(after, native="true", scheme="true")
+                self.assertEqual(replay.explain(before, after, list(result.reasons)).kind, "explained")
+
+
 class FastTierAndDocs(unittest.TestCase):
     """#28326 (one design note) and the daemon-only pull requests that queued a Mac fast tier."""
 

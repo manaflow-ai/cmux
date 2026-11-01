@@ -701,7 +701,10 @@ impl Hub {
                 return;
             };
             tokio::spawn(async move {
+                // Checked again here: a chat that became a review box since stops for no
+                // other agent's message (`inbox.rs`).
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
+                    && !super::inbox::review_box(&to)
                     && let Err(e) = hub.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
