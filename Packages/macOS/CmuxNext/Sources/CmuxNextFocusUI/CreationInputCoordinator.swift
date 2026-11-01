@@ -189,7 +189,7 @@ public final class CreationInputCoordinator {
         // the hold ends at this key, its held keys first, then this one goes on. A settle is not waited for: none may
         // come after the terminal took the keyboard, and the keys then waited for the hold's 2 s bound.
         if buffer.isResolved {
-            flush(in: shell)
+            flush(in: shell, atKey: true)
             guard let next = buffers[shell.windowNumber] else { return false }
             guard next === buffer else {
                 // A held key run again started another hold: this one waits in it, in order, if that hold keeps it (a
@@ -275,7 +275,8 @@ public final class CreationInputCoordinator {
     /// `end`: why a forced end happened; an unforced one is ``CreationHoldEnd/focusLanded``.
     /// A pending creation whose early view got the keyboard takes the held keys now: the hold stays (later keys go
     /// straight to that view through ``capture(_:in:)``) until the creation resolves.
-    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
+    /// `atKey`: a key, not a settle, ends the resolved hold (``capture(_:in:)``): only into the terminal the focus names.
+    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached, atKey: Bool = false) {
         guard let buffer = buffers[window.windowNumber] else { return }
         if !force, !buffer.isResolved {
             if !buffer.isEmpty, let host, Self.takesKeysEarly(buffer, host.creationFocus(in: window)) { _ = deliverEarly(buffer, in: window) }
@@ -292,9 +293,10 @@ public final class CreationInputCoordinator {
         if !force {
             if let generation = focus.expectedGeneration, buffer.awaits(generation) { return }
             guard focus.takesKeys else { return }
-            // A key, not only a settle, now ends a resolved hold: when the focus names a terminal that its pane shows,
-            // that terminal must have the keyboard, never an agent's composer or a message box over it.
-            if focus.terminalShown, !focus.terminalHasKeyboard { return }
+            // A key ending a resolved hold (new; before, only a settle did): when the focus names a terminal that its
+            // pane shows, that terminal must have the keyboard, never an agent's composer or a message box over it. A
+            // settle ends the hold as before, so a settle into another view does not now wait for the hold's bound.
+            if atKey, focus.terminalShown, !focus.terminalHasKeyboard { return }
         }
         buffers[window.windowNumber] = nil
         let failed = failedCreation.remove(window.windowNumber) != nil
