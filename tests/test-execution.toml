@@ -2391,3 +2391,23 @@ lane = "linux-guard"
 path = "tests/test_nightly_tree_source_marker.py"
 lane = "manual"
 reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_nightly_native_signer_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_native.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_native_notarize_dmg.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_native_signing_credential_contract.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_native_signer_custody_guard.py"
+lane = "linux-guard"

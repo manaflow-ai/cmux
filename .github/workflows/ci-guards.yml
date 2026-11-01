@@ -1820,6 +1820,11 @@ jobs:
         run: |
           python3 tests/test_release_signer_scripts.py
           python3 tests/test_release_signer_nightly.py
+          python3 tests/test_nightly_native_signer_routing.py
+          python3 tests/test_release_signer_native.py
+          python3 tests/test_native_notarize_dmg.py
+          python3 tests/test_native_signing_credential_contract.py
+          python3 tests/test_native_signer_custody_guard.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
           python3 tests/test_signer_parity_compare.py

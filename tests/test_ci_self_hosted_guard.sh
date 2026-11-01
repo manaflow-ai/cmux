@@ -365,7 +365,7 @@ check_signing_intermediate_imports() {
     fi
   done
   if ! awk '
-    /"\$SECURITY_TOOL" import "\$certificate"/ { saw_cert_import=NR }
+    /"\$SECURITY_TOOL" import \/dev\/fd\/3 .* -f pkcs12 / { saw_cert_import=NR }
     /import-apple-developer-id-intermediates\.sh" "\$name"/ { saw_intermediates=NR }
     END { exit !(saw_cert_import && saw_intermediates && saw_cert_import < saw_intermediates) }
   ' "$ROOT_DIR/scripts/ci/signing-keychain.sh"; then

@@ -46,9 +46,9 @@ statically, so a reordered step fails in review and not on a release day:
    picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
    release signing jobs may run on our own Macs), on a mini held whole for the
    job; tests/test_ci_signing_owned_mac.py checks those jobs.
-8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
-   keychain: it runs on a literal ubuntu label and hands the certificate only
-   to its signer script, which keeps the key in its own temporary directory.
+8. Release-pool signers retain their Linux signer scripts. The capability-gated
+   native route imports certificates only in a macOS-conditional keychain step;
+   its cleanup and bundle-code rules are the same as every owned signing job.
 
 Not covered by rule 6: other environments and credentials (artifacts,
 package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
@@ -306,11 +306,28 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     pool_signer = RELEASE_POOL_SIGNERS.get(tuple(name.split(" ", 1)))
     if pool_signer:
         runner = str(job.get("runs-on", ""))
-        if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
+        native = "needs.pick-nightly-sign-runner.outputs.native_owned_pool" in runner
+        if native:
+            selector = ("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
+                        "needs.pick-nightly-sign-runner.outputs.native_owned_pool")
+            if selector not in runner:
+                failures.append(f"{name}: native signing requires a current-attempt capability pick")
+            imports = [step for step in steps if isinstance(step, dict)
+                       and "signing-keychain.sh create" in str(step.get("run", ""))]
+            if not imports or any(str(step.get("if", "")).strip() != "runner.os == 'macOS'" for step in imports):
+                failures.append(f"{name}: native signing imports only in a macOS-conditional managed keychain step")
+            if pool_signer not in text or "ubuntu" not in runner:
+                failures.append(f"{name}: native signing must retain its trusted Linux signer fallback")
+        elif "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
             failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
         certificate_steps = [step for step in steps if isinstance(step, dict) and "secrets.APPLE_CERTIFICATE_BASE64" in json.dumps(step)]
-        if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
-            failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")
+        for step in certificate_steps:
+            managed_native_import = (native and "signing-keychain.sh create" in str(step.get("run", ""))
+                                     and str(step.get("if", "")).strip() == "runner.os == 'macOS'")
+            if not managed_native_import and pool_signer not in str(step.get("run", "")):
+                failures.append(f"{name}: only the managed native import or {pool_signer} may hold the Developer ID certificate")
+        if not certificate_steps:
+            failures.append(f"{name}: no certificate import step")
         if SECRET_OR_TOKEN.search(json.dumps(job.get("env") or {})):
             failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
     elif "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
