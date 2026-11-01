@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -77,7 +77,18 @@ function runCron(probeAt: (now: number) => VmIdleProbe | null, forMinutes: numbe
   return { pausedAfterMinutes: null, decision: null };
 }
 
-// Leo, 2026-10-30: "we're saying no auto pausing of the freestyle vms for now".
+// Leo, 2026-10-30: "we're saying no auto pausing of the freestyle vms for now". The cron
+// tests below exercise the machinery with the deployment switch on; the default tests turn it off.
+let savedAutoPause: string | undefined;
+beforeEach(() => {
+  savedAutoPause = process.env.CMUX_VM_IDLE_AUTO_PAUSE;
+  process.env.CMUX_VM_IDLE_AUTO_PAUSE = "on";
+});
+afterEach(() => {
+  if (savedAutoPause === undefined) delete process.env.CMUX_VM_IDLE_AUTO_PAUSE;
+  else process.env.CMUX_VM_IDLE_AUTO_PAUSE = savedAutoPause;
+});
+
 describe("idle auto-pause default", () => {
   test("is Off, with the choices Off, 15, 30, 60 and 120", () => {
     expect(VM_IDLE_PAUSE_DEFAULT_MINUTES).toBe(0);
@@ -451,15 +462,12 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
-    providerMetadata: { networkIpv4: "10.192.0.5" },
     networkPolicy: null,
     networkPolicyStatus: null,
     agentUpdates: null,
     ...overrides,
     // The cron tests below run with the kill switch on and a machine that chose 30 minutes.
-    providerMetadata: overrides.providerMetadata === null
-      ? null
-      : { cmuxIdlePauseMinutes: 30, ...(overrides.providerMetadata ?? { networkIpv4: "10.192.0.5" }) },
+    providerMetadata: { cmuxIdlePauseMinutes: 30, ...(overrides.providerMetadata ?? { networkIpv4: "10.192.0.5" }) },
   };
 }
 
@@ -797,7 +805,7 @@ describe("idle pause cron", () => {
       providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([idle], () => ({ exitCode: 0, stdout: probeLine() }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 1, errors: 0 });
     // The probe, then the re-probe inside the claim just before the provider pause.
     expect(recorded.execs).toHaveLength(2);
@@ -811,7 +819,7 @@ describe("idle pause cron", () => {
   test("the probe's exec is cancelled at the provider when its budget runs out", async () => {
     // Effect.timeout only interrupts the fiber; the gateway aborts the provider request only with cancelOnInterrupt.
     const { recorded, layer } = cronFakes([machineRow()], () => ({ exitCode: 0, stdout: probeLine() }));
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(recorded.execs.length).toBeGreaterThan(0);
     expect(recorded.execs.map((e) => e.cancelOnInterrupt)).toEqual(recorded.execs.map(() => true));
   });
@@ -821,7 +829,7 @@ describe("idle pause cron", () => {
       providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([busy], () => ({ exitCode: 0, stdout: probeLine({ acpmux: { busy_sessions: 1, last_updated_at_ms: null } }) }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1 });
     expect(recorded.paused).toEqual([]);
     expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
@@ -831,7 +839,7 @@ describe("idle pause cron", () => {
     const previous = { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     for (const out of ["fails", { exitCode: 1, stdout: probeLine() }, { exitCode: 0, stdout: "python3: not found" }] as const) {
       const { recorded, layer } = cronFakes([machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: previous } })], () => out);
-      const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
       expect(summary).toMatchObject({ checked: 1, paused: 0, unknown: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
     }
@@ -841,7 +849,7 @@ describe("idle pause cron", () => {
     const off = machineRow({ id: "row-off", providerVmId: "fs-off", providerMetadata: { networkIpv4: "10.192.0.6", cmuxIdlePauseMinutes: 0 } });
     const fresh = machineRow({ id: "row-new", providerVmId: "fs-new", providerMetadata: { networkIpv4: "10.192.0.7" } });
     const { recorded, layer } = cronFakes([off, fresh], () => ({ exitCode: 0, stdout: probeLine() }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 2, paused: 0, off: 1, idle: 1 });
     expect(recorded.execs.map((e) => e.vmId)).toEqual(["fs-new"]);
     expect(byId(recorded.observations)).toEqual([
@@ -964,7 +972,7 @@ describe("CPU work with no terminal", () => {
       providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine({ cpu_busy_ms: null }) }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 0, unknown: 1 });
     expect(recorded.paused).toEqual([]);
     expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
@@ -1016,7 +1024,7 @@ describe("API activity", () => {
     const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation, cmuxLastApiActivityAt: T0 - 3 * MIN } });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 0, idle: 1 });
     expect(recorded.paused).toEqual([]);
   });
@@ -1037,7 +1045,7 @@ describe("API activity", () => {
     await exec();
     expect(recorded.apiActivity).toHaveLength(1);
     // The cron probes through the provider's exec as root and records no API activity.
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause().pipe(Effect.provide(layer)));
     expect(recorded.execs.at(-1)).toMatchObject({ vmId: VM, asRoot: true });
     expect(recorded.apiActivity).toHaveLength(1);
   });
@@ -1063,7 +1071,7 @@ describe("resize activity fences", () => {
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
       Layer.succeed(VmProviderGateway, {
         ...provider,
-        getStatus: () => enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(
+        getStatus: () => enforceVmIdlePause({ now: () => now }).pipe(
           Effect.provide(cronLayer),
           Effect.orDie,
           Effect.tap((summary) => Effect.sync(() => {
@@ -1114,7 +1122,7 @@ describe("no private address", () => {
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 0, probe: null, previous: null, now: T0, privateAddressKnown: false }).reason).toBe("off");
     const row = machineRow({ providerMetadata: { networkIpv4: "", cmuxIdleObservation: fresh } });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 0, unknown: 1 });
     expect(recorded.execs).toEqual([]);
     expect(recorded.paused).toEqual([]);
@@ -1136,7 +1144,7 @@ describe("pause, resume and the idle stretch", () => {
     const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } })];
     const { recorded, layer, resume } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
-    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(Effect.provide(layer)));
+    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
     expect(await runAt(T0)).toMatchObject({ paused: 1 });
     expect(rows[0].status).toBe("paused");
     expect(omit(omit(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch"), "cmuxIdleLastDecision"), "cmuxIdleProbedAt")).toEqual({ networkIpv4: "10.192.0.5", cmuxIdlePauseMinutes: 30, cmuxPauseReason: "idle" });
@@ -1155,7 +1163,7 @@ describe("pause, resume and the idle stretch", () => {
     const idle = machineRow({ id: "row-idle", providerVmId: "fs-idle" });
     const rows = [off, unknown, idle];
     const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(byId(recorded.probedAt)).toEqual([
       { id: "row-idle", probedAt: T0 },
       { id: "row-off", probedAt: T0 },
@@ -1177,7 +1185,7 @@ describe("pause, resume and the idle stretch", () => {
     for (const reread of rereads) {
       const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
       const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }), { reread });
-      const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
       expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
       expect(recorded.observations).toEqual([]);
@@ -1193,7 +1201,7 @@ describe("pause, resume and the idle stretch", () => {
       // updatedAt without changing the idle fence or the probe's address.
       reread: (current) => ({ ...current, updatedAt: new Date(current.updatedAt.getTime() + 1) }),
     });
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 1, active: 0 });
     expect(recorded.paused).toEqual([VM]);
   });
@@ -1209,7 +1217,7 @@ describe("pause, resume and the idle stretch", () => {
         providerMetadata: { ...current.providerMetadata, networkIpv4: "10.192.0.6" },
       }),
     });
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1 });
     expect(recorded.paused).toEqual([]);
     expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
@@ -1234,7 +1242,7 @@ describe("overlapping probes", () => {
         id: "row-1", providerVmId: VM, observation: null, probedAt: T0, epoch: epochOf(rows[0]),
       } as Parameters<NonNullable<VmRepositoryShape["recordIdleObservation"]>>[0])),
     });
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
   });
 
@@ -1246,7 +1254,7 @@ describe("overlapping probes", () => {
         resume("row-1", T0);
       },
     });
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(rows[0].status).toBe("running");
     expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
   });
@@ -1257,7 +1265,7 @@ describe("overlapping probes", () => {
       // At the throttle's edge the activity write lands but is older than the timeout window cares about.
       duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 - 40 * MIN })),
     });
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     // A's write lost: the row keeps what it had, not A's re-stamped stretch.
     expect(rows[0].providerMetadata.cmuxIdleObservation).toEqual(carried);
     expect(rows[0].providerMetadata.cmuxIdleProbedAt).toBe(T0); // Diagnostics advance scheduling, not the idle observation.
@@ -1276,7 +1284,7 @@ describe("writes that land while the provider pauses", () => {
   const runWith = async (duringPause: (repo: VmRepositoryShape) => void) => {
     const rows = [overdue()];
     const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { duringPause });
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(fakes.layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(fakes.layer)));
     return { rows, summary, ...fakes };
   };
 
@@ -1327,7 +1335,7 @@ describe("the pause's other races", () => {
   const setup = (options: Options, probeOut: Parameters<typeof cronFakes>[1] = () => ({ exitCode: 0, stdout: probeLine() })) => {
     const rows = [overdue()];
     const fakes = cronFakes(rows, probeOut, options);
-    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(Effect.provide(fakes.layer)));
+    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
     return { rows, runAt, ...fakes };
   };
 
@@ -1538,7 +1546,7 @@ describe("the pause's other races", () => {
       afterResumeClaim: (_repo, ctx) => ctx.userPause("row-1"),
     });
     fakes.providerState.set(VM, "running");
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(fakes.layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(fakes.layer)));
     expect(summary).toMatchObject({ paused: 0, errors: 0 });
     expect(rows[0].status).toBe("paused");
     expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
@@ -1558,7 +1566,7 @@ describe("the pause's other races", () => {
     test(`an allowance pause (${plan}) after a claim the cron left: a later run does not resume it`, async () => {
       const rows = [machineRow({ billingPlanId: plan, providerMetadata: overdue().providerMetadata })];
       const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { pauseFails: "refused" });
-      const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(Effect.provide(fakes.layer)));
+      const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
       await runAt(T0);
       expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
       // The allowance runs out before the next cron run.
@@ -1574,7 +1582,7 @@ describe("the pause's other races", () => {
     test(`an allowance pause (${plan}) while the cron's provider pause is under way: kept, not resumed`, async () => {
       const rows = [machineRow({ billingPlanId: plan, providerMetadata: overdue().providerMetadata })];
       const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { duringPause: allowancePause(plan) });
-      const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(fakes.layer)));
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(fakes.layer)));
       expect(summary).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
       expect(fakes.recorded.resumed).toEqual([]);
       expect(rows[0].status).toBe("paused");
@@ -1612,7 +1620,7 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
   const setup = (options: Options, row: CloudVmRow = goRow()) => {
     const rows = [row];
     const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), options);
-    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(Effect.provide(fakes.layer)));
+    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
     return { rows, runAt, ...fakes };
   };
   const restoredBefore = (log: readonly string[], write: string) => {
@@ -1928,7 +1936,7 @@ describe("idle pause SQL", () => {
           Layer.succeed(VmRepository, { ...repo, idlePauseCandidates: () => Effect.succeed([candidate!]) }),
           Layer.succeed(VmProviderGateway, provider),
         );
-        const summary = await run(enforceVmIdlePause({ autoPause: true, now: () => now }).pipe(Effect.provide(layer)));
+        const summary = await run(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
         expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
         expect(recorded.paused).toEqual([]);
         const current = (await run(repo.findUserVm(lookup)))!;
@@ -2409,7 +2417,7 @@ describe("legacy daemon fallback", () => {
       providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine({ daemon: { legacy: true } }) }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 1, unknown: 0 });
     expect(recorded.paused).toEqual([VM]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
@@ -2422,7 +2430,7 @@ describe("idle pause diagnostics", () => {
     const rows = [machineRow()];
     const before = rows[0].updatedAt;
     const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(rows[0].updatedAt).toEqual(before);
     expect(epochOf(rows[0])).toBe(1); // Only the observation advances it.
     const entry = await Effect.runPromise(getVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: VM }).pipe(Effect.provide(layer)));
@@ -2442,7 +2450,7 @@ describe("idle pause diagnostics", () => {
       failedWrites += 1;
       return Effect.fail(new VmDatabaseError({ operation: "recordIdleDecision", cause: new Error("simulated write failure") }));
     } };
-    const summary = await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(
       Effect.provideService(VmRepository, unreliableRepo), Effect.provide(layer),
     ));
     expect(failedWrites).toBe(2); // The injected layer must handle both writes.
@@ -2474,7 +2482,7 @@ describe("idle pause diagnostics", () => {
   ] as const)("stores %s with its reason", async (outcome, metadata, stdout, reason) => {
     const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", ...metadata } })];
     const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout }));
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ at: T0, outcome, reason, run: { checked: 1 } });
   });
 
@@ -2485,7 +2493,7 @@ describe("idle pause diagnostics", () => {
     const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
       duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
     });
-    expect(await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer))))
+    expect(await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer))))
       .toMatchObject({ paused: 0, claim_refused: 1, active: 0 });
     expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "claim_refused", reason: "api_activity_changed" });
     expect(rows[0].providerMetadata?.cmuxIdleProbedAt).toBe(T0);
@@ -2496,13 +2504,13 @@ describe("idle pause diagnostics", () => {
       providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
     } } })];
     const failing = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { pauseFails: "refused", statusFailures: 1 });
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(failing.layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(failing.layer)));
     expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "error", reason: "check_failed" });
     const fresh = [machineRow()];
     const overlapping = cronFakes(fresh, () => ({ exitCode: 0, stdout: probeLine() }), {
       duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
     });
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(overlapping.layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(overlapping.layer)));
     expect(fresh[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "aborted", reason: "observation_fence_changed" });
   });
 
@@ -2511,7 +2519,7 @@ describe("idle pause diagnostics", () => {
       providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
     } } }), machineRow({ id: "row-2", providerVmId: "fs-2" })];
     const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
-    await Effect.runPromise(enforceVmIdlePause({ autoPause: true, now: () => T0 }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "paused", reason: "idle_timeout" });
     for (const row of rows) {
       expect(row.providerMetadata?.cmuxIdleProbedAt).toBe(T0);

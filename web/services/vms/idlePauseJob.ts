@@ -64,7 +64,7 @@ type CheckDecision = Pick<VmIdleLastDecision, "outcome" | "reason">;
  * private address, is not probed; with the kill switch off
  * ({@link vmIdleAutoPauseEnabled}, the default) no machine is.
  */
-export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number; readonly autoPause?: boolean } = {}) {
+export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number } = {}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -77,7 +77,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const rows = yield* candidates({ limit });
     let checked = 0;
     const now = input.now ?? Date.now;
-    const autoPause = input.autoPause ?? vmIdleAutoPauseEnabled();
+    const autoPause = vmIdleAutoPauseEnabled();
     const results = yield* Effect.forEach(rows, (vm) => Effect.gen(function* () {
       const decision = yield* checkMachine(vm, now, autoPause).pipe(
         Effect.catchAll((error) => Effect.sync((): CheckDecision => {
