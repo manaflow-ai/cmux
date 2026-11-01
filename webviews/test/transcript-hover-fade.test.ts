@@ -88,6 +88,12 @@ function subjectClasses(selector: string): string[] {
 
 type Control = { name: string; hidden: Rule[]; shown: Rule[]; fadesOut: boolean; fadesInOnHover: boolean };
 
+// The running subagent Stop is an intentional immediate reveal. Its per-row control is kept
+// transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
+// pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
+// in the fade-enabled message and tool controls covered here.
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop"]);
+
 /// Every hover-revealed control in `sheets` and whether it takes the shared fade.
 function hoverControls(sheets: { file: string; source: string }[]): Control[] {
   const controls = new Map<string, Control>();
@@ -129,7 +135,7 @@ const where = (rule: Rule) => `${path.relative(ACPMUX, rule.file)}:${rule.line}`
 /// The controls that blink, as `.name (hidden at …, shown at …): what is missing`.
 function blinking(controls: Control[]): string[] {
   return controls
-    .filter((one) => !one.fadesOut || !one.fadesInOnHover)
+    .filter((one) => !IMMEDIATE_REVEALS.has(one.name) && (!one.fadesOut || !one.fadesInOnHover))
     .map((one) => {
       const missing = [
         !one.fadesOut && "no opacity transition on var(--cv-actions-out) at rest",
@@ -145,7 +151,7 @@ describe("transcript hover-revealed controls fade", () => {
   const sheets = transcriptSheets().map((file) => ({ file, source: readFileSync(file, "utf8") }));
   const controls = hoverControls(sheets);
 
-  test("every hover-revealed transcript control fades in and out on the shared tokens", () => {
+  test("every fade-enabled hover-revealed transcript control uses the shared tokens", () => {
     expect(blinking(controls)).toEqual([]);
   });
 
@@ -166,6 +172,7 @@ describe("transcript hover-revealed controls fade", () => {
       "cv-sent-actions",
       "cv-table-tools",
       "cv-media__actions",
+      "cv-subagent__stop",
     ])
       expect(names).toContain(name);
   });

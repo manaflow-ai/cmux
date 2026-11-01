@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 
 /// Both phone transports share base's sealed file and serial I/O queue. Selection and
@@ -36,8 +36,12 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     private let state = Mutex(State())
-    private let seal: (any MobileHostPairingSealStore)?
-    public init(seal: (any MobileHostPairingSealStore)? = nil) { self.seal = seal }
+    /// The seal of the list in an account folder whose parent is named for the bundle id.
+    private let seal: @Sendable (_ bundleID: String) -> any MobileHostPairingSealStore
+    /// The app's store: each account folder's list sealed in the Keychain behind the app's one `loginKeychain`.
+    public init(loginKeychain: LoginKeychain) { seal = { MobileHostKeychainPairingSeal(bundleID: $0, loginKeychain: loginKeychain) } }
+    /// A store whose list is sealed by `seal` (tests).
+    public init(seal: any MobileHostPairingSealStore) { self.seal = { _ in seal } }
     public var current: MobileHostPairedDevices? { state.withLock { $0.list } }
     public var versioned: (list: MobileHostPairedDevices?, revision: UInt64) { state.withLock { ($0.list, $0.revision) } }
     public var generation: UInt64 { state.withLock { $0.generation } }
@@ -78,8 +82,7 @@ public final class MobileHostPairedStore: Sendable {
         state.withLock { state in
             if state.file == nil {
                 let bundleID = directory.deletingLastPathComponent().lastPathComponent
-                let file = MobileHostPairedDevicesFile(directory: directory,
-                    seal: seal ?? MobileHostKeychainPairingSeal(bundleID: bundleID))
+                let file = MobileHostPairedDevicesFile(directory: directory, seal: seal(bundleID))
                 state.file = file
                 for user in state.forgotten { file.saveInBackground(MobileHostPairedDevices(userID: user)) }
                 state.forgotten = []

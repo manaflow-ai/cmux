@@ -3,7 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
+SCRIPT="$ROOT_DIR/scripts/ci/fleet-compilation-cache.sh"
+COMPILE="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci-macos.yml"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -28,4 +29,5 @@ grep -Fq 'fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas"
 
 grep -Fq 'glaeda-compile-telemetry.json' "$WORKFLOW" || fail 'compile admission must publish the host telemetry sidecar'
 
+grep -Fq 'bash "$SCRIPT_DIR/fleet-compilation-cache.sh"' "$COMPILE" || fail 'admission must use the shared settings'
 echo 'PASS: fleet compiler-cache settings and host telemetry are wired'

@@ -124,9 +124,12 @@ struct BrowserProfileNewTabMenuTests {
         }
     }
 
-    /// Right-click a browser tab's profile badge (its omnibar) on Home, where the focus is in the
-    /// other pane: New Tab with Browser Profile opens its tab in the pane of the right-clicked tab,
-    /// not in the focused pane. (Manage Extensions shares the pane lookup; it needs Chromium.)
+    /// Right-click a browser tab's profile badge (its omnibar) on Home, where the focus is in Home's
+    /// chat dock: New Tab with Browser Profile opens its tab in the pane of the right-clicked tab, not
+    /// in the focused dock (`AppServices.profileBadgeMenu`). The dock opens nothing in itself: a new tab
+    /// aimed at it goes to a new column beside it (`PaneBrowserTabOpener`, HomeDockOpens), so the
+    /// right-clicked tab is in the column right of the dock. (Manage Extensions shares the pane lookup;
+    /// it needs Chromium.)
     @Test func theProfileBadgeMenuOpensItsTabInTheRightClickedTabsPane() async throws {
         let action = "browserProfile.newTab"
         try await PasswordManagerRouteTests.withApp { services, connection in
@@ -140,29 +143,32 @@ struct BrowserProfileNewTabMenuTests {
             try await PasswordManagerRouteTests.until({ window.state.workspaceID == home.id && window.focusedPane != nil }, report: {
                 "workspace \(String(describing: window.state.workspaceID)), page \(String(describing: window.state.page))"
             })
-            // A second pane takes the focus (Split Right), so the first one is not focused. Each is the
-            // daemon's pane, not a split's stand-in (`ProvisionalPane`), whose handle the daemon does not know
-            // ("new-frontend-browser-tab failed: unknown pane" on a loaded host).
+            // Each pane is the daemon's, not a split's stand-in (`ProvisionalPane`), whose handle the daemon
+            // does not know ("new-frontend-browser-tab failed: unknown pane" on a loaded host).
             @MainActor func isDaemons(_ pane: PaneController?) -> Bool {
                 pane.map { !$0.pane.tabs.isEmpty && $0.pane.tabs.allSatisfy { !ProvisionalTab.isProvisional(surface: $0.surface) } } ?? false
             }
-            try await PasswordManagerRouteTests.until({ isDaemons(window.focusedPane) }, report: { "the focused pane is not the daemon's yet" })
-            let first = try #require(window.focusedPane)
+            // Home shows its chat dock, focused and laid out as the dock (a split from it opens a column beside it).
+            try await PasswordManagerRouteTests.until({ isDaemons(window.focusedPane) && window.focusedPane.map { ChatDockRules.isChatDock($0.pane, services: services) } == true },
+                                                       report: { "Home's focused pane is not its laid-out chat dock yet: " + WindowStateReport.describe(services) })
+            let dock = try #require(window.focusedPane)
+            let content = try #require(window.workspaceContent)
+            // Split Right from the dock: a pane in a new column right of it, which takes the focus.
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
-            try await PasswordManagerRouteTests.until({ (window.workspaceContent?.panes.count ?? 0) > 1 && isDaemons(window.focusedPane) && window.focusedPane !== first },
-                                                       report: { "panes \(window.workspaceContent?.panes.keys.map { "\($0)" } ?? []), focused \(window.focusedPane?.paneKey ?? "none")" })
-            let focused = try #require(window.focusedPane)
-            let pane = first
-            // A browser tab in the pane without the focus; the focus stays where it is.
+            try await PasswordManagerRouteTests.until({ isDaemons(window.focusedPane) && window.focusedPane !== dock },
+                                                       report: { "panes \(content.panes.keys.map { "\($0)" }), focused \(window.focusedPane?.paneKey ?? "none")" })
+            let pane = try #require(window.focusedPane)
+            // A browser tab in that pane, listed by its strip (the menu's run targets the tab by its strip).
             let surface = try await connection.newFrontendBrowserTab(url: "https://example.com/", engine: .webkit, in: pane.pane.handle, activate: false).surface
             try await PasswordManagerRouteTests.until({ services.daemon.store.tab(surface: surface) != nil && services.cache.tabModel(services.daemon.store.tab(surface: surface)?.id ?? "") != nil },
                                                        report: { WindowStateReport.describe(services, surface: surface) })
             let tab = try #require(services.daemon.store.tab(surface: surface))
-            // The menu's run targets the tab by its strip: wait until the pane's strip lists it.
             try await PasswordManagerRouteTests.until({ pane.stripModel.tab(StripTabID(tab.id)) != nil },
                                                        report: { "the strip of \(pane.paneKey) does not list \(tab.id) yet" })
-            #expect(window.focusedPane === focused, "opening the tab moved the focus")
-            let before = Set(Self.browserTabs(pane, services).map(\.id))
+            // The focus goes back to the dock: the right-clicked tab is in the pane without the focus.
+            PaneHandlers.focus(dock.layoutPaneID, in: content)
+            try await PasswordManagerRouteTests.until({ window.focusedPane === dock }, report: { "the dock did not take the focus back" })
+            let before = Set(services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
             let menu = try #require(services.cache.profileBadgeMenu?(tab.id), "the badge has no menu")
             let row = try #require(Self.rows(menu).first { ActionRegistry.menuRun(of: $0)?.id == ActionID(rawValue: action) }, "the badge menu has no \(action) row")
             let run = try #require(ActionRegistry.menuRun(of: row))
@@ -170,8 +176,13 @@ struct BrowserProfileNewTabMenuTests {
                 _ = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments))
             }
             #expect(refusal == nil, "\(action) refused: \(refusal ?? "")")
+            @MainActor func made() -> [String] {
+                services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap { model in
+                    model.tabs.filter { $0.kind == .browser && !before.contains($0.id) }.map { "\($0.id) in \(model.id)" }
+                }
+            }
             try await PasswordManagerRouteTests.until({ Self.browserTabs(pane, services).contains { !before.contains($0.id) } }, within: .seconds(30), report: {
-                "no new tab in the right-clicked tab's pane \(pane.paneKey); focused pane \(focused.paneKey) has \(Self.browserTabs(focused, services).map(\.id))"
+                "no new tab in the right-clicked tab's pane \(pane.paneKey) (the dock \(dock.paneKey) is focused); new browser tabs: \(made())"
             })
         }
     }

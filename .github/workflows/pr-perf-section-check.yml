@@ -53,7 +53,11 @@ jobs:
           git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
           echo "listed=true" >> "$GITHUB_OUTPUT"
 
+      # Advisory: a missing table is an ::error annotation on the run and never a red check, since it
+      # judges the description, not the code (Leo, 2026-11-01, on the checks audit: "keep only what
+      # catches real breakage"; cmuxterm-hq#5745).
       - name: Check the description for a Performance table
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
