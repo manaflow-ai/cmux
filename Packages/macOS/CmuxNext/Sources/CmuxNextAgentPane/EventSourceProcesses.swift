@@ -6,7 +6,7 @@ import Foundation
 /// The process that posted a key or mouse event (`kCGEventSourceUnixProcessID`), as
 /// ``EventSourceProcesses`` read it.
 nonisolated struct EventSourceProcess: Equatable, Sendable {
-    /// When the process started, in microseconds since 1970 (`pbi_start_tvsec`, `pbi_start_tvusec`):
+    /// When the process started, in microseconds since 1970 (`kinfo_proc.kp_proc.p_starttime`):
     /// with the pid, it names one process, so a pid the kernel gives to a new process is a new one.
     var start: UInt64
     /// Its executable (`proc_pidpath`).
@@ -20,6 +20,11 @@ nonisolated struct EventSourceProcess: Equatable, Sendable {
 /// nothing else. A pid not in the table yet answers nil (the checks' safe default: not the person's)
 /// at once, and its process is read on this table's own queue: the start time and the path, once per
 /// process. The person's own input (the HID system, pid 0) never reaches the table.
+///
+/// Both reads have no same-user check (`sysctl(KERN_PROC_PID)` and `proc_pidpath`), so the processes
+/// another user owns (the WindowServer, launchd, the root Screen Sharing daemon) are read as this user.
+/// A live process the table still cannot read keeps the safe default until its exit watch fires: it is
+/// not read again (with a new kernel watch) for each of its events.
 ///
 /// A pid the kernel gives to a new process: each entry is one process (pid and start time), and an
 /// exit watch on its pid, armed before the read, removes it when that process ends. The watch runs on
@@ -67,6 +72,9 @@ public nonisolated final class EventSourceProcesses: Sendable {
         case reading
         /// The process the pid names until `watch` (its exit watch) removes it.
         case read(EventSourceProcess, watch: UInt64, cancel: @Sendable () -> Void)
+        /// A live process the read could not name: the safe default, with no new read, until `watch`
+        /// (its exit watch) removes it.
+        case unreadable(watch: UInt64, cancel: @Sendable () -> Void)
     }
 
     /// The app's table: the kernel's answers, read on its own queue.
@@ -89,7 +97,7 @@ public nonisolated final class EventSourceProcesses: Sendable {
         let (path, post): (String?, Bool) = state.withLock { state in
             switch state.entries[pid] {
             case let .read(process, _, _): return (process.path, false)
-            case .reading: return (nil, false)
+            case .reading, .unreadable: return (nil, false)
             case nil:
                 state.entries[pid] = .reading
                 return (nil, true)
@@ -131,9 +139,10 @@ public nonisolated final class EventSourceProcesses: Sendable {
             return
         }
         guard let process = resolve(pid) else {
-            // No process: nothing kept, so a later event from this pid reads again.
-            state.withLock { _ = $0.entries.removeValue(forKey: pid) }
-            cancel()
+            // The watch attached, so the process was alive: kept as unreadable (the safe default) until
+            // its exit or exec fires the watch, so its later events post no new read. A process that
+            // ended meanwhile fires the watch at once.
+            state.withLock { $0.entries[pid] = .unreadable(watch: watch, cancel: cancel) }
             return
         }
         state.withLock { $0.entries[pid] = .read(process, watch: watch, cancel: cancel) }
@@ -142,9 +151,14 @@ public nonisolated final class EventSourceProcesses: Sendable {
     /// On the queue: the process watch `watch` was armed for ended; its entry leaves.
     private func exited(_ pid: pid_t, watch: UInt64) {
         let cancel: (@Sendable () -> Void)? = state.withLock { state in
-            guard case let .read(_, armed, cancel) = state.entries[pid], armed == watch else { return nil }
+            let entry: (armed: UInt64, cancel: @Sendable () -> Void)
+            switch state.entries[pid] {
+            case let .read(_, armed, cancel), let .unreadable(armed, cancel): entry = (armed, cancel)
+            case .reading, nil: return nil
+            }
+            guard entry.armed == watch else { return nil }
             state.entries[pid] = nil
-            return cancel
+            return entry.cancel
         }
         cancel?()
     }
@@ -157,11 +171,19 @@ public nonisolated final class EventSourceProcesses: Sendable {
         return EventSourceProcess(start: start, path: path)
     }
 
+    /// `sysctl(KERN_PROC_PID)`: public on every macOS the app runs on, with no same-user check (unlike
+    /// `proc_pidinfo(PROC_PIDTBSDINFO)`, which refuses another user's process with EPERM). A pid with no
+    /// process answers an empty record: nil.
     private static func startTime(_ pid: pid_t) -> UInt64? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&name, UInt32(name.count), &info, &size, nil, 0) == 0, size == MemoryLayout<kinfo_proc>.stride else {
+            return nil
+        }
+        let start = info.kp_proc.p_un.__p_starttime
+        guard start.tv_sec > 0 else { return nil }
+        return UInt64(clamping: start.tv_sec) &* 1_000_000 &+ UInt64(clamping: start.tv_usec)
     }
 
     /// The kernel's exit notice: a kqueue of its own with one `EVFILT_PROC` filter (`NOTE_EXIT | NOTE_EXEC`) on `pid`,
