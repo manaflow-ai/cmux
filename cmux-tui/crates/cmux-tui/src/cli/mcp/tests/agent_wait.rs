@@ -145,12 +145,13 @@ fn agents_wait_visible_chat_tab_stays_busy_until_the_acpmux_turn_ends() {
                    "status": if running { "running" } else { "ready" },
                    "queued": 0, "pending_permissions": 0}],
     });
-    let topology = json!({"topology": {
-        "windows": [{"tabs": [{"id": TAB, "kind": "conversation", "agent_session": CHAT}]}]
-    }});
-    for target in [CHAT, TAB] {
+    let qualified = format!("acp:{CHAT}");
+    for (target, session) in [(CHAT, CHAT), (TAB, qualified.as_str())] {
+        let topology = json!({"topology": {
+            "windows": [{"tabs": [{"id": TAB, "kind": "conversation", "agent_session": session}]}]
+        }});
         let fake = Fake::live(Some(snapshot(true)), None)
-            .then(Duration::ZERO, Change::Topology(topology.clone()))
+            .then(Duration::ZERO, Change::Topology(topology))
             .then(Duration::from_millis(450), Change::Daemon(snapshot(false)));
         let mut server = Server::new(fake, None);
         let started = Instant::now();
