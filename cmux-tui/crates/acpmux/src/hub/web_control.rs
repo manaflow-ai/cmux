@@ -26,16 +26,6 @@ use super::*;
 /// queued prompt must not inherit the ordinary Web Codex any-mode exception.
 pub(super) const PHONE_MODES: &[&str] = &["default", "plan", "ask"];
 
-pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
-    let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
-    if self.any_mode_for_web(meta) {
-        return mode == "ask";
-    }
-    if crate::web_modes::family_of(meta) != "claude" {
-        return false;
-    }
-    self.web_modes().session_asks(meta) && PHONE_MODES.contains(&mode.as_str())
-}
 use crate::web_modes::WebModeTable;
 use cmux_json::JsonSet as _;
 
@@ -51,6 +41,17 @@ impl Hub {
     pub(crate) fn any_mode_for_web(&self, m: &crate::store::SessionMeta) -> bool {
         let Ok(cfg) = self.config.try_read() else { return false };
         crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
+    }
+
+    pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
+        let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
+        if self.any_mode_for_web(meta) {
+            return mode == "ask";
+        }
+        if crate::web_modes::family_of(meta) != "claude" {
+            return false;
+        }
+        self.web_modes().session_asks(meta) && PHONE_MODES.contains(&mode.as_str())
     }
 
     /// The merged asking-mode table the remote guard and Web control use.
@@ -83,6 +84,7 @@ impl Hub {
             "refusedFamilies": table.refused(),
             "modeFields": crate::web_modes::MODE_FIELDS,
             "freeConfigIds": crate::web_modes::FREE_CONFIG_IDS,
+            "cloudMobileStrictFloor": 1,
         });
         let Some(key) = params.get("sessionId").and_then(Value::as_str) else { return Ok(out) };
         let s = match self.resolve(key) {
@@ -94,7 +96,7 @@ impl Hub {
         let family = crate::web_modes::family_of(&m);
         out.set(
             "session",
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m), "cloudMobileAsks": self.cloud_mobile_mode_asks(&m)}),
         );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
@@ -629,10 +631,10 @@ mod mode_write_tests {
             }))
             .expect("session metadata")
         };
-        for mode in ["default", "plan", "ask"] {
+        for mode in ["default", "plan"] {
             assert!(hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} should ask on phone");
         }
-        for mode in ["agent", "full-access", "bypassPermissions"] {
+        for mode in ["ask", "agent", "full-access", "bypassPermissions"] {
             assert!(!hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} must be refused on phone");
         }
         let codex = serde_json::from_value(json!({
