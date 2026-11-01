@@ -55,6 +55,32 @@ test("a harness menu that lists older versions of a catalog family folds them, k
   expect(ids(result.more)).toEqual(["gpt-6-sol", "gpt-5.6-terra"]);
 });
 
+test("a vendor-wide family folds within one product line only", () => {
+  const catalog = [
+    { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", family: "OpenAI" },
+    { id: "openai/gpt-6-astra", name: "GPT-6 Astra", family: "OpenAI" },
+    { id: "openai/gpt-5.4-mini", name: "GPT-5.4 mini", family: "OpenAI" },
+    { id: "openai/gpt-6-sol", name: "GPT-6 Sol", family: "OpenAI" },
+    { id: "gpt-5.6", name: "GPT-5.6", family: "Sol" },
+    { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+  ];
+  const result = relevantModelSections(catalog, ids(catalog));
+  expect(ids(result.shown)).toEqual(["openai/gpt-6.1-sol", "openai/gpt-6-astra", "openai/gpt-5.4-mini", "gpt-5.6", "gpt-6-sol"]);
+  expect(ids(result.more)).toEqual(["openai/gpt-6-sol"]);
+});
+
+test("the running model keeps its row and a dated snapshot never folds its alias", () => {
+  const catalog = [
+    { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", family: "Terra" },
+    { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", family: "Terra" },
+    { id: "claude-opus-4-5-20251101", name: "", family: "Opus" },
+    { id: "claude-opus-4-5", name: "", family: "Opus" },
+  ];
+  const result = relevantModelSections(catalog, ids(catalog), "gpt-5.6-terra");
+  expect(ids(result.shown)).toEqual(ids(catalog));
+  expect(ids(relevantModelSections(catalog, ids(catalog)).more)).toEqual(["gpt-5.6-terra"]);
+});
+
 test("without a harness menu, newest provider families are inferred without model-name allowlists", () => {
   const catalog = [
     { id: "gpt-6-sol", name: "GPT-6-Sol" },
