@@ -43,6 +43,7 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { PresentationContext } from "./PresentationContext";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -301,6 +302,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
     forkSeq,
@@ -403,7 +405,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
-          {label && (
+          {!messages && label && (
             <span className="cv-turn-summary">
               {label}
               {hasTokens(row.tokens) && (
@@ -431,7 +433,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           <span className="cv-turn-action-group">
-            {copy && <MessageCopy text={copy} />}
+            {!messages && copy && <MessageCopy text={copy} />}
             {failedRetry && (
               <button
                 type="button"
@@ -450,12 +452,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
               />
             )}
-            {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+            {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
-            <PinButton rowId={row.id} />
-            {text && <ReadAloudButton id={row.id} text={text} />}
-            {text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {!messages && <PinButton rowId={row.id} />}
+            {!messages && text && <ReadAloudButton id={row.id} text={text} />}
+            {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"
@@ -470,7 +472,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               </button>
             )}
           </span>
-          <MessageTime at={row.at} className="cv-turn-time" />
+          {!messages && <MessageTime at={row.at} className="cv-turn-time" />}
         </MessageFooterRow>
       </div>
     </>
