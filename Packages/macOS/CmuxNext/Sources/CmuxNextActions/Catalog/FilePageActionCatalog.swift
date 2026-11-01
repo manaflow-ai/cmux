@@ -1,7 +1,7 @@
 // The code editor page's commands (diff-host S7); the markdown page's are in
 // MarkdownPageActionCatalog. The page reads no chord: the one key dispatcher runs these while the
 // page has the keyboard (`codeEditorFocused`, the trunk's rule: the focused page is `cmux.editor`) and the app sends the page command. The editor also
-// takes the shared find actions and `saveFilePreview` / `toggleFileEditorWordWrap`.
+// takes the shared find actions and `saveFilePreview` / `toggleFileEditorWordWrap` / `toggleFileEditorMinimap`.
 
 nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {

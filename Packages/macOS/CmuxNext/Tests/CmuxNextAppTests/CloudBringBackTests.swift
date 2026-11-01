@@ -13,7 +13,7 @@ import Testing
 /// Bring Back Local (cmuxterm-hq#1874 slice 4) at the app boundary: a chat moved to a Cloud machine
 /// with `cmux cloud move` comes back with `cmux cloud bring-back`, both sent as the CLI sends them
 /// to the app's real action registry. This Mac and the machine are two real cmux-tui daemons, as
-/// in ``CloudMoveTests``; `cmux link sync push|pull` and `cmux link agent move` are a stand-in
+/// in ``CloudMoveTests``; `cmux link seed push, link sync pull` and `cmux link agent move` are a stand-in
 /// `cmux` that records its arguments and answers as the case asks. The Rust suites cover those
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
@@ -300,7 +300,7 @@ struct CloudBringBackTests {
         let log: URL
         let vmSocket: String
         var macSocket = ""
-        /// The synced folder on the machine (`cmux link sync push`'s target).
+        /// The synced folder on the machine (`cmux link seed push`'s target).
         var synced = ""
         /// The moved chat's tab on the machine, as the app keys it, and its surface there.
         var machineKey = ""
@@ -481,7 +481,7 @@ struct CloudBringBackTests {
         trip.synced = try #require(trip.calls().first?.last)
     }
 
-    /// A stand-in `cmux` (calls recorded unit-separated): `link sync push` makes the synced folder
+    /// A stand-in `cmux` (calls recorded unit-separated): `link seed push` makes the synced folder
     /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
     /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
@@ -502,7 +502,7 @@ struct CloudBringBackTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push")
+            "link seed push")
                 for target in "$@"; do :; done
                 mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;

@@ -472,9 +472,12 @@ fn same_file(a: &FileKey, b: &FileKey) -> bool {
 /// `renameat`, or Linux `renameat2` with `flags`.
 fn rename_at(dir: &OwnedFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
     let fd = dir.as_raw_fd();
+    // The raw syscall, not libc's `renameat2` wrapper: musl (the Linux cmux-tui
+    // build) has no such symbol, and the link fails.
     #[cfg(target_os = "linux")]
     // SAFETY: both names are NUL-terminated and `dir` is an open descriptor.
-    let done = unsafe { libc::renameat2(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    let done =
+        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
     #[cfg(not(target_os = "linux"))]
     let done = {
         let _ = flags;
@@ -498,7 +501,9 @@ fn replace_if(dir: &OwnedFd, tmp: &CStr, name: &CStr, expect: Option<FileKey>) -
     let changed = || io::Error::other(CHANGED_SINCE_READ);
     #[cfg(target_os = "linux")]
     {
-        let unsupported = |e: &io::Error| e.raw_os_error() == Some(libc::EINVAL);
+        // EINVAL: a filesystem without the flag; ENOSYS: a kernel without renameat2.
+        let unsupported =
+            |e: &io::Error| matches!(e.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS));
         match expect {
             None => match rename_at(dir, tmp, name, libc::RENAME_NOREPLACE) {
                 Ok(()) => return Ok(()),

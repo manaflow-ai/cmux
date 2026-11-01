@@ -130,7 +130,7 @@ final class CloudMachineUpdates {
             legacy: { [weak session] build, judged in
                 // Only the build this app pins for its own: a manifest of another build is not this app's.
                 guard let api, await CloudMachineUpdates.allowsExec(session),
-                      let pin = CloudLegacyMachineUpdate.pin(for: build.hash, besideCLI: binary),
+                      let pin = await CloudLegacyPin.pin(for: build.hash, besideCLI: binary, ask: cli.machinePin),
                       let script = CloudLegacyMachineUpdate.script else { return nil }
                 logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
                 // Only while it still runs the build `--if-older` judged older (checked under the
