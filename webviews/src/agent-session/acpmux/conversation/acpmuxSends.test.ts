@@ -203,6 +203,17 @@ describe("acpmuxSend", () => {
     expect(read("ssh -s box acpmux send x y")).toBeUndefined();
     expect(read("ssh -p")).toBeUndefined();
     expect(read(`ssh "$HOST" 'acpmux send x y'`)).toBeUndefined();
+    // Options that change what ssh runs, where its stdin goes, or write a file of their own.
+    expect(read("ssh -o SessionType=none box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -oStdinNull=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -o 'LocalCommand=rm -rf ~/x' -o PermitLocalCommand=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -E /tmp/ssh.log box 'acpmux send x y'")).toBeUndefined();
+    // A bare IPv6 address keeps its colons; the user runs to the last @.
+    expect(read("ssh ::1 'acpmux send x hi'")?.target).toBe("::1/x");
+    expect(read("ssh a@b@box 'acpmux send x hi'")?.target).toBe("box/x");
+    // A host or command that is not literal may hold a second send: no row, through reach too.
+    expect(read('ssh "$H" "$CMD"; acpmux send a b')).toBeUndefined();
+    expect(read('reach "$H" "$CMD"; acpmux send a b')).toBeUndefined();
     // Two sends, one over ssh, are two messages.
     expect(read("acpmux send a x; ssh box 'acpmux send b y'")).toBeUndefined();
     // ssh that runs no send leaves the local send alone, as other work.

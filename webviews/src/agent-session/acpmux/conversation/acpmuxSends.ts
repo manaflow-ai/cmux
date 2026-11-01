@@ -658,6 +658,10 @@ const SSH_VALUES = "BbcDEeFIiJLlmoPpRSw";
 const SSH_FLAGS = "46AaCfgKkMnqTtvXxYy";
 /// ssh options that point its stdin at /dev/null (`-n`, `-f`): no stream reaches the remote send.
 const SSH_NO_STDIN = /^-[^-]*[nf]/;
+/// `-o` keys that change what ssh runs or where its stdin goes (SessionType=none is -N, StdinNull
+/// is -n, LocalCommand runs a local command): the line is not read as a plain remote send.
+const SSH_REFUSED_KEYS =
+  /^(?:sessiontype|stdinnull|forkafterauthentication|localcommand|permitlocalcommand|remotecommand)\b/i;
 
 /// The host and command line a remote wrapper runs, or nil when the words run no command there
 /// (an option that does something else, a missing value, no host or no command).
@@ -687,10 +691,16 @@ function remoteRun(
       for (; place < word.text.length; place++) {
         const letter = word.text[place]!;
         if (SSH_VALUES.includes(letter)) {
-          if (place === word.text.length - 1) {
+          // -E writes a log file: work of its own.
+          if (letter === "E") return undefined;
+          let value = word.text.slice(place + 1);
+          if (!value) {
             if (at + 1 >= words.length) return undefined;
             at += 1;
+            value = words[at]!.text;
           }
+          // An -o value must be read to know it runs the command (`-i ~/.ssh/key` need not be).
+          if (letter === "o" && (!words[at]!.literal || SSH_REFUSED_KEYS.test(value.trim()))) return undefined;
           break;
         }
         if (!SSH_FLAGS.includes(letter)) return undefined;
@@ -701,14 +711,10 @@ function remoteRun(
   const destination = words[at];
   const inner = words.slice(at + 1);
   if (!destination?.literal || destination.text.startsWith("-") || !inner.length) return undefined;
-  // `user@host`, `ssh://user@host:22`: the session lives on the host.
-  const host =
-    name === "ssh"
-      ? destination.text
-          .replace(/^ssh:\/\//, "")
-          .replace(/^[^@/]*@/, "")
-          .replace(/:\d+$/, "")
-      : destination.text;
+  // `user@host`, `ssh://user@host:22`: the session lives on the host. ssh takes the user up to the
+  // last `@`; only the URI form carries a port.
+  const uri = destination.text.match(/^ssh:\/\/(.*?)(?::\d+)?$/);
+  const host = name === "ssh" ? (uri ? uri[1]! : destination.text).replace(/^.*@/, "") : destination.text;
   if (!host) return undefined;
   return { host, inner, stdin };
 }
@@ -885,7 +891,9 @@ function readAcpmuxSend(
           provenance,
           sendScan,
         );
-      else if (remote || words.slice(1).some((word) => /\bacp/.test(word.text))) sendScan.opaque = true;
+      // A host or command that is not literal (`reach "$H" "$CMD"`) may hold a send of its own.
+      else if (remote || words.slice(1).some((word) => !word.literal || /\bacp/.test(word.text)))
+        sendScan.opaque = true;
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
