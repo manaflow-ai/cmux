@@ -1489,6 +1489,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     for (status, code, expected) in [
         (401, "", "refused"),
         (403, "machine.forbidden", "machine.forbidden"),
+        (403, "workspace_machine.not_admitted", "workspace_machine.not_admitted"),
+        (401, "workspace_machine.unconfigured", "workspace_machine.unconfigured"),
         (404, "machine.snapshot.not_found", "machine.snapshot.not_found"),
     ] {
         let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
