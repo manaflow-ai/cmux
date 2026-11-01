@@ -899,6 +899,23 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
     assert_eq!(identified["id"], "identify", "identify waited behind pending waits");
     assert_eq!(identified["ok"], true, "{identified}");
     assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
+    // A one-shot check does not wait: it runs in request order and is not
+    // refused for want of a worker.
+    let one_shot = json!({
+        "id":"one-shot",
+        "cmd":"wait-for",
+        "surface":surface.id,
+        "pattern":"cmux-wait-for-never-matches",
+        "timeout_ms":0,
+    })
+    .to_string();
+    assert!(handle_connection_message(&mux, client, &one_shot, &writer, &scheduler));
+    let checked = pop_json(&outbound);
+    assert_eq!(checked["id"], "one-shot", "{checked}");
+    assert_eq!(
+        checked["error"], "timeout waiting for pattern",
+        "a one-shot wait-for must check the screen, not take a wait worker: {checked}"
+    );
     assert_eq!(
         mux.control_clients.resource_wait_admission.active(),
         RESOURCE_WAITS_PER_CLIENT_CAPACITY,
