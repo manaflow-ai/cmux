@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -1017,7 +1018,7 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         home, state, codex_home = case / "home", case / "state", case / "codex"
         for directory in (home, state, codex_home):
             directory.mkdir(parents=True)
-        session_id = f"00000000-0000-4000-8000-{index:012d}"
+        session_id = str(uuid.uuid4())
         captured_at = time.time() - 10
         timestamp = datetime.fromtimestamp(captured_at - 1, timezone.utc).isoformat(
             timespec="milliseconds"
@@ -1055,6 +1056,7 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64.b64encode(b"/usr/local/bin/claude\0--resume\0wrong\0").decode(),
         })
         socket_path = case / "c.sock"
+        env["CMUX_SOCKET_PATH"] = str(socket_path)
         with FakeCmuxSocket(socket_path, None, surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)) as fake:
             result = subprocess.run(
                 [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
@@ -1062,6 +1064,8 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
                                   "transcript_path": str(transcript), "hook_event_name": "UserPromptSubmit", "prompt": "continue"}),
                 env=env, capture_output=True, text=True, timeout=15,
             )
+            if list((state / "codex-monitor-leases").glob("*.json")):
+                raise AssertionError("permission fixture left a transcript monitor lease active during teardown")
         if result.returncode:
             raise AssertionError(f"network-policy hook failed: {result.stderr}")
         publications = [frame["params"] for frame in fake.frames if frame.get("method") == "surface.resume.set"]
