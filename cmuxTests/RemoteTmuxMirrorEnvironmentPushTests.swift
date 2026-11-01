@@ -139,15 +139,15 @@ import Testing
 
         let commands = try sentCommands(wire)
         let pushes = commands.filter { $0.hasPrefix("set-environment") }
-        // No %session-changed arrived, so the target is the quoted session name.
-        #expect(pushes.contains("set-environment -t 'work' CMUX_REMOTE_TMUX_MIRROR '1'"))
+        // No %session-changed arrived, so the target is the quoted exact session name.
+        #expect(pushes.contains("set-environment -t '=work' CMUX_REMOTE_TMUX_MIRROR '1'"))
         #expect(pushes.contains(
-            "set-environment -t 'work' CMUX_WORKSPACE_ID '11111111-2222-3333-4444-555555555555'"
+            "set-environment -t '=work' CMUX_WORKSPACE_ID '11111111-2222-3333-4444-555555555555'"
         ))
         // Session scope is the point of the fix: `-g` values are invisible to
         // the session-scoped `show-environment` the shell integration runs.
         #expect(pushes.allSatisfy { !$0.contains(" -g ") })
-        #expect(commands.contains { $0.contains("--install") && $0.contains("'work'") })
+        #expect(commands.contains { $0.contains("--install") && $0.contains("'=work'") })
         // No relay exists on the ssh-tmux transport, so a local socket path
         // must never be published to the remote.
         #expect(commands.allSatisfy { !$0.contains("CMUX_SOCKET_PATH") })
@@ -187,9 +187,9 @@ import Testing
 
         let commands = try sentCommands(wire)
         let pushes = commands.filter { $0.hasPrefix("set-environment") }
-        #expect(pushes.contains("set-environment -t 'work' CMUX_REMOTE_TMUX_MIRROR '1'"))
+        #expect(pushes.contains("set-environment -t '=work' CMUX_REMOTE_TMUX_MIRROR '1'"))
         #expect(pushes.contains(
-            "set-environment -t 'work' CMUX_WORKSPACE_ID 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'"
+            "set-environment -t '=work' CMUX_WORKSPACE_ID 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'"
         ))
         #expect(pushes.allSatisfy { !$0.contains(" -g ") })
         connection.stop()

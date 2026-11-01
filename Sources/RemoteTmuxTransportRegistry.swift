@@ -122,7 +122,9 @@ enum RemoteTmuxControlAttachMode: Sendable, Equatable, Hashable {
     func tmuxArguments(sessionName: String) -> [String] {
         switch self {
         case .attach:
-            return ["-CC", "attach-session", "-t", sessionName]
+            // A `$` name has no exact target, and tmux reads it as a session id:
+            // `$dev` is not found, and a session named `$1` would resolve to id 1.
+            return ["-CC", "attach-session", "-t", RemoteTmuxHost.exactSessionTarget(sessionName) ?? sessionName]
         case .attachOrCreate:
             return ["-CC", "new-session", "-A", "-s", sessionName]
         case let .attachOrCreateSized(columns, rows):
