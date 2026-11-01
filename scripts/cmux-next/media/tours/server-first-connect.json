@@ -1,0 +1,13 @@
+{
+  "title": "A server whose daemon is still starting: no \"Unreachable\" until the startup deadline passes",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "A section per computer, so machine headers show", "cmux": ["settings", "set", "sidebar.groupByComputer", "true"], "wait": 1, "shot": false},
+    {"title": "Probe Server added; its daemon's first connects keep failing (2 s in: inside the 10 s startup deadline)",
+     "rpc": {"method": "debug.server_reach.probe_fixture", "params": {}}, "wait": 2,
+     "optional": "debug.server_reach.probe_fixture is DEBUG only and new in this change"},
+    {"title": "12 s in: past the startup deadline, the lasting failure shows", "wait": 10},
+    {"title": "Probe Server removed", "rpc": {"method": "debug.server_reach.probe_fixture", "params": {"remove": true}}, "wait": 1, "shot": false,
+     "optional": "debug.server_reach.probe_fixture is DEBUG only and new in this change"}
+  ]
+}

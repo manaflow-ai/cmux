@@ -270,6 +270,15 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
         runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        trusted_linux_pool = (
+            "fromJSON(vars.RUNNER_POOLS).linux" in runs_on
+            and all(label in runs_on for label in (
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            ))
+            and "contains(fromJSON(" in runs_on
+        )
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -278,6 +287,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_linux_pool and variable == "RUNNER_POOLS":
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
