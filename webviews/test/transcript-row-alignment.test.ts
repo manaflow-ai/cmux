@@ -220,13 +220,17 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
             JSON.stringify({ theme: theme.name, ...measured, problems: found }, null, 2),
           );
           await page.screenshot({ path: path.join(artifacts, `row-alignment-${theme.file}.png`), fullPage: true });
-          // The pointer on a reply with its own action row, which shows only on hover.
-          await page.hover(".acpmux-assistant:has(.cv-reply-actions) .cv-md");
-          await page.locator(".acpmux-assistant:hover .cv-reply-actions").waitFor();
-          await page.screenshot({
-            path: path.join(artifacts, `row-alignment-${theme.file}-actions.png`),
-            fullPage: true,
-          });
+          // The pointer on a reply with its own action row, which shows only on hover. Replies draw
+          // one only where a turn's footer does not serve them (model.ts `hasReplyActions`), so the
+          // capture is taken where one exists; the footer's row is in the shot above.
+          if ((await page.locator(".acpmux-assistant .cv-reply-actions").count()) > 0) {
+            await page.hover(".acpmux-assistant:has(.cv-reply-actions) .cv-md");
+            await page.locator(".acpmux-assistant:hover .cv-reply-actions").waitFor();
+            await page.screenshot({
+              path: path.join(artifacts, `row-alignment-${theme.file}-actions.png`),
+              fullPage: true,
+            });
+          }
         }
         const kinds = new Set([...measured.leads, ...measured.iconed].map((item) => item.kind));
         for (const kind of [
