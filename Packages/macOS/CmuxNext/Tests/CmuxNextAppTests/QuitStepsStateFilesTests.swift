@@ -22,7 +22,7 @@ struct QuitStepsStateFilesTests {
         let written = QuitStateFilesTests.queueDraft(in: directory, gate: gate)
         var writtenAtClose: Bool?
         services.quit.closeEngines = { writtenAtClose = written() }
-        await services.quit.quitSteps().stopBrowserEngines()
+        await services.quit.quitSteps(.keep).stopBrowserEngines()
         #expect(gate.events() == ["drain began", "drain began"], "the engine stop step awaited the state files \(gate.events().count) times")
         #expect(writtenAtClose == true, "the engines began to close before the queued draft was on disk")
     }
@@ -36,7 +36,7 @@ struct QuitStepsStateFilesTests {
         var written: (() -> Bool)?
         // A page that closes saves its draft (the composer's page-hide flush).
         services.quit.closeEngines = { written = QuitStateFilesTests.queueDraft(in: directory, gate: gate) }
-        await services.quit.quitSteps().stopBrowserEngines()
+        await services.quit.quitSteps(.keep).stopBrowserEngines()
         #expect(gate.events() == ["drain began", "drain began"], "the engine stop step awaited the state files \(gate.events().count) times")
         #expect(written?() == true, "the quit ended before the draft saved while the engines closed was on disk")
     }

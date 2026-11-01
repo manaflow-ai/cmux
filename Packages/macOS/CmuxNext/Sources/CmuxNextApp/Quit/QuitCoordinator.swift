@@ -178,13 +178,13 @@ final class QuitCoordinator {
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
-        await quitSteps().run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
+        await quitSteps(choice).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
         DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)
     }
 
-    /// The quit's steps after the decision (`QuitSteps.run`).
-    func quitSteps() -> QuitSteps {
+    /// The quit's steps after the decision `choice` (`QuitSteps.run`).
+    func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
         let services = services
         return QuitSteps(
             remember: { behavior in
