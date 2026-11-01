@@ -17,16 +17,22 @@ export function cloudCredentialRecovery(
   const provider = agentKey(harness?.split("/").pop());
   if (!connected || !machineID || !sessionId || (provider !== "claude" && provider !== "codex")) return undefined;
   let pending = false;
-  const automaticAttempts = new Set<string>();
+  let automaticAttempted = false;
   return async (rowId, prompt, automatic = false) => {
     const client = currentClient();
-    if (pending || (automatic && automaticAttempts.has(rowId)) || !client || !isCurrent(sessionId)) return;
-    if (automatic) automaticAttempts.add(rowId);
+    if (pending || (automatic && automaticAttempted) || !client || !isCurrent(sessionId)) return;
+    if (automatic) automaticAttempted = true;
     pending = true;
     try {
       const retryPromptId = crypto.randomUUID();
       // Reserve the click natively before any async attachment restoration or provider login.
-      const reply = await call("chat.cloudCredentialTransfer", { provider, machineID, sessionId, retryPromptId, automatic });
+      const reply = await call("chat.cloudCredentialTransfer", {
+        provider,
+        machineID,
+        sessionId,
+        retryPromptId,
+        automatic,
+      });
       if (
         !isCurrent(sessionId) ||
         currentClient() !== client ||

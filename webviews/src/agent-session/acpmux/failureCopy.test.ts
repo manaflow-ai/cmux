@@ -3,10 +3,21 @@ import { failureKind, failureRecovery, isCloudRejectedCredential } from "./failu
 
 test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
   const route = { hostKind: "cloud" as const, harness: "claude" };
-  expect(isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", route)).toBe(true);
-  expect(isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", { hostKind: "local" })).toBe(false);
+  expect(
+    isCloudRejectedCredential(
+      "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).",
+      route,
+    ),
+  ).toBe(true);
+  expect(
+    isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", {
+      hostKind: "local",
+    }),
+  ).toBe(false);
   expect(isCloudRejectedCredential("Claude Code login required", route)).toBe(false);
-  expect(isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route)).toBe(false);
+  expect(
+    isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route),
+  ).toBe(false);
 });
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read

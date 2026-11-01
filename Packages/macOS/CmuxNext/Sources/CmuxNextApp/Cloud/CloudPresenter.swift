@@ -105,8 +105,10 @@ enum CloudPresenter {
 
         let teamID = services.cloud.auth.teamID
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
-        let hasCachedLogin = await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID)
-        if request.automatic && !hasCachedLogin { return false }
+        if request.automatic {
+            guard provider == .claude,
+                  await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) else { return false }
+        }
         let providerName = provider == .claude ? "Claude" : "Codex"
         let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
         let body: String

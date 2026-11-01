@@ -38,7 +38,13 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, isCloudRejectedCredential, type FailureRoute } from "../failureCopy";
+import {
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isCloudRejectedCredential,
+  type FailureRoute,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -301,7 +307,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       ? row.retryRowId
       : undefined;
   useEffect(() => {
-    if (!automaticRecoveryRow || !transferCloudCredentials || !prompt || automaticRecoveryAttempted.current === automaticRecoveryRow) return;
+    if (
+      !automaticRecoveryRow ||
+      !transferCloudCredentials ||
+      !prompt ||
+      automaticRecoveryAttempted.current === automaticRecoveryRow
+    )
+      return;
     automaticRecoveryAttempted.current = automaticRecoveryRow;
     void transferCloudCredentials(automaticRecoveryRow, prompt, true).catch(() => undefined);
   }, [automaticRecoveryRow, prompt, transferCloudCredentials]);

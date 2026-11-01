@@ -28,7 +28,7 @@ test("automatic rejected-login recovery transfers and retries only once", async 
 
   expect(recovery).toBeDefined();
   await recovery!("prompt-row", "Try again", true);
-  await recovery!("prompt-row", "Try again", true);
+  await recovery!("retried-prompt-row", "Try again", true);
 
   expect(transfers).toBe(1);
   expect(retries).toBe(1);
