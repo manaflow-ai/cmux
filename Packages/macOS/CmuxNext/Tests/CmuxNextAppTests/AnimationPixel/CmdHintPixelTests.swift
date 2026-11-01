@@ -19,8 +19,11 @@ import Testing
 ///   the 300 ms hold after Cmd went down (in) or at once after it went up (out).
 /// - A plain Cmd-click (a click before the hold ends) shows no chip in any frame.
 /// - With every animation off the chips come and go in one frame.
-/// - One case presses a REAL Cmd key through the HID event tap (CGEvent); without the right to
-///   post events it fails.
+/// - The REAL Cmd key is not pressed here: a test runner on a display worker has no right to post
+///   HID events, and granting it is a host-access change the security rules forbid (lead 05:45Z).
+///   The real-key case is a journey through pa-d's driver (scripts/journeys, CuaDriver real HID
+///   keys, whole-host lease), which judges timing and presence of the chips; the per-frame pixel
+///   and golden checks stay here, with the monitor fed the same flags event AppKit gives it.
 ///
 /// Limits: the chips here are over a plain window, not over the sidebar, tabs and panes of the
 /// app (the app's hint placement has its own tests); hovering a control while Cmd is held is not
@@ -160,26 +163,5 @@ struct CmdHintPixelTests {
             // The click arrives through the monitor's mouse-down path: it hides and suppresses until release.
             fixture.monitor?.keyDown()
         } release: { fixture.flags([]) })
-    }
-
-    /// A REAL Cmd key: down and up through the HID event tap, the path a person's keyboard takes.
-    @Test func aRealHIDCmdHoldFadesTheChipsIn() async throws {
-        guard #available(macOS 14.4, *) else {
-            Issue.record("the own-process window capture needs macOS 14.4")
-            return
-        }
-        guard CGPreflightPostEventAccess() || CGRequestPostEventAccess() else {
-            Issue.record("this process may not post HID events (Accessibility: post events): the real-key case cannot run here, which FAILS it")
-            return
-        }
-        let fixture = try await Fixture(scale: 2, dark: false, animations: true)
-        defer { fixture.close() }
-        let run = HintRun(fixture: fixture, name: "cmd-hints-hid-2x", scale: 2, dark: false)
-        func post(_ down: Bool) {
-            let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 55, keyDown: down)
-            event?.flags = down ? .maskCommand : []
-            event?.post(tap: .cghidEventTap)
-        }
-        AnimationPixelHarnessTests.record(try await run.holdAndRelease(animated: true) { post(true) } release: { post(false) })
     }
 }
