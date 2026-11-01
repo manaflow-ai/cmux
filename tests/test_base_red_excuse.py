@@ -1626,13 +1626,11 @@ class FixedOnBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext/Package.swift"):
             self.judge(FixedOnBaseGitHub(changed=("Packages/macOS/CmuxNext/Package.swift",)))
 
-    def test_an_undeclared_guard_test_falls_back_to_the_default_paths(self):
-        github = FixedOnBaseGitHub(changed=("Packages/macOS/CmuxNext/Package.swift",))
-        github.logs[1] = guard_log("test_appcast", file="tests/test_compose_stable_appcast.py")
-        self.assertIn("fixed on base", self.judge(github))
-        github = FixedOnBaseGitHub(changed=("scripts/release/compose.py",))
-        github.logs[1] = guard_log("test_appcast", file="tests/test_compose_stable_appcast.py")
-        with self.assertRaisesRegex(excuse.Refused, "scripts/release/compose.py"):
+    def test_an_undeclared_guard_test_is_never_fixed_on_base(self):
+        # tests/test_docs_deploy_auth_guard.py reads web/vercel.docs-channel.json: an undeclared test may read anything.
+        github = FixedOnBaseGitHub(changed=("web/vercel.docs-channel.json",))
+        github.logs[1] = guard_log("test_docs_channel", file="tests/test_docs_deploy_auth_guard.py")
+        with self.assertRaisesRegex(excuse.Refused, "test_docs_deploy_auth_guard.py declares no read paths"):
             self.judge(github)
 
     def test_a_base_pass_not_after_the_merge_base_is_not_excused(self):

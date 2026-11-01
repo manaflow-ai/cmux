@@ -686,15 +686,17 @@ def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
 #   (a) the newest base verdict for its job is a pass, at a commit strictly after the pull request's merge-base;
 #   (b) it is a tests/*.py guard test whose file the log names (a pytest id, or the unittest traceback's own frame),
 #       every failed step of the job is such a test's (or the job's own `red check:` rollup of them), and the pull
-#       request's diff from its merge-base touches neither that file nor any path the test reads: GUARD_READS[file]
-#       when declared, plus GUARD_READS_DEFAULT always;
+#       request's diff from its merge-base touches neither that file nor any path the test reads. Only a test whose
+#       file is declared in GUARD_READS qualifies (GUARD_READS_DEFAULT plus its own product paths): an undeclared
+#       test may read anything (tests/test_docs_deploy_auth_guard.py reads web/), so it is refused, never guessed;
 #   (c) the run is whole: a crash or a cut-short run never counts (refused before this is asked).
 # Any other job (Swift, cargo, webview tests) is never fixed on the base: its tests read product code.
 TOP_LEVEL = "top-level files"  # every path with no directory: package.json, .gitmodules, the entitlements, ...
 RELEASE_MANIFESTS = (TOP_LEVEL, "release-notes/", "homebrew-cmux/", "cmux.xcodeproj/", "Resources/", "ghostty-next",
                      "vendor/")
 GUARD_READS_DEFAULT = (".github/", "scripts/", "tests/") + RELEASE_MANIFESTS
-# Tests that read more than the default, by file. Declare a guard here when it reads product paths.
+# The guard tests that can be fixed on the base, by file, with the product paths each reads beyond the default. A
+# test is declared here only after its reads are checked; any other test's red is refused.
 GUARD_READS = {
     # cmux_next_route and the warn-branch check read the CmuxNext target graph and webviews/package.json.
     "tests/test_cmux_next_checks_workflow.py": ("Packages/", "webviews/"),
@@ -781,6 +783,9 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
                       f"{merge_base[:12]} ({after.get('status')})")
     changed = sorted({path for found in files for path in (found.get("filename"), found.get("previous_filename"))
                       if isinstance(path, str) and path})
+    if undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
+        raise Refused(f"{', '.join(undeclared)} declares no read paths (GUARD_READS), so a pass on the base proves "
+                      "nothing about this PR")
     reads: list[str] = []
     for test, path in sorted(tests.items()):
         test_reads = (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ())
