@@ -173,6 +173,33 @@ import UIKit
         #expect(abs((chat.line(row.id)?.height ?? 0) - closed) <= 1)
     }
 
+    /// CI at f8ed786e (`aReopenedRowTakesItsOpenHeight` failing in the full suite, closed again
+    /// 94 pt for a 32 pt line): the root cause. A SwiftUI row's cell that sits under the top safe
+    /// area (the status bar; the transcript also reports its header there) passed that inset to
+    /// its hosted view, which padded itself by it, and the row was measured and kept 62 pt
+    /// taller. In that test the close re-pinned the row above the screen's top when it was
+    /// measured, so whether it failed depended on where the row was at that moment. A row
+    /// measured under the safe area takes its own height.
+    @Test func aRowMeasuredUnderTheTopSafeAreaTakesItsOwnHeight() async throws {
+        let chat = try await chat(category: .accessibilityLarge)
+        defer { chat.window.isHidden = true }
+        let row = try #require(chat.toolRows().first, "a tool row on screen")
+        let height = try #require(chat.line(row.id)).height
+        let top = try #require(chat.list.cell(for: row.id)).frame.minY
+        chat.surface.following = false
+        // The row's top 10 pt below the scroll view's top, under the 62 pt status bar.
+        chat.scroll.contentOffset.y = top - 10
+        chat.list.collectionView.layoutIfNeeded()
+        let cell = try #require(chat.list.cell(for: row.id) as? ChatRowCell)
+        let y = cell.frame.minY - chat.scroll.contentOffset.y
+        try #require(y < chat.window.safeAreaInsets.top, "the row sits under the safe area: y \(y), inset \(chat.window.safeAreaInsets.top)")
+        let indexPath = try #require(chat.list.collectionView.indexPath(for: cell))
+        let attributes = try #require(chat.list.layout.layoutAttributesForItem(at: indexPath))
+        cell.known = nil
+        let fitted = cell.preferredLayoutAttributesFitting(attributes)
+        #expect(abs(fitted.size.height - height) <= 1, "measured under the safe area: \(fitted.size.height), its height \(height)")
+    }
+
     /// Blocker 2: a native line's tap opened its disclosure without the transcript's hold, so a
     /// chat following its newest row re-pinned to the bottom and the tapped line jumped up by
     /// the body's height (base's "disclosures hold their line", a5efcb96 and 5d53628b). Tapped
