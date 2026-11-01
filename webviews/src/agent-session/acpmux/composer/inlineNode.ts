@@ -227,6 +227,22 @@ function selectedDecorations(state: EditorState): DecorationSet | null {
   return marks.length ? DecorationSet.create(doc, marks) : null;
 }
 
+/// Which way a key moves the caret through the document by one character: -1 back, 1 forward, 0
+/// for any other key. Left and Right follow the text's direction at the caret, as ProseMirror's own
+/// arrows do; the Mac's Ctrl-B and Ctrl-F always go back and forward.
+function horizontalStep(view: EditorView, event: KeyboardEvent): -1 | 0 | 1 {
+  if (event.isComposing || event.metaKey || event.altKey || event.shiftKey) return 0;
+  if (event.ctrlKey) {
+    if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return 0;
+    return event.key === "b" ? -1 : event.key === "f" ? 1 : 0;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return 0;
+  const { node } = view.domAtPos(view.state.selection.head);
+  const at = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const rtl = at ? view.dom.ownerDocument.defaultView?.getComputedStyle(at).direction === "rtl" : false;
+  return (event.key === "ArrowLeft") !== rtl ? -1 : 1;
+}
+
 export function inlinePlugin(views: InlineViews) {
   return $prose(
     () =>
@@ -235,22 +251,24 @@ export function inlinePlugin(views: InlineViews) {
           decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
           handleKeyDown: (view, event) => {
-            if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
-            const { selection } = view.state;
-            if (!selection.empty || !(selection instanceof TextSelection)) return false;
             // Left and Right step over a placed attachment as over one character, never selecting it
             // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
-            // treat them like it's one character"). ProseMirror's own Shift+arrow already extends
-            // over it as one unit.
-            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-              const left = event.key === "ArrowLeft";
+            // treat them like it's one character"), as do the Mac's Ctrl-B and Ctrl-F. ProseMirror's
+            // own Shift+arrow already extends over it as one unit.
+            const step = horizontalStep(view, event);
+            if (step !== 0) {
+              const { selection } = view.state;
+              if (!selection.empty || !(selection instanceof TextSelection)) return false;
               const { $head } = selection;
-              const adjacent = $head.textOffset ? null : left ? $head.nodeBefore : $head.nodeAfter;
+              const adjacent = $head.textOffset ? null : step < 0 ? $head.nodeBefore : $head.nodeAfter;
               if (adjacent?.type.name !== INLINE_NODE) return false;
-              const to = $head.pos + (left ? -adjacent.nodeSize : adjacent.nodeSize);
+              const to = $head.pos + step * adjacent.nodeSize;
               view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
               return true;
             }
+            if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+            const { selection } = view.state;
+            if (!selection.empty || !(selection instanceof TextSelection)) return false;
             const backward = event.key === "Backspace";
             if (!backward && event.key !== "Delete") return false;
             const adjacent = backward ? selection.$from.nodeBefore : selection.$from.nodeAfter;
