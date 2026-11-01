@@ -130,10 +130,10 @@ struct CmdNThenNewTerminalTabTests {
     /// because the focus landed on the new terminal. The pass condition is what the person sees: every typed key reaches
     /// the NEW terminal, in order (its screen shows `echo held` and the shell's answer `held`), and no other terminal gets
     /// them. Each key goes through the app's own dispatch (`KeyRouter.interceptKeyDown`, then the window, as
-    /// `CmuxApplication.sendEvent` does). On this dogfood line a key typed while the Ctrl-` stand-in terminal had the
-    /// keyboard went to that view (107f5da1ac6, 050651b6e16), which sent it by a terminal id the daemon did not know yet
-    /// (the create waits for Cmd-N's pane): lost. Now they wait in the creation hold, as on feat. How each key went is in the
-    /// failure text, not the pass rule.
+    /// `CmuxApplication.sendEvent` does). On this dogfood line a key may go to the Ctrl-` stand-in terminal view early (its
+    /// own early-key path, 107f5da1ac6, 050651b6e16) instead of waiting in the creation hold as on feat; either way it must
+    /// reach the new terminal. Earlier failures here came from the harness, whose views had no Ghostty runtime (port of
+    /// #30827, f48d38e8984), not from that path. How each key went is in the failure text, not the pass rule.
     @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-keys")
