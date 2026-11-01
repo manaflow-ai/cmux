@@ -280,6 +280,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 runs_on = str(jobs[name].get("runs-on", ""))
                 self.assertIn("needs.pick-nightly-build-runner.outputs.", runs_on)
                 self.assertNotRegex(runs_on, r"^\s*(?:ubuntu|macos|blacksmith)-")
+                self.assertNotIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
                 self.assertNotIn("CI_TRUSTED_RUNNER", runs_on)
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
