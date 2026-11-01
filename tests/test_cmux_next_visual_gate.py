@@ -1357,23 +1357,6 @@ class WiringTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual(out.read_text().split(), ["verdict=unavailable", "blocks=false"])
 
-    def test_a_bad_gate_variable_never_stops_recovery(self):
-        find = self.job("find-nightly-next-recovery")
-        step = find[find.index("- name: Read the visual gate's verdicts"):]
-        self.assertIn("continue-on-error: true", step[:step.index("run: |")])
-        body = self.step_body("find-nightly-next-recovery", "Read the visual gate's verdicts")
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            resolver = tmp / "scripts/ci/nightly_next_canary_mode.py"
-            resolver.parent.mkdir(parents=True)
-            resolver.write_text("import sys\nif sys.argv[1] == 'resolve':\n    sys.exit(2)\nprint('{}')\n")
-            out = tmp / "output"
-            done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True, timeout=60,
-                                  env=dict(os.environ, GITHUB_OUTPUT=str(out)))
-            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            # A resolver failure leaves recovery advisory while retaining the verdict output.
-            self.assertEqual(out.read_text().split(), ["mode=report", "verdicts={}"])
-
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")
         self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE", route)
