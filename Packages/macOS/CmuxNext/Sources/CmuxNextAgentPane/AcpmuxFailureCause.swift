@@ -14,9 +14,11 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
     case noWebSocket
     /// The daemon this app started exited before it was ready.
     case exited
-    /// This home's daemon is alive but stopped answering, so the app restarted it
-    /// (``AcpmuxUnresponsiveWatch``).
-    case unresponsive
+    /// A person asked to restart this home's daemon while a pane waited for it (``AcpmuxDaemonStop``).
+    case personRestart
+    /// The daemon refused to start and said why (its executable is in a runner's `_work` or a
+    /// temporary folder, acpmux `daemon/exe_path.rs`); the text is shown as is.
+    case refused(String)
     /// Any other failure; the log has the details.
     case other
 
@@ -31,9 +33,10 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
             String(localized: "agentPane.error.cause.noWebSocket", defaultValue: "it reported no chat address", bundle: .module)
         case .exited:
             String(localized: "agentPane.error.cause.exited", defaultValue: "it stopped before it was ready", bundle: .module)
-        case .replacedBundle, .foreignHome, .peerRefused, .unresponsive, .other:
-            // The first three are refusals: the pane says them as `daemonRefused`. A restart of a
-            // daemon that stopped answering is only logged: the next daemon serves the chat.
+        case .refused(let why):
+            why
+        case .replacedBundle, .foreignHome, .peerRefused, .personRestart, .other:
+            // The first three are refusals: the pane says them as `daemonRefused`.
             nil
         }
     }
@@ -46,7 +49,8 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
         case .peerRefused: "the socket's process did not pass the server peer check"
         case .noWebSocket: "the daemon reported no WebSocket"
         case .exited: "the daemon exited before it was ready"
-        case .unresponsive: "the daemon is alive but stopped answering; the app restarts it"
+        case .refused(let why): "the daemon refused to start: \(why)"
+        case .personRestart: "a person asked to restart the daemon while a pane waited for it"
         case .other: "the daemon could not be reached"
         }
     }

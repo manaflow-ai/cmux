@@ -1,6 +1,7 @@
 public import AppKit
 import ApplicationServices
 public import CmuxNextWakeups
+import CmuxNextCompat
 import CoreGraphics
 public import Observation
 import SystemConfiguration
@@ -71,6 +72,6 @@ public final class MacScreenShareHost {
 
     /// The Mac's name from Sharing settings (fast; no DNS).
     public static var computerName: String {
-        (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
+        MacName.captureOverride ?? (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
     }
 }

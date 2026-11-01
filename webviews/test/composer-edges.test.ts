@@ -16,7 +16,10 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type Edge = { shadows: { inset: boolean; alpha: number }[]; border: { width: number; alpha: number } };
+type Edge = {
+  shadows: { inset: boolean; alpha: number; ring: boolean }[];
+  border: { width: number; alpha: number };
+};
 
 await requireBrowserLane("composer-edges.test.ts", async () => {
   /** Runs in the page: the edges `selector` draws. */
@@ -24,6 +27,10 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     const element = document.querySelector(selector)!;
     const style = getComputedStyle(element);
     const alpha = (color: string) => {
+      // A `color(srgb r g b / a)` (Chromium's form for a color-mix) carries its alpha after the slash.
+      const srgb = /color\([^)]*\/\s*([\d.e-]+)\)/.exec(color);
+      if (srgb) return parseFloat(srgb[1]!);
+      if (/color\(/.test(color)) return 1;
       const match = /rgba?\(([^)]*)\)/.exec(color);
       if (!match) return color === "transparent" ? 0 : 1;
       const parts = match[1]!.split(/[ ,/]+/).filter(Boolean);
@@ -47,7 +54,10 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     }
     if (current.trim()) layers.push(current);
     return {
-      shadows: layers.map((layer) => ({ inset: /\binset\b/.test(layer), alpha: alpha(layer) })),
+      shadows: layers.map((layer) => {
+        const lengths = [...layer.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) => Number(match[1]));
+        return { inset: /\binset\b/.test(layer), alpha: alpha(layer), ring: (lengths[3] ?? 0) !== 0 };
+      }),
       border: { width: parseFloat(style.borderTopWidth) || 0, alpha: alpha(style.borderTopColor) },
     };
   }
@@ -133,7 +143,9 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const measured = await page.evaluate(edges, ".acpmux-composer-box");
     await page.close();
-    const rims = measured.shadows.filter((layer) => layer.inset);
+    // The ring is the inset layer with a spread. The glass's light rim (#24593, composerStates.css
+    // --acpmux-composer-rim) adds a top and a bottom line with no spread: lighting, not an edge.
+    const rims = measured.shadows.filter((layer) => layer.inset && layer.ring);
     expect(rims).toHaveLength(1);
     expect(rims[0]!.alpha).toBeGreaterThan(0);
   });

@@ -6,18 +6,24 @@
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-harness-status__head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: 12px;
+}
+
+.acpmux-harness-status__head > :first-child {
+  margin-right: auto;
 }
 
 .acpmux-harness-status__eyebrow {
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .acpmux-harness-status h2 {
@@ -25,11 +31,14 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-harness-status__close {
+  box-sizing: border-box;
   width: 24px;
   height: 24px;
+  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -37,13 +46,54 @@
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-body);
-  line-height: 20px;
+  line-height: 24px;
+  letter-spacing: var(--text-body--letter-spacing);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .acpmux-harness-status__close:hover,
 .acpmux-harness-status__close:focus-visible {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
+}
+
+.acpmux-harness-status__copy-all {
+  box-sizing: border-box;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 24px;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.acpmux-harness-status__copy-all > span {
+  grid-area: 1 / 1;
+}
+
+.acpmux-harness-status__copy-all > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+
+.acpmux-harness-status__copy-all:hover,
+.acpmux-harness-status__copy-all:focus-visible {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-harness-status__copy-all:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 
 .acpmux-harness-status__close:focus-visible {
@@ -73,4 +123,46 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.acpmux-harness-status__value {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: copy;
+  user-select: text;
+}
+
+.acpmux-harness-status__value-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.acpmux-harness-status__copy-feedback {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.acpmux-harness-status__value:hover {
+  color: var(--agent-text);
+}
+
+.acpmux-harness-status__value:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+  border-radius: 2px;
 }

@@ -373,7 +373,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.connectorAnchorY ?? 0) // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
@@ -543,6 +543,8 @@ final class RowCell: UICollectionViewCell {
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -615,6 +617,10 @@ final class RowCell: UICollectionViewCell {
     /// typing clip use it. The window view sets it before each configure (decorate) and on its setRenderScale; a cell
     /// that no window view placed yet (iOS) keeps the process value.
     var renderScale: CGFloat = Fixture.renderScale
+    /// cmux: the zoom `renderScale` includes (a zoomed Chief chat, HostView.contentZoom; 1 otherwise), set with it.
+    var contentZoom: CGFloat = 1
+    /// The window's device pixels per window point, which the snaps (snapRow, snapTyping) round to.
+    var pixelScale: CGFloat { max(1, renderScale / contentZoom) }
     /// The inactive-window state of the window view that shows this cell (MessagesWindowView.inactive; cx-3cb
     /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
     /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
@@ -623,8 +629,12 @@ final class RowCell: UICollectionViewCell {
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
-    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
-    private func scoped<T>(_ body: () -> T) -> T { Fixture.withRenderScale(renderScale, body) }
+    /// cmux: the palette of the window view that shows this cell (its chat's theme and Chat Colors, PaletteScope), set
+    /// with `renderScale`; nil draws with the process palette.
+    var paletteBox: PaletteBox?
+    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it), and
+    /// (cmux) its view's palette.
+    private func scoped<T>(_ body: () -> T) -> T { PaletteScope.with(paletteBox) { Fixture.withRenderScale(renderScale, body) } }
 
     /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
     private var contentGroupOpacity = true
@@ -850,6 +860,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
@@ -1042,6 +1054,8 @@ final class RowCell: UICollectionViewCell {
         let t0 = CACurrentMediaTime()
         // Each row at its cell's scale (two window views at two scales can share a pass).
         let specs = q.map(\.1), scales = q.map(\.3)
+        // cmux: each row in its own view's palette (two views with different Chat Colors can share a pass).
+        let palettes = q.map(\.0.paletteBox)
         var images = [CGImage?](repeating: nil, count: specs.count)
         // Per row: its drawing time on its worker (ms), for the display change's evidence.
         var rowMs = [Double](repeating: 0, count: specs.count)
@@ -1050,13 +1064,18 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                    if let slot = out.checkedIndex(i) { out[slot] = image }
+                }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }
             }
         }
         let t1 = CACurrentMediaTime()
-        for ((s, sc), img) in zip(zip(specs, scales), images) { if let img { RowBitmaps.shared.insert([(s, img)], scale: sc) } }
+        for (k, ((s, sc), img)) in zip(zip(specs, scales), images).enumerated() {
+            if let img { RowBitmaps.shared.insert([(s, img)], scale: sc, generation: Fixture.generation(of: palettes[checked: k] ?? nil)) }
+        }
         let t2 = CACurrentMediaTime()
         if displayPass || DisplayTiming.flushOpen {
             DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
@@ -1179,7 +1198,7 @@ final class RowCell: UICollectionViewCell {
     private func snapTyping() {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard case .typing? = spec?.kind else { return }
-        let s = max(1, renderScale)
+        let s = pixelScale
         // In the row's content, which snapRow already moved by rowSnap.
         let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
         guard top.isFinite, left.isFinite else { return }
@@ -1406,6 +1425,7 @@ final class RowCell: UICollectionViewCell {
     /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
     /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
     /// every pass.
+    /// `scale` is the window's device pixels per window point (cmux: `pixelScale`, not a zoomed chat's `renderScale`).
     static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
         guard abs(k) > 1e-6 else { return 0 }
         let r = o + k * v
@@ -1451,7 +1471,7 @@ final class RowCell: UICollectionViewCell {
     /// Moves the content to the snapped place; true when the snap changed.
     @discardableResult private func snapRow() -> Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        let s = max(1, renderScale)
+        let s = pixelScale
         let x = RowCell.anchorX(spec, layer.frame)
         guard windowY.isFinite, x.isFinite else { return false }
         let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
@@ -1627,8 +1647,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+            // cmux: under Reduce Motion or with Home animations off the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.holdsTypingStill { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1639,8 +1659,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
-        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+        // cmux: no breathing under Reduce Motion or with Home animations off, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.holdsTypingStill { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1675,8 +1695,10 @@ final class RowCell: UICollectionViewCell {
         // 0 after snapTyping), read from the window's layer tree.
         let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
         let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
+        // cmux: the rest place is in window points, so its pixel offset is at the window's pixels (pixelScale).
+        let px = Double(pixelScale)
         func rest(_ v: CGFloat, _ v1: CGFloat) -> Double {
-            let g = Double(v) * s, k = Double(v1 - v)
+            let g = Double(v) * px, k = Double(v1 - v)
             guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
             let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
             return abs(f) > 1e-6 ? f : 0
@@ -1740,7 +1762,7 @@ final class RowCell: UICollectionViewCell {
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.holdsTypingStill && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif

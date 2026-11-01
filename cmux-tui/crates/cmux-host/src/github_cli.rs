@@ -9,6 +9,13 @@
 //! - `gh [--write] ARGS…`: runs `gh` with `GH_TOKEN` set for that one
 //!   process, for the repo named by `-R/--repo`, else `GH_REPO`, else the
 //!   current checkout's `origin`.
+//! - `gh --auto ARGS…`: plain `gh` as the image's shim runs it. The
+//!   person's own auth (`GH_TOKEN` and the like, their own `gh auth login`)
+//!   and verbs that need no repo token (`auth`, `config`, ...) go to gh
+//!   untouched; a read (`pr list`, `gh api` GET) asks the read set, any
+//!   other command write then read. With no repo, or when the API refuses,
+//!   gh still runs, without a token, after one line on stderr.
+//!   `CMUX_GITHUB_GH_REAL` names the gh to run (the shim's real one).
 //! - `setup [--unset]`: opt-in wiring of the user's git config (the helper
 //!   for https://github.com, with `useHttpPath` so git names the repo).
 //!
@@ -36,8 +43,7 @@ use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::json::JsonField;
 
-const USAGE: &str =
-    "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | setup [--unset]";
+const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
@@ -481,6 +487,182 @@ fn other_host_repo(arg: &str) -> bool {
     hostlike && !host.eq_ignore_ascii_case("github.com")
 }
 
+/// What `cmux github gh --auto` (the image's `gh` shim) knows besides the
+/// arguments: whether a token is already in the environment, whether the
+/// person has their own gh login, and `GH_REPO`.
+#[derive(Clone, Copy, Debug)]
+pub struct GhContext<'a> {
+    pub token_env: bool,
+    pub own_login: bool,
+    pub gh_repo: Option<&'a str>,
+}
+
+/// Where `--auto` sends one gh run.
+#[derive(Debug, PartialEq, Eq)]
+pub enum GhRoute {
+    /// The real gh, untouched: the person's own auth, or a verb that needs no
+    /// repo token (`auth`, `config`, `--version`, ...).
+    Direct,
+    /// The real gh with no token, after `note` on stderr: no repo to ask for,
+    /// or an argument that names a host this machine's token is not for.
+    Untokened { note: String },
+    /// The real gh with a token for `repo`: `asks` in order, each next one
+    /// only after a `policy.denied`.
+    Token { repo: String, args: Vec<String>, asks: Vec<TokenAsk> },
+}
+
+/// gh verbs that never need a repo token.
+const GH_DIRECT_VERBS: [&str; 11] = [
+    "auth",
+    "config",
+    "help",
+    "version",
+    "completion",
+    "alias",
+    "extension",
+    "ext",
+    "--version",
+    "--help",
+    "-h",
+];
+/// Second words that only read (`gh pr list`, `gh run watch`).
+const GH_READ_SUBVERBS: [&str; 8] =
+    ["view", "list", "status", "diff", "checks", "watch", "download", "browse"];
+/// First words that only read.
+const GH_READ_VERBS: [&str; 3] = ["browse", "search", "status"];
+
+/// The words of a gh command line that are not flags: `-R`/`--repo` and
+/// `--hostname` values are skipped (they come before the verb as often as
+/// after it).
+fn gh_words(args: &[String]) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        if arg == "--" {
+            break;
+        }
+        if arg == "-R" || arg == "--repo" || arg == "--hostname" {
+            it.next();
+        } else if !arg.starts_with('-')
+            || words.is_empty() && GH_DIRECT_VERBS.contains(&arg.as_str())
+        {
+            words.push(arg.as_str());
+        }
+    }
+    words
+}
+
+/// Whether `gh api ARGS` only reads: no method other than GET, and no
+/// fields or input (gh turns those into a POST).
+fn gh_api_reads(args: &[String]) -> bool {
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        let method = if arg == "-X" || arg == "--method" {
+            it.next().map(String::as_str)
+        } else if let Some(m) = arg.strip_prefix("--method=") {
+            Some(m)
+        } else if let Some(m) = arg.strip_prefix("-X") {
+            Some(m.strip_prefix('=').unwrap_or(m))
+        } else {
+            None
+        };
+        if method.is_some_and(|m| !m.eq_ignore_ascii_case("GET")) {
+            return false;
+        }
+        let field = (arg.starts_with("-f") || arg.starts_with("-F"))
+            || ["--field", "--raw-field", "--input"]
+                .iter()
+                .any(|f| arg == f || arg.starts_with(&format!("{f}=")));
+        if field {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether a gh command line only reads, so a read token is enough.
+pub fn gh_reads_only(args: &[String]) -> bool {
+    let words = gh_words(args);
+    match words.as_slice() {
+        ["api", ..] => gh_api_reads(args),
+        [verb, ..] if GH_READ_VERBS.contains(verb) => true,
+        [_, sub, ..] => GH_READ_SUBVERBS.contains(sub),
+        _ => false,
+    }
+}
+
+/// `--auto`'s decision for one gh run (see the module docs and
+/// plans/cmux-next/cloud-github-auth-DESIGN.md 3.2).
+pub fn gh_auto_route(
+    args: &[String],
+    cx: &GhContext<'_>,
+    origin: &dyn Fn() -> Option<String>,
+) -> GhRoute {
+    if cx.token_env || cx.own_login {
+        return GhRoute::Direct;
+    }
+    match gh_words(args).first() {
+        None => return GhRoute::Direct,
+        Some(verb) if GH_DIRECT_VERBS.contains(verb) => return GhRoute::Direct,
+        Some(_) => {}
+    }
+    let plan = match gh_plan(args, cx.gh_repo, origin) {
+        Ok(plan) => plan,
+        Err(why) => {
+            return GhRoute::Untokened {
+                note: format!(
+                    "{why}; gh runs without a GitHub token (cmux mints one per repo: run it in a GitHub checkout or pass -R owner/name)"
+                ),
+            };
+        }
+    };
+    let asks = if gh_reads_only(&plan.args) {
+        vec![gh_ask(&plan.repo, false)]
+    } else {
+        vec![gh_ask(&plan.repo, true), gh_ask(&plan.repo, false)]
+    };
+    GhRoute::Token { repo: plan.repo, args: plan.args, asks }
+}
+
+/// The first token `asks` gets, trying the next ask only after a
+/// `policy.denied`; any other refusal ends it.
+pub fn first_token(
+    asks: &[TokenAsk],
+    ask: &mut dyn FnMut(&TokenAsk) -> Result<Minted, Refused>,
+) -> Result<Minted, Refused> {
+    let mut last = refused("policy.denied", "no permission set was asked");
+    for each in asks {
+        match ask(each) {
+            Ok(minted) => return Ok(minted),
+            Err(e) if e.code == "policy.denied" => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
+/// Whether gh's `hosts.yml` holds a github.com login (a top-level
+/// `github.com:` key), the person's own `gh auth login`.
+pub fn hosts_has_github(hosts_yml: &str) -> bool {
+    hosts_yml.lines().any(|line| line.trim_end() == "github.com:")
+}
+
+/// gh's `hosts.yml`: `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else
+/// `~/.config/gh`.
+pub fn gh_hosts_path(
+    gh_config_dir: Option<&Path>,
+    xdg_config_home: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(dir) = gh_config_dir {
+        return Some(dir.join("hosts.yml"));
+    }
+    if let Some(dir) = xdg_config_home {
+        return Some(dir.join("gh/hosts.yml"));
+    }
+    home.map(|h| h.join(".config/gh/hosts.yml"))
+}
+
 fn origin_url() -> Option<String> {
     let out =
         std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
@@ -607,7 +789,75 @@ fn credential(args: &[String]) -> u8 {
     0
 }
 
+/// The gh `--auto` and the plain form run: `CMUX_GITHUB_GH_REAL` (the
+/// image's shim names the store's gh, so the shim never runs itself), else
+/// `gh` on PATH.
+fn real_gh() -> std::ffi::OsString {
+    std::env::var_os("CMUX_GITHUB_GH_REAL").filter(|v| !v.is_empty()).unwrap_or_else(|| "gh".into())
+}
+
+const GH_TOKEN_VARS: [&str; 4] =
+    ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+
+fn own_gh_login() -> bool {
+    let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    gh_hosts_path(
+        var("GH_CONFIG_DIR").as_deref(),
+        var("XDG_CONFIG_HOME").as_deref(),
+        var("HOME").as_deref(),
+    )
+    .and_then(|p| std::fs::read_to_string(p).ok())
+    .is_some_and(|text| hosts_has_github(&text))
+}
+
+/// `gh --auto ARGS...`: plain gh on a Cloud machine (the image's shim).
+/// It never fails for want of a token: gh runs, with one when it can.
+fn gh_auto(args: &[String]) -> u8 {
+    use std::os::unix::process::CommandExt;
+    let args = args.strip_prefix(&["--".to_owned()][..]).unwrap_or(args);
+    let token_env =
+        GH_TOKEN_VARS.iter().any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()));
+    let gh_repo = std::env::var("GH_REPO").ok();
+    let cx = GhContext {
+        token_env,
+        own_login: !token_env && own_gh_login(),
+        gh_repo: gh_repo.as_deref(),
+    };
+    let mut command = std::process::Command::new(real_gh());
+    match gh_auto_route(args, &cx, &origin_url) {
+        GhRoute::Direct => {
+            command.args(args);
+        }
+        GhRoute::Untokened { note } => {
+            eprintln!("cmux github gh: {note}");
+            command.args(args);
+        }
+        GhRoute::Token { repo, args, asks } => {
+            command.args(&args);
+            match first_token(&asks, &mut |ask| ask_retrying(Path::new(AGENT_SOCKET), ask)) {
+                Ok(minted) => {
+                    command
+                        .env("GH_TOKEN", &minted.token)
+                        .env("GH_HOST", "github.com")
+                        .env_remove("GITHUB_TOKEN")
+                        .env_remove("GH_ENTERPRISE_TOKEN")
+                        .env_remove("GITHUB_ENTERPRISE_TOKEN");
+                }
+                Err(e) => eprintln!(
+                    "cmux github gh: no GitHub token for {repo} ({e}); gh runs without one"
+                ),
+            }
+        }
+    }
+    let err = command.exec();
+    eprintln!("cmux github gh: gh: {err}");
+    1
+}
+
 fn gh(args: &[String]) -> u8 {
+    if let Some(rest) = args.strip_prefix(&["--auto".to_owned()][..]) {
+        return gh_auto(rest);
+    }
     let env_repo = std::env::var("GH_REPO").ok();
     let plan = match gh_plan(args, env_repo.as_deref(), &origin_url) {
         Ok(plan) => plan,
@@ -624,7 +874,7 @@ fn gh(args: &[String]) -> u8 {
         }
     };
     use std::os::unix::process::CommandExt;
-    let err = std::process::Command::new("gh")
+    let err = std::process::Command::new(real_gh())
         .args(&plan.args)
         .env("GH_TOKEN", &minted.token)
         // Only github.com: the token is for it and no other host.
@@ -1042,5 +1292,167 @@ mod tests {
         let missing =
             ask_agent(Path::new("/nonexistent/agent.sock"), &gh_ask("o/r", false)).unwrap_err();
         assert_eq!(missing.code, "vm.agent_unreachable");
+    }
+
+    fn cx<'a>(token_env: bool, own_login: bool, gh_repo: Option<&'a str>) -> GhContext<'a> {
+        GhContext { token_env, own_login, gh_repo }
+    }
+
+    fn in_checkout() -> Option<String> {
+        Some("git@github.com:o/r.git".to_owned())
+    }
+
+    fn nowhere() -> Option<String> {
+        None
+    }
+
+    fn asked(route: &GhRoute) -> Vec<String> {
+        let GhRoute::Token { asks, .. } = route else { panic!("not a token route: {route:?}") };
+        asks.iter().map(|a| a.permissions["contents"].as_str().unwrap().to_owned()).collect()
+    }
+
+    #[test]
+    fn auto_leaves_the_persons_own_auth_alone() {
+        let args = strings(&["pr", "list"]);
+        assert_eq!(gh_auto_route(&args, &cx(true, false, None), &in_checkout), GhRoute::Direct);
+        assert_eq!(gh_auto_route(&args, &cx(false, true, None), &in_checkout), GhRoute::Direct);
+    }
+
+    #[test]
+    fn auto_passes_verbs_that_need_no_repo_token_straight_through() {
+        for args in [
+            &[][..],
+            &["auth", "status"][..],
+            &["auth", "login", "--web"][..],
+            &["--version"][..],
+            &["version"][..],
+            &["--help"][..],
+            &["help", "pr"][..],
+            &["config", "get", "editor"][..],
+            &["extension", "list"][..],
+            &["completion", "-s", "bash"][..],
+            &["alias", "list"][..],
+        ] {
+            assert_eq!(
+                gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout),
+                GhRoute::Direct,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_without_a_repo_runs_gh_without_a_token_and_says_why() {
+        let route = gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, None), &nowhere);
+        let GhRoute::Untokened { note } = route else { panic!("{route:?}") };
+        assert!(note.contains("-R owner/name"), "{note}");
+        // A URL to another host never gets this machine's token.
+        let route = gh_auto_route(
+            &strings(&["api", "https://evil.example/x"]),
+            &cx(false, false, None),
+            &in_checkout,
+        );
+        assert!(matches!(route, GhRoute::Untokened { .. }), "{route:?}");
+    }
+
+    #[test]
+    fn auto_reads_ask_for_read_only() {
+        for args in [
+            &["pr", "list"][..],
+            &["pr", "view", "12"][..],
+            &["pr", "checks"][..],
+            &["pr", "diff", "3"][..],
+            &["run", "watch", "9"][..],
+            &["run", "download", "9"][..],
+            &["repo", "view"][..],
+            &["issue", "list", "--json", "number"][..],
+            &["status"][..],
+            &["search", "prs", "x"][..],
+            &["api", "repos/{owner}/{repo}/pulls"][..],
+            &["api", "--method", "GET", "x"][..],
+            &["api", "-XGET", "x"][..],
+        ] {
+            let route = gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout);
+            assert_eq!(asked(&route), ["read"], "{args:?}");
+        }
+    }
+
+    #[test]
+    fn auto_writes_ask_for_write_then_read() {
+        for args in [
+            &["pr", "create", "--fill"][..],
+            &["pr", "merge", "1"][..],
+            &["issue", "comment", "1", "-b", "hi"][..],
+            &["release", "create", "v1"][..],
+            &["api", "-X", "POST", "x"][..],
+            &["api", "--method=PATCH", "x"][..],
+            &["api", "x", "-f", "title=t"][..],
+            &["api", "x", "-Fdraft=true"][..],
+            &["api", "x", "--input", "body.json"][..],
+            &["workflow", "run", "ci.yml"][..],
+        ] {
+            let route = gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout);
+            assert_eq!(asked(&route), ["write", "read"], "{args:?}");
+        }
+    }
+
+    #[test]
+    fn auto_takes_the_repo_from_r_then_gh_repo_then_origin_and_keeps_args() {
+        let args = strings(&["-R", "a/b", "issue", "view", "5"]);
+        let route = gh_auto_route(&args, &cx(false, false, Some("c/d")), &in_checkout);
+        let GhRoute::Token { repo, args: kept, asks } = &route else { panic!("{route:?}") };
+        assert_eq!(repo, "a/b");
+        assert_eq!(kept, &args);
+        assert_eq!(asked(&route), ["read"]);
+        assert!(asks.iter().all(|a| a.repo == "a/b" && a.label.as_deref() == Some("gh")));
+        let route =
+            gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, Some("c/d")), &in_checkout);
+        assert!(matches!(&route, GhRoute::Token { repo, .. } if repo == "c/d"), "{route:?}");
+        let route = gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, None), &in_checkout);
+        assert!(matches!(&route, GhRoute::Token { repo, .. } if repo == "o/r"), "{route:?}");
+    }
+
+    #[test]
+    fn first_token_falls_back_on_policy_only() {
+        let asks = vec![gh_ask("o/r", true), gh_ask("o/r", false)];
+        let mut seen = Vec::new();
+        let got = first_token(&asks, &mut |a| {
+            seen.push(a.permissions["contents"].as_str().unwrap().to_owned());
+            if a.permissions["contents"] == "write" {
+                Err(refused("policy.denied", "no write"))
+            } else {
+                Ok(minted())
+            }
+        });
+        assert_eq!(got.unwrap().token, SECRET);
+        assert_eq!(seen, ["write", "read"]);
+        let mut calls = 0;
+        let err = first_token(&asks, &mut |_| {
+            calls += 1;
+            Err(refused("integration.not_found", "no GitHub connection"))
+        })
+        .unwrap_err();
+        assert_eq!((err.code.as_str(), calls), ("integration.not_found", 1));
+    }
+
+    #[test]
+    fn own_gh_login_is_a_github_com_entry_in_hosts_yml() {
+        assert!(hosts_has_github("github.com:\n    oauth_token: gho_x\n    user: me\n"));
+        assert!(hosts_has_github("ghe.example.com:\n  user: a\ngithub.com:\n  user: b\n"));
+        assert!(!hosts_has_github(""));
+        assert!(!hosts_has_github("ghe.example.com:\n  user: a\n"));
+        assert!(!hosts_has_github("x:\n  github.com: 1\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        assert_eq!(gh_hosts_path(None, None, Some(home)), Some(home.join(".config/gh/hosts.yml")));
+        assert_eq!(
+            gh_hosts_path(None, Some(Path::new("/x")), Some(home)),
+            Some(PathBuf::from("/x/gh/hosts.yml"))
+        );
+        assert_eq!(
+            gh_hosts_path(Some(Path::new("/g")), Some(Path::new("/x")), Some(home)),
+            Some(PathBuf::from("/g/hosts.yml"))
+        );
+        assert_eq!(gh_hosts_path(None, None, None), None);
     }
 }

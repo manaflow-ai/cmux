@@ -79,6 +79,10 @@ export interface Principal {
    * a frame or params; that owner strips it from every principal it receives by RPC.
    */
   readonly approval?: string
+  /** Agent gateway source authentication, retained for live grant revalidation. Server-built only. */
+  readonly source_install?: string
+  readonly source_grant?: string
+  readonly source_agent?: string
 }
 
 export type Origin = "user" | "cli" | "mcp" | "script" | "remote"
@@ -109,7 +113,7 @@ export interface EventFrame {
    * the row writes. A mirror applies them instead of replaying the reducer, so it needs
    * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
    */
-  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> } | undefined
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
@@ -207,7 +211,7 @@ export interface ReduceContext {
    * Read-only rows of a row-backed domain. The engine and mirrors always pass it (empty for
    * JSON-only domains); hand-built test contexts for JSON domains may omit it.
    */
-  readonly rows?: RowReader
+  readonly rows?: RowReader | undefined
   /**
    * The request's idempotency key: present on the owner and in a client's preview of its own
    * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).

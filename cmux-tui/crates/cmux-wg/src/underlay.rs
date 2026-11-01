@@ -39,6 +39,17 @@ const INTERFACE_RETRY_MAX: Duration = Duration::from_millis(50);
 /// a keepalive) are not stuck behind it forever. TCP retransmits.
 const INTERFACE_RETRY_LIMIT: u32 = 64;
 
+/// Receive buffer requested for a tunnel's UDP socket (wireguard-go's
+/// `socketBufferSize`). smoltcp sends a whole window at once, and the peer
+/// handles each datagram (decrypt, then the stack) more slowly than the
+/// kernel delivers them on a fast path, so the kernel's default (208 KiB on
+/// Linux, under one 256 KiB window) overflows. smoltcp's fast retransmit
+/// recovers few of the lost segments; the rest wait out its 1 s minimum
+/// retransmission timeout (HQ 5080: half of the 8 MiB loopback echoes took
+/// 1.1 s instead of 0.09 s). The kernel caps the request at
+/// `net.core.rmem_max` on Linux and `kern.ipc.maxsockbuf` on macOS.
+pub const RECEIVE_BUFFER: usize = 7 << 20;
+
 /// Why a send was refused without being an error to drop on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Refusal {
@@ -169,6 +180,11 @@ pub trait DatagramSocket: Send + 'static {
     fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize>;
 
     fn local_addr(&self) -> io::Result<SocketAddr>;
+
+    /// Ask the kernel for a [`RECEIVE_BUFFER`]-byte receive buffer, as far
+    /// as it allows. Best effort: a refusal keeps the default. A socket
+    /// with no kernel buffer (a simulated one) has nothing to grow.
+    fn grow_receive_buffer(&self) {}
 }
 
 impl DatagramSocket for UdpSocket {
@@ -196,6 +212,32 @@ impl DatagramSocket for UdpSocket {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         UdpSocket::local_addr(self)
     }
+
+    #[cfg(unix)]
+    fn grow_receive_buffer(&self) {
+        use std::os::fd::AsRawFd;
+        let size = libc::c_int::try_from(RECEIVE_BUFFER).unwrap_or(libc::c_int::MAX);
+        let set = |option| {
+            // SAFETY: the descriptor is open for the borrow of `self`, and
+            // the option value points at a live `c_int` of the length passed.
+            unsafe {
+                libc::setsockopt(
+                    self.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    option,
+                    (&raw const size).cast(),
+                    size_of_val(&size) as libc::socklen_t,
+                )
+            }
+        };
+        // Past `net.core.rmem_max` only with CAP_NET_ADMIN (wireguard-go
+        // does the same); without it the capped request below still holds.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if set(libc::SO_RCVBUFFORCE) == 0 {
+            return;
+        }
+        let _ = set(libc::SO_RCVBUF);
+    }
 }
 
 /// One socket and the peer's address on it. The address follows the source
@@ -216,6 +258,7 @@ pub type UdpUnderlay = SocketPath<UdpSocket>;
 
 impl<S: DatagramSocket> SocketPath<S> {
     pub fn new(socket: S, peer: Option<SocketAddr>) -> Self {
+        socket.grow_receive_buffer();
         Self {
             socket,
             peer,

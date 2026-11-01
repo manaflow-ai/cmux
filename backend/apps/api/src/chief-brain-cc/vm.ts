@@ -2,6 +2,7 @@ import type { Env } from "../env.ts"
 import { cloudEnvTag } from "../cloud-driver.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
+import { freestyleCustomer } from "../providers/freestyle/customer.ts"
 
 /**
  * The machine side of the Claude Code route (turn.ts, backend/chief-cc/bake.sh): one Freestyle VM per
@@ -50,7 +51,8 @@ export const freestyle = async (env: Env, method: string, path: string, body?: u
 /** The VM's provider name: cmuxnp-<env>-ccb-<12 random> (FREESTYLE-NAMES; its own lane, no other sweep owns it). */
 export const vmName = (env: Env): string => `cmuxnp-${cloudEnvTag(env.ENVIRONMENT)}-ccb-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`
 
-export const createVm = async (env: Env, name: string, meta: { agent: string; conversation: string; run: string }): Promise<string> => {
+/** `meta.owner`: the Chief's owner, the VM's Freestyle customer (customer.ts). */
+export const createVm = async (env: Env, name: string, meta: { agent: string; owner: string | null; conversation: string; run: string }): Promise<string> => {
   const res = await freestyle(env, "POST", "/v5/vms", {
     slug: name,
     snapshotId: env.CHIEF_CC_SNAPSHOT,
@@ -59,6 +61,7 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; co
     ttlSeconds: RUN_MS / 1000 + 900,
     automaticRestart: false,
     metadata: { cmux_chief_cc: meta.agent, cmux_conversation: meta.conversation, cmux_run: meta.run },
+    ...freestyleCustomer(meta.owner),
     // Out to the Internet only, IPv4 and IPv6 (the tailnet comes up inside the guest); nothing comes in.
     // What the agent user may reach inside is net.ts.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }

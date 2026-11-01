@@ -29,20 +29,27 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
-use super::github::{self, TokenAsk};
-use super::github_minter::{Minter, Stop};
+use super::github;
+use super::github_minter::{Ask, Minter, Stop};
+use super::handoff::{self, HandoffReport};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
+use super::trajectory::Layout;
+use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
     DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
     heartbeat_ms_for,
 };
 use crate::config::Paths;
+use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
+use crate::linux::spawn::lookup_user;
 
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
+/// Where a trajectory restore stages its bundles (the work user's, 0700).
+pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
@@ -67,25 +74,67 @@ fn random_unit() -> f64 {
 /// Files under the agent's root: atomic (temp file + rename), parents 0700.
 pub struct FileStore {
     paths: Paths,
+    /// Tests: the next step of a write that fails.
+    #[cfg(test)]
+    fail_next: std::cell::Cell<Option<WriteStep>>,
+}
+
+/// The steps of a write that can fail (tests inject one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteStep {
+    Write,
+    Permissions,
+    Rename,
+    Link,
+}
+
+/// A temp file removed when dropped, so no failure path leaves one behind.
+struct TempGuard {
+    path: PathBuf,
+}
+
+impl Drop for TempGuard {
+    fn drop(&mut self) {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => log(&format!("{}: temp file cleanup: {e}", self.path.display())),
+        }
+    }
 }
 
 impl FileStore {
     pub fn new(paths: Paths) -> FileStore {
-        FileStore { paths }
+        FileStore {
+            paths,
+            #[cfg(test)]
+            fail_next: std::cell::Cell::new(None),
+        }
     }
 
     fn at(&self, file: &str) -> PathBuf {
         self.paths.at(file)
     }
-}
 
-impl Store for FileStore {
-    fn read(&self, file: &str) -> Option<String> {
-        fs::read_to_string(self.at(file)).ok()
+    /// Tests: makes `step` of the next write fail.
+    #[cfg(test)]
+    pub fn fail_next(&self, step: WriteStep) {
+        self.fail_next.set(Some(step));
     }
 
-    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
-        let path = self.at(file);
+    fn step(&self, step: WriteStep) -> io::Result<()> {
+        #[cfg(test)]
+        if self.fail_next.get() == Some(step) {
+            self.fail_next.set(None);
+            return Err(io::Error::other(format!("injected {step:?} failure")));
+        }
+        let _ = step;
+        Ok(())
+    }
+
+    /// A finished temp file next to `path`, holding `text` with `mode`. The
+    /// guard removes it when dropped (a rename that moved it leaves nothing).
+    fn temp_beside(&self, path: &Path, text: &str, mode: u32) -> Result<TempGuard, String> {
         let dir = path.parent().ok_or("no parent directory")?;
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let tmp = dir.join(format!(
@@ -101,10 +150,52 @@ impl Store for FileStore {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .map_err(|e| format!("{}: {e}", tmp.display()))?;
-        out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        out.set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        drop(out);
-        fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+        let guard = TempGuard { path: tmp };
+        self.step(WriteStep::Write)
+            .and_then(|()| out.write_all(text.as_bytes()))
+            .map_err(|e| e.to_string())?;
+        self.step(WriteStep::Permissions)
+            .and_then(|()| out.set_permissions(fs::Permissions::from_mode(mode)))
+            .map_err(|e| e.to_string())?;
+        Ok(guard)
+    }
+}
+
+impl Store for FileStore {
+    fn read(&self, file: &str) -> Option<String> {
+        fs::read_to_string(self.at(file)).ok()
+    }
+
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let path = self.at(file);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        self.step(WriteStep::Rename)
+            .and_then(|()| fs::rename(&tmp.path, &path))
+            .map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        // link() fails on any existing entry (a file, a dangling symlink, a
+        // directory), so a record written after the caller's check is kept.
+        // The temp name goes when `tmp` drops, linked or not.
+        let linked = self.step(WriteStep::Link).and_then(|()| fs::hard_link(&tmp.path, &path));
+        drop(tmp);
+        match linked {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
     }
 
     fn remove(&mut self, file: &str) {
@@ -121,15 +212,38 @@ impl Http for PosterHttp {
     }
 }
 
-/// One `identify` on the daemon's control socket, bounded by `timeout`.
+/// One `identify` on the daemon's control socket. `timeout` bounds the whole
+/// exchange, not each read, and the reply line is at most `MAX_LINE`.
 pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
+    let deadline = Instant::now() + timeout;
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    stream.set_write_timeout(Some(left.max(Duration::from_millis(1))))?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line)?;
-    let reply: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while !line.contains(&b'\n') {
+        if line.len() > MAX_LINE {
+            return Err(io::Error::other("daemon identify line over 64 KB"));
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::from(io::ErrorKind::TimedOut));
+        }
+        stream.set_read_timeout(Some(left))?;
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(read_part(&chunk, n)?),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let end = line.iter().position(|b| *b == b'\n').unwrap_or(line.len());
+    if end > MAX_LINE {
+        return Err(io::Error::other("daemon identify line over 64 KB"));
+    }
+    let reply: Value =
+        serde_json::from_slice(line.get(..end).unwrap_or_default()).map_err(io::Error::other)?;
     if *reply.field("ok") == true && reply.field("data").is_object() {
         Ok(reply.field("data").clone())
     } else {
@@ -317,6 +431,8 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
+    trajectories: Option<Trajectories<PosterHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -337,6 +453,8 @@ impl Worker {
         let inotify = Inotify::new()?;
         inotify.watch_dir(&state_dir)?;
         control.set_nonblocking(true)?;
+        let trajectories =
+            spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         Ok(Worker {
             store: FileStore::new(paths.clone()),
             paths,
@@ -357,6 +475,7 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            trajectories,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -514,31 +633,28 @@ impl Worker {
         let mut lines = Vec::new();
         for &i in readable {
             let Some(client) = self.clients.get_mut(i) else { continue };
-            match read_available(&mut client.stream, &mut client.buf) {
-                Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
-                    if !open || client.buf.len() > MAX_LINE {
-                        closed.push(i);
-                    }
-                }
-                Err(_) => closed.push(i),
+            let (read, open) = read_lines(&mut client.stream, &mut client.buf);
+            lines.extend(read.into_iter().map(|line| (i, line)));
+            if !open {
+                closed.push(i);
             }
         }
-        // A GitHub token ask takes its connection to the minter, which
-        // answers it with one line and closes it: one ask per connection,
-        // and the poll loop never waits on a mint.
+        // A GitHub token ask or a hand-off report takes its connection to
+        // the minter, which answers it with one line and closes it: one ask
+        // per connection, and the poll loop never waits on the API.
         let mut session_lines = Vec::new();
-        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
+        let mut asks: Vec<(usize, Ask)> = Vec::new();
         for (i, line) in lines {
             // One ask per connection, and none from a client already gone:
-            // nobody would read the token.
+            // nobody would read the reply.
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            if closed.contains(&i) && github_ask(&line).is_some() {
+            let ask = agent_ask(&line);
+            if closed.contains(&i) && ask.is_some() {
                 continue;
             }
-            match github_ask(&line) {
+            match ask {
                 Some(ask) => asks.push((i, ask)),
                 None => session_lines.push(line),
             }
@@ -613,7 +729,8 @@ impl Worker {
             Ok(bound) => bound,
             Err(e) => return log(&format!("bound.json unreadable: {e}")),
         };
-        // A machine bound by an older build has no kind record yet.
+        // A machine bound by an older build may have no kind record yet; one
+        // that has a record keeps it.
         if let Err(e) = super::client::record_owner_kind(&mut self.store) {
             log(&format!("vm-kind write: {e}"));
         }
@@ -644,6 +761,12 @@ impl Worker {
         match github_client(&bound, &key) {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
+        }
+        if let Some(trajectories) = self.trajectories.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => trajectories.bound(client),
+                Err(e) => log(&format!("trajectory mirror: {e}")),
+            }
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -695,8 +818,8 @@ impl Worker {
 
     fn read_activity(&mut self) {
         let Some(stream) = self.activity.stream.as_mut() else { return };
-        let open = read_available(stream, &mut self.activity.buf).unwrap_or(false);
-        let lines = take_lines(&mut self.activity.buf);
+        // A line over `MAX_LINE` drops the stream like an EOF, so the buffer never grows past it.
+        let (lines, open) = read_lines(stream, &mut self.activity.buf);
         for line in lines {
             let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                 log("activity: unreadable daemon line ignored");
@@ -799,6 +922,39 @@ impl Worker {
     }
 }
 
+/// Where the trajectory mirror finds acpmux: the work user's home when the
+/// image has that user (the session host's layout, `linux/spawn.rs`
+/// `select_layout`), else root's. Its staging folder for restores is that
+/// user's (0700): the thread writes bundles as that user.
+fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    let staging = paths.at(TRAJECTORY_STAGING);
+    match fs::symlink_metadata(&staging) {
+        Ok(meta) if !meta.is_dir() => {
+            return Err(io::Error::other(format!("{} is not a folder", staging.display())));
+        }
+        Ok(_) => {}
+        Err(_) => fs::create_dir_all(&staging)?,
+    }
+    std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
+    let acpmux = home.join(".acpmux");
+    let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
+    let importer = AcpmuxImporter {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        home,
+        socket: acpmux.join("acpmux.sock"),
+    };
+    let identity = Some((user.uid, user.gid));
+    Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
+}
+
 /// The minter's own client for the bound machine: the same install key,
 /// its own HTTPS poster and bearer cache.
 fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
@@ -806,12 +962,15 @@ fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHt
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
 }
 
-/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
-/// every other line (the session's).
-fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+/// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
+/// line (checked), or `None` for every other line (the session's).
+fn agent_ask(line: &str) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
-    let ask = msg.get(github::REQUEST_KEY)?;
-    Some(TokenAsk::from_json(ask))
+    if let Some(ask) = msg.get(github::REQUEST_KEY) {
+        return Some(github::TokenAsk::from_json(ask).into());
+    }
+    let report = msg.get(handoff::REQUEST_KEY)?;
+    Some(HandoffReport::from_json(report).into())
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.
@@ -831,6 +990,15 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
             Err(e) => return Err(e),
         }
     }
+}
+
+/// The complete lines available now, and whether the stream is still usable:
+/// `false` at end of stream, on a read error, or when the unfinished line is
+/// over `MAX_LINE`. So `buf` never holds more than `MAX_LINE` plus one read.
+fn read_lines(stream: &mut UnixStream, buf: &mut Vec<u8>) -> (Vec<String>, bool) {
+    let open = read_available(stream, buf).unwrap_or(false);
+    let lines = take_lines(buf);
+    (lines, open && buf.len() <= MAX_LINE)
 }
 
 /// The first `n` bytes of a read buffer; a reader that claims more than

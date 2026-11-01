@@ -1,4 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
@@ -6,6 +7,7 @@ import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
+import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
@@ -465,6 +467,11 @@ export class UserDO extends OwnerDO<UserState> {
     if (!settings.trust_same_domain || !invites.requestTrusted(senderDomain, invites.emailDomain(u.email))) return null
     return { display_name: u.display_name, allow_requests_from: settings.allow_requests_from }
   }
+  /** CloudDO (cloud-entitlements.ts): whether this user's verified email is a company account (cloud-plan.ts isCompanyEmail). Never the address itself. */
+  async cloudCompanyAccount(entity: string): Promise<boolean> {
+    const u = this.existing()?.currentState.user
+    return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
+  }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
   async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
@@ -579,7 +586,11 @@ export class UserDO extends OwnerDO<UserState> {
     const emailDomain = emailDomainOf(now.user.email)
     if (row.team !== null && !isClientInstall(current.kind)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
     const team = row.team ?? ((isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team)
-    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    // Existing proof-of-possession mint: no separate hosted token endpoint. Agent/chief and
+    // non-CLI credentials cannot acquire MCP authority by supplying a scope in the request.
+    const scopes = this.env.PLATFORM_AGENT_GATEWAY === "on" && ["development", "test"].includes(this.env.ENVIRONMENT) && agent === undefined
+      ? mcpScopesForGrant(current.kind, held.op_classes) : []
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
 

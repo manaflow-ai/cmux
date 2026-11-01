@@ -690,6 +690,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
         cache: None,
         home: home.clone(),
         auto_update: Some(chosen.clone()),
+        ..Settings::default()
     });
     let mut app = Client::open(&hub, Origin::LocalApp);
     let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
@@ -814,6 +815,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         home: home.clone(),
         // Auto-update is off for every harness: the request runs anyway.
         auto_update: Some(root.join("acpmux/harness-auto-update.json")),
+        ..Settings::default()
     });
     let mut local = Client::open(&hub, Origin::Local);
     let first = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");

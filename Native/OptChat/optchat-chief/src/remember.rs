@@ -18,7 +18,7 @@
 use std::path::Path;
 
 /// The longest preference, in characters.
-pub const REMEMBER_MAX: usize = 400;
+pub use chief_kernel::tools::REMEMBER_MAX;
 /// The profile section learned preferences go under.
 pub const LEARNED_HEADING: &str = "## Learned";
 

@@ -147,8 +147,8 @@ public final class TypingLatencyProbe: Sendable {
         guard output != nil || flows else { return }
         // The commit mark: the end of each main run-loop turn, after Core Animation's commit observer
         // (order 2000000). A run-loop observer has no async equivalent; it exists only while the probe is on.
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
-                                                          true, 2_000_100) { [weak self] _, _ in
+        // It only stamps the commit mark: its context says so to the commit-boundary audit.
+        let observer = MainRunLoopObserver.afterCommitObserver(activities: [.beforeWaiting, .exit], order: 2_000_100) { [weak self] _ in
             self?.mark(.commit)
             self?.echoCommitted()
         }

@@ -5,6 +5,101 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ServerNetworkState {
+    ServerNetworkReservation(ServerNetworkReservation),
+    ServerNetworkBinding(ServerNetworkBinding),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+/// A Cloud machine snapshot.
+pub type SnapshotId = String;
+
+wire_enum! {
+    /// `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28).
+    SshCertClass {
+        Human = "human",
+        Agent = "agent",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SshPresenceProof {
+    pub install: InstallId,
+    pub nonce: String,
+    pub signature: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_attest: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnection {
+    pub id: SsoConnectionId,
+    pub kind: LitOidc,
+    pub state: SsoConnectionState,
+    pub domains: Vec<EmailDomain>,
+    pub oidc: SsoConnectionOidc,
+    pub secret_set: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_generation: Option<i64>,
+    pub jit: SsoConnectionJit,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+wire_enum! {
+    SsoConnectionState {
+        Draft = "draft",
+        Active = "active",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionOidc {
+    pub issuer: String,
+    pub client_id: String,
+    pub scopes: Vec<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub jwks_uri: Option<String>,
+}
+
+wire_enum! {
+    SsoConnectionJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionJitDefaultRole,
+}
+
+pub type SsoConnectionId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Step {
+    Sleep(StepSleep),
+    Note(StepNote),
+    Op(StepOp),
+    Machine(StepMachine),
+    Agent(StepAgent),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepSleep {
+    pub r#type: LitSleep,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StepNote {
     pub r#type: LitNote,
     pub text: String,
@@ -803,13 +898,3 @@ pub struct UserTeam {
     pub role: TeamRole,
     pub sso_required: bool,
 }
-
-wire_enum! {
-    UserTeamKind {
-        Personal = "personal",
-        Stack = "stack",
-    }
-}
-
-/// A WireGuard public key, standard base64 of 32 bytes.
-pub type WgPublicKey = String;

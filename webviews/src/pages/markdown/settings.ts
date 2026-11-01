@@ -9,7 +9,7 @@ import type { DiffViewerAppearance } from "../../appearance";
 
 /** Every `--cmux-md-*` property and its default. styles.css declares the same defaults. */
 export const MARKDOWN_STYLE_DEFAULTS = {
-  "--cmux-md-font-family": '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+  "--cmux-md-font-family": "var(--font-ui)",
   "--cmux-md-font-size": "16px",
   "--cmux-md-font-weight": "400",
   "--cmux-md-line-height": "1.6",

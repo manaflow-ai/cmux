@@ -11,13 +11,15 @@ export const PASTE_CHIP_LINES = 20;
 /// A paste of more characters than this is a chip.
 export const PASTE_CHIP_CHARS = 2000;
 /// A paste longer than this goes as a file, never as text in the prompt or a chip that holds it:
-/// past it a prompt's text block is more than an agent's message carries (acpmux's 15 MiB) and the
+/// past it a prompt's text block is more than an agent's message carries (acpmux's 31 MiB) and the
 /// field could not lay it out (Leo, 2026-10-25: "arbitarrily large file sizes the composer should
 /// never ever freeze").
 export const PASTE_FILE_CHARS = 1024 * 1024;
 
-/// The text a task turns into bytes at a time while a huge paste becomes its file.
-const FILE_SLICE_CHARS = 4 * 1024 * 1024;
+/// The text a task turns into bytes at a time while a huge paste becomes its file. Each slice is
+/// one UTF-8 encode on the main thread: 4M characters took 11 ms in Chromium (48 ms with 4x CPU
+/// throttle, the CI runner's typing p95 of 42-77 ms on a 100 MB paste), 1M takes 1 ms (4 ms).
+const FILE_SLICE_CHARS = 1024 * 1024;
 export const PASTED_TEXT_NAME = "Pasted text.txt";
 
 /// A paste past PASTE_FILE_CHARS as the file it goes as (its copy is saved where the agent reads

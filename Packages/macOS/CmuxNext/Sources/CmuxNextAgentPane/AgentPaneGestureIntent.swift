@@ -46,6 +46,14 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "_acpmux/permission_respond": ["answers", "annotations"],
     ]
 
+    /// Intent params a method may add that bind the ticket without being part of its pick: a
+    /// send's chat (`sessionId`). A send ticket bound to a chat is the one ticket an upload of that
+    /// send may hold (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``),
+    /// and only a prompt to that chat redeems it.
+    public static let bindingKeys: [String: Set<String>] = [
+        "session/prompt": ["sessionId"],
+    ]
+
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
@@ -54,6 +62,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
     public var method: String
     public var params: [String: AgentPaneJSONScalar]
+    /// The chat a send ticket is for (``bindingKeys``); nil when the intent names none.
+    public var sessionId: String?
 
     /// The intent of `transport.gesture`'s params, nil when they break the contract (a missing or
     /// unknown method, an unknown or missing intent param, a value that is not a scalar, or any
@@ -63,9 +73,15 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
               let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
-              Set(raw.keys).subtracting(keys).isSubset(of: Self.objectKeys[method] ?? []) else { return nil }
+              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
+        else { return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
+            if Self.bindingKeys[method]?.contains(key) == true {
+                guard let session = value as? String, !session.isEmpty else { return nil }
+                sessionId = session
+                continue
+            }
             if !keys.contains(key) {
                 // A question's answers or annotations: an object, by its canonical digest.
                 guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
@@ -75,15 +91,25 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
         }
+        // A Cloud hand-off labels the same prompt `handoff-<turn>-<id>` on the wire. Keep the
+        // ticket bound to the prompt's own id so its early reservation still redeems after that
+        // label is assigned, while a doubly labelled id remains distinct.
+        if method == "session/prompt", case .string(let id)? = params["promptId"] {
+            params["promptId"] = .string(AgentPaneHandoffPrompt.ownID(id))
+        }
         self.method = method
         self.params = params
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    /// config option, and one per prompt id. A rapid later Enter must not revoke an earlier
+    /// prompt's proof before its frame reaches the relay.
     public var slot: String {
-        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
-        return method + "#" + config
+        switch (method, params["configId"], params["promptId"]) {
+        case ("session/set_config_option", .string(let config)?, _): return method + "#" + config
+        case ("session/prompt", _, .string(let promptId)?): return method + "#" + promptId
+        default: return method
+        }
     }
 
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
@@ -110,7 +136,9 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         self.method = method
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            self.params = (acpmux?["promptId"] as? String).map {
+                ["promptId": .string(AgentPaneHandoffPrompt.ownID($0))]
+            }
             return
         }
         // A permission answer's pick names its session too (the ticket binds the prompt), and a

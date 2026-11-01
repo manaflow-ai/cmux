@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { PROVIDERS } from "./hand-providers.ts"
+import { LEGACY_HAND_PROVIDER } from "./providers/index.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
@@ -188,7 +189,7 @@ export class HandDO extends DurableObject<Env> {
   private async dropSandbox(): Promise<boolean> {
     const row = this.ctx.storage.sql.exec<{ vm: string; provider: string | null }>(`SELECT vm, provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
     if (!row) return true
-    const provider = PROVIDERS[row.provider ?? "freestyle"]
+    const provider = PROVIDERS[row.provider ?? LEGACY_HAND_PROVIDER]
     if (!provider) {
       // A provider this deployment no longer knows: nothing can delete it from here; say so once.
       console.error(JSON.stringify({ msg: "hand.sandbox_provider_unknown", provider: row.provider, vm: row.vm }))
@@ -226,8 +227,8 @@ export class HandDO extends DurableObject<Env> {
     if (r?.revoked_at != null || !r) await this.dropSandbox()
   }
 
-  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
-  async setSandbox(vm: string, provider = "freestyle"): Promise<void> {
+  /** The sandbox VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
+  async setSandbox(vm: string, provider = LEGACY_HAND_PROVIDER): Promise<void> {
     this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm, provider) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm, provider = excluded.provider`, vm, provider)
     const r = this.row()
     if (!r || r.revoked_at !== null) await this.dropSandbox()
@@ -432,10 +433,10 @@ export class HandDO extends DurableObject<Env> {
   }
 
   /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
-  async ownsVm(vm: string, provider = "freestyle"): Promise<"live" | "gone" | "unknown"> {
+  async ownsVm(vm: string, provider = LEGACY_HAND_PROVIDER): Promise<"live" | "gone" | "unknown"> {
     const r = this.row()
     const held = this.ctx.storage.sql.exec<{ provider: string | null }>(`SELECT provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
-    if (held && (held.provider ?? "freestyle") !== provider) return "gone"
+    if (held && (held.provider ?? LEGACY_HAND_PROVIDER) !== provider) return "gone"
     // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
     if (!r) return "gone"
     return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"

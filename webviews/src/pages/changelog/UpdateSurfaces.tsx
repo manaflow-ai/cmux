@@ -1,25 +1,27 @@
 // The update surfaces of the What's New system (cx-urd.61, Lawrence picked card A and popover A,
 // 2026-10-11), in the same tokens and type steps as the changelog page:
 //  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
-//    sidebar card (Leo 2026-10-13), a quiet eyebrow with the version and date in words ("Updated to
-//    Nightly · Oct 20", the full build in its tooltip; Lawrence 2026-10-20), then what changed since
-//    the previous version, one line per area ("Sidebar: …; …", updateSummary.ts; it was the newest
-//    commit's subject alone, 2026-10-20), the count of the changes not listed and one button on one
-//    row. An update with nothing a person would notice says "Maintenance and fixes"; "What's new in
-//    this build" is the last resort while nothing is known. The x shows only on hover or keyboard
-//    focus; in the sidebar the host draws it natively (SidebarUpdatedCardHost) and Escape closes it. A change has no tooltip, even cut off (Leo 2026-10-19: no hover preview on change
-//    titles). Share cmux is the palette's (app.shareCmux).
+//    sidebar card (Leo 2026-10-13). Short (Lawrence 2026-10-31, msg 19218: "it looks like too much
+//    text"; picked from cmux-shots/whatsnew-variations): "Updated to Nightly", the update's one top
+//    change ("Sidebar: …", the first area's first change, updateSummary.ts) and a What's New button.
+//    No date, build line, change list or "+N more" (they were 2026-10-20 to 10-26): the full build
+//    is in About, and a click on "Nightly" copies it (no tooltip: "seems excessive"). An update
+//    with nothing a person would notice says "Maintenance and fixes"; "What's new in this build" is
+//    the last resort while nothing is known. The x shows only on hover or keyboard focus; in the
+//    sidebar the host draws it natively (SidebarUpdatedCardHost) and Escape closes it. Share cmux
+//    is the palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
-//    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
+//    new in nightly 3845050" (a click on the version copies the full build, no tooltip: 2026-10-31), the top three changes
 //    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
 //    The popover scrolls on to every other change of the update (`rest`, 2026-10-20), with the
 //    shared card scroller and a fade at each edge that has more past it (scrollers.ts).
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
+import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { distinctSummary, readableUpdate } from "./model";
 import type { Strings } from "../shared/i18n";
@@ -34,25 +36,90 @@ export function cardVersion(version: string): string {
   return match ? `nightly ${match[1]!.slice(0, 7)}` : version;
 }
 
-/** The Updated card's version in words (2026-10-20, Lawrence: "not descriptive enough at all"):
- * "Nightly · Oct 20" for a nightly, "1.2.0 · Oct 20" for a release; the date is the build's, in the
- * page's language. The raw build stays in the eyebrow's tooltip. */
-export function cardLabel(version: string, date: string | null | undefined, strings: Strings): string {
-  const name = /^[^-]+-nightly\.\d+$/.test(version) ? strings.t("updates.card.nightly") : version;
-  const day = date ? readableDay(date, strings.language) : null;
-  return day ? `${name} · ${day}` : name;
+/** Writes `text` to the clipboard: the Clipboard API, else a hidden textarea and Copy (a page whose
+ * origin the API refuses). Rejects when neither copies. */
+async function copyVersion(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Fall through to the textarea.
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  if (!ok) throw new Error("Clipboard copy failed");
 }
 
-/** "2026-10-20" as "Oct 20" in `language`; null when it is not a date. */
-function readableDay(date: string, language: string): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) return null;
-  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  try {
-    return new Intl.DateTimeFormat(language, { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
-  } catch {
-    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
-  }
+/** How long a copied version says "Copied". */
+const COPIED_MS = 1500;
+
+/** A short version that copies the full one: selectable text, no tooltip (2026-10-31, Lawrence on
+ * the hover that covered the Updated card's build line with "1.0.0-nightly.4124615690001": "seems
+ * excessive"). It is a native <button>: a click, Return or Space copies `version` for a bug report
+ * and `copied` is true for a moment, for the caller to say "Copied" in place: nothing pops over the
+ * surface. Its CSS keeps it plain inline text, and a drag across the line still selects it with the
+ * words around it (u4466); a pointer click that ends a selection copies nothing. */
+function CopyVersion({
+  version,
+  className,
+  strings,
+  onCopied,
+  children,
+}: {
+  version: string;
+  className?: string;
+  strings: Strings;
+  onCopied: (copied: boolean) => void;
+  children: string;
+}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = (event: MouseEvent) => {
+    // A pointer click that ends a selection drag selects; Return or Space (detail 0) always copies.
+    if (event.detail !== 0 && globalThis.getSelection?.()?.isCollapsed === false) return;
+    void copyVersion(version).then(
+      () => {
+        onCopied(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => onCopied(false), COPIED_MS);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <button
+      type="button"
+      className={className ? `wn-copy-version ${className}` : "wn-copy-version"}
+      aria-label={strings.format("updates.card.copyVersion", version)}
+      onClick={copy}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** "What's new in nightly 3845050": the version copies the full build (CopyVersion), then the
+ * heading says "· Copied" after it for a moment (2026-10-31: it had the full build in a tooltip). */
+function PopoverTitle({ id, version, strings }: { id: string; version: string; strings: Strings }) {
+  const [copied, setCopied] = useState(false);
+  const [before, after] = strings.format("updates.popover.title", "\u0000").split("\u0000");
+  return (
+    <div className="wn-pop-title" id={id}>
+      {before}
+      <CopyVersion version={version} strings={strings} onCopied={setCopied}>
+        {cardVersion(version)}
+      </CopyVersion>
+      {after}
+      <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
+    </div>
+  );
 }
 
 export function UpdatedCard({
@@ -61,6 +128,7 @@ export function UpdatedCard({
   strings,
   actions,
   closeButton = true,
+  glass = true,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -69,15 +137,26 @@ export function UpdatedCard({
   actions: UpdateSurfaceActions;
   /** Draws the x (with `actions.dismiss`); false where the host draws its own (the sidebar's). */
   closeButton?: boolean;
+  /** Draws the card's own glass; false where the host draws it under the page (the sidebar's
+      CardSurfaceView, SidebarUpdatedCardHost): a page's glass sees nothing of the native sidebar,
+      and with no `.ui-glass` in the document the lens draws no wallpaper copy over the host's. */
+  glass?: boolean;
 }) {
   const titleId = useId();
+  const [copied, setCopied] = useState(false);
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
-  const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
+  const top = summary.rows[0];
+  const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
+  const [before, after] = strings.format("updates.card.updatedTo", "\u0000").split("\u0000");
   return (
-    <section className="ui-glass wn-card" aria-labelledby={titleId}>
-      {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
-      <div className="wn-card-eyebrow" id={titleId} title={data.version}>
-        {strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings))}
+    <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId}>
+      <div className="wn-card-title" id={titleId}>
+        {before}
+        <CopyVersion version={data.version} strings={strings} onCopied={setCopied}>
+          {name}
+        </CopyVersion>
+        {after}
+        <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
       </div>
       {closeButton && actions.dismiss && (
         <button
@@ -91,24 +170,19 @@ export function UpdatedCard({
           </svg>
         </button>
       )}
-      {summary.rows.length > 0 ? (
-        <ul className="wn-card-areas">
-          {summary.rows.map((row) => (
-            <li key={row.area ?? row.category}>
-              <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(row, strings))}</span>{" "}
-              <span className="wn-card-phrases">{row.phrases.join(strings.t("updates.card.phraseJoiner"))}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="wn-card-headline">{empty}</div>
-      )}
-      <div className="wn-card-actions">
-        {summary.rows.length > 0 && summary.more > 0 && (
-          <span className="wn-card-more">{strings.format("updates.card.more", String(summary.more))}</span>
+      <p className="wn-card-note">
+        {top ? (
+          <>
+            <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
+            {top.phrases[0]}
+          </>
+        ) : (
+          strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
         )}
+      </p>
+      <div className="wn-card-actions">
         <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
-          {strings.t("updates.card.seeWhatsNew")}
+          {strings.t("changelog.page.title")}
         </button>
       </div>
     </section>
@@ -132,10 +206,7 @@ export function UpdateReadyHighlights({
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
   return (
     <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>
-      {/* tooltip-allow: the heading shows the short version; the tooltip names the full build (Leo 2026-10-19). */}
-      <div className="wn-pop-title" id={titleId} title={data.version}>
-        {strings.format("updates.popover.title", cardVersion(data.version))}
-      </div>
+      <PopoverTitle id={titleId} version={data.version} strings={strings} />
       {data.fromVersion && data.fromVersion !== data.version && (
         <div className="wn-pop-from">{strings.format("updates.popover.from", cardVersion(data.fromVersion))}</div>
       )}
@@ -147,7 +218,9 @@ export function UpdateReadyHighlights({
                 {index + 1}
               </span>
               <div>
-                <span className="wn-pop-item">{item.title}</span>
+                <span className="wn-pop-item">
+                  {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+                </span>
                 {item.summary && distinctSummary(item.title, item.summary) && (
                   <span className="wn-pop-line">{item.summary}</span>
                 )}
@@ -171,7 +244,9 @@ export function UpdateReadyHighlights({
                 <h4>{strings.t(`changelog.group.${category}`)}</h4>
                 <ul>
                   {items.map((item) => (
-                    <li key={item.id}>{item.title}</li>
+                    <li key={item.id}>
+                      {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+                    </li>
                   ))}
                 </ul>
               </section>
@@ -194,6 +269,8 @@ export function UpdateReadyHighlights({
   );
 }
 
+/** "Updated to Nightly · Oct 26, 7:38 PM" as parts that each keep one line: a narrow sidebar wraps
+    the line between them, never inside a time or cuts it off. */
 /** A row's name: the area ("Sidebar"), else the category its changes share ("Fixed"). */
 function rowLabel(row: SummaryRow, strings: Strings): string {
   return row.area ? strings.t(`updates.area.${row.area}`) : strings.t(`changelog.group.${row.category ?? "improved"}`);

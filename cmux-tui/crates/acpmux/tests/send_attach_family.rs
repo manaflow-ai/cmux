@@ -1,7 +1,7 @@
 //! The cmux-subsessions `send_message` tool's `attachments` (`subsession_mcp.rs`, `attach.rs`):
 //! a parent sends its child a screenshot, which the child's agent gets as an image and its
-//! transcript names, saved owner-only in the child's uploads. A list of anything but attachment
-//! blocks is refused. One test function: the settings file is read from this process's env.
+//! transcript names, saved owner-only in the child's uploads; a file too large to go inline goes
+//! as an upload named by reference. A list of anything but attachment blocks is refused. One test function: the settings file is read from this process's env.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -96,13 +96,16 @@ async fn send_message_carries_attachments_to_a_child() {
     let ready = json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000});
     p.ok("_acpmux/wait", ready.clone()).await;
 
-    // What the tool sends once it read the file (`attach::blocks_from_paths`).
+    // What the tool sends once it read the file (`attach::blocks_for`).
     let mut shot = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
     shot.resize(1024, 5);
     let blocks = vec![acpmux::attach::block("shot.png", &shot)];
+    // `send_message` asks first whether this agent may send files; the check sends nothing.
+    let check = json!({"sessionId": child, "text": "", "attachCheck": true});
+    assert_eq!(p.ok("_acpmux/subsession/send", check).await, json!({}));
     let send = json!({"sessionId": child, "text": "see this", "attachments": blocks});
     p.ok("_acpmux/subsession/send", send).await;
-    p.ok("_acpmux/wait", ready).await;
+    p.ok("_acpmux/wait", ready.clone()).await;
     let sha: String = sha2::Sha256::digest(&shot).iter().map(|b| format!("{b:02x}")).collect();
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
     assert!(
@@ -120,13 +123,39 @@ async fn send_message_carries_attachments_to_a_child() {
     assert_eq!(std::fs::read(&saved).unwrap(), shot);
     assert_eq!(std::fs::metadata(&saved).unwrap().permissions().mode() & 0o777, 0o600);
 
-    // Text and files together past one JSON-RPC message: refused, and nothing more is saved.
+    // A file too large to go inline: uploaded to the child first, then named by reference.
+    let mut large = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    large.resize(6 << 20, 6);
+    use base64::Engine;
+    let begin = json!({"sessionId": child, "fileName": "large.png", "size": large.len()});
+    let up = p.ok("_acpmux/file_put_begin", begin).await["uploadId"].as_str().unwrap().to_owned();
+    for (n, piece) in large.chunks(512 << 10).enumerate() {
+        let data = base64::engine::general_purpose::STANDARD.encode(piece);
+        let put = json!({"sessionId": child, "uploadId": up, "offset": n << 19, "data": data});
+        p.ok("_acpmux/file_put_chunk", put).await;
+    }
+    let finish = json!({"sessionId": child, "uploadId": up, "fileName": "large.png",
+        "size": large.len()});
+    let path = p.ok("_acpmux/file_put_finish", finish).await["path"].as_str().unwrap().to_owned();
+    let by_ref = json!({"type": "image", "mimeType": "image/png",
+        "_meta": {"acpmux": {"upload": {"uploadId": up, "fileName": "large.png"}}}});
+    let send = json!({"sessionId": child, "text": "and this", "attachments": [by_ref]});
+    p.ok("_acpmux/subsession/send", send).await;
+    p.ok("_acpmux/wait", ready.clone()).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
+    let reply = got["lastReply"].as_str().unwrap_or_default();
+    assert!(reply.contains(&format!("resource_link:large.png:image/png:file://{path}")), "{got}");
+    assert_eq!(std::fs::read(&path).unwrap(), large);
+    let saved_dirs = std::fs::read_dir(&uploads).unwrap().count();
+
+    // Text and inline files together past one JSON-RPC message: refused, and nothing more is
+    // saved (`attach::blocks_for` sends such files by reference).
     let big = vec![acpmux::attach::block("big.bin", &vec![0u8; 8 << 20])];
     let send = json!({"sessionId": child, "text": "x".repeat(5 << 20), "attachments": big});
     let r = p.call("_acpmux/subsession/send", send).await;
     let shown: String = r.to_string().chars().take(300).collect();
     assert_eq!(r["error"]["data"]["reason"], "attach.tooLarge", "{shown}");
-    assert_eq!(std::fs::read_dir(&uploads).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(&uploads).unwrap().count(), saved_dirs);
 
     // Only attachment blocks: the tool reads the files, a caller never names bytes otherwise.
     let bad =

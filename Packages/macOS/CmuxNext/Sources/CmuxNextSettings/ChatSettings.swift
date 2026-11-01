@@ -1,8 +1,9 @@
 public import Foundation
 
 /// Effective chat discovery preferences, with user and administrator roots kept distinct, and the
-/// effective `agents.defaultPermissionMode`: the daemon reads only the settings file, so a value MDM
-/// or the team policy forces reaches it only here (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
+/// effective `agents.defaultPermissionMode` and `sessions.allowFullAccess`: the daemon reads only the
+/// settings file, so a value MDM or the team policy forces reaches it only here
+/// (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
 public nonisolated struct ChatSettings: Sendable, Equatable {
     public let enabled: Bool
     public let discovery: Bool
@@ -13,6 +14,10 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     public let permissionMode: String?
     /// Whether MDM or the team policy forces `permissionMode`; then it beats the file and every pick.
     public let permissionModeManaged: Bool
+    /// The `sessions.allowFullAccess` MDM or the team policy forces (`false` for a forced value that is
+    /// not `true`), nil when nothing forces it. acpmux takes a forced off as an upper bound the user
+    /// cannot override; a forced on adds nothing; nil changes nothing (claude-sr2, 2026-10-25).
+    public let fullAccessManaged: Bool?
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
     public static let booleanKeys = [enabledPath, discoveryPath].map { $0.joined(separator: ".") }
@@ -32,13 +37,17 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         // it treats as the harness's own mode; dropping it would let the file or a pick choose.
         let mode = effective.value(at: modePath)?.stringValue
         permissionMode = permissionModeManaged ? (mode ?? "") : mode
+        let fullAccessPath = SessionSettings.allowFullAccessPath
+        fullAccessManaged = managedKeys[fullAccessPath.joined(separator: ".")] == nil
+            ? nil : effective.value(at: fullAccessPath)?.boolValue == true
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.
     public var params: JSONValue {
         ["enabled": .bool(enabled), "discovery": .bool(discovery),
          "roots": .array(roots.map(JSONValue.string)), "managedRoots": .array(managedRoots.map(JSONValue.string)),
-         "permissionMode": permissionMode.map(JSONValue.string) ?? .null, "permissionModeManaged": .bool(permissionModeManaged)]
+         "permissionMode": permissionMode.map(JSONValue.string) ?? .null, "permissionModeManaged": .bool(permissionModeManaged),
+         "allowFullAccess": fullAccessManaged.map(JSONValue.bool) ?? .null, "allowFullAccessManaged": .bool(fullAccessManaged != nil)]
     }
 
     /// Initialize followed by one request, each terminated by a newline.

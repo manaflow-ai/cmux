@@ -9,6 +9,9 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_limits.rs"]
+mod limits;
+
 #[path = "auto_resume_retry.rs"]
 mod retry;
 
@@ -52,7 +55,7 @@ async fn until(hub: &Hub, id: &str, pred: impl Fn(&[String]) -> bool) -> Vec<Str
 
 #[tokio::test]
 async fn a_turn_a_connection_error_cut_off_goes_on_by_itself() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
     let id = new_session(&mut c, "cut").await;
     let r = c
@@ -83,7 +86,7 @@ async fn a_turn_a_connection_error_cut_off_goes_on_by_itself() {
 
 #[tokio::test]
 async fn automatic_continuations_stop_after_the_configured_attempts() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20, 20]);
     let id = new_session(&mut c, "down").await;
     let _ = c
@@ -110,7 +113,7 @@ async fn automatic_continuations_stop_after_the_configured_attempts() {
 
 #[tokio::test]
 async fn a_prompt_sent_meanwhile_supersedes_the_continuation() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![500]);
     let id = new_session(&mut c, "meanwhile").await;
     let _ = c
@@ -132,7 +135,7 @@ async fn a_prompt_sent_meanwhile_supersedes_the_continuation() {
 
 #[tokio::test]
 async fn other_failures_are_not_continued() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "bug").await;
     let _ = c
@@ -149,7 +152,7 @@ async fn other_failures_are_not_continued() {
 
 #[tokio::test]
 async fn stop_cancels_a_continuation_that_has_not_fired() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
     let id = new_session(&mut c, "stop").await;
     let _ = c
@@ -183,7 +186,7 @@ fn skips(hub: &Hub, id: &str) -> Vec<Value> {
 
 #[tokio::test]
 async fn a_turn_stopped_mid_stream_is_not_continued_when_it_ends_in_a_connection_error() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "stopped").await;
     let mut other = connect(&hub).await;
@@ -209,7 +212,7 @@ async fn a_turn_stopped_mid_stream_is_not_continued_when_it_ends_in_a_connection
 
 #[tokio::test]
 async fn closing_the_chat_cancels_a_continuation_that_has_not_fired() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
     let id = new_session(&mut c, "close").await;
     let _ = c
@@ -226,7 +229,7 @@ async fn closing_the_chat_cancels_a_continuation_that_has_not_fired() {
 
 #[tokio::test]
 async fn a_chat_being_moved_is_not_continued() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
     let id = new_session(&mut c, "move").await;
     let _ = c
@@ -246,7 +249,7 @@ async fn a_chat_being_moved_is_not_continued() {
 /// route-class failure) after it has given up its turn.
 #[tokio::test]
 async fn stop_between_the_failure_and_its_scheduling_still_prevents_the_continuation() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "gap").await;
     let mut other = connect(&hub).await;
@@ -284,7 +287,7 @@ async fn stop_between_the_failure_and_its_scheduling_still_prevents_the_continua
 /// config lock to keep it there.
 #[tokio::test]
 async fn stop_right_after_the_continuation_fires_still_prevents_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![500]);
     let id = new_session(&mut c, "fired").await;
     let r = c
@@ -312,7 +315,7 @@ async fn stop_right_after_the_continuation_fires_still_prevents_it() {
 /// cut turn, not on the attempt before the one that went through.
 #[tokio::test]
 async fn a_prompt_held_by_the_cut_turn_runs_when_a_later_attempt_goes_through() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 50]);
     let id = new_session(&mut c, "flaky").await;
     c.send(
@@ -354,7 +357,7 @@ async fn a_prompt_held_by_the_cut_turn_runs_when_a_later_attempt_goes_through() 
 /// and going first would supersede the continuation and leave the person's held prompt waiting.
 #[tokio::test]
 async fn an_agent_message_held_by_the_cut_turn_waits_for_the_continuation() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 50]);
     let id = new_session(&mut c, "flaky-agents").await;
     c.send(

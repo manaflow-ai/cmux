@@ -301,6 +301,9 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            cmd.env_remove(*key);
+        }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
@@ -498,7 +501,8 @@ impl Surface {
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+            // Drops a position output deferred, so it cannot follow this one.
+            pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
         }
     }
 }

@@ -33,6 +33,8 @@ export interface ReleaseItem {
   media?: MediaRef;
   /** An allow-listed action id the page may ask the host to run, and its label (none: "Try it"). */
   action?: { id: string; title?: string };
+  /** Optional GitHub pull request URL for the shared PR chip. */
+  pr?: string;
   docs?: string;
 }
 
@@ -103,6 +105,7 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
           }
         : undefined,
     action: entry.tryIt?.action ? { id: entry.tryIt.action } : undefined,
+    pr: entry.pr,
     docs: entry.docs,
   };
 }
@@ -234,12 +237,14 @@ export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[
     if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;
     const readable = readableChange(item.title);
     const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
-    const row = { key, item: { ...item, title: readable.title }, internal: readable.internal };
+    // The notes mark a commit that touches only CI or tooling files internal, whatever its subject.
+    const internal = readable.internal || item.internal === true;
+    const row = { key, item: { ...item, title: readable.title }, internal };
     const at = byKey.get(key);
     if (at === undefined) {
       byKey.set(key, rows.length);
       rows.push(row);
-    } else if (rows[at]!.internal && !readable.internal) rows[at] = row;
+    } else if (rows[at]!.internal && !row.internal) rows[at] = row;
   }
   const hidden = rows.filter((r) => r.internal).map((r) => r.item);
   return { changes: rows.filter((r) => !r.internal).map((r) => r.item), internal: hidden.length, hidden };

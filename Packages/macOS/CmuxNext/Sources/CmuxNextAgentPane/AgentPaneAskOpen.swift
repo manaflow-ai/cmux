@@ -1,8 +1,13 @@
 /// `chat.asks.open {sessionId}`: the person went to another chat's ask from Needs you (its list, a
 /// row's answer or side question, the Needs your input pill). The tab that shows that chat already
-/// is shown and focused; else the chat opens in a new tab after this one, focused. The chat on
-/// screen is never replaced: Needs you used to switch this pane to the other chat in place
-/// (`chat.select`), and the person's own chat left its tab (Leo, 2026-10-21, his coordinator).
+/// is shown and focused; else the chat opens on its right as a link does (`layout.linkPlacement`,
+/// ``AgentPaneHeaderHooks/openRight``, ``RightColumnPlacement``): a new split there, else a split
+/// below what is already on its right (a plain split's terminal included), else a tab in the right
+/// column's lower pane, focused. Only when that opens nothing, it goes where ``AgentSidePanes``
+/// puts New side chat and `/btw`. The chat on screen is never replaced: Needs you used to switch
+/// this pane to the other chat in place (`chat.select`), and the person's own chat left its tab
+/// (Leo, 2026-10-21, his coordinator); nor does it take a tab in this chat's pane (Leo, 2026-10-22:
+/// "just do more on the side? ... or just do a split on the right").
 ///
 /// Allowed for a chat on this pane's own acpmux on this Mac (``AgentPaneModel/pendingAsksSocket``,
 /// whose chats Needs you lists, and a bare or `local/` id, ``AgentPanePendingAsks/localSession(_:)``):
@@ -18,9 +23,7 @@ enum AgentPaneAskOpen {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.open")
         }
         let bare = String(local.dropFirst(AgentPanePendingAsks.localHost.count))
-        guard header.showSession(bare) || header.openTab(bare, .tab) else {
-            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.open")
-        }
+        if !header.showSession(bare), !header.openRight(bare) { header.openSide(chat, bare) }
         return AgentPaneReply.success()
     }
 }

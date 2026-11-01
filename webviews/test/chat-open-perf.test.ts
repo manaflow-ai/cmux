@@ -15,7 +15,7 @@
 // Twice: once with the daemon quiet, once with BUSY_LANES chats working, each reporting a change
 // of its own — the "high load" half of the ask, which a list of 120 idle chats does not measure.
 // What that load reaches is not the same in both phases. A cold open holds the pane's last
-// snapshot while its attach goes out, for up to SWITCH_HOLD_MS (400 ms, direct.ts), and a change
+// snapshot while its attach goes out, for up to SWITCH_HOLD_MS (1500 ms, direct.ts), and a change
 // arriving under that hold is folded into the client's sessions and drawn nowhere — so a cold draw
 // (244-330 ms here, inside the cap) is the one part of a run the load does not redraw. Everything
 // else it does: a cached open releases the hold on the frame it draws, and both phases then watch
@@ -192,12 +192,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     }
   }
 
-  /// A chat whose attach outlasts the switch's hold (SWITCH_HOLD_MS, 400 ms) and whose agent says
-  /// LIVE_MARKER at SLOW_LIVE_MS, before the attach lands at SLOW_ATTACH_MS. None of the runs
-  /// above opens it and it is not a busy lane.
+  /// A chat whose attach outlasts the switch's hold (SWITCH_HOLD_MS, 1500 ms since 42200fa63cc5)
+  /// and whose agent says LIVE_MARKER at SLOW_LIVE_MS, after the hold gave up and before the attach
+  /// lands at SLOW_ATTACH_MS. None of the runs above opens it and it is not a busy lane.
   const slowChat = chats[3]!;
-  const SLOW_LIVE_MS = 600;
-  const SLOW_ATTACH_MS = 1_000;
+  const SLOW_LIVE_MS = 1_800;
+  const SLOW_ATTACH_MS = 2_400;
   const LIVE_MARKER = "Live line before the read.";
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;

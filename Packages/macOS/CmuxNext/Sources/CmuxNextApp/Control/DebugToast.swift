@@ -15,6 +15,8 @@ import CmuxNextSettings
 ///   active one by default) as Cmd-Z does.
 /// - `{press: "<toast id>", window?}` runs the action of the newest toast
 ///   with that id, as its button does.
+/// - `{close: "<toast id>", window?}` closes the newest toast with that id,
+///   as its close button does.
 /// - `{stop_all: {<chief.stop {all} answer>}, window?}` shows the Stop all
 ///   agents toast for that answer, decoded as the daemon's is, until closed
 ///   (captures of the toast with no Chief or subagents to stop).
@@ -40,7 +42,9 @@ enum DebugToast {
                     }
                 }
             }
-            let invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            var invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            // A person's run as far as the action goes, but carried by the socket: a screenshot stays masked.
+            invocation.viaControlSocket = true
             result["performed"] = .bool(services.registry.perform(ActionID(rawValue: id), invocation: invocation))
         }
         let windowID = params["window"]?.stringValue
@@ -60,6 +64,9 @@ enum DebugToast {
         }
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
+        }
+        if let toastID = params["close"]?.stringValue {
+            result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: toastID, in: $0) } ?? false)
         }
         var windows: [JSONValue] = []
         for controller in services.windows.controllers {

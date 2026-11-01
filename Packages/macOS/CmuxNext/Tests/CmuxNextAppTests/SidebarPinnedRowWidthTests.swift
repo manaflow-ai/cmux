@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: "i made density comfortable and now it looks like this (home right side
@@ -9,7 +10,9 @@ import Testing
 /// group header's leading and trailing inset and corner radius at every density and sidebar width,
 /// also after the sidebar is resized. Since Leo 2026-10-20 (#22733) list rows end
 /// `SidebarStyle.rowTrailingTrim` short of the right inset, and the pinned rows end there too.
-@MainActor @Suite(.serialized)
+/// The group header's bar starts left of the rows, at its members' rail (Lawrence 2026-10-23), so
+/// the pinned rows start at the rows' inset, not at the bar.
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarPinnedRowWidthTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
     static let group = GroupID("grp-next")
@@ -98,20 +101,25 @@ struct SidebarPinnedRowWidthTests {
             Motion.reduceMotionOverride = nil
         }
         let h = Harness(width: c.start)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         h.resize(to: c.end)
         try #require(h.list.displayed.row(for: Self.topKey) != nil, "the list draws no top block")
         let inset = SidebarDensityTokens.horizontalInset
         let width = h.list.bounds.width
         let (header, headerRadius) = try h.headerPill()
-        // Since #22733 every list row ends `rowTrailingTrim` short of the right inset.
-        #expect(abs(header.minX - inset) < 0.5 && abs(header.maxX - (width - inset - SidebarStyle.rowTrailingTrim)) < 0.5,
-                "group header \(header) is not inset \(inset) (and the trim on the right) in \(width)")
+        // Since #22733 every list row ends `rowTrailingTrim` short of the right inset. Since ab905adeadd03 (Lawrence
+        // 2026-10-23) a group header's bar starts at its members' rail, `groupRailReach` left of the rows, and since
+        // b5400e7e342f4 (Lawrence 2026-10-25) it keeps `groupEdgePadding` from the list's edge; the pinned rows keep
+        // the rows' left edge, the inset.
+        let headerMinX = max(inset - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding)
+        #expect(abs(header.minX - headerMinX) < 0.5 && abs(header.maxX - (width - inset - SidebarStyle.rowTrailingTrim)) < 0.5,
+                "group header \(header) does not start at its rail \(headerMinX) (and end the trim short of the inset) in \(width)")
         for id in [Self.home, Self.store] {
             let (pill, radius) = try h.itemPill(id)
-            #expect(abs(pill.minX - header.minX) < 0.5, "\(id) starts at \(pill.minX), the group header at \(header.minX)")
+            #expect(abs(pill.minX - inset) < 0.5, "\(id) starts at \(pill.minX), the rows at the inset \(inset)")
             #expect(abs(pill.maxX - header.maxX) < 0.5, "\(id) ends at \(pill.maxX), the group header at \(header.maxX) (list \(width))")
-            #expect(pill.maxX <= width - inset + 0.5, "\(id) runs past the sidebar's trailing inset: \(pill.maxX) in \(width)")
+            // Since Leo 2026-10-27 a row's fill runs to `rowEdgeGap` from the sidebar's edge, never past it.
+            #expect(pill.maxX <= width - SidebarStyle.rowEdgeGap + 0.5, "\(id) runs past the sidebar's edge gap: \(pill.maxX) in \(width)")
             #expect(abs(radius - headerRadius) < 0.01, "\(id) radius \(radius), the group header's \(headerRadius)")
             #expect(abs(radius - SidebarDensityTokens.rowCornerRadius) < 0.01, "\(id) radius \(radius) is not the density token")
         }

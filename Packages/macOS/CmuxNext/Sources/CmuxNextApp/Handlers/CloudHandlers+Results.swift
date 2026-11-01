@@ -124,6 +124,11 @@ extension CloudHandlers {
                 }
                 return .success(createdMachineFields(session, workspaceID: creation.workspaceID))
             case .failed(let reason)?:
+                // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a
+                // CLI or agent caller can start that plan's checkout (`cmux billing checkout --plan`).
+                if let refusal = creation.planRefusal {
+                    return .failure(ActionWorkFailure(code: planRequiredCode, reason: "new Cloud machine: \(reason) (plan: \(refusal.plan))"))
+                }
                 return .failure(ActionWorkFailure("new Cloud machine: \(reason)"))
             case .gone?:
                 // Declined in the confirmation (an agent's create asks the person first), or dismissed.
@@ -132,6 +137,9 @@ extension CloudHandlers {
         }
         registry.track(result: task)
     }
+
+    /// The error code of a `cloud new-machine` refused for a paid plan, as the Cloud contract names it.
+    static let planRequiredCode = "cloud.plan.required"
 
     /// How long `cloud new-machine` waits for the server's machine before it
     /// answers `pending`: inside `action.run`'s 40 s result deadline.

@@ -19,7 +19,7 @@ password) or `oauth` (a "Sign in with ..." page).
 
 ## 2. Open the page in the column right of your chat
 
-- `cmux browser right navigate --url URL --agent "<your name>"` opens your
+- `cmux browser right navigate URL --agent "<your name>"` opens your
   own tab in the column right of your chat in Home (or reuses it) without
   moving the user's focus. Never open it in your chat's pane.
 - Passkey and security-key sites: the platform authenticator (Touch ID,

@@ -73,12 +73,18 @@ if [ "$cmux" = build ] || [ "$debug" = 1 ]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
+  # The web bundles need the bun webviews/package.json pins; the account's ~/.bun may hold an older one
+  # (M6 minis 2026-10-31: 1.3.6-1.4.2, webviews pins 1.4.4). The build gets its own checked copy, first on
+  # PATH, as an absolute path: the web builders cd into webviews/ before they run bun.
+  RUNNER_TEMP="$PWD/$work" GITHUB_PATH="$PWD/$work/bun-path" ./scripts/cmux-next/private-bun.sh
+  PATH="$(tail -n 1 "$work/bun-path"):$PATH"
+  export PATH
 fi
 
 apps=()
 case "$cmux" in
   build)
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release > "$work/reload.log" 2>&1 \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release 2>&1 | tee "$work/reload.log" \
       || { tail -n 80 "$work/reload.log"; exit 1; }
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
     [[ -n "$app" && -d "$app" ]] || { echo "perf-bench: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
@@ -111,7 +117,7 @@ if [ "$debug" = 1 ]; then
   # tagged Debug build answers. One build serves both.
   # The tab switch and palette rows drive debug.* commands: bench_config=bench (default debug) builds that
   # app optimized with the commands kept (reload.sh --config bench).
-  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch --config "$bench_config" > "$work/reload-switch.log" 2>&1; then
+  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch --config "$bench_config" 2>&1 | tee "$work/reload-switch.log"; then
     switch_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload-switch.log" | tail -n 1)"
     if [ "$tabswitch" != off ]; then
       mkdir -p "$work/switch"

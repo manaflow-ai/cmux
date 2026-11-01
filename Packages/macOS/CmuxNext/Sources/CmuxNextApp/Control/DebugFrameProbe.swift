@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
@@ -89,7 +90,8 @@ final class DebugFrameProbe {
         let woke = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.afterWaiting.rawValue, true, CFIndex.min) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.didWake() } // main-proof: an observer of the main run loop
         }
-        let sleeps = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, _ in
+        // It only reads the clock: its context says so to the commit-boundary audit.
+        let sleeps: CFRunLoopObserver? = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] _ in
             MainActor.assumeIsolated { self?.willWait() } // main-proof: an observer of the main run loop
         }
         guard let woke, let sleeps else { return }

@@ -1,9 +1,10 @@
+import CmuxNextPages
 import Foundation
 
 /// The one agent page every page-host pane in this test target shows. The agent page's root is
-/// registered once per process (the first registration wins, `PageID.registerBundledRoot`), and a
-/// whole-target run builds every suite's panes in one process, so they all share it. It is never
-/// deleted: the registration outlives any test.
+/// registered once per process (the first registration wins, `PageID.registerBundledRoot`), so
+/// each pane on it is made with `testRoot: true`, which lets its page host serve this fixture. It is
+/// never deleted: the same file serves every test in the process.
 enum AgentPageTestRoot {
     /// Its `index.html`: a 200 by 40 textarea at the body's 8 px margin, and a 16 px button
     /// labelled "Remove red.png" at 300,10.

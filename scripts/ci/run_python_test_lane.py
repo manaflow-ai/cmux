@@ -108,7 +108,7 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
                 process.wait()
                 returncode = TIMEOUT_EXIT

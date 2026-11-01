@@ -25,7 +25,7 @@ import Testing
     }
 
     func install(_ answer: JSONValue = ["value": true]) -> (ControlRouter, ScriptEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = ScriptEngine(answer)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()
@@ -137,7 +137,7 @@ import Testing
     }
 
     func install(_ mouse: AgentMouseSetting.Value) -> (ControlRouter, TwoStepEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = TwoStepEngine()
         BrowserPageService(engine: engine, agentMouse: { mouse }).install(on: router)
         var snapshot = ControlSnapshot.sample()

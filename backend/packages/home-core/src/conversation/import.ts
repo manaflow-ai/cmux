@@ -2,7 +2,7 @@ import { withTurn } from "./budget.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
-import { searchIntent, type FanOut } from "./fanout.ts"
+import { rowKind, searchIntent, type FanOut } from "./fanout.ts"
 import { formatRfc3339Millis, importConversationId, parseRfc3339Millis, validToken } from "./ids.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import { stampParticipant, type ParticipantPolicy } from "./policy.ts"
@@ -186,7 +186,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
             user: p.id,
             conversation: head.id,
             rev: head.rev,
-            kind: head.kind ?? "group",
+            kind: rowKind(head, p.id),
             title: head.title,
             last_seq: head.last_seq,
             last_at: last?.created_at ?? head.created_at,

@@ -55,6 +55,24 @@ fn side_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
     hub.resolve(id).unwrap().meta().tags.get("side").map(|t| t.value.clone())
 }
 
+fn claude_transcript_files(
+    root: &std::path::Path,
+) -> std::collections::BTreeSet<std::path::PathBuf> {
+    let mut files = std::collections::BTreeSet::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                files.insert(path);
+            }
+        }
+    }
+    files
+}
+
 /// The session's current mode, as it reports it.
 fn mode_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
     let modes = hub.resolve(id).unwrap().meta().modes;
@@ -219,6 +237,198 @@ async fn a_side_session_of_a_harness_that_cannot_fork_reads_the_chat_and_never_w
 }
 
 #[tokio::test]
+async fn inline_btw_emulation_answers_once_and_discards_its_read_only_session() {
+    let (hub, mut c) = asking_setup(&[("FAKE_PICKER", "1"), ("FAKE_PICKER_MODES", "1")]).await;
+    let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "main stays unchanged")).await.unwrap();
+    let before = prompts(&hub, &id);
+
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "answer inline", "inline": true}))
+        .await
+        .unwrap();
+    let text = inline["text"].as_str().unwrap();
+    assert!(text.starts_with("echo: answer inline<cmux-btw-context>"), "{text}");
+    assert!(text.contains("User: main stays unchanged"), "the fallback reads the main context");
+    assert_eq!(prompts(&hub, &id), before, "inline emulation never prompts the main chat");
+    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is cleaned up");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
+    let root = std::env::temp_dir().join(format!("acpmux-btw-idle-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "finished context")).await.unwrap();
+    let before = prompts(&hub, &id);
+    let transcripts_before = claude_transcript_files(&claude);
+
+    // The Claude process is alive, but no turn callback is installed while
+    // the chat is idle. Inline must therefore emulate the answer in a
+    // temporary read-only side session instead of sending side_question.
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "history-probe", "inline": true}))
+        .await
+        .unwrap();
+    let history: Value = serde_json::from_str(inline["text"].as_str().unwrap()).unwrap();
+    assert_eq!(history["prompts"], json!(["finished context"]));
+    assert_eq!(prompts(&hub, &id), before, "idle inline never prompts the main chat");
+    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is discarded");
+    assert_eq!(
+        claude_transcript_files(&claude),
+        transcripts_before,
+        "inline fork transcript is purged"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A memory store that refuses to save an inline side question's session (its name has
+/// `-btw-`), as a full disk or a store error would.
+struct RefusingBtwStore(Box<dyn acpmux::store::Store>);
+
+impl acpmux::store::Store for RefusingBtwStore {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        if meta.name.contains("-btw-") {
+            anyhow::bail!("the store refused the side question's session");
+        }
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+#[tokio::test]
+async fn inline_btw_fork_that_fails_to_save_leaves_no_copied_transcript() {
+    let root = std::env::temp_dir().join(format!("acpmux-btw-save-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let profile = HarnessProfile {
+        kind: acpmux::config::HarnessKind::ClaudeStdio,
+        argv: vec!["python3".into(), fake_claude.into()],
+        env: BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            claude.to_string_lossy().into_owned(),
+        )]),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([("claude".to_owned(), profile)]),
+        default_harness: Some("claude".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, Box::new(RefusingBtwStore(store)));
+    // Connected as `claude_setup` (fork_through.rs) connects the pane.
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "finished context")).await.unwrap();
+    let transcripts_before = claude_transcript_files(&claude);
+
+    // The idle chat's inline question forks it through its finished turn: the fork copies
+    // Claude's transcript, then its session cannot be saved.
+    let refused =
+        c.request(BTW, json!({"sessionId": id, "question": "history-probe", "inline": true})).await;
+    assert!(refused.is_err(), "the refused save fails the question: {refused:?}");
+    assert_eq!(hub.sessions().len(), 1, "no side session is left");
+    assert_eq!(
+        claude_transcript_files(&claude),
+        transcripts_before,
+        "the fork's copied transcript is removed with its failed creation"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn unsupported_claude_side_question_falls_back_while_parent_turn_runs() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-btw-unsupported-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) =
+        claude_setup(&claude, &[("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED", "1")]).await;
+    let id = new_chat(&mut c).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "long-step")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "stepping").await;
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the parent turn started");
+
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "while running", "inline": true}))
+        .await
+        .unwrap();
+    assert!(inline["text"].as_str().is_some_and(|text| !text.is_empty()), "{inline}");
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "fallback leaves the parent turn running");
+    assert_eq!(hub.sessions().len(), 1, "the fallback side session is discarded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn unsupported_claude_subtype_side_question_falls_back_while_parent_turn_runs() {
+    let root = std::env::temp_dir()
+        .join(format!("acpmux-btw-unsupported-subtype-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(
+        &claude,
+        &[
+            ("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED", "1"),
+            ("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED_SUBTYPE", "1"),
+        ],
+    )
+    .await;
+    let id = new_chat(&mut c).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "long-step")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "stepping").await;
+
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "while running", "inline": true}))
+        .await
+        .unwrap();
+    assert!(inline["text"].as_str().is_some_and(|text| !text.is_empty()), "{inline}");
+    assert_eq!(hub.sessions().len(), 1, "the fallback side session is discarded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn a_side_session_takes_the_asked_model_then_the_configured_one_then_the_harness_default() {
     let calls = std::env::temp_dir().join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
     let calls_path = calls.to_string_lossy().into_owned();
@@ -362,6 +572,42 @@ async fn a_codex_side_session_runs_sandboxed_read_only_and_the_adapter_is_refuse
     let sid = side["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(side["readOnly"], "mode", "{side}");
     assert_eq!(mode_of(&hub, &sid).as_deref(), Some("read-only"), "the sandboxed mode");
+
+    // Inline Codex forks are disposable too: the Codex rollout must not remain
+    // discoverable after the aside has answered.
+    let before_rollouts = {
+        let mut files = std::collections::BTreeSet::new();
+        let mut dirs = vec![codex_home.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "jsonl") {
+                    files.insert(path);
+                }
+            }
+        }
+        files
+    };
+    let inline = c
+        .request(BTW, json!({"sessionId": bridge, "question": "inline codex", "inline": true}))
+        .await
+        .unwrap();
+    assert!(inline["text"].as_str().is_some_and(|s| !s.is_empty()), "{inline}");
+    let mut after_rollouts = std::collections::BTreeSet::new();
+    let mut dirs = vec![codex_home.clone()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                after_rollouts.insert(path);
+            }
+        }
+    }
+    assert_eq!(after_rollouts, before_rollouts, "inline Codex rollout is purged");
 
     let adapter = c.request(method::SESSION_NEW, new_on("adapter")).await.unwrap();
     let adapter = adapter["sessionId"].as_str().unwrap().to_owned();

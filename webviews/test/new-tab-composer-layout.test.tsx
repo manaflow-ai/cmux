@@ -1,13 +1,13 @@
-// The New Tab composer and the agent composer are one card (Leo 2026-10-13: the field, its
-// selection and the project and model pickers under it read as illogical). As in the agent
-// composer (Composer.tsx): the field on top, then the bar with the agent's model chip and Send,
-// then the location row with the project, inside the same card. The project is never in the bar.
+// New Tab preserves the shared composer controls. The model always sits in the footer;
+// Claude may place location in that row while Codex keeps its tray above the box.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -21,6 +21,12 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "MutationObserver",
+  "getSelection",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -40,19 +46,24 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    ResizeObserver: window.ResizeObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
-    // The suggestions' Popover (Base UI and Floating UI) reads these.
-    Node: window.Node,
+    // The suggestions' Popover (Base UI and Floating UI) reads Element and Node (Node below).
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The field is the composer's Markdown field (ProseMirror).
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  act(() => root?.unmount());
+afterAll(async () => {
+  await act(async () => root?.unmount());
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -70,6 +81,7 @@ async function mount(
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
+    template?: "cards";
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -80,6 +92,7 @@ async function mount(
     root!.render(
       <NewTabScreen
         snapshot={options.snapshot ?? noChat()}
+        {...(options.template ? { template: options.template } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
@@ -105,36 +118,61 @@ test("Codex slash commands are available before the first message and selecting 
   snapshot.commands = [{ name: "goal", description: "Set a goal", hint: "<objective>" }];
   const requests: string[] = [];
   await mount({ snapshot, onCommands: (harness) => requests.push(harness) });
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, "/go");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.focus();
+    handle.type("/go");
   });
   const row = host.querySelector<HTMLElement>(".acpmux-slash-row")!;
   expect(row?.textContent).toContain("/goal");
   await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
-  expect(field.value).toBe("/goal ");
+  expect(handle.plainText()).toBe("/goal ");
   expect(requests).toEqual(["codex"]);
 });
 
-test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
+test("the New Tab card keeps Send in the box and model in the footer", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
   const parts = [
     ...composer.querySelectorAll<HTMLElement>(".acpmux-composer-strip, .nt-field, .acpmux-chips, .nt-send"),
   ];
-  expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
-    "acpmux-composer-strip",
-    "nt-field",
-    "acpmux-chips",
-    "acpmux-send",
-  ]);
+  // The field is the composer's Markdown field (`acpmux-md-field nt-field`): it is named by its New Tab class.
+  const name = (part: HTMLElement) => (part.classList.contains("nt-field") ? "nt-field" : part.className.split(" ")[0]);
+  expect(parts.map(name)).toEqual(["acpmux-composer-strip", "nt-field", "acpmux-send", "acpmux-chips"]);
   // The project is the location strip's (hq#1957 composer location strip), as in the agent
   // composer: never in the card or its bar.
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button, .acpmux-chips")).toBeNull();
+  expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+});
+
+// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
+// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
+// the folder/computer, as Codex does.
+test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  act(() => setComposerLook("claude", { remember: false }));
+  await mount({ template: "cards" });
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
+  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
+  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
+  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+
+  // Codex's look keeps the mode and model in the box's own row (Leo 2026-10-30: "the
+  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
+  act(() => setComposerLook("codex", { remember: false }));
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot")).toBeNull();
+  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-box .acpmux-composer-context")).toBeNull();
+  act(() => setComposerLook("claude", { remember: false }));
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could

@@ -3,10 +3,10 @@
 // background end with acpmux's `background_task_update`. The call's own "Ran" row says how its
 // shell stands (running in the background, then stopped or finished), in whichever turn it ended;
 // a shell whose call is not in the transcript is noted where it ended, in a few words
-// ("Background task finished: pytest -x"). The Inspector's Background tasks (Debug Settings
+// ("Background task finished: pytest -x"). Session Info's Background tasks (Debug Settings
 // `agent.inspector`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
-// A click on a task's row in the Inspector or the summary opens the task's terminal
+// A click on a task's row in Session Info or the summary opens the task's terminal
 // (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
 // (the whole command, how it ended), never a terminal; only its Open in terminal opens one (Leo
 // 2026-10-21). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
@@ -287,8 +287,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   });
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
-  /// Where the chat lists its background tasks: the Inspector's section (the App pushes Debug
-  /// Settings `agent.inspector` with the header state; the Inspector opens by default), or, with it
+  /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
+  /// Settings `agent.inspector` with the header state; Session Info opens by default), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {
@@ -298,14 +298,14 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
-        const section = page.locator('aside.acpmux-chat-inspector section[data-section="tasks"]');
+        const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');
         await section.waitFor({ timeout: 5_000 });
         return section;
       },
-      row: ".acpmux-chat-inspector-task",
-      text: ".acpmux-chat-inspector-task__command",
+      row: ".acpmux-session-info-task",
+      text: ".acpmux-session-info-task__command",
       // A running row says its time; an ended one how it ended.
-      meta: ".acpmux-chat-inspector-task__time, .acpmux-chat-inspector-task__state",
+      meta: ".acpmux-session-info-task__time, .acpmux-session-info-task__state",
     },
     "summary card": {
       open: async (page: Page) => {
@@ -345,12 +345,24 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
               items.map((item) => [item.querySelector(text)?.textContent, item.querySelector(meta)?.textContent]),
             { text: surface.text, meta: surface.meta },
           );
-      // The running one says how long it has run, with no Stop (the registry lists nothing); the
-      // ended ones wait behind one row.
+      // The running one says how long it has run, with no Stop (the registry lists nothing).
       const running = await rows();
-      expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+      expect(running[0]![0]).toBe("cargo watch -x test");
       expect(running[0]![1]).toMatch(/^\d+[smh]/);
-      expect(await section.locator("button.acpmux-chat-inspector-stop").count()).toBe(0);
+      expect(await section.locator("button.acpmux-session-info-stop").count()).toBe(0);
+      if (name === "summary card") {
+        // The summary card keeps the finished ones as cards under it, folded only past five
+        // (49acdd1d589d: a finished task never hides behind a count).
+        expect(running.slice(1)).toEqual([
+          ["npm run dev", "Stopped"],
+          ["pytest -x", "Finished"],
+        ]);
+        expect(await section.locator(".acpmux-summary-finished").count()).toBe(0);
+        await page.close();
+        return;
+      }
+      // Session Info's ended ones wait behind one row.
+      expect(running.length).toBe(1);
       const finished = section.getByRole("button", { name: "2 finished" });
       await finished.click();
       expect(await finished.getAttribute("aria-expanded")).toBe("true");

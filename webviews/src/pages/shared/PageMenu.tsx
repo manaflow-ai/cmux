@@ -4,7 +4,7 @@
 // focus restoration; this adapter only supplies the pointer location and
 // page-specific actions.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
 import { useEscapingPopup } from "../../ui/popupHost";
@@ -63,7 +63,13 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
     ]);
     native({ items: rows, point: { x, y } }).then(
       (reply) => {
-        const chosen = items.find((item) => item.id === pickedId(reply));
+        // Older hosts can answer an unknown operation with a successful empty acknowledgement.
+        // That means the menu never opened; let Base UI draw an actionable one instead.
+        if (!hasNativeMenuPick(reply)) {
+          setDrawn(true);
+          return;
+        }
+        const chosen = items.find((item) => item.id === pickedId(reply) && !item.disabled);
         onClose();
         if (chosen) chosen.run();
         else if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });

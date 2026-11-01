@@ -1,7 +1,8 @@
 //! The on-disk form of a peer session's copy (`peer_snapshot.rs`): one file per session,
-//! `peers/.snapshots/<hex peer>/<hex muxSessionId>.json`, beside `peers/<peer>.json`
-//! (`peer_cache.rs`). Its first line is the copy's `Head` (whose session it is, its generation,
-//! lastSeq, capturedAt, the last-known row), then a record a line, oldest first. Names are
+//! `peer-snapshots/<hex peer>/<hex muxSessionId>.json` in the daemon's home, beside `peers/` and
+//! never in it: what lists the peer caches (`peers/<peer>.json`, `peer_cache.rs`) never sees it.
+//! Its first line is the copy's `Head` (whose session it is, its generation, lastSeq, capturedAt,
+//! the last-known row), then a record a line, oldest first. Names are
 //! lowercase hex, so two ids that differ only in case never share a file on a case-insensitive
 //! volume. A file is always written whole to a temporary file renamed over the old one
 //! (`config::write_atomic`): a full disk or a crash leaves the old copy or the new one, never a
@@ -11,7 +12,7 @@
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, Read as _};
+use std::io::{BufRead as _, Read as _, Write};
 use std::path::{Path, PathBuf};
 
 pub(super) type Key = (String, String);
@@ -43,7 +44,25 @@ pub(super) struct Head {
 }
 
 pub(super) fn record_bytes(v: &Value) -> u64 {
-    serde_json::to_vec(v).map_or(0, |b| b.len() as u64 + 1)
+    struct Counter(u64);
+    impl Write for Counter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(buf.len() as u64);
+            Ok(buf.len())
+        }
+
+        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+            self.0 = self.0.saturating_add(buf.len() as u64);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, v).map_or(0, |_| counter.0.saturating_add(1))
 }
 
 /// A record's seq: from 1, and below 2^53 (what a client's number holds exactly), so no bound's
@@ -67,14 +86,16 @@ fn unhex(s: &str) -> Option<String> {
     if s.is_empty() || !s.len().is_multiple_of(2) || !s.bytes().all(lower) {
         return None;
     }
-    let bytes: Option<Vec<u8>> =
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect();
+    let bytes: Option<Vec<u8>> = (0..s.len())
+        .step_by(2)
+        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect();
     String::from_utf8(bytes?).ok().filter(|id| id.len() <= ID_BYTES)
 }
 
-/// Where every copy lives under the peers directory.
-pub(super) fn root(peers: &Path) -> PathBuf {
-    peers.join(".snapshots")
+/// Where every copy lives in the daemon's home `home`.
+pub(super) fn root(home: &Path) -> PathBuf {
+    home.join("peer-snapshots")
 }
 
 pub(super) fn peer_dir(root: &Path, peer: &str) -> Option<PathBuf> {

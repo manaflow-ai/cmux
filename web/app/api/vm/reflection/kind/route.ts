@@ -11,7 +11,8 @@ const JSON_HEADERS = {
  * The machine's kind for /etc/cmux/vm-kind (services/vms/vmKind.ts). The
  * guest's root-run cmux-vm-kind-sync asks every minute and writes `owner` or
  * `team`. A missing billing owner is a retryable row-integrity failure; the
- * guest sync writes `team` before asking, so it remains fail closed.
+ * sync keeps the existing record when a fetch fails. The record is
+ * informational only: acpmux no longer trusts it (#26227).
  */
 export const GET = coderouterControlRoute("vm_reflection_kind", "/api/vm/reflection/kind", async (request) => {
   const auth = await requireVmPrincipal(request);

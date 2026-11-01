@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextSettings
 @testable import CmuxNextApp
 import Foundation
 import Observation
@@ -21,7 +22,7 @@ struct CloudStartSessionAsksTests {
     final class Cards {
         var shown: [String: [AgentPaneToolCard]] = [:]
         var answers: [String: AgentToolCards.Answer] = [:]
-        let (events, event) = AsyncStream<String>.makeStream()
+        let (events, event) = AsyncStream<(tab: String, state: AgentPaneToolCard.State)>.makeStream()
 
         deinit { event.finish() }
 
@@ -29,14 +30,15 @@ struct CloudStartSessionAsksTests {
             asks.present = { [unowned self] cards, tab, answer in
                 shown[tab] = cards.isEmpty ? nil : cards
                 answers[tab] = answer
-                if !cards.isEmpty { event.yield(tab) }
+                if let first = cards.first { event.yield((tab, first.state)) }
                 return true
             }
         }
 
-        /// Waits until a card shows in `tab` (the ask reached its card).
+        /// Waits until an ask's card shows in `tab` (the ask reached its card). Other cards shown
+        /// there before (a run's working or done card) are passed over.
         func shownIn(_ tab: String) async {
-            for await shownTab in events where shownTab == tab { return }
+            for await shown in events where shown.tab == tab && shown.state == .ask { return }
         }
 
         func click(_ tab: String, _ action: String) { answers[tab]?("cloud-start-session-" + tab, action, nil) }
@@ -161,6 +163,102 @@ struct CloudStartSessionAsksTests {
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(Self.asked))) { _ = try await ask.value }
         #expect(cards.shown["chat-7"] == nil)
         #expect(asks.owner(of: "chat-7") == nil)
+    }
+
+    // MARK: The asking chat links to the new one (#25597)
+
+    /// A started run leaves a done card in the asking chat that links to the new chat: Open Chat
+    /// shows it (and the card goes), Dismiss only removes the card, and the chat may ask again.
+    @Test func aStartedRunLinksTheAskingChatToTheNewChat() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let ask = Self.ask(asks, "chat-8")
+        await cards.shownIn("chat-8")
+        cards.click("chat-8", "start")
+        let token = try await ask.value
+        asks.show(tab: "chat-8", token: token, .working, "starting")
+        var revealed = 0
+        asks.started(tab: "chat-8", token: token, text: CloudStartSessionStrings.started(agent: "claude", machine: "dev"),
+                     gone: CloudStartSessionStrings.chatGone(agent: "claude", machine: "dev")) {
+            revealed += 1
+            return true
+        }
+        let card = try #require(cards.shown["chat-8"]?.first)
+        #expect(card.state == .done)
+        #expect(card.text == CloudStartSessionStrings.started(agent: "claude", machine: "dev"))
+        #expect(card.actions.map(\.id) == ["open", "dismiss"])
+        #expect(card.actions.map(\.title) == [CloudStartSessionStrings.openChat, CloudMoveAskStrings.dismiss])
+        #expect(asks.owner(of: "chat-8") == nil, "the chat may ask again")
+        #expect(revealed == 0, "nothing is shown until the person clicks")
+        cards.click("chat-8", "open")
+        #expect(revealed == 1)
+        #expect(cards.shown["chat-8"] == nil)
+    }
+
+    /// Open Chat when no connected machine lists the new chat any more says so, with Dismiss.
+    @Test func openChatOnAClosedChatSaysItIsGone() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let ask = Self.ask(asks, "chat-9")
+        await cards.shownIn("chat-9")
+        cards.click("chat-9", "start")
+        let token = try await ask.value
+        let gone = CloudStartSessionStrings.chatGone(agent: "claude", machine: "dev")
+        asks.started(tab: "chat-9", token: token, text: "started", gone: gone) { false }
+        cards.click("chat-9", "open")
+        #expect(cards.shown["chat-9"]?.first?.state == .failed)
+        #expect(cards.shown["chat-9"]?.first?.text == gone)
+        #expect(cards.shown["chat-9"]?.first?.actions.map(\.id) == ["dismiss"])
+        cards.click("chat-9", "dismiss")
+        #expect(cards.shown["chat-9"] == nil)
+    }
+
+    /// Only the ask that owns the card turns it into the link, and a later ask in that chat
+    /// owns the card from then on: the old link's buttons change nothing.
+    @Test func theLinkBelongsToItsAskAndALaterAskTakesTheCard() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let first = Self.ask(asks, "chat-10")
+        await cards.shownIn("chat-10")
+        cards.click("chat-10", "start")
+        let token = try await first.value
+        asks.show(tab: "chat-10", token: token, .working, "starting")
+        asks.started(tab: "chat-10", token: UUID(), text: "not yours", gone: "") { true }
+        #expect(cards.shown["chat-10"]?.first?.text == "starting")
+        var revealed = 0
+        asks.started(tab: "chat-10", token: token, text: "started", gone: "") {
+            revealed += 1
+            return true
+        }
+        let oldOpen = try #require(cards.answers["chat-10"])
+        let second = Self.ask(asks, "chat-10")
+        await cards.shownIn("chat-10")
+        oldOpen("cloud-start-session-chat-10", "open", nil)
+        #expect(revealed == 0)
+        #expect(cards.shown["chat-10"]?.first?.state == .ask)
+        cards.click("chat-10", "notNow")
+        _ = try? await second.value
+    }
+
+    /// A sign-out or team switch removes a done card: its Open Chat would show a chat of the
+    /// account that ended.
+    @Test func endAllRemovesADoneCard() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let ask = Self.ask(asks, "chat-11")
+        await cards.shownIn("chat-11")
+        cards.click("chat-11", "start")
+        let token = try await ask.value
+        asks.started(tab: "chat-11", token: token, text: "started", gone: "") { true }
+        #expect(cards.shown["chat-11"]?.first?.state == .done)
+        asks.endAll()
+        #expect(cards.shown["chat-11"] == nil)
+    }
+
+    /// The page reads the done state by its name (toolCardStore.ts).
+    @Test func aDoneCardGoesToThePageAsDone() {
+        let card = AgentPaneToolCard(id: "c", state: .done, text: "t", actions: [])
+        #expect(AgentPageEvent.toolCards([card]).value.compactText.contains("\"state\":\"done\""))
     }
 
     // MARK: A run that outlasts its caller's answer

@@ -71,15 +71,17 @@ import Testing
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         let bar = MainMenu.make(registry: registry, blocking: .forProcess())
+        // The audit counts the rows a menu shows. An alternate (Edit's Opt-Shift-Cmd-V Paste and
+        // Match Style, #27619) takes its primary's row while Option is held, so it adds none.
         let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
-            result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem }.count ?? 0
+            result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem && !$0.isAlternate }.count ?? 0
         }
         #expect(counts[.app] == 8)
         #expect(counts[.file] == 15)
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 12)
         #expect(counts[.server] == 2)
-        #expect(counts[.window] == 9)
+        #expect(counts[.window] == 10) // Merge All Windows (Leo 2026-10-29)
         #expect(counts[.help] == 5)
         #expect(counts[.debug] == 0 || DevTools.isEnabled)
     }

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
+use cmux_json::JsonSet as _;
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
 use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
@@ -228,12 +229,20 @@ struct ConnectFlags {
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
     wireguard_hub: Option<PathBuf>,
+    /// Read the hub's client token (`wg hub --client-token-stdin`) as one line on
+    /// stdin, so it never appears in argv, the environment or a file.
+    wireguard_hub_token_stdin: bool,
     /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
     /// invitation. Only a daemon serving a trusted-network listener accepts it.
     carrier: bool,
     /// Internal app ownership fence. The helper exits when its direct parent exits,
     /// including an abort or forced app replacement that cannot run Swift cleanup.
     exit_with_parent: bool,
+    /// `--vm-kind owner`: the app asked the Cloud API's attach-endpoint for this
+    /// machine, signed in, and it answered `vmKind: "owner"` (the caller's own
+    /// personal VM). The acpmux peer bridge then leases the machine at the VM
+    /// boundary (`acpmux_peer.rs`). Any other value, or none, keeps the sandbox.
+    vm_owner: bool,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -473,7 +482,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
                 }
             }
+            "--wireguard-hub-token-stdin" => flags.wireguard_hub_token_stdin = true,
             "--exit-with-parent" => flags.exit_with_parent = true,
+            "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -540,6 +551,14 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
     }
+    if flags.wireguard_hub_token_stdin && flags.wireguard_hub.is_none() {
+        return Err(anyhow!(catalog().remote_client.wireguard_hub_token_needs_hub));
+    }
+    if flags.wireguard_hub_token_stdin
+        && matches!(&flags.invitation, Some(InvitationArg::File(path)) if path == Path::new("-"))
+    {
+        return Err(anyhow!(catalog().remote_client.stdin_claimed_twice));
+    }
     Ok(flags)
 }
 
@@ -577,13 +596,15 @@ fn connect_with_flags(
     let headless = flags.headless;
     let json = flags.json;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
+    let vm_owner = flags.vm_owner;
     let connected = start_connected(flags)?;
     if headless {
         if json {
             let runtime = tokio_runtime()?;
             runtime.block_on(async {
                 // Off by default (`CMUX_ACPMUX_CLOUD_PEER=1`); ends with this loop.
-                let _peer_bridge = acpmux_peer::AcpmuxPeerBridge::spawn(&connected.runtime);
+                let _peer_bridge =
+                    acpmux_peer::AcpmuxPeerBridge::spawn(&connected.runtime, vm_owner);
                 let mut previous = None;
                 let mut finished = connected.runtime.subscribe_finished();
                 while !crate::shutdown_requested()
@@ -664,7 +685,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             (Some(path), _) => {
                 Some(Arc::new(WireGuardDialer::new(start_wireguard(&async_runtime, &path)?)))
             }
-            (None, Some(socket)) => Some(Arc::new(SocksDialer::new(socket))),
+            (None, Some(socket)) => {
+                let dialer = SocksDialer::new(socket);
+                Some(Arc::new(if flags.wireguard_hub_token_stdin {
+                    dialer.with_token(read_hub_token_line(&mut io::stdin().lock())?)
+                } else {
+                    dialer
+                }))
+            }
             (None, None) => None,
         };
     let mut relay_routes = client_relay_options(
@@ -1200,7 +1228,41 @@ async fn next_rpc_input(
     }
 }
 
+/// `cmux rpc action.list '{}'`: the old cmux's app socket call, which agents still write
+/// (tests/tool-evals r4a: GPT 6 Astra ran it 54 times). Here `rpc` is a remote session's
+/// workspace RPC and would wait for a daemon, so such a call names the app commands instead.
+/// A route host (`box.local`) is not one: the method's last word is a verb, or JSON follows.
+fn app_method_call(args: &[String]) -> bool {
+    let Some(method) = args.first() else { return false };
+    let words: Vec<&str> = method.split('.').collect();
+    let shaped = words.len() >= 2
+        && words.iter().all(|word| {
+            !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        });
+    let verb = matches!(
+        words.last().copied(),
+        Some(
+            "list"
+                | "get"
+                | "run"
+                | "describe"
+                | "search"
+                | "request"
+                | "call"
+                | "ping"
+                | "identify"
+        )
+    );
+    shaped && (verb || args.get(1).is_some_and(|next| next.trim_start().starts_with('{')))
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
+    if let Some(method) = args.first().filter(|_| app_method_call(args)) {
+        return Err(anyhow!(catalog().local_server.unknown_scope(
+            &format!("rpc {method}"),
+            Some("cmux action list` / `cmux action run <id>` (app actions), `cmux app identify"),
+        )));
+    }
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
     let connected = start_connected(flags)?;
@@ -1882,6 +1944,31 @@ fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
     })
 }
 
+/// Longest hub client token accepted on stdin: SOCKS5's password field.
+const MAX_HUB_TOKEN_BYTES: usize = 255;
+
+/// One line from `reader` holding the hub's client token.
+fn read_hub_token_line(
+    reader: &mut impl Read,
+) -> anyhow::Result<cmux_remote::provider::HubClientToken> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(80));
+    let mut byte = [0_u8; 1];
+    while reader.read(&mut byte).context(catalog().remote_client.hub_token_invalid)? == 1 {
+        if byte[0] == b'\n' {
+            break;
+        }
+        if bytes.len() == MAX_HUB_TOKEN_BYTES {
+            return Err(anyhow!(catalog().remote_client.hub_token_invalid));
+        }
+        bytes.push(byte[0]);
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| anyhow!(catalog().remote_client.hub_token_invalid))?
+        .trim_end_matches('\r');
+    cmux_remote::provider::HubClientToken::new(text)
+        .ok_or_else(|| anyhow!(catalog().remote_client.hub_token_invalid))
+}
+
 fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     if path == Path::new("-") {
         return read_invitation_uri_line(&mut io::stdin().lock());
@@ -1978,6 +2065,9 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
+/// `wireguard-hub-token`: `wg hub --client-token-stdin` and `--config -`, and
+/// `remote connect --wireguard-hub-token-stdin`, so only the app's own clients
+/// use the hub and its config needs no file.
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see
 /// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
 /// that needs one refuses a remote without it (cx-z3zh).
@@ -1989,6 +2079,7 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
+    "wireguard-hub-token",
     "browser-proxy",
     "cloud-browser-network",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
@@ -2044,8 +2135,11 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
     });
     if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
+        answer.set(
+            "warning",
+            serde_json::json!(
+                "each build serves a capability the other lacks; neither replaces the other"
+            ),
         );
     }
     println!("{answer}");
@@ -2071,8 +2165,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
     let mut value = value;
     if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
+        value.set(
+            "daemon_capabilities",
+            serde_json::json!(cmux_tui_core::server::build_capabilities()),
+        );
     }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
@@ -2723,7 +2819,8 @@ fn wait_for_detached_socket(
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Err(anyhow!(
-                    "{process_name} exited {status}; inspect {}",
+                    "{process_name} exited {status}{}; inspect {}",
+                    exit_cause(log_path).map(|cause| format!(": {cause}")).unwrap_or_default(),
                     log_path.display()
                 ));
             }
@@ -2750,6 +2847,32 @@ fn wait_for_detached_socket(
             socket.display()
         )),
     }
+}
+
+/// The bytes of a detached process's log read for its exit cause: enough for
+/// its last lines, never the whole log a long-lived session has grown.
+const EXIT_CAUSE_TAIL_BYTES: u64 = 4096;
+
+/// Why a detached process that exited before its socket appeared did so: its
+/// own last log line (it writes its error there before exiting). A session
+/// another daemon owns (a Chief brain or the machine's own app holds `main`)
+/// says how to get past it, since retrying the same session cannot.
+fn exit_cause(log_path: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(log_path).ok()?;
+    let length = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(EXIT_CAUSE_TAIL_BYTES))).ok()?;
+    let mut tail = Vec::new();
+    file.take(EXIT_CAUSE_TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    let tail = String::from_utf8_lossy(&tail);
+    let line = tail.lines().map(str::trim).rfind(|line| !line.is_empty())?;
+    let line = line.strip_prefix("cmux-tui: ").unwrap_or(line);
+    if line.contains("workspace session is already owned by another daemon") {
+        return Some(format!(
+            "this session on the machine is in use by another cmux daemon ({line}); connect with another session name (--session NAME)"
+        ));
+    }
+    Some(line.to_owned())
 }
 
 fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
@@ -3120,6 +3243,7 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub-token"));
     }
 
     #[test]
@@ -3151,6 +3275,17 @@ mod tests {
         assert!(!flags.exit_with_parent);
         let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
         assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
+    }
+
+    #[test]
+    fn only_vm_kind_owner_marks_the_link_as_the_callers_own_vm() {
+        let link = "ws://[fd00::1]:1337/v1/link".to_string();
+        assert!(!parse_connect_flags(std::slice::from_ref(&link)).unwrap().vm_owner);
+        for (kind, owner) in [("owner", true), ("team", false), ("null", false), ("Owner", false)] {
+            let args = [link.clone(), "--vm-kind".into(), kind.into()];
+            assert_eq!(parse_connect_flags(&args).unwrap().vm_owner, owner, "{kind}");
+        }
+        assert!(parse_connect_flags(&[link, "--vm-kind".into()]).is_err(), "a value is needed");
     }
 
     #[cfg(unix)]
@@ -3377,6 +3512,37 @@ mod tests {
         assert!(parsed.lanes_explicit);
         assert_eq!(parsed.relay_slots, ["slot"]);
         assert_eq!(parsed.relay_credentials.len(), 1);
+    }
+
+    #[test]
+    fn hub_token_comes_from_stdin_only_with_a_hub() {
+        let route = "ws://[fd7a::10]:1337/v1/link".to_string();
+        let parse = |extra: &[&str]| {
+            let mut args = vec![route.clone()];
+            args.extend(extra.iter().map(|value| value.to_string()));
+            parse_connect_flags(&args)
+        };
+        let flags =
+            parse(&["--wireguard-hub", "/tmp/hub.sock", "--wireguard-hub-token-stdin"]).unwrap();
+        assert!(flags.wireguard_hub_token_stdin);
+        let error = parse(&["--wireguard-hub-token-stdin"]).err().unwrap();
+        assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_token_needs_hub);
+        let error = parse(&[
+            "--wireguard-hub",
+            "/tmp/hub.sock",
+            "--wireguard-hub-token-stdin",
+            "--invite-file",
+            "-",
+        ])
+        .err()
+        .unwrap();
+        assert_eq!(error.to_string(), catalog().remote_client.stdin_claimed_twice);
+
+        let token = read_hub_token_line(&mut &b"0123abcd\nrest"[..]).unwrap();
+        assert_eq!(token.as_str(), "0123abcd");
+        assert_eq!(read_hub_token_line(&mut &b"0123abcd\r\n"[..]).unwrap().as_str(), "0123abcd");
+        assert!(read_hub_token_line(&mut &b"\n"[..]).is_err(), "an empty token is refused");
+        assert!(read_hub_token_line(&mut &[b'a'; 300][..]).is_err(), "over 255 bytes is refused");
     }
 
     #[test]
@@ -3868,16 +4034,73 @@ mod tests {
         assert!(!target.path().join("sessions").exists());
     }
 
+    /// `/bin/sh -c script` in its own process group, as the mux owner starts.
+    #[cfg(unix)]
+    fn spawn_detached_shell(script: &str) -> Child {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script);
+        configure_detached_process(&mut command);
+        command.spawn().unwrap()
+    }
+
+    /// A mux owner that exits says why, from its own last log line: a session
+    /// another daemon owns names the way out instead of only the log path.
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_on_an_owned_session_says_the_session_is_in_use() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        fs::write(&log, "cmux-tui: an older run's line\n").unwrap();
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: workspace session is already owned by another daemon: /s/main-1f.lock: try_lock failed' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("in use by another cmux daemon"), "{error}");
+        assert!(error.contains("--session"), "{error}");
+        assert!(error.contains(&log.display().to_string()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_names_its_last_log_line() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: cannot open session \"main\": its saved state is incompatible' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("its saved state is incompatible"), "{error}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn timed_out_detached_child_is_killed_and_reaped() {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("missing.sock");
         let log = directory.path().join("daemon.log");
-        let mut command = Command::new("/bin/sleep");
-        command.arg("30");
-        configure_detached_process(&mut command);
-        let mut child = command.spawn().unwrap();
+        let mut child = spawn_detached_shell("exec /bin/sleep 30");
         let pid = child.id() as libc::pid_t;
 
         let error = wait_for_detached_socket(

@@ -41,11 +41,15 @@ public nonisolated struct CommitBoundaryAudit: Sendable, Hashable {
 
     /// The observers that run after ``CommitBoundary`` in the same pass, whatever their callout is
     /// called: each one makes `action.commit` end before its work. Not late: an observer at the
-    /// boundary's own order (the boundary, or a tie whose order CFRunLoop leaves to insertion) and the
-    /// reviewed observers that draw and commit nothing (``CommitBoundaryObserver/isReviewedAfterBoundary``).
-    /// Empty when the boundary is right on this macOS.
+    /// boundary's own order (the boundary, or a tie whose order CFRunLoop leaves to insertion), the
+    /// reviewed system observers that draw and commit nothing (``CommitBoundaryObserver/isReviewedAfterBoundary``),
+    /// and cmux's own observers whose context says they draw nothing
+    /// (``CommitBoundaryObserver/drawsNothingAfterCommit``). Empty when the boundary is right on this macOS.
     public var late: [CommitBoundaryObserver] {
-        observers.filter { $0.order > CommitBoundary.order && $0.firesAtTheBoundary && !$0.isReviewedAfterBoundary }
+        observers.filter {
+            $0.order > CommitBoundary.order && $0.firesAtTheBoundary && !$0.isReviewedAfterBoundary
+                && !$0.drawsNothingAfterCommit
+        }
     }
 
     private static func observers(in description: String) -> Set<CommitBoundaryObserver> {

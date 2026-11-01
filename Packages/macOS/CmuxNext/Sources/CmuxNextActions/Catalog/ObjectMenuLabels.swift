@@ -44,7 +44,12 @@ nonisolated enum ObjectMenuLabels {
     // Toggles, one style.
     static var togglePinScreen: String { text("menu.screen.togglePin", "Pin/Unpin Screen") }
     static var toggleWorkspaceMute: String { text("menu.workspace.toggleNotificationMute", "Mute/Unmute Notifications") }
+    static var notificationSound: String {
+        String(localized: "menu.notificationSound", defaultValue: "Notification Sound", bundle: .module)
+    }
     static var toggleChatMute: String { text("menu.tab.toggleChatNotificationMute", "Mute/Unmute Chat Notifications") }
+    /// A chat's Subagent Limit… (the palette says Chat Subagent Limit…).
+    static var subagentLimit: String { text("menu.object.subagentLimit", "Subagent Limit…") }
     static var toggleSectionCollapsed: String { text("menu.sidebar.toggleSectionCollapsed", "Collapse/Expand Section") }
     static var toggleSectionTitle: String { text("menu.sidebar.toggleSectionTitle", "Show/Hide Section Title") }
     static var toggleItemLabel: String { text("menu.sidebar.toggleItemLabel", "Show/Hide Label") }

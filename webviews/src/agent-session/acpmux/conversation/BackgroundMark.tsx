@@ -7,7 +7,13 @@ import { useT } from "../i18n";
 import type { AcpmuxBackgroundState } from "../model";
 import { Check, Spinner } from "./icons";
 
-export function BackgroundMark({ background }: { background: AcpmuxBackgroundState }) {
+export function BackgroundMark({
+  background,
+  showActivity = true,
+}: {
+  background: AcpmuxBackgroundState;
+  showActivity?: boolean;
+}) {
   const t = useT();
   switch (background.state) {
     case "running": {
@@ -15,7 +21,7 @@ export function BackgroundMark({ background }: { background: AcpmuxBackgroundSta
       return (
         // tooltip-allow: the spinner is the row's only visible mark; its label is for screen readers only
         <span className="cv-command__bg-state" title={label} data-state="running">
-          <Spinner size={12} />
+          {showActivity && <Spinner size={12} />}
           <span className="cv-command__bg-label" data-find-skip>
             {label}
           </span>

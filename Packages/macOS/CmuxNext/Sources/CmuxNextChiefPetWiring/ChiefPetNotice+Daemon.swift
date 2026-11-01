@@ -12,7 +12,9 @@ extension ChiefPetNotice {
     /// agent's notice or one whose poster asked for it (like a `notify --reply` banner); any other
     /// opens its tab (an OSC 9/777 line from a remote shell or a log must not type into what runs there).
     /// An agent chat opens.
-    public init(_ notification: DaemonNotification, tab: TabModel, workspace: String?, programTitle: String?, body: String) {
+    /// `name`: the tab's shown name (a Home conversation tab's is its Chief's own), else its record's.
+    public init(_ notification: DaemonNotification, tab: TabModel, name: String? = nil, workspace: String?, programTitle: String?,
+                body: String) {
         let line = body.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         let kind: ChiefPetNotice.Kind = switch notification.level {
         case .warning: .needsYou
@@ -20,7 +22,8 @@ extension ChiefPetNotice {
         case .info: .done
         }
         let text = line.isEmpty ? (notification.shownSubtitle ?? "") : line
-        let name = tab.displayTitle.isEmpty ? (workspace ?? "") : tab.displayTitle
+        let shown = name ?? tab.displayTitle
+        let name = shown.isEmpty ? (workspace ?? "") : shown
         let happened = name.isEmpty || (kind == .done && notification.source != "agent") ? name : Self.title(name, kind: kind)
         self.init(id: notification.notification.rawValue, tab: tab.id, surface: notification.surface?.rawValue,
                   title: programTitle ?? (notification.title.isEmpty ? happened : notification.title),

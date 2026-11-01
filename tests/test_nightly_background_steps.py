@@ -29,7 +29,7 @@ PROOF_START = "Prove the browser-data import is compiled out (cx-f58x notary tes
 PROOF_FINISH = "Finish the browser-data import proof"
 SENTRY_START = "Upload dSYMs to Sentry"
 SENTRY_FINISH = "Finish the dSYM upload to Sentry"
-PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
 
 
 def steps(job: str) -> list[dict]:
@@ -106,6 +106,31 @@ class BackgroundStepTests(unittest.TestCase):
                 self.assertNotEqual(finished.returncode, 0, finished.stdout)
                 self.assertIn("Chrome Safe Storage", finished.stdout)
                 self.assertIn("the browser-data import proof failed", finished.stderr)
+
+    def test_the_proof_scans_the_installed_cmux_tui_client(self):
+        # build-nightly-app installs the client before prepare; a browser target
+        # list in bin/cmux (or its companions) fails the proof like any other file.
+        bin_dir = self.ws / APP / "Contents/Resources/bin"
+        for name in ("cmux", "cmux-tui", "cmux-app-host", "cmux-tui-ssh/cmux-tui-x86_64-unknown-linux-musl"):
+            with self.subTest(binary=name):
+                target = bin_dir / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("Chrome Safe Storage\n")
+                for job in PREPARE_JOBS:
+                    started = self.run_step(job, PROOF_START)
+                    self.assertEqual(started.returncode, 0, started.stderr)
+                    finished = self.run_step(job, PROOF_FINISH)
+                    self.assertNotEqual(finished.returncode, 0, finished.stdout)
+                    self.assertIn(f"Contents/Resources/bin/{name}", finished.stdout)
+                target.unlink()
+
+    def test_a_resumed_unsigned_app_is_proven_too(self):
+        # A resume (nightly_next_unsigned_run) restores a saved unsigned app,
+        # client included, in prepare; the proof scans it like a fresh build.
+        for job in PREPARE_JOBS:
+            for name in (PROOF_START, PROOF_FINISH):
+                with self.subTest(job=job, step=name):
+                    self.assertNotIn("nightly_next_unsigned_run", step(job, name)["if"])
 
     def test_a_finish_without_a_start_fails(self):
         for job in PREPARE_JOBS:

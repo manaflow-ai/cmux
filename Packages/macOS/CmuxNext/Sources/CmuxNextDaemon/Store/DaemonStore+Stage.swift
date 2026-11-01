@@ -99,7 +99,7 @@ extension DaemonStore {
             return [from, to]
         case .renameTab(let surface, _), .setTabPinned(let surface, _):
             return ofSurface(surface).map { [$0] }
-        case .renameWorkspace(let key, _), .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
+        case .renameWorkspace(let key, _), .setWorkspaceColor(let key, _), .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             return workspace(key: key).map { [$0.handle] }
         case .renamePane(let pane, _):
             return workspace(containing: pane).map { [$0.handle] }

@@ -5,7 +5,7 @@ const T0: u64 = 1_800_000_000_000;
 
 fn minted(role: Role) -> (Store, TicketRecord) {
     let mut s = Store::default();
-    let t = s.mint(SECRET, role, 900, None, T0).unwrap();
+    let t = s.mint(SECRET, role, "test-instance".into(), 900, None, T0).unwrap();
     (s, t)
 }
 
@@ -14,7 +14,7 @@ fn ok(_: Role) -> Result<(), RpcError> {
 }
 
 fn redeem(s: &mut Store, secret: &str, name: &str, now: u64) -> Result<Redeemed, RpcError> {
-    s.redeem(secret, name, &"ab".repeat(32), &format!("dv_{name}"), now, ok)
+    s.redeem((secret, "test-instance"), name, &"ab".repeat(32), &format!("dv_{name}"), now, ok)
 }
 
 fn reason(e: &RpcError) -> &str {
@@ -69,7 +69,7 @@ fn the_device_gets_the_role_the_minter_stored() {
 fn a_refused_redeem_leaves_the_ticket_open() {
     let (mut s, _) = minted(Role::Daemon);
     let e = s
-        .redeem(SECRET, "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
+        .redeem((SECRET, "test-instance"), "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
             Err(RpcError::invalid_params("no").with_data(serde_json::json!({"reason": "x"})))
         })
         .unwrap_err();
@@ -80,6 +80,16 @@ fn a_refused_redeem_leaves_the_ticket_open() {
     assert_eq!(reason(&redeem(&mut s, SECRET, "a b/c", T0 + 1).unwrap_err()), "bad_name");
     s.issue("box", Role::Client, &"cd".repeat(32), "dv_x", None, T0).unwrap();
     assert_eq!(reason(&redeem(&mut s, SECRET, "box", T0 + 1).unwrap_err()), "name_taken");
+    assert_eq!(s.tickets[0].state(T0 + 1), TicketState::Open);
+}
+
+#[test]
+fn a_ticket_cannot_cross_acpmux_instances() {
+    let (mut s, _) = minted(Role::Client);
+    let error = s
+        .redeem((SECRET, "other-instance"), "laptop", &"ab".repeat(32), "dv_laptop", T0 + 1, ok)
+        .unwrap_err();
+    assert_eq!(reason(&error), "ticket_refused");
     assert_eq!(s.tickets[0].state(T0 + 1), TicketState::Open);
 }
 
@@ -123,9 +133,11 @@ fn revoking_a_used_ticket_names_the_machine_it_paired() {
 #[test]
 fn a_ticket_lives_one_second_to_a_day() {
     let mut s = Store::default();
-    assert!(s.mint(SECRET, Role::Client, 0, None, T0).is_err());
-    assert!(s.mint(SECRET, Role::Client, MAX_TTL_SECS + 1, None, T0).is_err());
-    let t = s.mint(SECRET, Role::Client, MAX_TTL_SECS, None, T0).unwrap();
+    assert!(s.mint(SECRET, Role::Client, "test-instance".into(), 0, None, T0).is_err());
+    assert!(
+        s.mint(SECRET, Role::Client, "test-instance".into(), MAX_TTL_SECS + 1, None, T0).is_err()
+    );
+    let t = s.mint(SECRET, Role::Client, "test-instance".into(), MAX_TTL_SECS, None, T0).unwrap();
     assert_eq!(t.expires_ms, T0 + MAX_TTL_SECS * 1000);
 }
 
@@ -134,7 +146,7 @@ fn spent_tickets_older_than_a_day_are_dropped_and_open_ones_kept() {
     let (mut s, _) = minted(Role::Client);
     redeem(&mut s, SECRET, "a", T0 + 1).unwrap();
     let later = T0 + 2 * MAX_TTL_SECS * 1000;
-    s.mint(&"11".repeat(32), Role::Client, 60, None, later).unwrap();
+    s.mint(&"11".repeat(32), Role::Client, "test-instance".into(), 60, None, later).unwrap();
     assert_eq!(s.tickets.len(), 1, "the spent ticket stays only a day");
     assert_eq!(s.devices.len(), 1, "the device it made stays");
 }
@@ -224,9 +236,16 @@ fn the_daemon_saves_the_store_owner_only_and_reloads_it() {
     let p = Pairing::default();
     p.persist_at(path.clone());
     let (ticket, _) = p
-        .mint(Role::Client, 60, Some("laptop".into()), "ws://127.0.0.1:1".into(), "b".into())
+        .mint(
+            Role::Client,
+            60,
+            Some("laptop".into()),
+            "ws://127.0.0.1:1".into(),
+            "b".into(),
+            "test-instance".into(),
+        )
         .unwrap();
-    let r = p.redeem(&ticket.secret, "laptop", |_| Ok(())).unwrap();
+    let r = p.redeem(&ticket.secret, "laptop", "test-instance", |_| Ok(())).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -236,7 +255,7 @@ fn the_daemon_saves_the_store_owner_only_and_reloads_it() {
     let again = Pairing::default();
     again.persist_at(path);
     assert_eq!(again.device_for(&r.token).map(|d| d.role), Some(Role::Client));
-    assert!(!again.ticket_open(&ticket.secret));
+    assert!(!again.ticket_open(&ticket.secret, "test-instance"));
 }
 
 #[tokio::test]
@@ -314,4 +333,25 @@ fn a_new_phone_credential_ends_the_old_one_and_keeps_its_setting() {
     );
     assert!(s.issue_phone("bad name", &"05".repeat(32), "dv_5", T0).is_err());
     assert_eq!(s, before);
+}
+
+#[test]
+fn tailnet_admission_requires_bound_tickets_even_for_migrated_stores() {
+    let pairing = Pairing::default();
+    let (ticket, _) = pairing
+        .mint(
+            Role::Client,
+            60,
+            None,
+            "wss://node.test.ts.net".into(),
+            "host".into(),
+            "run-one".into(),
+        )
+        .unwrap();
+    assert!(pairing.ticket_open_bound(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-two"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, ""));
+    pairing.lock().store.tickets[0].identity.clear();
+    assert!(pairing.ticket_open(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-one"));
 }

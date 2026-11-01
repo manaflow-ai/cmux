@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -6,12 +7,12 @@ import os
 
 /// Keeps every Cloud machine on the app's own cmux-tui build with no click: each handshake of a
 /// machine's daemon (the first connect and every reconnect, also one the app refused) offers it to
-/// the app's one `DaemonUpdatePolicy.shared` as a ``CloudMachineUpdateTarget``, in the same queue as
+/// the app's one `DaemonUpdatePolicy` (`AppServices.daemonUpdates`) as a ``CloudMachineUpdateTarget``, in the same queue as
 /// the acpmux ssh peers. The policy decides (another commit than the bundled build, never a newer
 /// one; mid-turn from the first ask, with no wait for idle; backoff while the machine cannot
 /// update; one target at a time; once per machine and build in its ledger; one notice per failure);
 /// this type only feeds it Cloud machines. Their state shows in the machine header
-/// (``CloudCreationRows``) from `DaemonUpdateBoard.shared`.
+/// (``CloudCreationRows``) from the app's `DaemonUpdateBoard`.
 ///
 /// - Off with `cloud.updateMachines` (``CloudTunables``) or the policy's `agent.updatePeers`: no
 ///   offer, and a machine already queued reports no build, which the policy leaves alone.
@@ -24,7 +25,7 @@ final class CloudMachineUpdates {
     private weak var services: AppServices?
     /// Which handshakes are still to offer (``HandshakeFollower``).
     private var follower = HandshakeFollower()
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
 
     private init(services: AppServices) {
         self.services = services
@@ -79,23 +80,43 @@ final class CloudMachineUpdates {
     /// no `cmux` client; false when it made no offer. The policy keeps one entry per machine, so an
     /// offer per handshake is safe.
     private func offer(_ machineID: String) -> Bool {
-        guard CloudTunables.updatesCloudMachines, let services,
-              let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                              source: Self.source(session, machines: services.machines, cli: cli, logger: logger))
+        guard let services, let target = Self.target(machineID, services: services) else { return false }
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
-        Task { await DaemonUpdatePolicy.shared.offer(target) }
+        Task { [policy = services.daemonUpdates.policy] in await policy.offer(target) }
         return true
+    }
+
+    /// A chat start on machine `machineID` that its older daemon refused (``AgentTabRemoteHost/updateMachine``):
+    /// the machine is updated to the app's build now, at the front of the shared policy's queue (joining
+    /// an update of it that already runs), and this returns once that turn ended. False when no turn ran:
+    /// the toggles are off, the app has no `cmux` client, or the machine is gone. Same guarantees as the
+    /// automatic update: `--to-bundled --if-older`, never a move back, terminals and chats keep running.
+    static func updateNow(_ machineID: String, services: AppServices) async -> Bool {
+        guard let target = target(machineID, services: services) else { return false }
+        logger.info("cloud machine \(machineID, privacy: .public): a start was refused by its daemon; updating it before starting again")
+        await services.daemonUpdates.policy.updateNow(target)
+        return true
+    }
+
+    /// Machine `machineID` as the shared policy's target; nil while the toggles are off, the app has no
+    /// `cmux` client, or the machine is gone.
+    private static func target(_ machineID: String, services: AppServices) -> CloudMachineUpdateTarget? {
+        guard CloudTunables.updatesCloudMachines, let session = services.machines.session(machineID),
+              let binary = services.cloud.move.cli else { return nil }
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
+                                        source: source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
+                                                       logger: logger))
     }
 
     // MARK: The machine's side
 
     /// The live ``CloudMachineUpdateTarget/Source`` of `session`. Each step reads the session on
     /// the main actor; nothing holds it.
-    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI,
+    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudAPIClient? = nil,
                        logger: Logger) -> CloudMachineUpdateTarget.Source {
         let machineID = session.machineID
+        let binary = cli.binary
         return CloudMachineUpdateTarget.Source(
             daemon: { [weak session, weak machines] in await CloudMachineUpdates.daemon(of: session, machines: machines) },
             update: { [weak session] in
@@ -103,9 +124,26 @@ final class CloudMachineUpdates {
                     return CloudMoveCLI.Answer(ok: false, errorCode: "machine_unreachable", error: "the machine is not connected")
                 }
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
-                return try await cli.machineUpdate(socket: socket, toBundled: true)
+                return try await cli.machineUpdate(socket: socket, toBundled: true, ifOlder: true)
             },
-            reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) })
+            reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
+            legacy: { [weak session] build, judged in
+                // Only the build this app pins for its own: a manifest of another build is not this app's.
+                guard let api, await CloudMachineUpdates.allowsExec(session),
+                      let pin = CloudLegacyMachineUpdate.pin(for: build.hash, besideCLI: binary),
+                      let script = CloudLegacyMachineUpdate.script else { return nil }
+                logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
+                // Only while it still runs the build `--if-older` judged older (checked under the
+                // machine's upgrade lock): an update by another app meanwhile is never undone here.
+                return await CloudLegacyMachineUpdate.run(pin: pin, script: script, expected: judged) { command, timeoutMs in
+                    try await api.exec(machineID, command: command, timeoutMs: timeoutMs)
+                }
+            })
+    }
+
+    /// Whether the Cloud API runs commands on the machine of `session` (the legacy update's channel).
+    private static func allowsExec(_ session: CloudMachineSession?) -> Bool {
+        session?.machine.allows(.exec) == true
     }
 
     /// The machine's daemon as the app sees it: connected (its build and level), refused

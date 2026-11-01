@@ -21,7 +21,7 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     /// The one tool window (set up in `init`).
-    private let presenter = OnboardingWindowPresenter()
+    private let presenter: OnboardingWindowPresenter
     var controller: OnboardingWindowController? { presenter.controller }
     /// The browser-data import offer on the first browser tab of a launch.
     private(set) lazy var browserImportOffer = BrowserImportOfferService(services: services)
@@ -30,6 +30,7 @@ final class OnboardingService {
     private var projectScanTask: Task<Void, Never>?
     /// Follows `browser.import.enabled` (``BrowserImportGate``).
     private var importSettingFollow: Task<Void, Never>?
+    private var cookieBannerFollow: Task<Void, Never>?
 
     /// Where `workspace.importClassic` reads classic's saved session; nil
     /// reads the one classic saved last (tests point it at a fixture).
@@ -69,6 +70,7 @@ final class OnboardingService {
 
     init(services: AppServices) {
         self.services = services
+        presenter = OnboardingWindowPresenter(activeLook: services.activeLook)
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
@@ -114,6 +116,8 @@ final class OnboardingService {
     func followImportSetting(_ settings: SettingsController) {
         importSettingFollow?.cancel()
         importSettingFollow = BrowserImportGate(host: services).follow(settings)
+        cookieBannerFollow?.cancel()
+        cookieBannerFollow = browserImportOffer.followBannerSetting(settings)
     }
 
     /// `browser.import.enabled` turned off: the browser tab's offer goes and an Import from Browser

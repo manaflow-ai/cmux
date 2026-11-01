@@ -45,7 +45,8 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-LINUX_RUNNER = "ubuntu-24.04"
+# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
@@ -193,7 +194,7 @@ def check_nightly_producer() -> None:
     check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
     # The preparation runs as a primary job and a fallback job with the same steps.
     jobs = yaml.safe_load(text)["jobs"]
-    for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+    for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
         check_prepare_job(jobs, job)
     sample = "variant=arm64 artifact=cmux-nightly-prepared-app-arm64-cc2280f sha256=" + "a" * 64 + " publish=true fast=false"
     check(bool(nightly_sign_admit.DIGEST_MESSAGE.match(sample)), "the admit tool must parse the recorded format")

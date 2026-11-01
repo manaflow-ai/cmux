@@ -146,7 +146,7 @@ afterAll(() => {
   dom.window.close();
 });
 
-test("keyboard transcript selection copies source and reports copy success or failure", async () => {
+test("keyboard transcript selection copies source without a floating button", async () => {
   const restore = fakeViewport({ width: 760, height: 600 });
   const root = createRoot(dom.window.document.getElementById("root")!);
   const copied: string[] = [];
@@ -192,23 +192,7 @@ test("keyboard transcript selection copies source and reports copy success or fa
     await flush();
     expect(copied).toEqual([expectedCopy, expectedCopy]);
 
-    const copyButton = row("selection-3").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
-    await act(async () => copyButton.click());
-    await flush();
-    expect(copyButton.getAttribute("aria-label")).toBe("Copied");
-    expect(copied.at(-1)).toBe(expectedCopy);
-
-    Object.defineProperty(globalThis.navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async () => Promise.reject(new Error("denied")) },
-    });
-    Object.defineProperty(dom.window.document, "execCommand", {
-      configurable: true,
-      value: () => false,
-    });
-    await act(async () => copyButton.click());
-    await flush();
-    expect(copyButton.getAttribute("aria-label")).toBe("Copy");
+    expect(row("selection-3").querySelector(".acpmux-row__copy")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
@@ -221,9 +205,11 @@ test("keyboard transcript selection copies source and reports copy success or fa
 
 // Leo (2026-10-21): "why is there a copy button for the prompt i sent on teh top left?" then "top
 // left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
-// its bubble; a tool row keeps its floating Copy and an answer still has none of its own.
-test("a sent prompt's row has exactly one Copy, the one under its bubble; tool and answer rows unchanged", async () => {
-  // Another agent's message is a user row drawn as a line, not the person's bubble: it keeps its Copy.
+// its bubble. Tool rows have no floating action over their duration or disclosure.
+test("transcript rows have no floating Copy; message actions own their copy", async () => {
+  // Another agent's message is a user row drawn as a line, not the person's bubble: closed, its line
+  // has no Copy (Leo, 2026-10-30: "all these weird button stuff from messages from other sessions");
+  // opened, its card's corner Copy is its one Copy.
   const incoming: AcpmuxRow = {
     id: "selection-4",
     version: 1,
@@ -252,10 +238,16 @@ test("a sent prompt's row has exactly one Copy, the one under its bubble; tool a
     expect(copies("selection-1")).toHaveLength(1);
     expect(copies("selection-1")[0]!.closest(".cv-user__actions")).not.toBeNull();
     expect(row("selection-2").querySelector(".acpmux-row__copy")).toBeNull();
-    expect(row("selection-3").querySelector(".acpmux-row__copy")).not.toBeNull();
-    expect(row("selection-3").getAttribute("data-floating-copy")).toBe("true");
+    expect(row("selection-3").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(row("selection-3").getAttribute("data-floating-copy")).toBeNull();
     expect(row("selection-4").querySelector(".cv-user__bubble")).toBeNull();
-    expect(row("selection-4").querySelector(".acpmux-row__copy")).not.toBeNull();
+    expect(row("selection-4").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(copies("selection-4")).toHaveLength(0);
+    expect(row("selection-4").querySelector(".cv-message-pin")).toBeNull();
+    await act(async () => row("selection-4").querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
+    expect(copies("selection-4")).toHaveLength(1);
+    expect(copies("selection-4")[0]!.closest(".cv-card-copy")).not.toBeNull();
+    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     restore();

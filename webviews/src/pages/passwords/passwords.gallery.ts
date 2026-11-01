@@ -93,7 +93,23 @@ export default passwordsPageEntry({
   widths: { narrow: 360, normal: 900, wide: 1440 },
   covers: ["page:cmux.passwords", "pages/passwords/PasswordsPage.tsx"],
   variants: {
-    lists: variant({ note: "Passwords, passkeys and exceptions; metadata only, no secrets." }),
+    lists: variant({
+      note: "Passwords, passkeys and exceptions; metadata only, no secrets.",
+      // Capture the real control hover state for every fixture row. The pointer only visits the
+      // action buttons; it never sweeps the row's blank padding, so the stills prove the wash is
+      // contained by the control. The gallery runner records one before/after still per hover.
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".pw-title" });
+        const buttons = [...ctx.document.querySelectorAll<HTMLButtonElement>(".pw-row[data-id] .pw-row-button")];
+        for (const button of buttons) {
+          const row = button.closest<HTMLElement>(".pw-row");
+          const id = row?.dataset.id;
+          if (!id || !row) continue;
+          const index = [...row.querySelectorAll(".pw-row-button")].indexOf(button);
+          await ctx.hover({ selector: `.pw-row[data-id="${id}"] .pw-row-button:nth-child(${index + 1})` });
+        }
+      },
+    }),
     empty: variant({}, empty),
     loading: variant({ loading: true }),
     "single-entry": variant(

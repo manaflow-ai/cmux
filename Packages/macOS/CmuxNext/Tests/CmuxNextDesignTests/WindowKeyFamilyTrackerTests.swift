@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A4 (276b617df95): one key tracker per window decides the inactive wash. Before it, each
@@ -9,7 +10,7 @@ import Testing
 /// 3 to 6 notices in one turn), no view work when no window flips, view work only for the views of
 /// the window that flipped, and nothing for a window that has no material view.
 @MainActor
-@Suite struct WindowKeyFamilyTrackerTests {
+@Suite(.closesItsWindows) struct WindowKeyFamilyTrackerTests {
     /// The keyboard a test drives, and the checks the trackers left for the next turn.
     @MainActor
     final class Keyboard {
@@ -58,6 +59,10 @@ import Testing
     @Test func aKeyChangeChecksOncePerWindowAndUpdatesOnlyTheFlippedWindowsViews() {
         let keyboard = Keyboard()
         let measured = Self.window(), other = Self.window()
+        defer {
+            measured.closeAfterTest()
+            other.closeAfterTest()
+        }
         let measuredFamily = WindowKeyFamily.of(measured, environment: keyboard.environment)
         let otherFamily = WindowKeyFamily.of(other, environment: keyboard.environment)
         let views = Self.addViews(12, to: measured)
@@ -99,6 +104,7 @@ import Testing
     @Test func aViewLeavingItsWindowLeavesTheTracker() {
         let keyboard = Keyboard()
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let family = WindowKeyFamily.of(window, environment: keyboard.environment)
         let views = Self.addViews(2, to: window)
         views[0].removeFromSuperview()
@@ -108,6 +114,7 @@ import Testing
     @Test func aWindowWithNoMaterialViewChecksNothing() {
         let keyboard = Keyboard()
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let family = WindowKeyFamily.of(window, environment: keyboard.environment)
         // No view yet: a key change schedules no check.
         #expect(!family.isObserving)
@@ -137,10 +144,14 @@ import Testing
     /// at once; the wash then faded in over `scrim`, a second step. A settled key change now sets the
     /// wash with no animation, in the pass's own transaction, so the glass and the wash switch together.
     /// The wash eases only in a window on screen, so this needs a display (CI's GUI runners have one).
+    /// The wash is only the `appearance.inactiveWindowDim` dim now (0 by default), so this sets one.
     @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
     func aSettledKeyChangeSwitchesTheWashWithNoFade() throws {
+        let dim = DesignSettings.shared.inactiveWindowDim
+        DesignSettings.shared.inactiveWindowDim = 0.3
+        defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let wash = try #require(view.inactiveTintView.layer)
 
         // Cmd-Tab away: the wash is at its resting alpha in this pass, with no fade on top.
@@ -166,6 +177,7 @@ import Testing
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                              backing: .buffered, defer: true)
         other.isReleasedWhenClosed = false
+        defer { other.closeAfterTest() }
         keyboard.key = other
         keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification])
         #expect(family.isInactive)
@@ -176,8 +188,11 @@ import Testing
     /// the wash eases there, so a reversal one pass later does not flash (review of #25199).
     @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
     func anActiveAppWithNoKeyWindowStillEasesTheWash() throws {
+        let dim = DesignSettings.shared.inactiveWindowDim
+        DesignSettings.shared.inactiveWindowDim = 0.3
+        defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let wash = try #require(view.inactiveTintView.layer)
         keyboard.key = nil
         keyboard.post(NSWindow.didResignKeyNotification)
@@ -189,6 +204,7 @@ import Testing
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                              backing: .buffered, defer: true)
         other.isReleasedWhenClosed = false
+        defer { other.closeAfterTest() }
         keyboard.key = other
         keyboard.post(NSWindow.didBecomeKeyNotification)
         #expect(family.isInactive)

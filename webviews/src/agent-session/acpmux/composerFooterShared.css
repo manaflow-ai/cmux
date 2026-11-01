@@ -19,10 +19,13 @@
   border-radius: var(--acpmux-permission-pill-radius);
 }
 
-/* The gap is measured from the + glyph to the capsule's edge. The row already contributes its
-   group gap and the + button's inset; the mode wrapper must not add another group inset. */
+/* The gap is measured from the + glyph to the capsule's edge where the capsule stands beside +, in
+   the box's own row. The row already contributes its group gap and the + button's inset; the mode
+   wrapper must not add another group inset. In the quiet row under the box, which both looks share
+   since #26551, the mode keeps that row's column instead (its shield under the + glyph,
+   composerLocation.css). */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"]
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-access {
+  :is(.acpmux-composer-bar:not(.acpmux-composer-foot), .nt-pickers) .acpmux-chips > .acpmux-access {
   padding-inline-start: 0;
   margin-inline-start: calc(var(--acpmux-permission-pill-gap) - var(--acpmux-row-group-gap, 10px) - var(--acpmux-row-inset, 6px));
 }

@@ -56,8 +56,10 @@ nonisolated enum CloudMachineUpdateStrings {
     static func updating(_ machine: String) -> String {
         String(format: String(localized: "cloud.machineUpdate.updating", defaultValue: "Updating cmux on %@…", table: "Cloud", bundle: .module), machine)
     }
+    /// A machine too old to update in place: what still works there, never "use another machine".
     static func unsupported(_ machine: String) -> String {
-        String(format: String(localized: "cloud.machineUpdate.unsupported", defaultValue: "%@ runs a cmux too old to update in place. Use a new Cloud machine instead.",
+        String(format: String(localized: "cloud.machineUpdate.unsupportedKeepsWorking",
+                              defaultValue: "%@ runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.",
                               table: "Cloud", bundle: .module), machine)
     }
     static func unavailable(_ machine: String) -> String {

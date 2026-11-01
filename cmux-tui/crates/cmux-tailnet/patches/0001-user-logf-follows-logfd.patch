@@ -1,0 +1,25 @@
+diff --git a/tailscale.go b/tailscale.go
+index ce7cb74..2ee0f71 100644
+--- a/tailscale.go
++++ b/tailscale.go
+@@ -582,8 +582,12 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
+ 	if s == nil {
+ 		return C.EBADF
+ 	}
++	// cmux: UserLogf (tsnet's user-facing log, which repeats the sign-in
++	// URL every few seconds) follows the same fd. Unset, tsnet sends it to
++	// the process's stderr, and anyone who reads that log can claim the node.
+ 	if fd == -1 {
+ 		s.s.Logf = logger.Discard
++		s.s.UserLogf = logger.Discard
+ 		return 0
+ 	}
+ 	f := os.NewFile(uintptr(fd), "logfd")
+@@ -591,6 +595,7 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
+ 		fmt.Fprintf(f, format, args...)
+ 		fmt.Fprintf(f, "\n")
+ 	}
++	s.s.UserLogf = s.s.Logf
+ 	return 0
+ }
+ 

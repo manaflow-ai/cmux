@@ -83,7 +83,8 @@ fails, a waived row above it is printed as a recorded waiver.
                       or an overload without the parameter
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
-    env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
+    env_write         setenv( / unsetenv( / putenv( / an assignment to environ, in Sources
+                      and in the app package's Tests. Not in
                       the baseline and not waived by crash-allow: only the call sites in
                       env-write-allowlist.json (path, call, count, reason) pass. libghostty
                       keeps a slice of environ from ghostty_init, so a write after launch
@@ -727,14 +728,22 @@ def check_banned(banned_files):
     return [f"swift {m}: {k} {a} -> {h}" for (m, k), (a, h) in sorted(over.items())], notes
 
 
+ENV_WRITE_ROOTS = ("Packages/macOS/CmuxNext/Sources", "Packages/macOS/CmuxNext/Tests")
+
+
 def scan_env_writes(repo, exported):
-    """Process environment writes in Swift sources beyond env-write-allowlist.json:
-    ["<swift module> (<path>: <call> <allowed> -> <found>)", ...]. A crash-allow comment
-    does not waive one; only the allowlist (with its reason) does."""
-    sources = os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
+    """Process environment writes in Swift sources and tests beyond env-write-allowlist.json:
+    {"<swift module>": ["<path>: <call> <allowed> -> <found>", ...]}. A crash-allow comment
+    does not waive one; only the allowlist (with its reason) does. Tests count too: a test
+    that writes the environment after GhosttyRuntime.shared ran ghostty_init frees the environ
+    copy libghostty reads, and the suite's process crashes (GhosttyImageStorageLimitTests,
+    signal 11 in ghostty_config_finalize, 2026-10-29). A test passes the value as an argument
+    instead (GhosttyRuntime.loadConfig(configFile:))."""
     allow = json.load(open(ENV_ALLOWLIST)) if os.path.exists(ENV_ALLOWLIST) else {}
     found = {}
-    for path in tracked_files(repo, sources, exported):
+    paths = [path for root in ENV_WRITE_ROOTS if os.path.isdir(os.path.join(repo, root))
+             for path in tracked_files(repo, os.path.join(repo, root), exported)]
+    for path in paths:
         if not path.endswith(".swift") or not os.path.isfile(path):
             continue
         rel = os.path.relpath(path, repo)
@@ -748,7 +757,8 @@ def scan_env_writes(repo, exported):
     for (rel, call), hits in sorted(found.items()):
         allowed_hits = allow.get(rel, {}).get(call, 0)
         if hits > allowed_hits:
-            module = os.path.relpath(rel, "Packages/macOS/CmuxNext/Sources").split(os.sep)[0]
+            parts = os.path.relpath(rel, "Packages/macOS/CmuxNext").split(os.sep)
+            module = parts[1] if parts[0] == "Sources" else "/".join(parts[:2])
             over.setdefault(module, []).append(f"{rel}: {call} {allowed_hits} -> {hits}")
     return over
 

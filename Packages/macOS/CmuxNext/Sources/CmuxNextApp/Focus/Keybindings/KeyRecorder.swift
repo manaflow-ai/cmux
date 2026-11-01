@@ -29,7 +29,9 @@ struct KeyRecorder: Equatable {
             isFinished = true
             return Event(keys: keys, done: true, cancelled: false)
         }
-        guard let shortcut else { return nil }
+        // Keypad Enter reads as U+0003: a bare Return on either key is one Return stroke, so the
+        // page closes the recorder on it as on Return.
+        guard let shortcut = isReturn ? Shortcut(Shortcut.returnKey, modifiers: []) : shortcut else { return nil }
         keys.append(shortcut)
         isFinished = keys.count == KeyBindingTable.maxSequenceLength
         return Event(keys: keys, done: isFinished, cancelled: false)
@@ -39,6 +41,12 @@ struct KeyRecorder: Equatable {
     /// matches it), or nil for a bare modifier.
     static func stroke(for event: NSEvent) -> Shortcut? {
         ActionRegistry.shortcuts(for: event).first { !$0.key.isEmpty }
+    }
+
+    /// The glyphs of the held modifiers in the menu order (⌃⌥⇧⌘), as a stroke's display writes them.
+    static func heldGlyphs(_ flags: NSEvent.ModifierFlags) -> String {
+        [(NSEvent.ModifierFlags.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+            .filter { flags.contains($0.0) }.map(\.1).joined()
     }
 
     static func isEscape(_ event: NSEvent) -> Bool {

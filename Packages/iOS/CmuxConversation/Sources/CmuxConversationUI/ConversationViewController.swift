@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+public import CmuxMobileSupport
 import GameController
 import UIKit
 
@@ -11,19 +12,23 @@ public struct ConversationPresentationOptions {
     public var serviceSubtitle: String
     public var unreadCount: Int
     public var trailingSymbol: String
+    /// Host customization; the default retains the Messages presentation.
+    public var header: ConversationHeaderPresentation
 
     public init(
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
-        trailingSymbol: String = "video"
+        trailingSymbol: String = "video",
+        header: ConversationHeaderPresentation = .init()
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
+        self.header = header
     }
 }
 
@@ -31,6 +36,11 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Replaces the details page when the name or avatar is activated.
+    public var onHeaderInfo: (() -> Void)?
+    /// Runs only in the normal header state. Reply/edit/select still dismiss
+    /// through their own close action. The view anchors a host's popover.
+    public var onHeaderAction: ((UIView) -> Void)?
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
@@ -46,6 +56,8 @@ public final class ConversationViewController: UIViewController {
     /// bottom in landscape.
     private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
+    /// Opt-in material above both transcript rows and reply-thread copies.
+    let headerMaterial = ConversationHeaderMaterial()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
     weak var detailsController: ConversationDetailsViewController?
@@ -193,6 +205,9 @@ public final class ConversationViewController: UIViewController {
     /// Keyboard-relative base line of the composer (see `composerBottomConstraint`).
     let composerBase = UILayoutGuide()
     var composerDropConstraint: NSLayoutConstraint?
+    /// The docked keyboard's top edge (or the bottom safe-area edge): the
+    /// composer's base line hangs from it (see `MobileKeyboardDock`).
+    private(set) var keyboardDock: MobileKeyboardDock!
     /// Height of the docked keyboard when fully shown, from its notifications.
     var dockedKeyboardHeight: CGFloat = 0
     /// Top edge of the keyboard's latest end frame, in view coordinates.
@@ -204,9 +219,16 @@ public final class ConversationViewController: UIViewController {
     private var isTransitioningSize = false
     var effects = ConversationEffectsState()
 
-    public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
+    /// The app's keyboard notifications (`MobileKeyboardDock`).
+    private let keyboard: MobileKeyboardFrameTracker
+
+    /// - Parameter keyboard: the app's keyboard tracker; without one the
+    ///   conversation keeps its own.
+    public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions(),
+                keyboard: MobileKeyboardFrameTracker? = nil) {
         self.store = store
         self.options = options
+        self.keyboard = keyboard ?? MobileKeyboardFrameTracker()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -253,22 +275,28 @@ public final class ConversationViewController: UIViewController {
 
         header.translatesAutoresizingMaskIntoConstraints = false
         header.trailingSymbol = options.trailingSymbol
+        header.presentation = options.header
         header.setTrailingMode(.action, animated: false)
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system {
+            view.insertSubview(headerMaterial, belowSubview: composerContainer)
+        }
         view.addSubview(header)
 
-        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
+        keyboardDock.trackInteractiveDismissal(of: collectionView)
+        self.keyboardDock = keyboardDock
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         composerHeightConstraint = composerHeight
-        // `composerBottomConstraint` places a base line 4 pt above the keyboard
+        // `composerBottomConstraint` places a base line 4 pt above the docked keyboard
         // (or the safe area, or a drawer); the composer then sits `composerDrop`
         // below that line, which follows the keyboard's progress.
         view.addLayoutGuide(composerBase)
-        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
+        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: keyboardDock.guide.topAnchor, constant: -4)
         composerBottomConstraint = composerBottom
         let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: ConversationKeyboardPinGeometry.restDrop)
         composerDropConstraint = drop
@@ -403,6 +431,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        keyboardDock.refresh()
         // With the keyboard up Messages insets the composer by the system
         // layout margin (16 pt, 20 pt on Plus/Max-width iPhones).
         composer.keyboardSideInset = systemMinimumLayoutMargins.leading
@@ -421,7 +450,9 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
         layoutReplyOverlay()
-        if store.background != nil, !Self.usesSystemTopPocket {
+        headerMaterial.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: view.bounds.width,
+                                      height: header.frame.maxY - view.bounds.minY + ConversationTopEdgeGeometry.extent)
+        if store.background != nil, !wantsSystemTopPocket {
             collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
         }
     }
@@ -477,7 +508,9 @@ public final class ConversationViewController: UIViewController {
         // the bottom of our header (iOS 26.5 and 27.0).
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
-        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
+        let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
+        let top = header.frame.maxY + max(0, spacing)
+        collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -520,7 +553,7 @@ public final class ConversationViewController: UIViewController {
     /// passes through every value in between.
     var keyboardProgress: CGFloat {
         let rest = view.bounds.maxY - view.safeAreaInsets.bottom
-        let top = view.keyboardLayoutGuide.layoutFrame.minY
+        let top = keyboardDock.guide.layoutFrame.minY
         guard top < rest - 0.5 else { return 0 }
         let travel = dockedKeyboardHeight - view.safeAreaInsets.bottom
         guard travel > 1 else { return 1 }
@@ -541,7 +574,7 @@ public final class ConversationViewController: UIViewController {
         // A drawer in the keyboard's place keeps the composer on its base line.
         let p = photoDrawer == nil ? keyboardProgress : 0
         let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
-        let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let guideTop = keyboardDock.guide.layoutFrame.minY
         let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
             guideTop: guideTop, restingGuideTop: restingGuideTop,
             screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation,
@@ -572,8 +605,14 @@ public final class ConversationViewController: UIViewController {
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
-                guard let self else { return }
-                if let end, end.height > 0 { self.dockedKeyboardHeight = end.height }
+                guard let self, let end else { return }
+                // In this app's points (an iPhone app on an iPad gets the iPad's
+                // keyboard in iPad points; see `MobileKeyboardDock`).
+                let frame = self.keyboardDock.keyboardFrame(notified: end, showing: true)
+                if frame.height > 0 { self.dockedKeyboardHeight = frame.height }
+                if let window = self.view.window, frame.height > 0 {
+                    self.keyboardEndTop = self.view.convert(frame, from: window.screen.coordinateSpace).minY
+                }
             }
         }
         center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
@@ -581,7 +620,7 @@ public final class ConversationViewController: UIViewController {
             MainActor.assumeIsolated {
                 guard let self, let end, let window = self.view.window else { return }
                 let screen = window.screen.coordinateSpace
-                let frame = self.view.convert(end, from: screen)
+                let frame = self.view.convert(self.keyboardDock.keyboardFrame(notified: end), from: screen)
                 self.keyboardEndTop = frame.height > 0 ? frame.minY : self.view.bounds.maxY
                 // UIKit posts this inside the keyboard's animation. Ending an
                 // interactive dismissal moves the guide there but lays out
@@ -602,7 +641,7 @@ public final class ConversationViewController: UIViewController {
         let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
         let state = ConversationKeyboardFocusPolicy.KeyboardHidden(
             composerIsFirstResponder: composer.textView.isFirstResponder,
-            keyboardGuideAtRest: view.keyboardLayoutGuide.layoutFrame.minY >= restingGuideTop - 0.5,
+            keyboardGuideAtRest: keyboardDock.guide.layoutFrame.minY >= restingGuideTop - 0.5,
             hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
             sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
             isTransitioningSize: isTransitioningSize
@@ -695,6 +734,9 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
+            // The open reply thread reads the store itself, so it follows
+            // even a change the live gate holds back from the transcript.
+            defer { refreshReplyThread() }
             if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
                 pendingFlightRowIDs = Set(insertedRowIDs)
             }
@@ -918,17 +960,14 @@ public final class ConversationViewController: UIViewController {
     /// readied; any other row builds its text as before.
     private func bubbleTextPreparation(for message: ConversationMessage) -> (@Sendable () async -> Void)? {
         let width = collectionView.bounds.width
-        guard width > 0, !message.text.isEmpty, message.linkPreview == nil, message.poll == nil,
-              message.audioAttachment == nil, !message.isUnsent,
+        guard width > 0, let inputs = ConversationBubbleInputs.live(message, meID: store.meID),
               store.translations.presentation(for: message) == nil else { return nil }
         let margin = layoutMargin
         let traits = collectionView.traitCollection
-        let meID = store.meID
-        let text = PreparedBubbleText(text: message.text, outgoing: message.senderID == meID, mentions: message.mentions, meID: meID, runs: message.textRuns)
         return {
             await Task.detached(priority: .userInitiated) {
                 traits.performAsCurrent {
-                    let body = MessageCellLayout.attributedBody(text.text, outgoing: text.outgoing, mentions: text.mentions, meID: text.meID, runs: text.runs)
+                    let body = MessageCellLayout.attributedBody(inputs)
                     _ = BubbleTextCache.shared.size(of: body, width: MessageCellLayout.bubbleTextWidth(width: width, margin: margin))
                 }
             }.value
@@ -1603,6 +1642,8 @@ public final class ConversationViewController: UIViewController {
             setSelecting(false)
         } else if replyTarget != nil {
             exitReplyMode()
+        } else {
+            onHeaderAction?(header.trailingButton)
         }
     }
 
@@ -1612,7 +1653,12 @@ public final class ConversationViewController: UIViewController {
     /// CKAvatarButton, clear dimming, alignment rect 208 pt around the
     /// details avatar). UIKit runs the open and close springs.
     func openInfo() {
-        guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
+        guard detailsController == nil, presentedViewController == nil else { return }
+        if let onHeaderInfo {
+            onHeaderInfo()
+            return
+        }
+        guard store.info != nil else { return }
         view.endEditing(true)
         guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds) else { return }
         details.background = store.background
@@ -1928,6 +1974,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
         var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // An inline reply stands apart: Messages adds `selfReplyTranscriptSpace`
+        // above its quote and under the reply (iPhone 17 Pro Max, iOS 27).
+        if model.replyQuote != nil || previous.replyQuote != nil { gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpace) }
         // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
         // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
         if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }
@@ -2030,15 +2079,6 @@ extension ConversationViewController {
     }
 }
 
-/// What a live message's bubble text is built from, handed to a task.
-private struct PreparedBubbleText: Sendable {
-    var text: String
-    var outgoing: Bool
-    var mentions: [ConversationMention]
-    var meID: String?
-    var runs: [ConversationTextRun]
-}
-
 /// Rows handed to a measuring task (immutable value models).
 private struct MeasureWork: @unchecked Sendable {
     let models: [MessageRowModel]
@@ -2059,6 +2099,11 @@ private struct PrefetchText: @unchecked Sendable {
 /// wherever it sits instead of the screen edge behind the keyboard. Content
 /// insets are managed by hand (adjustment is off), so this changes nothing else.
 final class TranscriptCollectionView: UICollectionView {
+    /// The host's opt-in system edge covers the full avatar/name header,
+    /// rather than ending at the status bar's safe area.
+    var edgeTopInset: CGFloat = 0 {
+        didSet { if edgeTopInset != oldValue { safeAreaInsetsDidChange() } }
+    }
     var edgeBottomInset: CGFloat = 0 {
         didSet { if edgeBottomInset != oldValue { safeAreaInsetsDidChange() } }
     }
@@ -2170,6 +2215,7 @@ final class TranscriptCollectionView: UICollectionView {
 
     override var safeAreaInsets: UIEdgeInsets {
         var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeTopInset)
         insets.bottom = max(insets.bottom, edgeBottomInset)
         return insets
     }

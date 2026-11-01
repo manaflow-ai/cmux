@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSessionTransfer
 import CmuxNextWakeups
 import Darwin
 import Foundation

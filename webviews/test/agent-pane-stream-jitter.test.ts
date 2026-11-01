@@ -308,14 +308,26 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     messageBottom?: number;
     composerTop?: number;
     settled?: boolean;
+    /// What is laid out under the reply's text (its meta line, a trailing tool row, the live line
+    /// or the footer): from the text's end to the last row's layout end (its entrance motion aside).
+    under?: number;
   };
-  /// Samples every painted frame until `stop`.
+  /// Samples every painted frame until `stop`, as the frame paints it: in a ResizeObserver made after
+  /// the pane's, on a probe resized in each frame's callbacks, so the read runs after the frame's
+  /// layout and the pane's own observer (which places a row that grew before paint), right before
+  /// the paint. A read in a task after the frame (cmuxAfterPaint) can come after a task already
+  /// queued has grown the streaming reply: a state no frame painted, a line taller than the rows
+  /// under it were placed for (23 px, on the CI runner's busy main thread).
   const sample = (page: Page, marker: string) =>
     page.evaluate((marker) => {
       const w = window as unknown as { __frames: Frame[]; __stop: () => void };
       w.__frames = [];
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      w.__stop = window.cmuxAfterPaint((frame) => {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
           each.textContent?.includes(marker),
         );
@@ -327,8 +339,35 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           messageBottom: message?.getBoundingClientRect().bottom,
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
+          under: (() => {
+            const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+            const last = rows.reduce<HTMLElement | undefined>(
+              (low, each) =>
+                !low || each.getBoundingClientRect().bottom > low.getBoundingClientRect().bottom ? each : low,
+              undefined,
+            );
+            return message && last
+              ? last.offsetTop +
+                  last.offsetHeight -
+                  (message.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop)
+              : undefined;
+          })(),
         });
-      });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      const stopFrames = window.cmuxAfterPaint(
+        () => {},
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
+      w.__stop = () => {
+        stopFrames();
+        observer.disconnect();
+        probe.remove();
+      };
     }, marker);
   const stop = (page: Page) =>
     page.evaluate(() => {
@@ -466,7 +505,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   });
 
   test.each(engines.map(([name]) => name))(
-    "%s: settling short, long, and tool-ending replies does not move the message or composer",
+    "%s: settling short and long replies moves nothing; a tool-ending one folds its tool above the reply once",
     async (name) => {
       const page = await open(name);
       for (const scenario of [
@@ -481,6 +520,15 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           if (scenario.toolEnding && index === scenario.chunks - 1) toolCall(`settle-tool-${turn}`);
         });
         if (scenario.toolEnding) toolDone(`settle-tool-${turn}`);
+        // The reply, and a tool-ending reply's tool row, paint and come to rest while the turn still
+        // runs, before the turn ends, so the last frame before the settle is that state: a one-chunk
+        // reply and its end could land in one WebKit frame, and on the CI runner the tool row and
+        // the turn's end landed in one Chromium frame, which hid the tool row's fold.
+        await page.waitForFunction(() => {
+          const frames = (window as unknown as { __frames: Frame[] }).__frames;
+          return frames.some((frame) => frame.messageBottom !== undefined && !frame.settled);
+        });
+        await rest(page);
         endTurn();
         await ended(page, marker);
         await rest(page);
@@ -505,8 +553,19 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           before: true,
           after: true,
         });
-        expect(Math.abs(after!.messageBottom! - before!.messageBottom!)).toBeLessThanOrEqual(1);
         expect(Math.abs(after!.composerTop! - before!.composerTop!)).toBeLessThanOrEqual(1);
+        const moved = after!.messageBottom! - before!.messageBottom!;
+        if (!scenario.toolEnding) expect(Math.abs(moved)).toBeLessThanOrEqual(1);
+        else {
+          // A finished turn folds its tool rows into "Worked for" above the reply (80e6a34d0b9c,
+          // on purpose): the tool row that ran after the reply leaves from under it, so the reply
+          // drops by what went from under it, once, in the settle's frame, and rests there.
+          const left = before!.under! - after!.under!;
+          expect(left).toBeGreaterThan(20);
+          expect(Math.abs(moved - left)).toBeLessThanOrEqual(1);
+          const rested = measured.filter((frame) => frame.settled).map((frame) => frame.messageBottom!);
+          expect(Math.max(...rested) - Math.min(...rested)).toBeLessThanOrEqual(1);
+        }
       }
       await page.close();
     },

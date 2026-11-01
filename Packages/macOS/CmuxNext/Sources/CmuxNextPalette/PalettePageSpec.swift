@@ -55,10 +55,13 @@ public struct PalettePageSpec {
     public var queryItems: (@MainActor (String) -> [PaletteItem])?
     /// Rows the page finds for the query itself, in the order given, instead
     /// of the ranker's search of its providers' rows (Search All Windows
-    /// reads every terminal's text). Asked on open and on every edit; an edit
-    /// cancels the task of the query before it, and the rows on screen stay
-    /// until the new ones land.
-    public var queryResults: (@MainActor (String) async -> [PaletteItem])?
+    /// reads every terminal's text). Asked on open and on every edit. Each
+    /// answer the stream yields replaces the one before (the selection stays
+    /// on its row), so a page shows what it found so far while it reads on;
+    /// the field's spinner runs until the stream ends. An edit cancels the
+    /// stream of the query before it, and the rows on screen stay until the
+    /// new query's first answer lands.
+    public var queryResults: (@MainActor (String) -> AsyncStream<[PaletteItem]>)?
     /// False: the query never filters the providers' rows (a save picker's
     /// folders stay listed while the name is typed).
     public var filtersByQuery: Bool
@@ -72,6 +75,8 @@ public struct PalettePageSpec {
     /// opens (a file name without its extension); nil puts the caret at
     /// the end.
     public var initialQuerySelection: Int?
+    /// Values chosen so far on a multi-value step, drawn as chips before the query.
+    public var tokens: [PaletteToken] = []
 
     public init(
         id: String,
@@ -91,7 +96,7 @@ public struct PalettePageSpec {
         hierarchy: PaletteHierarchy? = nil,
         emptyQuerySelectionID: String? = nil,
         queryItems: (@MainActor (String) -> [PaletteItem])? = nil,
-        queryResults: (@MainActor (String) async -> [PaletteItem])? = nil,
+        queryResults: (@MainActor (String) -> AsyncStream<[PaletteItem]>)? = nil,
         filtersByQuery: Bool = true,
         initialQuerySelection: Int? = nil,
         hint: String? = nil,

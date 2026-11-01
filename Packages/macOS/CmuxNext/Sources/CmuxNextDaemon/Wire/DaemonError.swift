@@ -58,11 +58,23 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
 }
 
 extension DaemonError {
+    /// The handshake found an incompatible owner (another protocol, or a required capability
+    /// missing) and handed it off to the bundled build (`DaemonLauncher.handOffIncompatible`):
+    /// a retry reaches its successor, so this is a lost connection, never a refusal.
+    public static let incompatibleOwnerHandedOff = DaemonError.connectionClosed(reason: "incompatible owner handed off to the bundled build")
+
     /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
     public var isLostConnection: Bool {
         switch self {
         case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
         default: false
         }
+    }
+
+    /// cmux-tui refused the connection at its connection limit (`server.busy`): it is
+    /// alive and frees a slot when one of its connections ends, so a retry soon can work.
+    public var isBusyRefusal: Bool {
+        if case .connectionClosed(let reason) = self { return reason == LineTransport.busyRefusal }
+        return false
     }
 }

@@ -12,6 +12,7 @@ enum CloudStartSessionStrings {
     }
 
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
+    static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
 
     static func noPage(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.noPage", defaultValue: "Couldn't show the question in the chat, so %2$@ didn't start on %1$@. Run `%3$@` again once the chat is open.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
@@ -95,6 +96,16 @@ enum CloudStartSessionStrings {
 
     static func starting(agent: String, machine: String) -> String {
         String(format: String(localized: "cloud.startSession.starting", defaultValue: "Starting %1$@ on %2$@…", table: "CloudSessions", bundle: .module), agent, machine)
+    }
+
+    /// The card once the session runs: it links the asking chat to the new one.
+    static func started(agent: String, machine: String) -> String {
+        String(format: String(localized: "cloud.startSession.started", defaultValue: "%1$@ runs on Cloud machine %2$@. Its chat is in that machine's workspace in the sidebar.", table: "CloudSessions", bundle: .module), agent, machine)
+    }
+
+    /// Open Chat on that card when no connected machine lists the new chat any more.
+    static func chatGone(agent: String, machine: String) -> String {
+        String(format: String(localized: "cloud.startSession.chatGone", defaultValue: "Couldn't open the %1$@ chat on %2$@: its tab was closed or the machine isn't connected.", table: "CloudSessions", bundle: .module), agent, machine)
     }
 
     /// A run that answered `pending`: the same command again answers its end.

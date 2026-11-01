@@ -80,7 +80,9 @@ test("a sent message starts as one collapsed line: Sent to, the recipient, a one
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("first line");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   // Closed, how far it got is one word on the line; nothing else draws: no body, no Show more.
-  expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe("Delivered");
+  expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe(
+    "Delivered",
+  );
   expect(row.querySelector(".cv-agentmsg__card")).toBeNull();
   expect(row.querySelectorAll(".cv-message__status")).toHaveLength(1);
   expect(row.textContent).not.toContain("second line");
@@ -95,7 +97,12 @@ test("opening it grows the message in place: the card holds the text and nothing
   await act(async () => toggle().click());
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
   const card = host.querySelector(".cv-agentmsg__card")!;
-  expect(card.textContent).toBe("first line\nsecond line");
+  // Markdown represents the source newline with a line break, not a text node.
+  expect(card.textContent).toBe("first linesecond line");
+  const breaks = card.querySelectorAll("br");
+  expect(breaks).toHaveLength(1);
+  expect(breaks[0]?.previousSibling?.textContent).toBe("first line");
+  expect(breaks[0]?.nextSibling?.textContent).toBe("second line");
   expect(card.classList.contains("selectable")).toBe(true);
   expect(toggle().getAttribute("aria-controls")).toBe(card.id);
   // One scroller in the card, the message's text, capped by the stylesheet (conversation.css).
@@ -124,7 +131,7 @@ test("how far a send got is one muted word on its line: Sending shows none, then
   expect(host.querySelector(".cv-message__status")).toBeNull();
   await render(send("completed"));
   expect(host.querySelector(".cv-message")?.getAttribute("data-delivery")).toBe("sent");
-  expect(host.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe("Sent");
+  expect(host.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe("Sent");
 });
 
 const sendMessage = (to: string, output: string, status = "completed") => ({
@@ -164,7 +171,7 @@ for (const [delivery, output] of Object.entries(RESULTS))
     const row = host.querySelector(".cv-message")!;
     expect(row.getAttribute("data-delivery")).toBe(delivery);
     const word = { queued: "Queued", delivered: "Delivered", sent: "Sent" }[delivery];
-    expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe(word!);
+    expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe(word!);
     for (const opened of [false, true]) {
       if (opened) await act(async () => toggle().click());
       for (const raw of ['{"success"', '"pin"', "queued for delivery", "a39e817af38ddf5e7"])
@@ -189,7 +196,7 @@ test("a send that did not arrive says why, never Sent: a stopped agent, no such 
     await render(sendMessage("grid-fix", output));
     const row = host.querySelector(".cv-message")!;
     expect(row.getAttribute("data-delivery")).toBe("failed");
-    expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe(word);
+    expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe(word);
     await act(async () => toggle().click());
     for (const raw of ['{"success"', "won't be resumed", "No agent named"]) expect(row.textContent).not.toContain(raw);
   }
@@ -231,15 +238,20 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
-test("Copy is in the line's hover row, after the status word, not over the line's words", async () => {
+test("Copy is in the line's hover row at the sentence's end; the status word, then the chevron, close the line", async () => {
   await render(send("completed", "", 'tell-coordinator "first line\\nsecond line"'));
   const line = host.querySelector(".cv-agentmsg__line")!;
-  const actions = line.querySelector(":scope > .cv-sent-actions")!;
+  const sentence = line.querySelector(":scope > .cv-agentmsg__sentence")!;
+  const actions = sentence.querySelector(":scope > .cv-sent-actions")!;
   expect(actions).not.toBeNull();
   expect(actions.querySelector("button")?.getAttribute("aria-label")).toBe("Copy");
-  // The line's last child: the words, chip, preview and status word all come before it.
-  expect(line.lastElementChild).toBe(actions);
-  expect(actions.previousElementSibling?.classList.contains("cv-message__status")).toBe(true);
+  // The sentence's last child: the words, chip and preview come before it.
+  expect(sentence.lastElementChild).toBe(actions);
+  // The row grammar's trailing column (status), then the chevron, end the line.
+  const trail = line.querySelector(":scope > .cv-tool__trail")!;
+  expect(trail.querySelector(".cv-message__status")).not.toBeNull();
+  expect(trail.nextElementSibling?.classList.contains("cv-tool__chevron")).toBe(true);
+  expect(line.lastElementChild?.classList.contains("cv-tool__chevron")).toBe(true);
 });
 
 test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {
@@ -277,7 +289,7 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   const row = host.querySelector(".cv-agentmsg")!;
   expect(row.getAttribute("data-direction")).toBe("received");
   expect(row.querySelector(".cv-agentmsg__icon [data-testid=harness-mark]")).not.toBeNull();
-  expect(row.querySelector(".cv-agentmsg__line > .reply")?.textContent).toBe("Reply");
+  expect(row.querySelector(".cv-agentmsg__line > .cv-agentmsg__sentence > .reply")?.textContent).toBe("Reply");
   // First line only, its Markdown marks dropped.
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
