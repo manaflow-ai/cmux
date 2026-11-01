@@ -174,11 +174,11 @@ impl Hub {
     pub(super) fn background_turn_update(&self, session: &Session, update: &Value) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
-        let started = session
-            .background_turns
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_update(update, acpmux_turn, seq);
+        let started = session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).on_update(
+            update,
+            acpmux_turn,
+            seq,
+        );
         if let Some(msg) = started {
             self.append(session, "mux", RECORD_KIND, msg);
         }
