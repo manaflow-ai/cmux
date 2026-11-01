@@ -141,6 +141,13 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
+    def test_decide_uses_only_read_permissions_for_metadata_and_placement(self):
+        job = DOC['jobs']['decide']
+        self.assertEqual(job['permissions'], {'actions': 'read', 'contents': 'read'})
+        script = next(step['with']['script'] for step in job['steps'] if step.get('id') == 'decide')
+        self.assertNotRegex(script, r"github\.rest\.[A-Za-z]+\.(?:create|update|delete|upload)")
+        self.assertNotIn('core.exportVariable', script)
+
     def test_decide_bootstraps_on_declared_hosted_linux_without_phantom_fleet(self):
         # No preceding job can give decide a live runner receipt. Its bounded
         # admission step still tries fleet for downstream work before overflow.

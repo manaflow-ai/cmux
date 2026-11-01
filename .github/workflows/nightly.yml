@@ -188,9 +188,7 @@ jobs:
     environment: ci-routing-agent
     permissions:
       actions: read
-      contents: write
-      attestations: write
-      id-token: write
+      contents: read
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # Bootstrap has no earlier live runner receipt; declared light work uses hosted Linux.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
