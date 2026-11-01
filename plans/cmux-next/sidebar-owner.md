@@ -231,6 +231,14 @@ performance.
 
 ## Rule for every sidebar change
 
+### Shared grid columns (2026-10-30)
+
+The native sidebar rows consume `SidebarColumns` for their lead, text, nesting and trailing
+slots. Text-only rows start at the lead without reserving an empty icon well; group headers keep
+their members' text column while the existing rail and edge geometry stays unchanged. Trailing
+marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
+alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
@@ -857,6 +865,28 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+## Sidebar layout grid (2026-10-29)
+
+Leo: "We need to have the fucking shit aligned on fucking grids and lines and whatever the fuck."
+`SidebarColumns` (via `SidebarStyle.columns`) is the one source of every row kind's lead, icon,
+text and trailing lines. Lead sits `horizontalInset` inside the row (12 compact, 16 comfortable
+from the sidebar edge), so iconless titles keep Lawrence's 2026-10-23 "text needs to be as left as
+possible (how it originally was)" (`a1af264c7a7`); a row with an icon takes text at lead + icon
+column + 8 (36 compact, 44 comfortable); +16 per real nesting depth. Every trailing mark centers
+24 from the sidebar edge (22.5 from the row's end, which stays `rowEdgeGap` 1.5 from the edge),
+a second mark 20 further in. Row heights, fonts, hit boxes, fills, glyph sizes and group rail
+and bar x stay at base; group names keep their members' text column (`ab905adeadd`).
+`SidebarGridAlignmentTests` pins the columns and the preserved base geometry.
+Commits of #27598 that predate its branch's `Sidebar-Look:` trailer check carry no trailer; each is a
+visual change asked for by the grid request above, reviewed (Astra SHIP at `14317162851`, and the merge
+with feat-cmux-next at `c552fc0cff0`) and logged here: `af33eaea0cf` (iconless lead at the row inset, band
+marks on the trailing line), `81ab5acc7fe` (tab rows under their workspace; titleFrame reports drawn
+text), `d3a10cfc23d` (base's icon box outside the row columns), `c231ff796c8` (glyphs keep base's icon
+box, centered in the icon column), `05c5b297b4e` (glyphs start on lead; base's rail padding),
+`2a896b81d78` (a quiet tab keeps its trailing inset; the comfortable icon frame is the 20 pt box).
+The merge keeps base's later sidebar looks on the columns: the trailing column's resize-band clearance
+(#27954, `9a79771762c`) as a floor in `SidebarColumns`, a section header's + on the column, a remote
+group's machine mark, the left-rail slot, the 8 pt unread dot, and no hover close on pinned rows.
 
 ## One list's "Connecting…" waits out the startup deadline (2026-10-30)
 

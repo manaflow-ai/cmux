@@ -178,6 +178,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
+        // Cloud whole-machine turn fencing. These methods are served by the
+        // daemon's request dispatcher and intentionally use untyped envelopes
+        // while the owner capability payload remains private to Cloud clients.
+        untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
+        untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),

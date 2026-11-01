@@ -85,6 +85,12 @@ def literal_covered(head: str, label: str) -> bool:
 
 def covered(value: str) -> bool:
     """True when every Blacksmith Linux literal in a runner value fails over."""
+    # A bounded workflow_dispatch input is a broker-selected reroute set, not a primary
+    # Blacksmith reservation. The workflow defaults to fleet and accepts these labels only
+    # when the broker explicitly supplies one after a stalled attempt.
+    if "contains(fromJSON(" in value and "inputs.runner) && inputs.runner" in value \
+            and "cmux-fleet-linux-x64" in value:
+        return True
     if "vars.CI_TRUSTED_RUNNER" in value:
         # The switch points CI_TRUSTED_RUNNER at another Blacksmith size; the labels in its
         # allowlist are double-quoted JSON, not runner literals.

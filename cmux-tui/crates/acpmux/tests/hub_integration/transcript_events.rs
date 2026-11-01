@@ -794,7 +794,7 @@ async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let id = new_session(&mut c, "large-open").await;
     // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
     // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(6 << 20), None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(11 << 20), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();
