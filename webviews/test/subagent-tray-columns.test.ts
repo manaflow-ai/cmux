@@ -7,7 +7,6 @@ import { chromium, type Browser } from "playwright";
 import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -129,8 +128,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
-          // A headed tray starts folded; View all is under its open list.
-          await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
           // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
@@ -561,7 +558,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   // One tray line's anatomy (design/chat-transcript.md "Subagent row anatomy"; Leo, 2026-10-31:
   // "why is this still so ass in latest nightly", and earlier "eg a lot of these subtitles are
   // bad"): one leading glyph, the title at least --ds-space-2 after it, no agent-type subtitle, no
-  // redundant type word, a fixed status track after the time, and no card around
+  // Done or Running word, a state worth a word kept in its meta before the time, and no card around
   // a tray with nothing running.
   const anatomyEntry = "agent-pane.subagent-row-anatomy";
   for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
@@ -631,11 +628,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   gap: name.left - slot.right,
                   subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
                   words: visibleText,
-                  stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
-                  state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
+                  stats: row.querySelector(".acpmux-agent-line__meta > .acpmux-agent-line__stats")?.textContent ?? null,
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
-                  timeRight: time.right,
-                  metaLeft: meta?.left,
+                  timeLeft: time.left,
+                  metaRight: meta?.right,
                 };
               }),
             };
@@ -648,11 +644,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
-            expect(row.state).not.toBeNull();
-            expect(row.words).toContain(row.state!);
-            if (row.metaLeft !== undefined) expect(row.timeRight).toBeLessThanOrEqual(row.metaLeft + 0.5);
+            expect(row.words).not.toContain("Done");
+            expect(row.words).not.toContain("Running");
+            if (row.metaRight !== undefined) expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
           }
-          // Progress remains inline with the title; it cannot shift the fixed status track.
+          // A running line's stats sit in its trailing meta, never on a second line under the title.
           if (variant === "running-stats") {
             expect(anatomy.rows.some((row) => row.stats === "1/3 agents")).toBe(true);
             // No tokens or tool uses on a row (Leo, 2026-10-31: "we can remove the symbols and the tokens").
@@ -665,7 +661,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(anatomy.card.background).toBe("rgba(0, 0, 0, 0)");
           }
           if (variant === "mixed") {
-            // A long state word stays in its fixed track, cut before Stop.
+            // A long state word stays in its meta, cut, before the time.
             const long = await page.evaluate(() => {
               const state = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-summary-agent__state");
               if (!state) throw new Error("the failed line says Failed");
@@ -674,13 +670,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               const style = getComputedStyle(state);
               return {
                 right: state.getBoundingClientRect().right,
-                stopLeft: row.querySelector(".acpmux-agent-line__stop-track")!.getBoundingClientRect().left,
+                timeLeft: row.querySelector(".acpmux-agent-line__time")!.getBoundingClientRect().left,
                 overflow: style.overflow,
                 textOverflow: style.textOverflow,
                 whiteSpace: style.whiteSpace,
               };
             });
-            expect(long.right).toBeLessThanOrEqual(long.stopLeft + 0.5);
+            expect(long.right).toBeLessThanOrEqual(long.timeLeft + 0.5);
             expect(long.overflow).toBe("hidden");
             expect(long.textOverflow).toBe("ellipsis");
             expect(long.whiteSpace).toBe("nowrap");
@@ -690,33 +686,5 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
       });
     }
-  }
-  for (const width of [760, 360]) {
-    test(`a subagent line's state icon and title keep the row's 8px icon gap (${width}px wide)`, async () => {
-      const port = (server.httpServer!.address() as { port: number }).port;
-      const page = await browser.newPage({ viewport: { width, height: 400 }, reducedMotion: "reduce" });
-      try {
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "one-running" })}`);
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        await page.locator(".acpmux-running-tray .acpmux-agent-line .acpmux-summary-agent__name").first().waitFor();
-        // The line has no kind glyph since #29608: the state icon, then the title.
-        const gaps = await page.evaluate(() => {
-          const line = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")!;
-          const box = (selector: string) => line.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
-          const state = box(".acpmux-lineage__icon");
-          const name = box(".acpmux-summary-agent__name");
-          return {
-            narrow: document.querySelector(".acpmux-running-tray")!.hasAttribute("data-narrow"),
-            kindIcons: line.querySelectorAll(".acpmux-agent-line__kind-icon").length,
-            iconToTitle: name.left - state.right,
-          };
-        });
-        expect(gaps.narrow).toBe(width <= 400);
-        expect(gaps.kindIcons).toBe(0);
-        expect(gaps.iconToTitle).toBeCloseTo(8, 0);
-      } finally {
-        await page.close();
-      }
-    });
   }
 });
