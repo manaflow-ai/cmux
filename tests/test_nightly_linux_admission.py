@@ -80,12 +80,16 @@ class Receipts(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 admission.validate({**receipt("fleet"), **mutation}, REQUEST)
 
-    def test_delayed_fleet_response_cannot_select_an_expired_reservation(self):
+    def test_committed_fleet_decision_survives_delayed_delivery(self):
+        # Decision at 179s, response at 181s: reserved listeners remain bound to
+        # this parent/job while its dependencies run. The 180s limit governs
+        # admission, not delivery of an already committed fleet decision.
+        delivered = dt.datetime.now(dt.timezone.utc)
         value = receipt("fleet")
-        for field in ("created_at", "expires_at", "decided_at"):
-            value[field] = (admission.timestamp(value[field]) - dt.timedelta(minutes=5)).isoformat()
-        with self.assertRaises(ValueError):
-            admission.validate(value, REQUEST)
+        value.update(created_at=(delivered - dt.timedelta(seconds=181)).isoformat(),
+                     expires_at=(delivered - dt.timedelta(seconds=1)).isoformat(),
+                     decided_at=(delivered - dt.timedelta(seconds=2)).isoformat())
+        self.assertEqual(admission.routes(ENV, REQUEST, value), value["runners"])
 
     def test_missing_admission_keeps_controls_on_existing_owned_routes(self):
         selected = admission.routes(ENV, REQUEST, None)

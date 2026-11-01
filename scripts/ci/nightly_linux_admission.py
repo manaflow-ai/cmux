@@ -74,8 +74,7 @@ def validate(receipt: Mapping[str, Any], request: Mapping[str, Any]) -> str:
     decided = timestamp(receipt.get("decided_at"))
     if status == "fleet":
         expected = {job: f"cmux-nightly-{lease}-{job}" for job in request["jobs"]}
-        if (receipt.get("runners") != expected or not created <= decided < expires
-                or dt.datetime.now(dt.timezone.utc) >= expires):
+        if receipt.get("runners") != expected or not created <= decided < expires:
             raise ValueError("fleet receipt does not reserve matching runners before expiry")
     elif status == "overflow":
         elapsed = receipt.get("no_start_seconds")
