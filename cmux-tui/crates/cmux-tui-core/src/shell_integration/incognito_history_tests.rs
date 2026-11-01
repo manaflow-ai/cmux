@@ -101,6 +101,20 @@ fn run_app_command(
     run_launch(ShellLaunch { command, env }, typed, history)
 }
 
+/// Like [`run_one_command`], for a terminal started with `command` (the
+/// caller's program) through [`shell_launch`].
+fn run_explicit_command(
+    command: Vec<String>,
+    mut env: Vec<(String, String)>,
+    incognito: bool,
+    (typed, history): (&str, &Path),
+) -> String {
+    if incognito {
+        keep_no_history(&mut env);
+    }
+    run_launch(shell_launch(Some(command), env), typed, history)
+}
+
 /// The repo's Ghostty scripts and the app's layer, as the app bundles them.
 fn app_resources() -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
@@ -216,7 +230,8 @@ fn an_incognito_fish_keeps_no_history() {
     fs::create_dir_all(&data).unwrap();
     fs::write(
         config.join("fish/config.fish"),
-        "set -g fish_greeting\nfunction fish_prompt\n    echo -n '> '\nend\n",
+        // A config that turns private mode off again after the integration.
+        "set -g fish_greeting\nset -e fish_private_mode\nfunction fish_prompt\n    echo -n '> '\nend\n",
     )
     .unwrap();
     let history = data.join("fish/fish_history");
@@ -294,4 +309,63 @@ fn an_incognito_bash_the_app_integrated_keeps_no_history() {
     let run =
         |incognito| run_app_command(command.clone(), env.clone(), incognito, (TYPED, &history));
     assert_history_kept_only_when_normal("app bash", run, &base);
+}
+
+/// An incognito terminal started as an explicit `zsh` (not the default
+/// shell) is integrated for its history too.
+#[test]
+fn an_incognito_zsh_started_as_an_explicit_command_keeps_no_history() {
+    let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
+        eprintln!("skipped: zsh is not installed");
+        return;
+    };
+    let base = temp_base("explicit-zsh");
+    let user = base.join("user");
+    fs::create_dir_all(&user).unwrap();
+    let history = base.join("zsh_history");
+    fs::write(user.join(".zshenv"), "unsetopt global_rcs\n").unwrap();
+    fs::write(
+        user.join(".zshrc"),
+        format!(
+            "HISTFILE={}\nHISTSIZE=100\nSAVEHIST=100\nsetopt inc_append_history\nPS1='> '\n",
+            history.display()
+        ),
+    )
+    .unwrap();
+    let env = vec![
+        ("HOME".to_string(), base.to_string_lossy().into_owned()),
+        ("ZDOTDIR".to_string(), user.to_string_lossy().into_owned()),
+    ];
+    let command = vec![zsh.to_string_lossy().into_owned()];
+    let run = |incognito| {
+        run_explicit_command(command.clone(), env.clone(), incognito, (TYPED, &history))
+    };
+    assert_history_kept_only_when_normal("explicit zsh", run, &base);
+}
+
+/// `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified, except an
+/// incognito terminal's: its history stays off.
+#[test]
+fn an_incognito_bash_keeps_no_history_under_the_integration_opt_out() {
+    let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
+    else {
+        eprintln!("skipped: an integrated bash is not installed");
+        return;
+    };
+    let base = temp_base("opt-out-bash");
+    let history = base.join("bash_history");
+    fs::write(
+        base.join(".bashrc"),
+        format!("HISTFILE={}\nPROMPT_COMMAND='history -a'\nPS1='> '\n", history.display()),
+    )
+    .unwrap();
+    let env = vec![
+        ("HOME".to_string(), base.to_string_lossy().into_owned()),
+        (OPT_OUT_ENV.to_string(), "none".to_string()),
+    ];
+    let command = vec![bash.to_string_lossy().into_owned()];
+    let run = |incognito| {
+        run_explicit_command(command.clone(), env.clone(), incognito, (TYPED, &history))
+    };
+    assert_history_kept_only_when_normal("opt-out bash", run, &base);
 }

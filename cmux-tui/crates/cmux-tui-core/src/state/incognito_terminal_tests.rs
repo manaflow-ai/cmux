@@ -239,3 +239,59 @@ fn an_unknown_terminal_keeps_its_screen_off_the_disk_until_the_registry_answers(
     set_broken(false);
     mux.shutdown();
 }
+
+/// The daemon's command history (`terminal-command-history-v1`, when on)
+/// stored an incognito terminal's commands in SQLite.
+#[test]
+fn an_incognito_terminal_commands_stay_out_of_the_command_history() {
+    const NORMAL: &str = "00000000000040008000000000000c01";
+    const PRIVATE: &str = "00000000000040008000000000000c02";
+    const INCARNATIONS: [&str; 2] =
+        ["10000000000040008000000000000c01", "10000000000040008000000000000c02"];
+    let session = Session::new("incognito-command-history");
+    let mux = session.open();
+    mux.set_terminal_command_history(true, None).unwrap();
+    let (_, normal_key) = workspace(&mux, "normal", "empty", false);
+    let (_, private_key) = workspace(&mux, "private", "empty", true);
+    let mut ids = Vec::new();
+    for ((terminal, key), incarnation) in
+        [(NORMAL, &normal_key), (PRIVATE, &private_key)].into_iter().zip(INCARNATIONS)
+    {
+        mux.seed_running_terminal_for_test(terminal, incarnation, key).unwrap();
+        let public = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(terminal)
+            .unwrap()
+            .expect("a public terminal id");
+        mux.append_shell_commands(
+            public.clone(),
+            vec![crate::shell_history::FinishedCommand {
+                command: Some(format!("echo secret-of-{terminal}")),
+                cwd: None,
+                exit_code: Some(0),
+                // Now: an older row is past the retention and hidden.
+                started_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap(),
+                duration_ms: 1,
+            }],
+        );
+        ids.push(public);
+    }
+    // The worker runs a delete after every command queued before it.
+    mux.delete_terminal_commands(crate::state::command_history_store::CommandDeletion::StartedSince(u64::MAX))
+        .unwrap();
+    let listed = mux.list_terminal_commands(None, 100).unwrap();
+    let terminals = listed["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["terminal_id"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    assert!(terminals.contains(&ids[0].to_string()), "a normal terminal's command is kept: {listed}");
+    assert!(
+        !terminals.contains(&ids[1].to_string()),
+        "an incognito terminal's command must not be kept: {listed}"
+    );
+    mux.shutdown();
+}

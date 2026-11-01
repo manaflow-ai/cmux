@@ -191,6 +191,16 @@ pub struct ShellLaunch {
 /// Only the default shell is modified: an explicit command is the caller's
 /// program, and `-c` style launches are never interactive. Any failure leaves
 /// the launch unchanged, so a shell always starts.
+/// The launch of a terminal's `command`: the default shell (`None` or
+/// empty), integrated by [`integrate_default_shell`], or the caller's
+/// program unchanged.
+pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) -> ShellLaunch {
+    match command.filter(|command| !command.is_empty()) {
+        None => integrate_default_shell(vec![crate::platform::default_shell()], env),
+        Some(command) => ShellLaunch { command, env },
+    }
+}
+
 pub fn integrate_default_shell(
     command: Vec<String>,
     extra_env: Vec<(String, String)>,
