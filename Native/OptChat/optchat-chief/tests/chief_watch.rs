@@ -327,3 +327,44 @@ fn watch_lists_cancels_and_holds_its_bounds() {
     );
     assert!(h.brain.pending_watches().is_empty());
 }
+
+/// `watch` with no arguments shows what each running watch printed last
+/// (acpmux's `bg_output`): the Chief can look in on a long job, a build or a
+/// CI wait, without waiting for it to fire or running it again in Bash.
+#[test]
+fn watch_list_shows_each_running_watchs_latest_output() {
+    let mut h = Harness::new(default_script());
+    idle(&mut h);
+    watch(
+        &mut h,
+        WatchCall {
+            // The listed command never holds the expected lines itself.
+            command: Some("printf 'build %s/3\\n' 1 2; sleep 30".into()),
+            until: Some("never".into()),
+            note: Some("the build".into()),
+            ..WatchCall::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let listed = watch(&mut h, WatchCall::default()).unwrap();
+        if listed.contains("build 2/3") {
+            assert!(listed.contains("build 1/3"), "{listed}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the list never showed the output: {listed}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    watch(
+        &mut h,
+        WatchCall {
+            cancel: Some("all".into()),
+            ..WatchCall::default()
+        },
+    )
+    .unwrap();
+}

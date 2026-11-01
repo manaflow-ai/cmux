@@ -37,7 +37,7 @@ import Testing
     }
 
     private static func render(_ view: NSView, appearance: NSAppearance.Name) throws -> NSImage {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 190))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
         let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }

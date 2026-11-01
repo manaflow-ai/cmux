@@ -39,6 +39,7 @@ clap = { version = "4.6", features = ["derive", "env"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 base64 = "0.22"
 security-framework = "3"
+nix = { version = "0.31", default-features = false }
 
 # Tests.
 wiremock = "0.6.5"

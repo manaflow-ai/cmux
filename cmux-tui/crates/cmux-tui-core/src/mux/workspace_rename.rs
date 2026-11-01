@@ -240,6 +240,13 @@ impl Mux {
                 .into_workspace()?;
             let commit = receipt.commit;
             let mut state = self.lock_state_pinned(&registry).unwrap();
+            // The commit is durable: its revisions hold even if the workspace
+            // left state meanwhile (no path can do that while the registry
+            // is held; this keeps state and the registry agreeing anyway).
+            state.workspace_revision = state.workspace_revision.max(commit.revision);
+            if let Some(resource_revision) = receipt.resource_revision {
+                state.resource_revision = state.resource_revision.max(resource_revision);
+            }
             let index = state
                 .workspaces
                 .iter()
@@ -249,11 +256,7 @@ impl Mux {
             state.workspaces[index].name_source = name_source;
             state.workspaces[index].name_revision = name_revision;
             // A replayed receipt carries the original, possibly older,
-            // revision: never move the in-memory revisions back.
-            state.workspace_revision = state.workspace_revision.max(commit.revision);
-            if let Some(resource_revision) = receipt.resource_revision {
-                state.resource_revision = state.resource_revision.max(resource_revision);
-            }
+            // revision: the max above never moves the in-memory revisions back.
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,

@@ -262,7 +262,6 @@ OWN = dict(
     OWN_PENDING="",
     OWN_VERIFIED="success",
     OWN_DMG_VERIFIED="success",
-    OWN_GATE_BLOCKS="",
     OWN_BUILD="50001",
     OWN_BUILD_SHA="a" * 40,
     OWN_TIP_SHA="b" * 40,
@@ -311,7 +310,20 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_takes_every_build_detail_from_the_selected_source(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertIn("recover-nightly-next-notarization", job["needs"])
-        self.assertEqual(job["steps"][0]["name"], "Select the build to publish")
+        # Publication source selection and checkout precede the exact claim gate;
+        # no release token is minted until the gate and helper both pass.
+        gate = step(job, "Hold the whole Mac before any credential")
+        gate_index = job["steps"].index(gate)
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publish ref")))
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
+        helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
+        self.assertGreater(helper_index, gate_index)
+        credential_indices = [index for index, item in enumerate(job["steps"])
+                              if "secrets." in json.dumps(item)]
+        self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
+        self.assertLess(gate_index, min(credential_indices))
+        self.assertLess(helper_index, min(credential_indices))
+        self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
             "needs.resolve-nightly-cmux-tui-client.outputs.build_sha",
@@ -340,9 +352,12 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("always() && !cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
+        needs = workflow()["jobs"]["publish-nightly"]["needs"]
+        self.assertNotIn("visual-gate-nightly", needs)
+        self.assertNotIn("visual-gate-nightly-verdict", needs)
         # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published (or a
         # resumed one) is this run's source only after await-nightly-tree-marker passed
         # (main's G5, moved into the run): the selection step reads it as OWN_TREE.
@@ -359,12 +374,6 @@ class WorkflowTests(unittest.TestCase):
             run_select(**dict(OWN, OWN_TREE="unmarked"))
         both = dict(OWN, **RECOVERED, OWN_TREE="unmarked")
         self.assertEqual(run_select(**both)["source"], "recovered")
-
-    def test_select_never_publishes_an_own_build_the_visual_gate_holds(self):
-        held = dict(OWN, OWN_GATE_BLOCKS="true")
-        with self.assertRaisesRegex(AssertionError, "nothing accepted to publish"):
-            run_select(**held)
-        self.assertEqual(run_select(**dict(held, **RECOVERED))["source"], "recovered")
 
     def test_select_prefers_this_run_s_accepted_build(self):
         self.assertEqual(run_select(**OWN)["source"], "own")
@@ -698,7 +707,6 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
                 "DMG_NAME=next.dmg IMMUTABLE_NAME=next-49801.dmg\n"
             ),
             ci / "nightly_version.py": "exit 0\n",
-            # The visual gate admits the build (report mode, no verdict on it).
             ci / "nightly_next_canary_mode.py": "exit 0\n",
             ci / "nightly-next-recovery-lineage.sh": "echo ok\n",
             ci / "notarize-nightly-dmg.sh": (
@@ -728,8 +736,6 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
             CHANNEL="nightly",
             SIGN_CHANNEL="next",
             CHANNEL_RELEASE_TAG="nightly-next",
-            VISUAL_GATE_MODE="",
-            VISUAL_GATE_VERDICTS="",
         )
         result = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
         result.output = (work / "output").read_text()  # type: ignore[attr-defined]

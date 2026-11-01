@@ -473,6 +473,19 @@ CUA_TOOLCHAIN_KEY="$(
   } | shasum -a 256 | cut -c1-16
 )"
 
+# The cmux-cua clone has no rust-toolchain.toml, so rustup would need a default toolchain. The fleet worker's
+# shared RUSTUP_HOME keeps none on purpose (hq build-fleet rust_cache.go: the shim and the repair undo the
+# default a first install makes), so `rustup target add` and cargo failed there with "rustup could not choose a
+# version of rustup to run ... no default is configured" (cmux7s, job 6f0858ce, 2026-11-01). Build it with the
+# toolchain cmux-tui pins, as cmux-tui-rust-check.sh does for its unpinned modes (#27363). A caller that sets
+# RUSTUP_TOOLCHAIN keeps its own.
+if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]] && command -v rustup >/dev/null 2>&1; then
+  cua_toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/cmux-tui/rust-toolchain.toml" 2>/dev/null | head -1 || true)"
+  if [[ -n "$cua_toolchain" ]]; then
+    export RUSTUP_TOOLCHAIN="$cua_toolchain"
+  fi
+fi
+
 # shellcheck source=scripts/lib/rust-targets.sh
 source "$REPO_ROOT/scripts/lib/rust-targets.sh"
 ensure_rust_target() {

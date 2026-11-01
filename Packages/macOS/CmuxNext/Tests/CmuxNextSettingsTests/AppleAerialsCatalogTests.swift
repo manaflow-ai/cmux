@@ -72,3 +72,13 @@ struct AppleAerialsCatalogTests {
         return URL(fileURLWithPath: String(cString: real), isDirectory: true)
     }
 }
+
+@Test func wallpaperPageRowsAreMemoizedUntilTheCatalogChanges() {
+    var cache = BackdropCatalogPageRowsCache()
+    let catalog = BackdropCatalog(bundledOnly: ())
+
+    for _ in 0..<100 { _ = cache.rows(for: catalog) }
+
+    #expect(cache.rows(for: catalog) == catalog.pageRows)
+    #expect(cache.builds == 1)
+}

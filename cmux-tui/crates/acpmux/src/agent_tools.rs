@@ -587,6 +587,26 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
+    if crate::cloud_repo_mcp::is_cloud_machine()
+        && let Some(acpmux) = &inputs.acpmux
+    {
+        // Cloud repository tools run on Cloud machines only. They forward
+        // the session caller token to the daemon action bridge.
+        servers.push(McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["repo-mcp"]),
+            env: executable("cmux")
+                .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                .into_iter()
+                .chain(
+                    std::env::var("CMUX_SOCKET_PATH")
+                        .ok()
+                        .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                )
+                .collect(),
+        });
+    }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
         // session with its caller token, like the sub-session server.
@@ -706,6 +726,16 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
+            let repo_route: Vec<_> = if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server
+                    .env
+                    .iter()
+                    .filter(|(k, _)| matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH"))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -713,12 +743,16 @@ impl AgentTools {
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
             };
-            if let Some(key) = session_env {
+            if session_env.is_some() {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (key.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
@@ -730,10 +764,14 @@ impl AgentTools {
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
@@ -743,6 +781,7 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
+            server.env.extend(repo_route);
         }
         self
     }
