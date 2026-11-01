@@ -6,10 +6,7 @@ extension AgentChatsPalettePage {
     /// row opens through the app's Open Chat path.
     init(services: AppServices) {
         self.init(windows: services.chatsFeed?.windows,
-                  history: { [weak services] query in
-                      guard let model = services?.palette.model else { return nil }
-                      return await model.frecency.encodedRankerHistory(keyPrefix: "chat:", query: query, now: model.now())
-                  },
+                  history: { [weak services] query in await services?.palette.model.rankerHistory(keyPrefix: "chat:", query: query) },
                   open: { [weak services] key in services?.chatsOpener.open(key) })
     }
 }

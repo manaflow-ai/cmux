@@ -29,3 +29,11 @@ extension FrecencyStore {
         return String(data: data, encoding: .utf8)
     }
 }
+
+extension PaletteModel {
+    /// The palette's choice history of the rows under `keyPrefix` for `query`, as the shared ranker reads it,
+    /// encoded off the main thread (``FrecencyStore/encodedRankerHistory(keyPrefix:query:now:)``).
+    public func rankerHistory(keyPrefix: String, query: String) async -> String? {
+        await frecency.encodedRankerHistory(keyPrefix: keyPrefix, query: query, now: now())
+    }
+}
