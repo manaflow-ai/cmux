@@ -2366,6 +2366,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
+          # pipefail: each check here is piped to tee, and without it the step's status was tee's, so neither the
+          # sidebar sweep nor a pushed commit's violations ever failed the step (2026-10-29, #27632's review).
+          set -o pipefail
           # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
           # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
           # From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).

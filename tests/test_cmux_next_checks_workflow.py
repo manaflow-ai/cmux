@@ -265,6 +265,57 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
 
 
+class PushedCommitsStepFails(unittest.TestCase):
+    """The "Pushed commits add no violations" step pipes its checks to tee. Without pipefail the step took tee's
+    status, so the sidebar sweep (and a push's per-commit check) printed ::error but never failed the step
+    (job 123719443984 on #27454: the step succeeded beside a Sidebar look owner error; #27632's review). The step's
+    own script runs here against a stub prepush-gate.py in a scratch repository."""
+
+    STUB = (
+        "import sys\n"
+        "args = sys.argv[1:]\n"
+        "if '--only' in args:\n"
+        "    sys.exit(1 if 'SWEEP_FINDS' in __import__('os').environ else 0)\n"
+        "if '--commits' in args:\n"
+        "    sys.exit(1 if 'COMMITS_FIND' in __import__('os').environ else 0)\n"
+        "sys.exit(0)\n"
+    )
+
+    def run_step(self, event: str, **env: str) -> subprocess.CompletedProcess:
+        step = next(s for s in steps() if s.get("name") == "Pushed commits add no violations")
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            gate = repo / "scripts/cmux-next/prepush-gate.py"
+            gate.parent.mkdir(parents=True)
+            gate.write_text(self.STUB, encoding="utf-8")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "first"], check=True)
+            first = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "second"], check=True)
+            # The sweep starts at a commit of this scratch history instead of feat-cmux-next's.
+            script = re.sub(r"^(\s*sidebar_from=)[0-9a-f]{40}$", r"\g<1>" + first, step["run"], flags=re.M)
+            self.assertNotEqual(script, step["run"], "the step names its sweep start as sidebar_from=<sha>")
+            summary = repo / "summary"
+            return subprocess.run(
+                ["bash", "-e", "-c", script], cwd=repo, capture_output=True, text=True, timeout=60,
+                env={**{k: v for k, v in os.environ.items() if k not in ("SWEEP_FINDS", "COMMITS_FIND")},
+                     "EVENT_NAME": event, "BEFORE": "", "GITHUB_SHA": "HEAD", "GITHUB_STEP_SUMMARY": str(summary),
+                     **env})
+
+    def test_a_sidebar_finding_fails_the_step_on_a_pull_request(self):
+        self.assertNotEqual(self.run_step("pull_request", SWEEP_FINDS="1").returncode, 0)
+        self.assertEqual(self.run_step("pull_request").returncode, 0)
+
+    def test_a_sidebar_finding_fails_the_step_on_a_push(self):
+        self.assertNotEqual(self.run_step("push", SWEEP_FINDS="1").returncode, 0)
+        self.assertEqual(self.run_step("push").returncode, 0)
+
+    def test_a_pushed_commit_with_violations_fails_the_step(self):
+        self.assertNotEqual(self.run_step("push", COMMITS_FIND="1").returncode, 0)
+
+
 class WebviewsWarnSplitCoversCheck(unittest.TestCase):
     """Under CMUX_NEXT_STYLE_GUARDS=warn, ci-web runs `bun run check` as separate commands.
 
