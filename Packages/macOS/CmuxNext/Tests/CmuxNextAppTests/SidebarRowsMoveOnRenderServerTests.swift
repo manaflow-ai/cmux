@@ -143,6 +143,9 @@ struct SidebarRowsMoveOnRenderServerTests {
     func anInsertAtTheTopMovesTheRowsBelowOnTheRenderServer() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
+        model.noteUserIntent()
         let clip = try #require(list.enclosingScrollView?.contentView)
         let shown = list.rowViews.compactMap { key, view -> (SidebarRowKey, SidebarRowView, CGFloat)? in
             if case .workspace = key { (key, view, view.frame.minY - clip.bounds.minY) } else { nil }
@@ -178,8 +181,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(opening.alphaValue < 1, "the new row showed whole in one frame")
     }
 
-    /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade". Under the default
-    /// `sidebar.insertMotion` (nudge) each row below a new row near the top travels at most the nudge, not a row height, and the
+    /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade".
+    /// The nudge variant: each row below a new row near the top travels at most the nudge, not a row height, and the
     /// new row opens only its last nudge of height, on a spring that is at rest by 150 ms (`SidebarInsertMotionTests`).
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
@@ -187,6 +190,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aNewRowNearTheTopNudgesTheRowsBelowByAtMostTheNudge() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
@@ -212,6 +217,26 @@ struct SidebarRowsMoveOnRenderServerTests {
             }
         }
         #expect(springs > 3, "the insert at the top moved \(springs) springs")
+    }
+
+    @Test(.enabled("needs an awake display and animations on") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func defaultInsertPlacesExistingRowsWithoutSprings() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        let reset = Self.insertMotion(SidebarInsertMotion.tunable.defaultValue)
+        defer { reset() }
+        let oldViews = list.rowViews
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0] + Array(2...30))
+        list.reload(animated: true)
+        for (key, view) in oldViews where list.rowViews[key] === view {
+            let row = try #require(list.displayed.row(for: key))
+            #expect(view.frame == list.frame(for: row))
+            #expect(Self.positionSprings(view) + Self.sizeSprings(view) == 0)
+        }
+        #expect(list.openingRows.isEmpty)
     }
 
     /// Where `view` is drawn at media time `time`, in its superlayer's coordinates: its model geometry plus every
@@ -246,6 +271,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
@@ -297,6 +324,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
         let (model, list, _, restore) = try Self.sidebar(work(collapsed: true))
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
         try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID("api"))] == nil, "the group did not start collapsed")
@@ -328,6 +357,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aNewRowWhoseOpenSettledMovesWithoutOpeningAgain() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
 
@@ -593,6 +624,9 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aMoveTheDisplaySleepsThroughEndsAtTheSlots() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
+        model.noteUserIntent()
         // Under the first row, so the rows below move (above it, the list holds what the user sees still).
         model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
@@ -663,6 +697,9 @@ struct SidebarRowsMoveOnRenderServerTests {
     func reduceMotionMidMoveShowsTheSlotsAtOnce() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
+        model.noteUserIntent()
         model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
         list.reload(animated: true)
         try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
@@ -707,6 +744,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aGroupLineTheDisplaySleepsThroughEndsAtItsRows() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1", "w2"]))
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
         model.sections = Self.grouped(["new", "w1", "w2"])
         list.reload(animated: true)
         let lines = list.subviews.compactMap { $0 as? GroupLineView }
@@ -730,6 +769,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let members = (1...60).map { "m\($0)" }
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1"], members: members))
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
         DesignSettings.shared.animationSpeed = .normal
         model.sections = Self.grouped(["w1"], members: members + ["m61"])
         list.reload(animated: true)

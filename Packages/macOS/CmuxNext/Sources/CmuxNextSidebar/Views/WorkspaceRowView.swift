@@ -18,6 +18,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
+    private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
@@ -83,6 +85,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
+    /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
+    var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {
@@ -266,6 +270,7 @@ final class WorkspaceRowView: SidebarRowView {
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
+        configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
             titleArrivalGeneration &+= 1
@@ -306,6 +311,7 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
+        agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)

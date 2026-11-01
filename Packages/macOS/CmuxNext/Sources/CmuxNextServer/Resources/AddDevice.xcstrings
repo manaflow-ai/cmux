@@ -6944,6 +6944,137 @@
         }
       }
     },
+    "addDevice.network.sshKeyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It needs ssh that signs in with a key, not a password."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh يسجّل الدخول بمفتاح، لا بكلمة مرور."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potreban je ssh koji se prijavljuje ključem, ne lozinkom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det kræver ssh, der logger ind med en nøgle, ikke en adgangskode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dafür braucht es ssh, das sich mit einem Schlüssel anmeldet, nicht mit einem Passwort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita ssh que inicie sesión con una clave, no con una contraseña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il faut un ssh qui se connecte avec une clé, pas avec un mot de passe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serve ssh che acceda con una chiave, non con una password."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードではなく鍵でサインインできる ssh が必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាត្រូវការ ssh ដែលចូលដោយប្រើកូនសោ មិនមែនពាក្យសម្ងាត់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호가 아닌 키로 로그인하는 ssh가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det krever ssh som logger inn med en nøkkel, ikke et passord."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga ssh logującego się kluczem, a nie hasłem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É preciso ssh que entre com uma chave, não com uma senha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужен ssh со входом по ключу, а не по паролю."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องใช้ ssh ที่ลงชื่อเข้าด้วยคีย์ ไม่ใช่รหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parolayla değil, anahtarla oturum açan ssh gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен ssh із входом за ключем, а не за паролем."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần ssh đăng nhập bằng khóa, không phải mật khẩu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要使用密钥（而非密码）登录的 ssh。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要使用金鑰（而非密碼）登入的 ssh。"
+          }
+        }
+      }
+    },
     "addDevice.network.loading": {
       "extractionState": "manual",
       "localizations": {
@@ -7726,6 +7857,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在新電腦上執行這一行。它會安裝 cmux 並顯示代碼和四個單字；接著選擇「它顯示了一組代碼」。"
+          }
+        }
+      }
+    },
+    "addDevice.newDevice.otherComputerHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already reach it with an ssh key? Add it by name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تصل إليه بمفتاح ssh بالفعل؟ أضفه باسمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Već mu pristupate ssh ključem? Dodajte ga po imenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du den allerede med en ssh-nøgle? Tilføj den ved navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schon per ssh-Schlüssel erreichbar? Füge ihn über seinen Namen hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Ya llegas a él con una clave ssh? Añádelo por su nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous y accédez déjà avec une clé ssh ? Ajoutez-le par son nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo raggiungi già con una chiave ssh? Aggiungilo per nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに ssh 鍵で接続できますか？名前で追加してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាចចូលវាដោយកូនសោ ssh រួចហើយ? បន្ថែមវាតាមឈ្មោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 ssh 키로 접속할 수 있나요? 이름으로 추가하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du den allerede med en ssh-nøkkel? Legg den til med navn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masz już do niego dostęp kluczem ssh? Dodaj go po nazwie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já acessa com uma chave ssh? Adicione pelo nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уже заходите на него по ssh-ключу? Добавьте его по имени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เข้าถึงด้วยคีย์ ssh ได้อยู่แล้ว? เพิ่มด้วยชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ona zaten bir ssh anahtarıyla ulaşıyor musunuz? Adıyla ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уже заходите на нього за ssh-ключем? Додайте його за назвою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã truy cập bằng khóa ssh? Thêm máy theo tên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已能用 ssh 密钥连上它？按名称添加。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已能用 ssh 金鑰連上它？依名稱加入。"
           }
         }
       }

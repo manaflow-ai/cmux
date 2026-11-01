@@ -79,7 +79,8 @@ export type ComposerBoxProps = {
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
   ring?: React.ReactNode;
-  /// The actions before Codex's bolt and the mic (steer, and Stop with the plain footer).
+  /// The one send control (Send or Stop) where Claude's look draws it, before the mic, which keeps
+  /// the right edge; Codex's look puts it last (`trailing`).
   actionsLead?: React.ReactNode;
   /// The mic, which keeps every width (composerRowFit.ts).
   accessory?: React.ReactNode;
@@ -90,6 +91,9 @@ export type ComposerBoxProps = {
   /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
   /// quiet row's empty middle, or under the box in Codex's look.
   bottom?: React.ReactNode;
+  /// Nothing in the box takes input (inert): a Cloud start is out, and this tab closes once its
+  /// chat opens on the machine, so an edit made meanwhile would go with it (App.tsx `cloudStarting`).
+  inert?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -128,6 +132,7 @@ export function ComposerBox({
   trailing,
   chromeItems,
   bottom,
+  inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips stay in the quiet row under the box in either look; Codex's keeps the ring and the look dots in
@@ -217,6 +222,7 @@ export function ComposerBox({
         // Claude's compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid={claudeGrid ? "" : undefined}
         data-attachment-view={attachmentView}
+        inert={inert}
         onMouseDown={focusFromCard}
       >
         {top}
