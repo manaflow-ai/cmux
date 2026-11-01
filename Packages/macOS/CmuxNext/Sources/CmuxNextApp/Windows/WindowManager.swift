@@ -1,6 +1,7 @@
 import CmuxNextHibernation
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign

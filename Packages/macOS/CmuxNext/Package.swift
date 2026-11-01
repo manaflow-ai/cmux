@@ -212,7 +212,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextAppCore",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextLayout", "CmuxNextSidebar"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
