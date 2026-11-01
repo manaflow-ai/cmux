@@ -205,6 +205,55 @@ const longCommands: Props = {
   })),
 };
 
+// Long titles and folders cut at the row's edge (their whole value is the tooltip), and ages past
+// a week read as a date instead of "45d ago" or "3mo ago" (#28079).
+const DAY_MINUTES = 24 * 60;
+const longValues: Props = {
+  ...baseline,
+  sessions: [
+    session({
+      sessionId: "home-long-input",
+      title: "Reconcile the payment ledger against the processor export before the quarterly close",
+      cwd: "/Users/sample/projects/atlas-web-payments-reconciliation-service",
+      status: "waiting",
+      indicator: "input",
+      pendingPermissions: 1,
+      updatedAt: minutesAgo(9 * DAY_MINUTES),
+    }),
+    session({
+      sessionId: "home-long-review",
+      title: "Retry policy",
+      cwd: "/Users/sample/projects/atlas-web-payments-reconciliation-service",
+      updatedAt: minutesAgo(45 * DAY_MINUTES),
+      pullRequest: {
+        number: 19050,
+        title: "Make the reconciliation worker retry with backoff so a dropped connection never double-charges",
+        state: "open",
+        reviewReady: true,
+      },
+    }),
+    session({
+      sessionId: "home-recent-review",
+      title: "Polish the sidebar",
+      updatedAt: minutesAgo(3 * DAY_MINUTES),
+      pullRequest: { number: 19051, title: "Polish the sidebar", state: "open", reviewReady: true },
+    }),
+    current,
+  ],
+  asks: [
+    {
+      sessionId: "home-long-input",
+      at: minutesAgo(9 * DAY_MINUTES),
+      permission: {
+        permissionId: "home-long-ask",
+        title: "Write reconciliation/processor-export/2026-q3/ledger-differences-by-merchant.csv",
+        pending: true,
+        options: yesNo,
+      },
+    },
+  ],
+};
+
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
   session({
     sessionId: `home-cap-input-${index + 1}`,
@@ -391,6 +440,10 @@ export default componentEntry<Props>({
     empty: {
       note: "A clean new chat has no home lists when every other session is current, archived, side, or not ready.",
       props: empty,
+    },
+    "long-values": {
+      note: "Long titles, asks and folders cut at the row's edge and carry their whole value as a tooltip; ages from a week on read as a date.",
+      props: longValues,
     },
     "cap-filter": {
       note: "Ready for review caps at three newest rows; chats with no ask read here still show in Needs you, so none is left to find.",

@@ -406,12 +406,10 @@ def check_wiring():
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
-    # Only the checkout and the read token's mint (the re-check's API reads go
-    # out as the glaeda-route App) come before it.
+    # The re-check uses the workflow token directly; the routing App is reserved
+    # for runner placement and must not spend its Actions quota here.
     before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
-    _check(before == ["actions/checkout", "read-token"], "the daemon tests re-check right after the checkout")
-    _check(str(steps[index - 1].get("if")) == "github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''",
-           "the re-check's read token is minted only for a push re-check")
+    _check(before == ["actions/checkout"], "the daemon tests re-check immediately after checkout")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
     for later in steps[index + 1:]:

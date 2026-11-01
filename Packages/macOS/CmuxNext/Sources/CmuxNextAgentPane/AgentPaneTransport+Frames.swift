@@ -369,6 +369,11 @@ extension AgentPaneTransport {
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+                // A prompt that goes with its own ticket spends the start's credit too, as one
+                // without a ticket does: the credit never grants a later prompt (#23031).
+                if granted, facts.method == "session/prompt" {
+                    _ = startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+                }
                 if redeemedQuestion, let credit = questionCredit {
                     guard let before = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), before == credit.context,
                           await credit.redeem(), id == current, self.socket === socket,
@@ -490,10 +495,10 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
-            // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
+            // The switch's queued prompt goes out: its pick tickets end, but each other prompt
+            // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
-                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         // Whether this answer carries this Mac's signed allow, by its page id (one request at a

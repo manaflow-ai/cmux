@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine

@@ -10,6 +10,7 @@ import { useT, type StringKey } from "../i18n";
 import { isTrustCause, retryHelps, sendCause, type FailedRun } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
 /// folder's trust for a trust failure. Without it each failed prompt has its own card.
@@ -93,8 +94,9 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const sends = useContext(FailedSendsContext);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const readOnly = useTranscriptReadOnly();
   const delivery = row.delivery;
-  if (!row.failed) return null;
+  if (!row.failed || readOnly) return null;
   const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
   if (rowIds[rowIds.length - 1] !== row.id) return null;
   const cause = sendCause(delivery);

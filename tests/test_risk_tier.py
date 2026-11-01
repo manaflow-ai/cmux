@@ -719,6 +719,15 @@ class EvidenceTests(unittest.TestCase):
                                                    taken_back=[21369])), 1)
         self.assertEqual(len(risk.missing_evidence("normal", body="Takes back #21369:", taken_back=[21369])), 1)
 
+    def test_only_an_unowned_takeback_is_what_keeps_the_check_red(self):
+        # risk-tier.yml fails the check on `takes_back`; a BLOCK alone only warns there.
+        body = "Takes back #21369: the olderLoadKey guard moved into the store\n"
+        self.assertEqual(risk.unowned_takebacks(body, [21369, 21384, 21384]), [21384])
+        self.assertEqual(risk.unowned_takebacks(body, [21369]), [])
+        self.assertEqual(risk.unowned_takebacks("", None), [])
+        self.assertTrue(risk.missing_evidence("high", blocked=True))
+        self.assertEqual(risk.unowned_takebacks("", []), [])
+
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
         removed = {"event": "unlabeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}

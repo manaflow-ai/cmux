@@ -50,7 +50,7 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
   test("the Console prompt keeps a separate prefix column before the text", async () => {
     const page = await open("console");
     const geometry = await page.evaluate(() => {
-      const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
+      const field = document.querySelector<HTMLElement>(".nt-field")!;
       const glyph = document.querySelector<HTMLElement>(".nt-prompt-glyph")!;
       return {
         textStart: field.getBoundingClientRect().left + parseFloat(getComputedStyle(field).paddingInlineStart),
@@ -67,7 +67,7 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
     const before = await field.boundingBox();
     expect(before).not.toBeNull();
 
-    await field.focus();
+    await page.locator(".nt-field .ProseMirror").focus();
     await page.evaluate(async () => {
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       const target = window as Window & { shellLayoutShifts?: { value: number; sources: string[] }[] };

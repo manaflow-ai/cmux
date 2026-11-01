@@ -74,7 +74,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 8
     # The routing App's read-only key for the placement, in the environment cmux-next's placement
     # uses; a pull request's run takes none (and mints no token).
@@ -159,7 +159,6 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
-          permission-actions: read
 
       # One smoke per build: a scheduled tick skips a build whose smoke another run has queued or
       # running (on 2026-10-29 the ticks queued up to three smokes of one build on the side label).
@@ -170,7 +169,7 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
         env:
           BUILD: ${{ steps.feed.outputs.build }}
-          GH_TOKEN: ${{ steps.route-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/nightly_next_launch_smoke.py in-flight --build "$BUILD" >> "$GITHUB_OUTPUT"
 
       # The routing order, as cmux-next's Mac jobs take it: an idle owned Mac on the side label, else a
@@ -185,7 +184,7 @@ jobs:
         timeout-minutes: 2
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           JOBS: launch-smoke
@@ -315,7 +314,7 @@ jobs:
     concurrency:
       group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
@@ -399,7 +398,7 @@ jobs:
   record:
     needs: [pick, smoke]
     if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     steps:
