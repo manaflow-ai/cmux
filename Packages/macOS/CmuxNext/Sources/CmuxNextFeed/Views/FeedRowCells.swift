@@ -27,7 +27,7 @@ final class FeedTableRowView: NSTableRowView {
         if case let .row(content) = entry {
             setAccessibilityLabel(content.accessibilityLabel)
             setAccessibilityIdentifier("cmux.feed.row")
-            toolTip = nil
+            themedToolTip = nil
         } else {
             setAccessibilityLabel(nil)
         }
@@ -148,9 +148,8 @@ final class FeedRowCell: NSTableCellView {
         headline.stringValue = content.headline
         headline.font = .systemFont(ofSize: TypeScale.body, weight: content.isUnread ? TypeScale.emphasis : TypeScale.regular)
         headline.textColor = content.isUnread || content.isOpenRequest ? colors.primary : colors.secondary
-        headline.toolTip = content.headline
         time.stringValue = times.string(content.createdAt, now: now)
-        time.toolTip = content.whenFull
+        time.themedToolTip = content.whenFull
         time.textColor = colors.tertiary
         detail.stringValue = content.detail
         detail.font = content.detailIsCode
@@ -168,7 +167,7 @@ final class FeedRowCell: NSTableCellView {
         meta.textColor = colors.tertiary
         local.isHidden = !content.isLocal
         local.contentTintColor = colors.tertiary
-        local.toolTip = FeedStrings.thisMac
+        local.themedToolTip = FeedStrings.thisMac
         if icon != content.icon {
             icon = content.icon
             glyph.image = NSImage.icon(content.icon, size: .iconRowSize(forLabelPointSize: TypeScale.body))
@@ -209,6 +208,12 @@ final class FeedRowCell: NSTableCellView {
         let side = CGFloat.iconRowSize(forLabelPointSize: TypeScale.body)
         glyph.frame = NSRect(x: 19, y: top + (TypeScale.bodyLineHeight - side) / 2, width: side, height: side)
         headline.frame = NSRect(x: left, y: top, width: max(0, width - timeWidth - 6), height: TypeScale.bodyLineHeight)
+        // A clipped headline reads in full as the row's themed tooltip, as a clipped sidebar title does
+        // (WorkspaceRowView.updateCalmTitleTip). Set on the cell, not the label: a tooltip that repeats
+        // its own label's text is dropped (TooltipTracker.repeatsVisibleLabel).
+        let headlineWidth = (headline.stringValue as NSString).size(withAttributes: [.font: headline.font ?? NSFont.systemFont(ofSize: TypeScale.body)]).width
+        let tip = ceil(headlineWidth) > headline.frame.width + 0.5 ? headline.stringValue : nil
+        if themedToolTip != tip { themedToolTip = tip }
         time.frame = NSRect(x: bounds.width - right - timeWidth, y: top + 2, width: timeWidth, height: TypeScale.captionLineHeight)
         var y = top + TypeScale.bodyLineHeight + 2
         if !detail.isHidden {

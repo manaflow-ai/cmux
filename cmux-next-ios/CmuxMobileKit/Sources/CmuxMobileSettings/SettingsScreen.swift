@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileRealtime
+import CmuxMobileScreenSharing
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -28,8 +29,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let scrollRequest: String?
     /// Starts a live Chief call (Settings → Chief Calls' Call Chief); nil where calls can't start.
     let callChief: (() -> Void)?
+    /// Screen Sharing with the account's Macs (nil in mock mode: no row).
+    let screenSharing: ScreenSharingService?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
+    private let accentTheme = CmuxMobileAccentTheme.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -37,9 +41,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
         self.callChief = callChief
+        self.screenSharing = screenSharing
         self.directory = directory
         self.sizing = sizing
         self.auth = auth
@@ -70,15 +75,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                 }
                 Section {
-                    NavigationLink(value: SettingsRoute.transport) {
-                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
-                    }
                     NavigationLink(value: SettingsRoute.devices) {
                         SettingsLabel("Devices", symbol: "laptopcomputer.and.iphone", value: devicesValue)
                     }
                     .accessibilityIdentifier("settings.devices")
+                    if screenSharing != nil {
+                        NavigationLink(value: SettingsRoute.screenSharing) {
+                            SettingsLabel("Screen Sharing", symbol: "rectangle.on.rectangle")
+                        }
+                        .accessibilityIdentifier("settings.screenSharing")
+                    }
                 } header: {
-                    Text("Connection").cmuxMobileTextColumn()
+                    Text("Connection")
                 }
                 Section {
                     NavigationLink(value: SettingsRoute.chiefCalls) {
@@ -96,11 +104,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                    NavigationLink(value: SettingsRoute.accentColor) {
+                        SettingsLabel("Accent color", symbol: "paintpalette", value: accentTheme.accent.title)
+                    }
+                    .accessibilityIdentifier("settings.accentColor")
                     Toggle(isOn: $settings.hapticsEnabled) {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
                 } header: {
-                    Text("Appearance").cmuxMobileTextColumn()
+                    Text("Appearance")
                 }
                 .id("appearance")
                 Section {
@@ -112,12 +124,19 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Require Face ID", symbol: "faceid")
                     }
                 } header: {
-                    Text("Privacy & notifications").cmuxMobileTextColumn()
+                    Text("Privacy & notifications")
                 } footer: {
-                    Text("Require Face ID or passcode to open cmux on this device.").cmuxMobileTextColumn()
+                    Text("Require Face ID or passcode to open cmux on this device.")
+                }
+                Section {
+                    NavigationLink(value: SettingsRoute.transport) {
+                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
+                    }
+                } header: {
+                    Text("Advanced")
                 }
                 #if DEBUG
-                DeveloperSection(auth: auth)
+                DeveloperSection(auth: auth, store: store)
                 #endif
                 Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
@@ -128,7 +147,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Acknowledgements", symbol: "info.circle")
                     }
                 } header: {
-                    Text("About").cmuxMobileTextColumn()
+                    Text("About")
                 }
                 Section {
                     Button(role: .destructive) {
@@ -218,15 +237,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             if let team = store.activeTeam {
                 TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
             }
-        case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
+        case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
+        case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
+        case .screenSharing:
+            if let screenSharing { ScreenSharingPage(service: screenSharing) }
         }
     }
 }
@@ -239,6 +261,10 @@ public enum SettingsRoute: Hashable, Sendable {
     /// Terminal → Terminal Size When Shared, and one Mac's page under it.
     case terminalSizing
     case terminalSizingMac(String)
+    /// Screen Sharing: see and control the account's Macs.
+    case screenSharing
+    /// Appearance → Accent color: the one accent every chrome tint reads.
+    case accentColor
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -248,7 +274,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls]
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -491,6 +517,7 @@ private struct DiagonalHalf: Shape {
 /// Transport page.
 private struct DeveloperSection: View {
     let auth: CmuxMobileAuthModel
+    let store: AppStore
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
@@ -499,6 +526,7 @@ private struct DeveloperSection: View {
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
         Section {
+            TransportDetails(store: store)
             Toggle(isOn: Binding(get: { mock.on }, set: { mockData = $0 })) {
                 SettingsLabel("Mock (layout only)", symbol: "theatermasks")
             }
@@ -533,13 +561,12 @@ private struct DeveloperSection: View {
                 }
             }
         } header: {
-            Text("Developer").cmuxMobileTextColumn()
+            Text("Developer")
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(mock.forced ? "Set by the launch environment." : "Sample user, teams and Macs for checking layout. Applies at next launch.")
                 Text("Dev test account: enter 42 as the email.")
             }
-            .cmuxMobileTextColumn()
         }
     }
 }

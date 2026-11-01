@@ -1,8 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// Omnibar and toolbar geometry and colors: one size at every density
-/// (chief 2026-10-15, cx-d0d.102: a 28 pt bar with 14 pt text). Sizes,
+/// Omnibar and toolbar geometry and colors. The bar, its text, the toolbar
+/// buttons and their icons follow density and `browser.omnibar.height` /
+/// `fontSize` (`OmnibarMetrics`; issue 28734): Standard keeps the 28 pt bar
+/// with 14 pt text (chief 2026-10-15, cx-d0d.102), Comfortable is Chrome's
+/// roomier 34 pt bar. Spacing,
 /// spacing and hover shapes are Helium's (Lawrence 2026-10-20: "match Helium
 /// not Chrome"; imputnet/helium `layout-constants.patch`, `toolbar.patch`;
 /// plans/cmux-next/helium-parity.md). Focus ring, text selection and keyword
@@ -13,8 +16,10 @@ enum OmnibarStyle {
 
     // MARK: Toolbar
 
-    /// Omnibox and toolbar button height.
-    static var barHeight: CGFloat { 28 }
+    /// The sizes in effect now (density and cmux.json overrides), Observation-tracked.
+    static var metrics: OmnibarMetrics { .current }
+    /// Omnibox height (each suggestion row's too).
+    static var barHeight: CGFloat { metrics.barHeight }
     /// The browser chrome's one vertical gap (R101): above the tab pills,
     /// from the active tab to the omnibar, and from the omnibar to the
     /// page. It is the pane chrome's tab gap (`PaneChromeMetrics.tabGap`),
@@ -34,7 +39,7 @@ enum OmnibarStyle {
         return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
     }
     /// The toolbar row's content height: the tallest thing in it, the toolbar
-    /// buttons (Helium's 28 pt) beside the 28 pt omnibar; the omnibar-only row
+    /// buttons beside the omnibar; the omnibar-only row
     /// (`OmnibarToolbarView`) has no buttons and is the bar's height.
     static func rowContentHeight(withButtons: Bool = true) -> CGFloat { withButtons ? max(barHeight, buttonSize) : barHeight }
     /// The omnibar's top in the toolbar row: the top padding, then half the
@@ -50,17 +55,18 @@ enum OmnibarStyle {
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
     static var toolbarInset: CGFloat { Metrics.paneChromeInset }
-    /// Toolbar buttons: square, Helium's 28 pt (`kToolbarButtonHeight` 28,
-    /// Chrome 34), the omnibar's own height.
-    static var buttonSize: CGFloat { 28 }
+    /// Toolbar buttons: square, Helium's 28 pt at Standard (`kToolbarButtonHeight` 28),
+    /// Chrome's 34 at Comfortable, by density (`OmnibarMetrics`).
+    static var buttonSize: CGFloat { metrics.buttonSize }
     /// Toolbar buttons highlight in a rounded square on hover and press, Helium's
     /// `Emphasis::kHigh` (8; Chrome draws a circle, `kMaximum`).
     static var buttonCornerRadius: CGFloat { 8 }
-    /// Toolbar button icons: `kToolbarButtonIconSize` (20), inside Helium's 4 pt
+    /// Toolbar button icons: `kToolbarButtonIconSize` (20 at Standard), inside Helium's 4 pt
     /// `TOOLBAR_BUTTON` insets.
-    static let toolbarIconSize: CGFloat = 20
-    /// The star and other trailing address-bar icons, Helium's `kLocationBarTrailingIconSize` (18; Chrome 20).
-    static let trailingIconSize: CGFloat = 18
+    static var toolbarIconSize: CGFloat { metrics.toolbarIconSize }
+    /// The star and other trailing address-bar icons, Helium's `kLocationBarTrailingIconSize`
+    /// (18 at Standard; Chrome's 20 at Comfortable).
+    static var trailingIconSize: CGFloat { metrics.trailingIconSize }
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
     /// buttons): Helium's `kToolbarIconDefaultMargin`, the base padding, which
     /// the toolbar's FlexLayout collapses to one gap.
@@ -81,9 +87,9 @@ enum OmnibarStyle {
     /// Text distance after the chip.
     static let textLeading: CGFloat = 5
     static let trailingPadding: CGFloat = 8
-    static var iconPointSize: CGFloat { 13 }
-    /// 14 pt regular system text (`TypeScale.field`).
-    static var font: NSFont { Typography.system(size: TypeScale.field, weight: TypeScale.regular) }
+    static var iconPointSize: CGFloat { metrics.iconPointSize }
+    /// The bar's text: 14 pt (`TypeScale.field`) at Standard, by density or `browser.omnibar.fontSize`.
+    static var font: NSFont { Typography.system(size: metrics.fontSize, weight: TypeScale.regular) }
     static var ringWidth: CGFloat { 2 }
 
     // MARK: Popup

@@ -321,6 +321,10 @@ public final class PaletteController {
     /// The panel while the palette is open (`debug.key` target `palette`).
     public var visiblePanel: NSWindow? { isVisible ? panel : nil }
 
+    /// The search field's text as drawn while the palette is open (`debug.focus`), which a
+    /// capture checks next to the model's `query`: the two can disagree.
+    public var visibleFieldText: String? { isVisible ? contentView?.searchBar.field.stringValue : nil }
+
     /// Key-downs in the panel that reached `noResponder(for:)` (the system
     /// beep) since launch.
     public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }
@@ -410,8 +414,8 @@ public final class PaletteController {
 
     // MARK: Keys
 
-    /// Maps a key-down in the panel to a palette command. Returns true when
-    /// the event was consumed (so the text field never sees it).
+    /// Maps a key-down in the panel to a palette command, else runs the navigation action it is bound to
+    /// (``runsNavigationChord(_:)``). Returns true when the event was consumed (so the text field never sees it).
     /// `window`: the panel the key went to (the event's own window when nil).
     func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         let window = window ?? event.window
@@ -429,7 +433,7 @@ public final class PaletteController {
             caretAtEnd: caret.atEnd,
             caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
-        ) else { return false }
+        ) else { return runsNavigationChord(event) }
         return model.handle(command)
     }
 }

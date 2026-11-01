@@ -68,7 +68,7 @@ import Testing
     /// A toast stays long enough to read: 4 s for a short line, longer for steps, never past 12 s.
     @Test func aLongToastStaysLongEnoughToRead() {
         #expect(ToastDismissal.lifetime(for: "Connect to cmux's Mac mini first.") == .seconds(4))
-        let steps = "Claude Code hasn't been trusted in proj yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+        let steps = "Claude Code isn't trusted in proj. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
             + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
             + "Then start the chat again."
         #expect(ToastDismissal.lifetime(for: steps) > .seconds(12) - .milliseconds(1))

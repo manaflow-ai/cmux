@@ -26,6 +26,7 @@ import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } f
 import { PlaceholderSection } from "./PlaceholderSection";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -61,6 +62,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  contextMenus: (focus) => <ContextMenusCard focus={focus} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

@@ -1,22 +1,15 @@
 public import AppKit
 
-/// A button that shows the pointing hand while the pointer is over it and it is enabled, and the
-/// arrow while it is disabled (Leo 2026-10-21: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD
-/// ALSO SEE IT AS CLICKABLE"). The shared chrome buttons (toolbar band, pane toolbar, tab bar,
-/// sidebar, dialogs, toasts) inherit it, so each says it can be clicked the same way.
+/// The shared chrome button: it shows the arrow, enabled or disabled, as native macOS controls do
+/// (user 2026-10-30: "change all pointers back to cursor-default"; this replaces Leo's 2026-10-21
+/// pointing hand). The shared chrome buttons (toolbar band, pane toolbar, tab bar, sidebar,
+/// dialogs, toasts) inherit it, so they share one cursor rule.
 ///
-/// A cursor rect in the key window: AppKit owns the rect and drops it when the button hides,
-/// leaves its window or scrolls out of view, so no pushed cursor is ever left behind. A change of
-/// `isEnabled` rebuilds it at once. Cursor rects do nothing while another window has the key (a
-/// Chromium page is a child window that takes it); there only a `ClickableCursorHost` (the
-/// browser toolbar row) sets the hand itself.
+/// It registers no cursor rect of its own, so the arrow of the view under
+/// it shows. A change of `isEnabled` still tells a `ClickableCursorHost` (the browser toolbar row,
+/// which sets the cursor itself while a Chromium child window has the key).
+/// `scripts/cmux-next/check-default-cursor.py` keeps a new pointing hand out.
 open class ClickableButton: NSButton {
-    /// The cursor over a button: the pointing hand while enabled, none (the arrow) while disabled.
-    public static func hoverCursor(isEnabled: Bool) -> NSCursor? { isEnabled ? .pointingHand : nil }
-
-    /// This button's cursor now (`hoverCursor(isEnabled:)`).
-    public var hoverCursor: NSCursor? { Self.hoverCursor(isEnabled: isEnabled) }
-
     override open var isEnabled: Bool {
         didSet {
             guard isEnabled != oldValue else { return }
@@ -32,11 +25,6 @@ open class ClickableButton: NSButton {
                 ancestor = view.superview
             }
         }
-    }
-
-    override open func resetCursorRects() {
-        super.resetCursorRects()
-        if let hoverCursor, let rect = Self.cursorRect(of: self) { addCursorRect(rect, cursor: hoverCursor) }
     }
 
     /// Where the pointer at `screenPoint` is in `window`'s coordinates, while `window` is the top
@@ -70,21 +58,4 @@ open class ClickableButton: NSButton {
 @MainActor
 public protocol ClickableCursorHost: AnyObject {
     func clickableStateDidChange(_ view: NSView)
-}
-
-/// The macOS 14 fallback's cursor stack state: the hand is pushed exactly while the view is
-/// hovered and enabled. Each update returns the one push or pop that keeps it so, or nil.
-struct ClickableCursorHover: Equatable {
-    enum Change: Equatable { case push, pop }
-
-    private(set) var hovering = false
-    private(set) var pushed = false
-
-    mutating func update(hovering: Bool, enabled: Bool) -> Change? {
-        self.hovering = hovering
-        let wanted = hovering && enabled
-        guard wanted != pushed else { return nil }
-        pushed = wanted
-        return wanted ? .push : .pop
-    }
 }
