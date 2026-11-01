@@ -195,13 +195,13 @@ export function SavedEnvironmentPanel({
           <div className="acpmux-env-field">
             <span className="acpmux-env-label">{t("environment.host")}</span>
             <Menu>
-              <MenuButton className="acpmux-env-select" label={t("environment.host")}>
+              <MenuButton className="acpmux-env-select" label={t("environment.host")} fieldTrigger>
                 <span className="acpmux-env-select-text" data-placeholder={draft.host ? undefined : ""}>
                   {draft.host ?? t("environment.chooseHost")}
                 </span>
                 <ChevronIcon />
               </MenuButton>
-              <MenuPopup className="acpmux-menu acpmux-location-menu" align="start">
+              <MenuPopup className="acpmux-menu acpmux-location-menu acpmux-env-host-menu" align="start" matchTrigger>
                 {machines.length > 0 && (
                   <MenuRadioGroup
                     value={draft.host ?? ""}
