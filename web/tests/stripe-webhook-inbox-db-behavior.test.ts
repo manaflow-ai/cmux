@@ -202,8 +202,8 @@ describe("Stripe webhook inbox store", () => {
 
   dbTest("rows stored before the inbox columns existed are drained", async () => {
     await sql!`
-      insert into stripe_webhook_events (id, type, payload_hash, error, created_at, lease_expires_at)
-      values ('evt_legacy', 'invoice.paid', 'h', 'retryable: lease', now() - interval '10 minutes', now() - interval '1 minute')
+      insert into stripe_webhook_events (id, type, payload_hash, error, created_at, next_attempt_at, lease_expires_at)
+      values ('evt_legacy', 'invoice.paid', 'h', 'retryable: lease', now() - interval '10 minutes', now() - interval '1 minute', now() - interval '1 minute')
     `;
     const now = new Date();
     expect(await inbox.due(now, new Date(now.getTime() - 60 * MINUTE), 10)).toEqual(["evt_legacy"]);

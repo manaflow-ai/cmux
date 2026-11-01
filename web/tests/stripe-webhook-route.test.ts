@@ -261,7 +261,8 @@ describe("Stripe billing webhook route", () => {
         status: "active",
       },
     );
-    expect(inbox.rows.get(String(currentEvent.id))).toMatchObject({ error: null, processedAt: expect.any(Date) });
+    expect(inbox.rows.get(String(currentEvent.id))?.error).toBeNull();
+    expect(inbox.rows.get(String(currentEvent.id))?.processedAt).toBeInstanceOf(Date);
   });
 
   test("routes Founder's Edition sessions through the dedicated recorder", async () => {
@@ -567,7 +568,8 @@ describe("Stripe billing webhook route", () => {
     await expect(response.json()).resolves.toMatchObject({
       skipped: "account_deletion_in_progress",
     });
-    expect(inbox.rows.get(String(currentEvent.id))).toMatchObject({ error: null, processedAt: expect.any(Date) });
+    expect(inbox.rows.get(String(currentEvent.id))?.error).toBeNull();
+    expect(inbox.rows.get(String(currentEvent.id))?.processedAt).toBeInstanceOf(Date);
   });
 
   test("applies deleted subscription updates", async () => {
