@@ -76,6 +76,7 @@ export function OutputsSection({
   onOpenFile,
   onOpenArtifacts,
   onOpenDocument,
+  onOpenBeside,
 }: {
   files: readonly TurnFile[];
   links: readonly OutputLink[];
@@ -87,6 +88,9 @@ export function OutputsSection({
   onOpenArtifacts?: () => void;
   /// Opens a document in the side panel beside the chat.
   onOpenDocument?: (artifact: Artifact) => void;
+  /// Opens a link in the pane beside the chat, as Sources and Changes open theirs (SourcesSection.tsx);
+  /// a modified click (⌘, ⌃, ⇧) keeps the link's own behaviour.
+  onOpenBeside?: (url: string) => void;
 }) {
   const t = useT();
   return (
@@ -152,7 +156,15 @@ export function OutputsSection({
       })}
       {links.map((link) => (
         <li key={link.url}>
-          <a className="acpmux-session-info-row acpmux-session-info-row--button" href={link.url}>
+          <a
+            className="acpmux-session-info-row acpmux-session-info-row--button"
+            href={link.url}
+            onClick={(event) => {
+              if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey) return;
+              event.preventDefault();
+              onOpenBeside(link.url);
+            }}
+          >
             <Icon name="link.web" size={ROW_ICON} row />
             <span className="acpmux-session-info-row__name">{link.label}</span>
             <span className="acpmux-session-info-row__end">{t("sessionInfo.outputs.link")}</span>

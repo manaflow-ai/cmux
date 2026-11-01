@@ -198,3 +198,40 @@ test("SummaryBody does not re-add checkpoint files outside the project", async (
   });
   expect(container.textContent).not.toContain("m1076.txt");
 });
+
+// An Outputs link opens where a Sources link or a pull request opens: in the pane beside the chat
+// (onOpenUrl, cmux #28544), not as a bare link the page hands to the host. A modified click (⌘, ⌃, ⇧)
+// keeps the link's own behaviour, as in Sources.
+test("an Outputs link opens beside the chat, as a Sources link does; a modified click is the link's own", async () => {
+  const container = installDom();
+  const beside: string[] = [];
+  const base = chat(rows);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SessionInfo
+        summary={base.summary}
+        machineName="cosmic-gray"
+        rows={rows}
+        links={outputLinks(rows)}
+        made={{ outputs: [], pullRequests: [], scheduled: [] }}
+        onOpenUrl={(url) => beside.push(url)}
+      />,
+    );
+  });
+  const link = container.querySelector<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row')!;
+  const click = (init: MouseEventInit = {}) => {
+    const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+    link.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  let prevented = false;
+  await act(async () => {
+    prevented = click();
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["https://cmux.com/docs/session-info"], prevented: true });
+  await act(async () => {
+    prevented = click({ metaKey: true });
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["https://cmux.com/docs/session-info"], prevented: false });
+});

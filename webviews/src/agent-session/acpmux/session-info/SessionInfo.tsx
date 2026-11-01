@@ -1363,6 +1363,7 @@ export function SessionInfo({
         onOpenDocument={onOpenDocument}
         onOpenFile={onOpenOutput}
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+        onOpenBeside={onOpenUrl}
       />
     </SessionInfoSection>
   );
