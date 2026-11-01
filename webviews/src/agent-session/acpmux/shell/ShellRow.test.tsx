@@ -26,9 +26,9 @@ const shellRow = (shell: ShellRun): AcpmuxRow => ({
 const actions: ShellActions = { stop: () => undefined, openInTerminal: () => undefined };
 
 // The owner's pane always provides shell actions (App.tsx); a read-only transcript provides none.
-const markup = (shell: ShellRun, expanded = false, given: ShellActions | undefined = actions) =>
+const markup = (shell: ShellRun, expanded = false, given: ShellActions | null = actions) =>
   renderToStaticMarkup(
-    <ShellActionsContext.Provider value={given}>
+    <ShellActionsContext.Provider value={given ?? undefined}>
       <ShellRow row={shellRow(shell)} expanded={expanded} onToggleActivity={() => undefined} />
     </ShellActionsContext.Provider>,
   );
@@ -68,7 +68,7 @@ test.each([
   ["running", run({ status: "running" })],
   ["succeeded", run()],
 ] as const)("read only (no actions), the %s row offers no Stop and no Open in terminal", (_name, shell) => {
-  const html = markup(shell, false, undefined);
+  const html = markup(shell, false, null);
   expect(html).not.toContain("acpmux-shell-block-stop");
   expect(html).not.toContain("Open in terminal");
 });
