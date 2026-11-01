@@ -99,6 +99,7 @@ import {
   useNewTabAdoption,
   useNewTabPlaces,
   useNewTabWeather,
+  withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
@@ -9242,9 +9243,9 @@ function AcpmuxPane() {
         // A page that drew its New Tab frame before the handshake (useEarlyNewTabContext) keeps its
         // state: a page the user already left stays a chat.
         if (!reconnect && !earlyNewTab.current) setNewTab(newTabHost(host));
-        // The early context lacks the folder the handshake filled in (seed, start folder): add it.
-        else if (!reconnect && typeof host.cwd === "string" && host.cwd)
-          setNewTab((current) => (current && !current.cwd ? { ...current, cwd: host.cwd as string } : current));
+        // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
+        // cold page, the palette's actions whose places event came before its listener: add them.
+        else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -10375,7 +10376,7 @@ function AcpmuxPane() {
   // the composer is a failure.
   const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
-  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
