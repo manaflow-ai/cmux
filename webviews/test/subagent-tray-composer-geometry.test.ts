@@ -84,7 +84,12 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
         const within = (actual: number, expected: number) =>
           expect(Math.abs(actual - expected)).toBeLessThanOrEqual(0.5);
         expect(geometry.rows.filter((row) => row.stop)).toHaveLength(1);
-        expect(geometry.plus).not.toBeNull();
+        within(
+          geometry.rows[0]!.leading.left - geometry.rows[0]!.row.left,
+          geometry.composer.right - geometry.mic.right,
+        );
+        // The composer may hide + at the narrow fit step; when present, its inset is the
+        // leading-row inset the tray follows.
         if (geometry.plus)
           within(
             geometry.rows[0]!.leading.left - geometry.rows[0]!.row.left,

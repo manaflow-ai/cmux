@@ -672,6 +672,8 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
   grid-area: 1 / 1;
   margin-left: var(--acpmux-tray-indent, 0px);
+  justify-self: start;
+  width: 14px;
 }
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
   grid-area: 1 / 1;
@@ -690,6 +692,9 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   grid-area: 1 / 4;
   width: var(--acpmux-tray-stop-width);
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > button {
+  scroll-margin-bottom: 1px;
 }
 .acpmux-running-tray :is(.acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
   grid-area: 1 / 5;
