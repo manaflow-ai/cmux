@@ -86,6 +86,8 @@ public actor AgentSessionAttachClient {
     private struct Served: Sendable {
         /// `agent-session-start-v1`.
         var start = false
+        /// `agent-session-start-no-cwd-v1`.
+        var startNoCwd = false
         /// `agent-session-trust-v1`.
         var trust = false
         /// `agent-session-start-keyed-reason-v1`.
@@ -168,7 +170,7 @@ public actor AgentSessionAttachClient {
     /// connection's own `identify` lists `agent-session-start-vm-kind-v1`. The start goes over
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
-    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
+    public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
@@ -197,10 +199,11 @@ public actor AgentSessionAttachClient {
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
-    static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
+    static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
-        var params: [String: any Sendable] = ["cwd": cwd]
+        var params: [String: any Sendable] = [:]
+        if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
         if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
@@ -337,6 +340,14 @@ public actor AgentSessionAttachClient {
         return (work, (object["folders"] as? [String] ?? []).filter(absolute))
     }
 
+    /// Whether this daemon accepts an omitted cwd on `agent-session-start`.
+    /// Older daemons require a folder and must keep the work-folder fallback.
+    public func supportsNoCwd() async throws -> Bool {
+        guard mode == .attach else { return false }
+        _ = try await liveTransport()
+        return served.startNoCwd
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -394,6 +405,20 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-media", ["path": path])
     }
 
+    /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
+    /// Repository actions are cmux-tui frame commands, so they share this connection rather
+    /// than going through acpmux's JSON-RPC socket.
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration? = nil) async throws -> Data {
+        guard Self.cloudRepositoryMethods.contains(method) else {
+            throw AgentSessionAttachError(code: "cloud_repo.unsupported", message: "unsupported Cloud repository action")
+        }
+        return try await call(method, params, timeout: timeout)
+    }
+
+    private static let cloudRepositoryMethods: Set<String> = [
+        "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
+    ]
+
     /// Ends the attachment and the connection; no push after it.
     public func close() {
         closed = true
@@ -419,7 +444,7 @@ public actor AgentSessionAttachClient {
     /// (a question's answers and annotations, as JSON) goes in the request as it is.
     /// `on`: that connection only (no reconnect), else the live one.
     private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:],
-                      on pinned: LineTransport? = nil) async throws -> Data {
+                      timeout: Duration? = nil, on pinned: LineTransport? = nil) async throws -> Data {
         let transport: LineTransport
         if let pinned { transport = pinned } else { transport = try await liveTransport() }
         var object: [String: Any] = params
@@ -432,7 +457,7 @@ public actor AgentSessionAttachClient {
         let fields = try JSONSerialization.data(withJSONObject: object)
         let response: LineTransport.Response
         do {
-            response = try await transport.request(cmd: cmd, timeout: requestTimeout) { id in
+            response = try await transport.request(cmd: cmd, timeout: timeout ?? requestTimeout) { id in
                 Data(#"{"id":\#(id),"#.utf8) + fields.dropFirst()
             }
         } catch DaemonError.command(_, let message, let code, let details, _) {
@@ -535,6 +560,7 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
             served = Served(start: identity.supports(DaemonCapability.agentSessionStart.rawValue),
+                            startNoCwd: identity.supports(DaemonCapability.agentSessionStartNoCwd.rawValue),
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),

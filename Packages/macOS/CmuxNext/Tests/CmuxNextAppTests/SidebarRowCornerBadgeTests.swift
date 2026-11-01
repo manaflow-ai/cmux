@@ -90,11 +90,14 @@ import Testing
     /// Ready (`SidebarStatusSimpleTests`).
     @Test func theCornerBadgeSaysTheMostUrgentState() throws {
         let sidebar = Self.sidebar(detailed: true)
-        // Readable at 1x (coordinator 2026-10-14: the i, shield and bubble were not): a 10 pt
-        // glyph on whole points, so the static glyphs' pixel art lands on the pixel grid.
+        // Leo 2026-11-01: the red warning should be larger, like ChatGPT's (~13 pt ink).
+        // The error grows inside its existing cell, retaining its center and whole-point frame.
         let badge = try Self.cornerBadge(Self.row(sidebar, Self.failing))
         let frame = try Self.row(sidebar, Self.failing).convert(badge.bounds, from: badge)
-        #expect(frame.width == 10 && frame.height == 10)
+        #expect(frame.width == 14 && frame.height == 14)
+        let row = try Self.row(sidebar, Self.failing)
+        let cell = row.convert(row.rowBadge.bounds, from: row.rowBadge)
+        #expect(frame.midX == cell.midX && frame.midY == cell.midY)
         #expect(frame.minX == frame.minX.rounded() && frame.minY == frame.minY.rounded(), "off the pixel grid: \(frame)")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.agent)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.terminal)).state == .success, "unread: the blue dot")

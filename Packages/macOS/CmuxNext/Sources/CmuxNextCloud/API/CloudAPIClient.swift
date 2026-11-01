@@ -18,6 +18,9 @@ public struct CloudAPIClient: Sendable {
     let appVersion: String
     /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
     let machinePath: String, sendsStackSession: Bool
+    /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
+    /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
+    var machineIO: CloudMachineIO?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with

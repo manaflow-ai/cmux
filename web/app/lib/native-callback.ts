@@ -56,8 +56,12 @@ export function isAllowedNativeScheme(
   // Stack tokens to that app when a callback is forged on cmux.com.
   if (scheme === "cmux-next-dev") return isStagingRequest(request);
   if (NATIVE_SCHEMES.has(scheme)) return true;
+  const tagged = /^cmux-dev-[a-z0-9-]+$/.test(scheme);
+  // Debug and tagged fleet builds sign in on staging by default (CloudConfiguration.resolve),
+  // with staging's development Stack project, as signed NEXT DEV does above.
+  if ((scheme === "cmux-dev" || tagged) && isStagingRequest(request)) return true;
   if (scheme === "cmux-dev") return isLocalRequest(request);
-  if (!/^cmux-dev-[a-z0-9-]+$/.test(scheme)) return false;
+  if (!tagged) return false;
   return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
 }
 

@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -657,6 +657,10 @@ pub struct ConnectionStats {
     /// terminal connection gives this slot back with its main one
     /// (`connection_leases`).
     terminal_active: AtomicU64,
+    /// Of `terminal_active`, the connections each terminal holds (by its
+    /// process session), for the terminal lane's fair share
+    /// (`try_claim_terminal`). A terminal with none is not listed.
+    terminal_clients: Mutex<HashMap<u32, u64>>,
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
@@ -669,15 +673,18 @@ impl ConnectionStats {
     /// the slot back.
     /// At `limit` it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
-    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64) -> bool {
-        let claim = |count: u64| (count < limit).then_some(count + 1);
-        let mut claimed =
-            self.terminal_active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim).is_ok();
+    ///
+    /// `client`: the terminal the connection comes from (its process session).
+    /// A terminal's first connection gets in whenever the lane has room; a
+    /// further one only while that terminal then holds no more than the lane
+    /// has left free. One terminal (an agent's hooks in a loop, a script
+    /// running `cmux`) stops at half the lane, so a second terminal still finds
+    /// room; several terminals in a loop together can still fill the lane. A
+    /// connection whose terminal is unknown is bounded by the lane alone.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        let mut claimed = self.claim_terminal_slot(limit, client);
         if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
-            claimed = self
-                .terminal_active
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, claim)
-                .is_ok();
+            claimed = self.claim_terminal_slot(limit, client);
         }
         if !claimed {
             self.accepted.fetch_sub(1, Ordering::Relaxed);
@@ -686,7 +693,38 @@ impl ConnectionStats {
         claimed
     }
 
-    pub fn release_terminal(&self) {
+    /// One terminal slot under `limit`, within `client`'s fair share. The
+    /// share and the count change together under `terminal_clients`, so two
+    /// claims never both take the last place a share allows.
+    fn claim_terminal_slot(&self, limit: u64, client: Option<u32>) -> bool {
+        let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let active = self.terminal_active.load(Ordering::Acquire);
+        if active >= limit {
+            return false;
+        }
+        if let Some(client) = client {
+            let held = clients.get(&client).copied().unwrap_or(0);
+            let free_after = limit.saturating_sub(active.saturating_add(1));
+            if held > 0 && held.saturating_add(1) > free_after {
+                return false;
+            }
+            let held = clients.entry(client).or_insert(0);
+            *held = held.saturating_add(1);
+        }
+        self.terminal_active.fetch_add(1, Ordering::AcqRel);
+        true
+    }
+
+    pub fn release_terminal(&self, client: Option<u32>) {
+        if let Some(client) = client {
+            let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(held) = clients.get_mut(&client) {
+                *held = held.saturating_sub(1);
+                if *held == 0 {
+                    clients.remove(&client);
+                }
+            }
+        }
         self.terminal_active.fetch_sub(1, Ordering::AcqRel);
     }
 
