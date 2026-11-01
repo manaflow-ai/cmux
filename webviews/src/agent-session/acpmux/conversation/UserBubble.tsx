@@ -25,6 +25,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
+import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import {
@@ -37,17 +38,40 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
+
+/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
+/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
+/// original path is drawn by that image instead.
+export function recordedFiles(
+  parts: AcpmuxRow["inlineParts"],
+  originals: ReadonlySet<string> = new Set(),
+): FileAttachmentInfo[] | undefined {
+  return parts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+}
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
-  row,
-  text,
+  row: given,
+  text: givenText,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
+  // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
+  // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
+  const text = useMemo(
+    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
+    [givenText, given],
+  );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -56,16 +80,12 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  const resend = row.resend ?? row.text ?? text;
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
-  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
+  const recorded = recordedFiles(row.inlineParts, originals);
   const files = recorded?.length
     ? recorded
     : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
@@ -113,7 +133,9 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          if (await edit.send(row.id, through, value)) setEditing(false);
+          // The skills it named go as `/$name` again; the App writes any other skill so too.
+          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
     );
@@ -224,6 +246,22 @@ export function UserBubble({
       </div>
     </>
   );
+}
+
+/// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
+/// `row` itself when it names no Codex skill.
+function shownSkills(row: AcpmuxRow): AcpmuxRow {
+  const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
+  if (!sent.some((text) => text?.includes("/$"))) return row;
+  return {
+    ...row,
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.inlineParts && {
+      inlineParts: row.inlineParts.map((part) =>
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+      ),
+    }),
+  };
 }
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its

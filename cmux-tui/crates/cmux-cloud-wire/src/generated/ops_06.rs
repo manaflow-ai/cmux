@@ -4,6 +4,88 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItem {
+    pub conversation: ConversationId,
+    pub title: Option<String>,
+    pub seq: i64,
+    pub message_id: String,
+    pub author: ParticipantId,
+    pub created_at: Timestamp,
+    pub snippet: String,
+    pub ranges: Vec<HomeSearchResultHitsItemRangesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResult {
+    pub hits: Vec<HomeSearchResultHitsItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes home.search declares.
+    HomeSearchError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).
+    HomeSettingsSetOp {
+        name: "home.settings.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: HomeSettingsSetParams,
+        result: HomeSettingsSetResult,
+        error: HomeSettingsSetError,
+    }
+}
+
+wire_enum! {
+    HomeSettingsSetParamsAllowRequestsFrom {
+        Anyone = "anyone",
+        Teams = "teams",
+        Nobody = "nobody",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_email: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_phone: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_requests: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_same_domain: Option<bool>,
+}
+
+wire_enum! {
+    HomeSettingsSetResultAllowRequestsFrom {
+        Anyone = "anyone",
+        Teams = "teams",
+        Nobody = "nobody",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetResult {
+    pub discoverable_by_email: bool,
+    pub discoverable_by_phone: bool,
+    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
+    pub email_requests: bool,
+    pub trust_same_domain: bool,
+}
+
 wire_errors! {
     /// The error codes home.settings.set declares.
     HomeSettingsSetError {
@@ -809,94 +891,5 @@ wire_errors! {
         PolicyLocked = "policy.locked",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
-    IntegrationRevokeOp {
-        name: "integration.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "destructive",
-        principals: [Session],
-        params: IntegrationRevokeParams,
-        result: Connection,
-        error: IntegrationRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationRevokeParams {
-    pub connection: ConnectionId,
-}
-
-wire_errors! {
-    /// The error codes integration.revoke declares.
-    IntegrationRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.
-    InviteAcceptOp {
-        name: "invite.accept",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InviteAcceptParams,
-        result: HomeConversationCommit,
-        error: InviteAcceptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteAcceptParams {
-    pub code: String,
-    pub secret: String,
-}
-
-wire_errors! {
-    /// The error codes invite.accept declares.
-    InviteAcceptError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Banned = "banned",
-        DuplicateParticipant = "duplicate_participant",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteExpired = "invite_expired",
-        InviteNotPending = "invite_not_pending",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.
-    InviteAcceptVerifiedOp {
-        name: "invite.accept_verified",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InviteAcceptVerifiedParams,
-        result: HomeConversationCommit,
-        error: InviteAcceptVerifiedError,
     }
 }

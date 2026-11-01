@@ -173,6 +173,9 @@ export type AgentPaneVariant = VariantBase & {
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** A recorded chat (fixtures/recording.ts): its rows, as the pane's client makes them, replace the
+   *  snapshot's, and the snapshot's harness and family become the recording's. */
+  recording?: import("./fixtures/recording").Recording;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
@@ -183,6 +186,8 @@ export type AgentPaneVariant = VariantBase & {
   mockStart?: { delayMs?: number; error?: string; startMode?: boolean };
   /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
   mockCapabilities?: string[];
+  /** With `ready.transport: "mock"`: `session/new` refuses with `trust.pending` until a folder is trusted. */
+  mockTrustPending?: boolean;
   /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
   mockSessionAuth?: {
     state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";

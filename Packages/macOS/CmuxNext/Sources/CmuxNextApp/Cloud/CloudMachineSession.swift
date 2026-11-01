@@ -24,6 +24,8 @@ final class CloudMachineSession {
     let daemon: DaemonService
     @ObservationIgnored let link: CloudMachineLink?
     @ObservationIgnored let appLink: CloudLinkSession?
+    /// The last Cloud start's harness login decision here (CloudHarnessLoginDecision.summary), for `cloud.machines`.
+    @ObservationIgnored var harnessLogin: String?
     /// This Mac's own daemon identity: an app link socket that leads back to
     /// it is refused after the handshake (`CloudAppLinks.checkNotLocal`).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
