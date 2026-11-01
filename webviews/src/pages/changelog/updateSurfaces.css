@@ -70,6 +70,17 @@
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
 }
+/* The build's commit: plain text a click copies the full version from (UpdateSurfaces BuildLine,
+   2026-10-31). No tooltip, no link styling: hover only lifts it to the primary text color, and
+   keyboard focus takes the pages' ring (desktop.css). */
+.wn-card-build-id {
+  cursor: default;
+  transition: color 0.12s ease-out;
+}
+.wn-card-build-id:hover { color: var(--page-text); }
+@media (prefers-reduced-motion: reduce) {
+  .wn-card-build-id { transition: none; }
+}
 .wn-card-close {
   position: absolute;
   top: 7px;
