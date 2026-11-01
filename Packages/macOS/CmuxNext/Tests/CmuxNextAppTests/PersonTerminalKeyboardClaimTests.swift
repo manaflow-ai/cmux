@@ -241,4 +241,31 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(!kept, "a key typed after the create failed was still kept from the window")
         }
     }
+
+    /// A caller that awaits the run's work (the control socket's `action.run`, the CLI) reports the failure itself:
+    /// the person's failed new terminal shows no notice of its own then, so the failure never shows twice (review of
+    /// 4a07510697a: the check read the capture after the run's turn, when no capture is set any more). The failure the
+    /// caller gets still says the typed keys were not delivered, and the claim still ends.
+    @Test func aCallerThatAwaitsTheFailedNewTerminalGetsTheOnlyReport() async throws {
+        try await Self.withWindow { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            var notices: [String] = []
+            h.services.registry.remoteFailureObserver = { _, notice in notices.append(notice) }
+            let request = ActionInvocation(arguments: ["command": .string("/bin/sh"), "name": .string("fails")], origin: .user)
+            var ran = false
+            let work = h.services.registry.capturingWork { ran = h.services.registry.perform("newTab", invocation: request) }
+            #expect(ran)
+            let typed = try Self.key("e", keyCode: 14, in: h.window)
+            let held = router.interceptKeyDown(typed, in: h.window)
+            try #require(held, "the person's new terminal held no key: the test does not reach the claimed create")
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            let reported = failures.joined(separator: " | ")
+            #expect(reported.contains("not delivered"), "the awaiting caller's failure does not say the keys were not delivered: \(reported)")
+            #expect(notices.isEmpty, "the failure showed its own notice besides the awaiting caller's report: \(notices)")
+            let recorded = coordinator.claims.isRecorded(in: h.window)
+            #expect(!recorded, "the failed create's claim outlived its failure")
+        }
+    }
 }
