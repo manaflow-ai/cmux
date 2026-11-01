@@ -66,8 +66,6 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
 }
 
-// Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
-// mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
 /// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
 async function pasteComparison(ctx: PlayContext) {
   const view = ctx.document.defaultView!;
@@ -97,6 +95,8 @@ async function pasteComparison(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
 }
 
+// Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
+// mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
 const SEND_ARRIVES = {
   layoutShiftMax: {
     value: 0.003,
