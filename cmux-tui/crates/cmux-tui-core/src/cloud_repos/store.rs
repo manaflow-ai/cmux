@@ -87,6 +87,26 @@ fn chat_repos(doc: &Value, session: &str) -> Vec<Value> {
 fn recent_repos(doc: &Value) -> Vec<Value> {
     doc.get("recent").and_then(Value::as_array).cloned().unwrap_or_default()
 }
+pub(super) fn pending(mux: &Mux, session: &str) -> Result<Vec<Value>, Failure> {
+    let (doc, _) = load(mux)?;
+    Ok(doc
+        .get("jobs")
+        .and_then(|jobs| jobs.get(session))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|jobs| jobs.values())
+        .filter(|job| job.get("state").and_then(Value::as_str) == Some("running"))
+        .map(|job| {
+            let mut result = json!({"repo":job.get("repo"),"state":"running"});
+            for key in ["phase", "progress", "notes"] {
+                if let Some(value) = job.get(key) {
+                    result.set(key, value.clone());
+                }
+            }
+            result
+        })
+        .collect())
+}
 pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     if args.get("complete").is_some_and(|v| v != true) {
         return Err(Failure::new(
@@ -122,14 +142,10 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     for repo in &mut recent {
         repo.source = "recent".into();
     }
-    let install_url = args.get("install_url").and_then(Value::as_str).filter(|s| {
-        url::Url::parse(s).is_ok_and(|u| {
-            u.scheme() == "https"
-                && u.host_str() == Some("github.com")
-                && u.username().is_empty()
-                && u.password().is_none()
-        })
-    });
+    let install_url = args
+        .get("install_url")
+        .and_then(Value::as_str)
+        .filter(|url| super::engine::valid_install_url(url));
     if args.get("install_url").is_some() && install_url.is_none() {
         return Err(Failure::new(
             "seed.bad_request",
@@ -230,6 +246,18 @@ pub(super) fn record(mux: &Mux, session: &str, repo: &Value) -> Result<(), Failu
         recent.insert(0, json!({"fullName":repo.get("repo"),"private":true,"source":"recent"}));
         recent.truncate(1000);
         doc.set("recent", json!(recent));
+        // Attachment and job retirement share one CAS. A failed write leaves
+        // the completed job available for retry, never an occupied orphan.
+        if let Some(name) =
+            repo.get("repo").and_then(Value::as_str).and_then(|repo| repo.rsplit('/').next())
+            && let Some(jobs) = doc
+                .get_mut("jobs")
+                .and_then(|jobs| jobs.get_mut(session))
+                .and_then(Value::as_object_mut)
+            && jobs.get(name).and_then(|job| job.get("repo")) == repo.get("repo")
+        {
+            jobs.remove(name);
+        }
     })
 }
 
@@ -252,7 +280,12 @@ pub(super) fn set_job(
 }
 
 pub(super) fn install_url(mux: &Mux) -> Result<Option<String>, Failure> {
-    Ok(load(mux)?.0.get("install_url").and_then(Value::as_str).map(str::to_owned))
+    Ok(load(mux)?
+        .0
+        .get("install_url")
+        .and_then(Value::as_str)
+        .filter(|url| super::engine::valid_install_url(url))
+        .map(str::to_owned))
 }
 
 #[cfg(test)]

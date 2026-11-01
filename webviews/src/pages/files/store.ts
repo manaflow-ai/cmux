@@ -54,6 +54,8 @@ export class FilesStore {
   private selectionEpoch = 0;
   /** Every open gets a unique token, including retries of the same path. */
   private openAttempt = 0;
+  /** The latest copy: an older one's late failure is not the notice for what is on screen now. */
+  private copyAttempt = 0;
   private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -131,6 +133,9 @@ export class FilesStore {
   }
 
   async copy(text: string): Promise<void> {
+    const attempt = ++this.copyAttempt;
+    const epoch = this.selectionEpoch;
+    const opened = this.openAttempt;
     try {
       if (!this.writeClipboard) throw new Error("no page clipboard");
       await this.writeClipboard(text);
@@ -140,6 +145,8 @@ export class FilesStore {
       try {
         await this.client?.call(CLIPBOARD_WRITE, { text });
       } catch (error) {
+        // A newer copy, another selection or an open began meanwhile: this failure is stale.
+        if (attempt !== this.copyAttempt || epoch !== this.selectionEpoch || opened !== this.openAttempt) return;
         this.notice = isPageError(error) ? error.message : String(error);
         this.emit();
       }
