@@ -3402,6 +3402,7 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
+      "shortcutsBindingsKeymapLink": "Base keymap presets and their switching behavior are documented in the <keymapLink>Base keymap presets</keymapLink> section.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
