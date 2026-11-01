@@ -118,7 +118,9 @@ export const authorizeNativeDial = async (
 export const recheckNativeDial = async (d: NativeDialDeps, p: Principal, permit: NativeDialPermit): Promise<boolean> => {
   if (permit.team !== d.team || permit.user !== p.user || permit.install !== p.install || permit.grant !== p.grant) return false
   try {
-    const [tenant, own] = await Promise.all([d.tenant(), d.identity(permit.user, permit.install, permit.grant)])
+    // The identity read is the last await: an install change during the tenant lookup is always seen.
+    const tenant = await d.tenant()
+    const own = await d.identity(permit.user, permit.install, permit.grant)
     const current = currentBinding(d, p)
     return !!current && dialIdentity(current, own, p, d.now()) && peerAuthorityVersion(d, current, own) === permit.authorityVersion
       && own.expires_at === permit.grantExpiresAt && pointOf(own) === permit.point && tenant?.team === d.team && tenant.project === d.project && tenant.tenant === permit.tenant

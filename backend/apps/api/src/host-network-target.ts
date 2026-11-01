@@ -62,7 +62,9 @@ export const hostNetworkTarget = async (d: Deps, p: Principal, params: unknown):
     if (!tenantMatches(d, target) || !point || !authority || memberAuthority(d, p) !== member || !clientMayRead(d, p)) return fail("auth.forbidden", "the client network owner could not be verified")
     const read = await readNetworkMesh(d.http, connection, target.tenant, decoded.value.mesh)
     const result: ReadResult = read.ok ? { ok: true, value: { team: d.team, tenant: target.tenant, project: target.project, origin: connection.origin, ...read.value }, revision: "" } : read
-    const [currentTarget, currentOwn] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
+    // The identity read is the last await: an install change during the tenant lookup is always seen.
+    const currentTarget = await d.tenant()
+    const currentOwn = await d.identity(p.user!, p.install!, p.grant!)
     const currentConnection = d.connection()
     // No await between final live membership/authority/config checks and returning metadata.
     if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentOwn) !== point || installAuthority(d, p, currentOwn) !== authority

@@ -1,6 +1,6 @@
 import type { CloudVmReceiverPeer } from "@cmux/protocol"
 import { personalTeamIdFor } from "./domains/user.ts"
-import { boundedIdentities, cloudClientIdentity, digest, hostStamp, liveHost, networkHosts, peerAuthorityVersion, pointOf, pointUnique, sameCandidate, type PeerDeps } from "./host-network-peers.ts"
+import { boundedIdentities, cloudClientIdentity, digest, fenceIdentities, hostStamp, liveHost, networkHosts, peerAuthorityVersion, pointOf, pointUnique, sameCandidate, type PeerDeps } from "./host-network-peers.ts"
 import { vmRuleServices } from "./cloud-native-dial.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
 import type { NativeVmReceiverPolicy } from "./cloud-vm-receiver-native.ts"
@@ -31,18 +31,29 @@ export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Pr
   const stamp = () => digest([creator(), d.origin(), d.allowed(), networkHosts(d)?.filter((h) => inMesh(h) && liveHost(d, h)).map((h) => hostStamp(d, h))])
   const graph = stamp(), first = await boundedIdentities(d, candidates, target.deadline)
   if (d.now() >= target.deadline) return null
-  const [currentTenant, second] = await Promise.all([d.tenant(), boundedIdentities(d, candidates, target.deadline)])
+  const currentTenant = await d.tenant()
   if (d.now() >= target.deadline || currentTenant?.team !== d.team || currentTenant.project !== d.project || currentTenant.tenant !== tenant.tenant || stamp() !== graph) return null
-  const now = d.now(), allowed = d.allowed(), peers: VmReceiverPeers["peers"] = []
-  let expires = policy.expiresAt
+  const second = await boundedIdentities(d, candidates, target.deadline)
+  if (d.now() >= target.deadline || stamp() !== graph) return null
+  const selected: Array<{ native: (typeof policy.peers)[number]; host: (typeof candidates)[number] }> = []
   for (const native of policy.peers) {
     const matches = candidates.filter((h) => h.network?.device === native.deviceId || h.wg_public_key === native.wgPublicKey)
     if (matches.length !== 1) continue
     const host = matches[0]!, identity = second.get(host.id) ?? null
     if (host.network?.device !== native.deviceId || host.wg_public_key !== native.wgPublicKey || candidates.filter((h) => sameCandidate(host, h)).length !== 1
-      || !cloudClientIdentity(host, identity, now) || identity.authority_version !== first.get(host.id)?.authority_version
+      || !cloudClientIdentity(host, identity, d.now()) || identity.authority_version !== first.get(host.id)?.authority_version
       || pointOf(identity) !== native.installPublicKey || !pointUnique(d, candidates, first, native.installPublicKey) || !pointUnique(d, candidates, second, native.installPublicKey)
       || (d.team === personalTeamIdFor(target.creator) && host.owner_user !== target.creator)) continue
+    selected.push({ native, host })
+  }
+  // The selected peers' owners are read once more, all at once, as the last await (policy.peers is at most 128).
+  const final = await fenceIdentities(d, selected.map(({ host }) => host), target.deadline)
+  if (d.now() >= target.deadline || stamp() !== graph || creator() !== baseline) return null
+  const now = d.now(), allowed = d.allowed(), peers: VmReceiverPeers["peers"] = []
+  let expires = policy.expiresAt
+  for (const { native, host } of selected) {
+    const identity = final.get(host.id) ?? null
+    if (!cloudClientIdentity(host, identity, now) || identity.authority_version !== first.get(host.id)?.authority_version || pointOf(identity) !== native.installPublicKey) continue
     const rules = vmRuleServices(native.allow)
     const services = rules?.filter((s) => allowed.includes(s) && (s !== "daemon" || allowed.includes("ssh"))) as Array<"daemon" | "ssh"> | undefined
     if (!services?.length) continue

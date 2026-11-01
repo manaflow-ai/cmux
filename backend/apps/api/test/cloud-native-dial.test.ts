@@ -174,3 +174,18 @@ describe("Native dial changes during the first await", () => {
     expect(await recheckNativeDial(second.deps, { ...principal, expires_at: later - 1_000 }, permitted.permit)).toBe(false)
   })
 })
+
+describe("Native dial changes during the final tenant lookup", () => {
+  it("refuses authorization and recheck when the install is revoked after its identity answered", async () => {
+    const f = await fixture(), tenant = f.deps.tenant
+    let calls = 0
+    // Call 1 starts authorization; call 2 is the recheck's tenant lookup. The revoke lands late in it, after a concurrent identity read could have answered.
+    Object.assign(f.deps, { tenant: async () => { if (++calls === 2) { await new Promise((r) => setTimeout(r, 5)); f.revoke() } return tenant() } })
+    expect(await f.authorize(["ssh"])).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const second = await fixture(), permitted = await second.authorize(["ssh"])
+    if (!permitted.ok) throw new Error(permitted.code)
+    const again = second.deps.tenant
+    Object.assign(second.deps, { tenant: async () => { await new Promise((r) => setTimeout(r, 5)); second.revoke(); return again() } })
+    expect(await recheckNativeDial(second.deps, principal, permitted.permit)).toBe(false)
+  })
+})

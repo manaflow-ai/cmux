@@ -206,7 +206,8 @@ describe("TeamDO Native reads with live authority", () => {
     let state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "O" } }, hosts: {
       [HOST]: { id: HOST, name: "Mac", platform: "macos", owner_user: USER, enrolled_by: INSTALL, enrolled_at: 1, wg_public_key: wg,
         network: { state: "confirmed", tenant: TENANT, mesh: MESH, device: DEVICE, confirmed_at: 1, install_grant: GRANT } } } } as unknown as TeamState
-    const identity = (): NetworkIdentityView => ({ key, kind: "mac", expires_at: null, authority_version: String(version).padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] })
+    let revoked = false
+    const identity = (): NetworkIdentityView | null => revoked ? null : ({ key, kind: "mac", expires_at: null, authority_version: String(version).padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] })
     const rows = { get: (table: string, k: string) => table !== "member_authority" ? undefined : k === "@generation" ? { row: { generation } } : k === USER ? { row: { incarnation } } : undefined } as never
     return {
       point: installPublicPoint(key), state: () => state, rows, identity,
@@ -214,18 +215,20 @@ describe("TeamDO Native reads with live authority", () => {
       regrant: () => { version++ },
       /** The member leaves and rejoins with the same role. */
       rejoin: () => { generation = String(Number(generation) + 2); incarnation = `generation:${generation}:bbbbbbbbbbbbbbbbbbbbbb` },
-      leave: () => { state = { ...state, members: {} } }
+      leave: () => { state = { ...state, members: {} } },
+      /** The install is revoked: UserDO answers no identity. */
+      revoke: () => { revoked = true }
     }
   }
 
   const clock = { now: Date.now() }
-  /** `during` runs inside the mesh read; `first` while the first tenant lookup is pending. */
-  const targetDeps = (w: Awaited<ReturnType<typeof world>>, during?: () => void, first?: () => void) => {
+  /** `during` runs inside the mesh read; `first` while the first tenant lookup is pending; `last` late in the final one, after a concurrent identity read could have answered. */
+  const targetDeps = (w: Awaited<ReturnType<typeof world>>, during?: () => void, first?: () => void, last?: () => void) => {
     let tenants = 0
     return {
     team: TEAM, project: "project", state: w.state, rows: w.rows, now: () => clock.now, revision: () => "7",
     connection: () => ({ origin: ORIGIN, key: "service-key" }),
-    tenant: async () => { if (tenants++ === 0) first?.(); return { team: TEAM, project: "project", tenant: TENANT } },
+    tenant: async () => { const call = tenants++; if (call === 0) first?.(); if (call === 1 && last) { await new Promise((r) => setTimeout(r, 5)); last() } return { team: TEAM, project: "project", tenant: TENANT } },
     identity: async () => w.identity(),
     http: async (request: Request) => {
       expect(request.url).toBe(`${ORIGIN}/v1/meshes`)
@@ -247,7 +250,7 @@ describe("TeamDO Native reads with live authority", () => {
   it("refuses a caller whose socket authority is not the current one", async () => {
     const w = await world()
     expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: "f".repeat(64) }, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: w.identity().authority_version }, {})).toMatchObject({ ok: true })
+    expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: w.identity()!.authority_version }, {})).toMatchObject({ ok: true })
   })
 
   it("refuses the target when the caller rejoins during the first tenant lookup", async () => {
@@ -260,7 +263,7 @@ describe("TeamDO Native reads with live authority", () => {
     clock.now = Date.now()
     const w = await world(), identity = w.identity
     let expires = clock.now + 1_000
-    w.identity = () => ({ ...identity(), expires_at: expires })
+    w.identity = () => ({ ...identity()!, expires_at: expires })
     expect(await hostNetworkTarget(targetDeps(w, () => { clock.now += 2_000 }), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
     clock.now = Date.now(); expires = clock.now + 1_000
     expect(await hostNetworkTarget(targetDeps(w, undefined, () => { clock.now += 2_000 }), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
@@ -274,13 +277,19 @@ describe("TeamDO Native reads with live authority", () => {
     expect(await hostNetworkTarget(targetDeps(w), { ...p, expires_at: clock.now + 60_000 }, {})).toMatchObject({ ok: true })
   })
 
+  it("refuses the target when the install is revoked while the final tenant lookup is pending", async () => {
+    clock.now = Date.now()
+    const w = await world()
+    expect(await hostNetworkTarget(targetDeps(w, undefined, undefined, w.revoke), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
   const peerTarget = (w: Awaited<ReturnType<typeof world>>) => ({ creator: USER, origin: ORIGIN, deadline: Date.now() + 10_000, policy: {
     schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000,
     policyDigest: "a".repeat(64), peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: w.point, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] } }) as never
-  const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void, first?: () => void) => {
+  const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void, first?: () => void, last?: () => void) => {
     let calls = 0, tenants = 0
     return { team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, origin: () => ORIGIN,
-      tenant: async () => { if (tenants++ === 0) first?.(); return { team: TEAM, project: "project", tenant: TENANT } }, allowed: () => ["daemon", "ssh"],
+      tenant: async () => { const call = tenants++; if (call === 0) first?.(); if (call === 1 && last) { await new Promise((r) => setTimeout(r, 5)); last() } return { team: TEAM, project: "project", tenant: TENANT } }, allowed: () => ["daemon", "ssh"],
       identity: async () => w.identity(),
       identities: async (_user: string, entries: ReadonlyArray<unknown>) => { if (calls++ === 1) second?.(); return entries.map(() => w.identity()) } }
   }
@@ -305,5 +314,40 @@ describe("TeamDO Native reads with live authority", () => {
   it("answers nothing when the creator rejoins during the first tenant lookup", async () => {
     const w = await world()
     expect(await vmReceiverPeers(peerDeps(w, undefined, w.rejoin), peerTarget(w))).toBeNull()
+  })
+
+  it("drops a peer whose install is revoked while the final tenant lookup is pending", async () => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w, undefined, undefined, w.revoke), peerTarget(w))).toMatchObject({ peers: [] })
+  })
+
+  it("drops owner U's peer when U is revoked after U's snapshot answered while owner V's is still pending", async () => {
+    const V = "user_00000000000000000002", V_INSTALL = "inst_00000000000000000002", V_GRANT = "grant_00000000000000000002", V_HOST = "host_00000000000000000002"
+    const V_DEVICE = "dev_" + "1".repeat(26), vWg = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))
+    const keyOf = async () => (await crypto.subtle.exportKey("jwk", ((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair).publicKey)) as JsonWebKey
+    const uKey = await keyOf(), vKey = await keyOf()
+    const host = (id: string, owner: string, install: string, grant: string, device: string, wgKey: string) => ({ id, name: id, platform: "macos", owner_user: owner, enrolled_by: install, enrolled_at: 1, wg_public_key: wgKey,
+      network: { state: "confirmed", tenant: TENANT, mesh: MESH, device, confirmed_at: 1, install_grant: grant } })
+    const state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "U" }, [V]: { user: V, role: "member", display_name: "V" } },
+      hosts: { [HOST]: host(HOST, USER, INSTALL, GRANT, DEVICE, wg), [V_HOST]: host(V_HOST, V, V_INSTALL, V_GRANT, V_DEVICE, vWg) } } as unknown as TeamState
+    const revoked = new Set<string>()
+    const identity = (user: string): NetworkIdentityView | null => revoked.has(user) ? null
+      : { key: user === USER ? uKey : vKey, kind: "mac", expires_at: null, authority_version: "1".padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] }
+    // Each call to V's owner waits a turn; on the second snapshot, U is revoked after U already answered.
+    let vCalls = 0
+    const deps = { team: TEAM, project: "project", state: () => state, rows: undefined, now: Date.now, origin: () => ORIGIN,
+      tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }), allowed: () => ["daemon", "ssh"],
+      identity: async (user: string) => identity(user),
+      identities: async (user: string, entries: ReadonlyArray<unknown>) => {
+        if (user === V) { await new Promise((r) => setTimeout(r, 5)); if (++vCalls === 2) revoked.add(USER) }
+        return entries.map(() => identity(user))
+      } }
+    const allow = [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }]
+    const target = { creator: USER, origin: ORIGIN, deadline: Date.now() + 10_000, policy: {
+      schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000, policyDigest: "a".repeat(64),
+      peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: installPublicPoint(uKey), allow }, { deviceId: V_DEVICE, wgPublicKey: vWg, installPublicKey: installPublicPoint(vKey), allow }] } } as never
+    const answer = await vmReceiverPeers(deps, target)
+    expect(vCalls).toBeGreaterThanOrEqual(2)
+    expect(answer?.peers.map((peer) => peer.user)).toEqual([V])
   })
 })
