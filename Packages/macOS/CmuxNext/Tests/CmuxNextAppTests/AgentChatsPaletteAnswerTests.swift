@@ -12,7 +12,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func aQueryStreamEndsAfterAcpmuxAnswersIt() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("nothing matches", windows: windows, open: { _ in })
         let generation = try #require(sent.last?["gen"] as? UInt64)
         windows.apply(.init(window: AgentChatsPalettePage.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
@@ -31,19 +31,19 @@ import Testing
     @Test func aWindowIsNotAnsweredAgainUntilTheNewConnectionAnswers() throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let spec = AcpmuxChatWindows.Spec(window: AgentChatsPalettePage.window, limit: 10, query: "zebra")
         windows.open(spec)
         let generation = try #require(sent.last?["gen"] as? UInt64)
         windows.apply(.init(window: spec.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
         #expect(windows.isAnswered(spec))
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         #expect(sent.count == 2, "the new connection asks for the window again")
         #expect(!windows.isAnswered(spec), "the old connection's rows do not answer the new connection's request")
         windows.apply(.init(window: spec.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
         #expect(windows.isAnswered(spec))
         // Review 3 M2: a reconnect, then acpmux refuses the request (busy): still not answered.
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         windows.requestFailed(spec.window)
         #expect(!windows.isAnswered(spec), "a refused request after a reconnect does not answer with the old rows")
     }
@@ -56,7 +56,7 @@ import Testing
         for await answer in AgentChatsPalettePage.answers("zebra", windows: windows, open: { _ in }) { none.append(answer) }
         #expect(none.allSatisfy { $0.isEmpty }, "no connection: no rows")
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("quokka", windows: windows, open: { _ in })
         windows.requestFailed(AgentChatsPalettePage.window)
         var refused: [[PaletteItem]] = []
@@ -69,7 +69,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func anOlderRefusalDoesNotEndTheCurrentQuery() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         _ = AgentChatsPalettePage.answers("old", windows: windows, open: { _ in })
         let older = try #require(sent.last?["gen"] as? UInt64)
         let stream = AgentChatsPalettePage.answers("new", windows: windows, open: { _ in })
@@ -90,7 +90,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func aNotReadyAnswerEndsTheQueryAtOnce() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("zebra", windows: windows, open: { _ in })
         let generation = try #require(sent.last?["gen"] as? UInt64)
         windows.requestNotReady(AgentChatsPalettePage.window, generation: generation)
@@ -108,7 +108,7 @@ import Testing
         var changes = 0
         windows.followAvailability(owner) { changes += 1 }
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         #expect(changes == 1, "a connection came")
         windows.open(.init(window: AgentChatsPalettePage.window, limit: 10, query: "zebra"))
         let generation = try #require(sent.last?["gen"] as? UInt64)
@@ -122,14 +122,16 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func theMoreRowKeepsItsCountAfterTheWindowCloses() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let page = AgentChatsPalettePage(windows: windows, history: { _ in nil }, open: { _ in }).page()
         let results = try #require(page.queryResults)
         let stream = results("idle")
         for _ in 0..<500 where !sent.contains(where: { $0["query"] as? String == "idle" }) { await Task.yield() }
         let generation = try #require(sent.last?["gen"] as? UInt64)
         let keys = (0..<200).map { "codex:\($0)" }
-        let rows: [[String: Any]] = (0..<200).map { ["key": keys[$0], "sessionId": "\($0)", "harness": "codex", "title": "Idle \($0)", "updatedMs": 1_000] }
+        let rows: [[String: Any]] = (0..<200).map { (index: Int) -> [String: Any] in
+            ["key": keys[index], "sessionId": "\(index)", "harness": "codex", "title": "Idle \(index)", "updatedMs": 1_000]
+        }
         let message: [String: Any] = ["window": AgentChatsPalettePage.window, "gen": NSNumber(value: generation), "revision": 1,
                                       "full": true, "keys": keys, "rows": rows, "hasMore": true, "total": 250]
         windows.apply(try #require(AcpmuxChatWindows.Update(params: message)))
@@ -159,7 +161,7 @@ import Testing
     @Test func morePastThePageIsShownAsANoticeRow() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("codex", windows: windows, open: { _ in })
         let params = try #require(sent.last)
         #expect(params["untitled"] as? String == AgentChatsPaletteStrings.untitled, "acpmux finds an untitled chat by the page's word")
@@ -181,7 +183,7 @@ import Testing
     @Test func aQuerySendsThePersonsChoiceHistory() throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let used = FrecencyStore.Entry(score: 2, lastUsed: Date(timeIntervalSinceReferenceDate: 1_000))
         let store = FrecencyStore(entries: ["chat:codex:1": used, "action.other": used])
         let history = store.rankerHistory(keyPrefix: "chat:", query: "fix", now: Date(timeIntervalSinceReferenceDate: 2_000))
@@ -197,7 +199,7 @@ import Testing
     @Test func theEmptyQuerySaysHowManyMoreChatsThereAre() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
-        windows.connected { _, params in sent.append(params) }
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
         let stream = AgentChatsPalettePage.answers("", windows: windows, open: { _ in })
         let params = try #require(sent.last)
         #expect(params["count"] as? Bool == true, "the page asks acpmux to count every chat")
