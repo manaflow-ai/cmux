@@ -11,10 +11,13 @@ extension HomeProjection {
         homeStore.toggleAgentMessages(group, in: conversation)
     }
 
-    /// What a click on Feed row `message` opens (``HomeFeedRow/url``); nil for every other row.
+    /// What a click on Feed row `message` opens (``HomeFeedRow/url``); nil for every other row. Any
+    /// Feed poster sets the URL, so only the links Home opens elsewhere pass (http, https, mailto,
+    /// a cmux app link), as the Feed page refuses other schemes; any other row takes no click.
     func feedRowURL(_ message: ID) -> URL? {
-        guard !stopped else { return nil }
-        return shown.first(where: { HomeMapping.id($0, aliases: aliases) == message })?.feedRow?.url
+        guard !stopped, let url = shown.first(where: { HomeMapping.id($0, aliases: aliases) == message })?.feedRow?.url else { return nil }
+        if url.isCmuxAppLink { return url }
+        return ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") ? url : nil
     }
 
     /// A click on a fold or notes row toggles its group; a click on any other row is not ours.

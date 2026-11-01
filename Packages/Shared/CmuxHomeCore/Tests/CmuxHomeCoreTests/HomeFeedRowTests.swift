@@ -40,4 +40,10 @@ struct HomeFeedRowTests {
         let items = [message("a", at: 100)]
         #expect(HomeFeedRow.inserting([], into: items, author: chief).map(\.key) == items.map(\.key))
     }
+
+    @Test func aWindowShortOfTheStartHoldsBackOlderRows() {
+        let items = HomeFeedRow.inserting([row("old", at: 10), row("new", at: 150)], into: [message("a", at: 100)],
+                                          author: chief, since: Date(timeIntervalSince1970: 100))
+        #expect(items.map(\.key) == ["a", "feed:new"].map { IdempotencyKey($0) })
+    }
 }

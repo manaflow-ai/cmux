@@ -39,10 +39,13 @@ public struct HomeFeedRow: Hashable, Sendable {
 
     /// `items` with `rows` merged in by time: each row goes before the first item that came after it,
     /// so the Feed reads as a running log beside the conversation. Rows newer than every item follow
-    /// them; a send still on its way stays last.
-    static func inserting(_ rows: [HomeFeedRow], into items: [TranscriptItem], author: ParticipantID) -> [TranscriptItem] {
-        guard !rows.isEmpty else { return items }
-        let sorted = rows.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
+    /// them; a send still on its way stays last. With `since` (the window does not reach the
+    /// conversation's start), rows older than its first committed item wait until older pages load,
+    /// so they never pile up above the loaded messages.
+    static func inserting(_ rows: [HomeFeedRow], into items: [TranscriptItem], author: ParticipantID,
+                          since: Date? = nil) -> [TranscriptItem] {
+        let sorted = rows.filter { since.map { start in $0.date >= start } ?? true }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
+        guard !sorted.isEmpty else { return items }
         var out: [TranscriptItem] = []
         out.reserveCapacity(items.count + sorted.count)
         var next = 0

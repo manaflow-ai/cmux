@@ -280,7 +280,9 @@ public final class HomeStore {
                                              expanded: expandedAgentMessages[id] ?? []) ?? items
         if let feed = feedRows, feed.conversation == id,
            let chief = summary(id)?.participants.first(where: \.isChief)?.id {
-            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief)
+            // A window that does not reach the start shows no rows older than its first message.
+            let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
+            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief, since: since)
         }
         transcriptCache[id] = (version, me, items)
         return items
