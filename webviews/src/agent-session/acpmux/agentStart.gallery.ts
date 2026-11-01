@@ -21,15 +21,65 @@ const sent: Play = async (ctx) => {
 };
 
 /// The agent starts and answers: nothing above the composer moves, and the prompt keeps its place.
+/// The play's own layout-shift observer spans the whole start (the step's own measure ends when
+/// the hover settles, before the agent is up), and the line under the prompt must keep its top
+/// from the send to the first output (the start row once moved 28 px down when the turn opened).
 const toReply: Play = async (ctx) => {
   const doc = ctx.document;
+  const view = doc.defaultView!;
   await sent(ctx);
+  const shifts: { value: number; from: string }[] = [];
+  const observer = new view.PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as (PerformanceEntry & {
+      value: number;
+      sources?: { node?: Node; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
+    })[]) {
+      const moved = (entry.sources ?? []).filter(
+        (source) =>
+          source.previousRect &&
+          source.currentRect &&
+          Math.max(
+            Math.abs(source.previousRect.y - source.currentRect.y),
+            Math.abs(source.previousRect.x - source.currentRect.x),
+          ) >= 0.5,
+      );
+      if (moved.length === 0) continue;
+      const node = moved[0]!.node;
+      shifts.push({ value: entry.value, from: node instanceof view.Element ? node.className.toString() : "#text" });
+    }
+  });
+  if (view.PerformanceObserver.supportedEntryTypes?.includes("layout-shift"))
+    observer.observe({ type: "layout-shift", buffered: false });
+  const line = () => doc.querySelector(".acpmux-thinking .cv-worked")?.getBoundingClientRect().top;
   const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
+  // The line's top on every frame and mutation from the send until the first output.
+  const tops: number[] = [];
+  const track = () => {
+    const top = line();
+    if (top !== undefined) tops.push(top);
+  };
+  track();
   await ctx.hover({ selector: ".cv-user__bubble" });
-  await ctx.waitFor(() => doc.querySelector(".cv-md"), { capMs: 15_000 });
+  await ctx.waitFor(
+    () => {
+      const reply = doc.querySelector(".cv-md");
+      if (!reply) track();
+      return reply;
+    },
+    { capMs: 15_000 },
+  );
+  observer.disconnect();
   const moved = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
+  const problems: string[] = [];
   if (bubble && moved && Math.abs(bubble.top - moved.top) > 1)
-    throw new Error(`the prompt moved ${Math.abs(bubble.top - moved.top).toFixed(1)} px when its agent started`);
+    problems.push(`the prompt moved ${Math.abs(bubble.top - moved.top).toFixed(1)} px`);
+  const travel = tops.length ? Math.max(...tops) - Math.min(...tops) : 0;
+  if (travel > 1) problems.push(`the line under the prompt moved ${travel.toFixed(1)} px while the agent started`);
+  if (shifts.length > 0)
+    problems.push(
+      `${shifts.length} layout shift(s) while the agent started, CLS ${shifts.reduce((sum, shift) => sum + shift.value, 0).toFixed(4)} (${shifts.map((shift) => shift.from).join(", ")})`,
+    );
+  if (problems.length) throw new Error(problems.join("; "));
 };
 
 export default agentPaneEntry({
