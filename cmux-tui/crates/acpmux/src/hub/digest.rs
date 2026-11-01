@@ -726,6 +726,9 @@ mod tests {
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
             retries: 0,
+            awaiting_owner: false,
+            revision: 0,
+            declined: Default::default(),
         }
     }
 
