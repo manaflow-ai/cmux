@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import Foundation
+import Observation
 import Testing
 
 /// What stays in the App of a `cloud.startChat` send: the account and list checks, the folder it may
@@ -38,19 +39,60 @@ struct CloudStartChatMachineTests {
                                  (.init(ok: false, errorCode: outdated, side: "source"), false),
                                  (.init(ok: false, errorCode: "sync_failed"), false), (.init(ok: true), false)] {
             for updated in [true, false] {
-                var copies = 0, asked = 0
-                let answer = try await CloudOutdatedMachine.copy({ () async throws -> CloudMoveCLI.Answer in
-                    copies += 1
-                    return copies == 1 ? first : CloudMoveCLI.Answer(ok: true)
-                }, answer: read) {
+                let link = Link()
+                var sockets: [String] = [], asked = 0
+                let answer = try await CloudOutdatedMachine.copy(socket: { link.socket }, link: { link.key }, notConnected: CancellationError(),
+                                                                 relink: .seconds(5)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+                    sockets.append(socket)
+                    return sockets.count == 1 ? first : CloudMoveCLI.Answer(ok: true)
+                } answer: { read($0) } update: {
                     asked += 1
+                    link.restart()
                     return updated
                 }
                 #expect(asked == (updates ? 1 : 0))
-                #expect(copies == (updates && updated ? 2 : 1))
+                #expect(sockets == (updates && updated ? ["link-1.sock", "link-2.sock"] : ["link-1.sock"]))
                 #expect(answer == (updates && updated ? CloudMoveCLI.Answer(ok: true) : first))
             }
         }
+    }
+
+    /// Capture at ff3f8c9b (2026-11-01): the update restarted the machine's daemon and its link came back on a new
+    /// socket a moment after the update returned. The second copy waits for the new link instead of failing with
+    /// "cannot connect to …/cmux-link-….sock: No such file or directory", and nothing copies while not connected.
+    @Test func theCopyAfterAnUpdateWaitsForTheMachinesNewLink() async throws {
+        let link = Link(), outdated = CloudMoveCLI.Answer(ok: false, errorCode: CloudOutdatedMachine.code)
+        var sockets: [String] = []
+        let answer = try await CloudOutdatedMachine.copy(socket: { link.socket }, link: { link.key }, notConnected: CancellationError(),
+                                                         relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+            sockets.append(socket)
+            return sockets.count == 1 ? outdated : CloudMoveCLI.Answer(ok: true)
+        } answer: { ($0.ok, $0.errorCode, $0.side) } update: {
+            link.drop()
+            Task { @MainActor in link.restart() }
+            return true
+        }
+        #expect(sockets == ["link-1.sock", "link-2.sock"])
+        #expect(answer == CloudMoveCLI.Answer(ok: true))
+        let gone = Link()
+        gone.drop()
+        await #expect(throws: CancellationError.self) {
+            _ = try await CloudOutdatedMachine.copy(socket: { gone.socket }, link: { gone.key }, notConnected: CancellationError()) { (_: String) async throws in
+                Issue.record("copied while not connected")
+                return CloudMoveCLI.Answer(ok: true)
+            } answer: { ($0.ok, $0.errorCode, $0.side) } update: { true }
+        }
+    }
+
+    /// A machine's daemon link as the copy sees it: its socket and handshake key, observable, both
+    /// gone while the daemon restarts.
+    @MainActor @Observable private final class Link {
+        private(set) var generation: Int? = 1
+        var socket: String? { generation.map { "link-\($0).sock" } }
+        var key: String? { generation.map { "key-\($0)" } }
+        private var last = 1
+        func drop() { generation = nil }
+        func restart() { last += 1; generation = last }
     }
 
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
