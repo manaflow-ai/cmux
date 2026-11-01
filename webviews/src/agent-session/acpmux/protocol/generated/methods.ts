@@ -70,6 +70,7 @@ export interface AcpmuxRequests {
   "_acpmux/step_now": { params: unknown; result: unknown };
   "_acpmux/steer_withdraw": { params: unknown; result: unknown };
   "_acpmux/agent_pair_resume": { params: unknown; result: unknown };
+  "_acpmux/agent_hold": { params: unknown; result: unknown };
   "_acpmux/retry": { params: RetryParams; result: RetryResult };
   "_acpmux/session/auth": { params: SessionAuthParams; result: SessionAuthResult };
   "_acpmux/process/list": { params: unknown; result: unknown };
@@ -363,6 +364,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/step_now", kind: "request", acp: false, typed: false },
   { name: "_acpmux/steer_withdraw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/agent_pair_resume", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_hold", kind: "request", acp: false, typed: false },
   { name: "_acpmux/retry", kind: "request", acp: false, typed: true },
   { name: "_acpmux/session/auth", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },

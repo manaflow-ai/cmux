@@ -469,6 +469,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/retry",
       "params": {
         "$ref": "#/types/RetryParams"

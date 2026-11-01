@@ -6923,6 +6923,13 @@ export class AcpmuxDirectClient {
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
   }
+  /// Take over (`held`) or Hand back the shown chat its manager runs (acpmux `hub/agent_hold.rs`):
+  /// while held, acpmux holds the manager's messages to it; Hand back delivers them in order.
+  agentHold(held: boolean): Promise<{ held?: boolean; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_hold", { sessionId, held });
+  }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
   /// Resolves to the chat it acted on (the shown one during a snapshot hold), which its caller's

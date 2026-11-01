@@ -109,6 +109,9 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Take over a chat its manager runs, or hand it back: only the chat in scope, and acpmux
+        // takes it only from a connection that proved the person key (hub/agent_hold.rs).
+        "_acpmux/agent_hold",
         // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
         // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
         // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
@@ -241,7 +244,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
@@ -324,6 +327,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        // Hand back delivers held messages, which runs turns.
+        "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work

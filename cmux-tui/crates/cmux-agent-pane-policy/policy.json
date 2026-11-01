@@ -14,7 +14,7 @@
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
-    "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply", "_acpmux/watch_take_over",
+    "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply", "_acpmux/watch_take_over",
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
     "_acpmux/session/auth", "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits"
@@ -27,7 +27,7 @@
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
-    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
     "_acpmux/watch_take_over",
     "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits"
@@ -50,6 +50,7 @@
     "_acpmux/permission_group_respond": "when_decision_allows",
     "_acpmux/secret_submit": "always",
     "_acpmux/agent_pair_resume": "always",
+    "_acpmux/agent_hold": "always",
     "_acpmux/app_reply": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],
@@ -107,6 +108,7 @@
     "_acpmux/native_history": {"params": ["sessionId", "before", "mark"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
     "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
+    "_acpmux/agent_hold": {"params": ["sessionId", "held"], "acpmux": []},
     "_acpmux/app_reply": {"params": ["sessionId", "to", "replyTo", "threadId", "text", "replyId"], "acpmux": []},
     "_acpmux/watch_take_over": {"params": ["sessionId", "ifLive"], "acpmux": []},
     "_acpmux/set_tools": {"params": ["sessionId", "id", "enabled"], "acpmux": []},

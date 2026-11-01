@@ -2394,6 +2394,7 @@ async fn dispatch_request(
         method::MUX_SESSION_AUTH => super::session_auth::handle(hub, conn, params).await,
         method::MUX_PROMPT_WITHDRAW
         | method::MUX_AGENT_PAIR_RESUME
+        | method::MUX_AGENT_HOLD
         | method::MUX_RETRY
         | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {

@@ -107,6 +107,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
+        "_acpmux/agent_hold": (["sessionId", "held"], []),
         // The pane's chat (`sessionId`) answers `replyTo` of `threadId`, which chat `to` sent it;
         // `replyId` keys it. No recipient, sender name or credential: acpmux signs it, the daemon
         // sends it to the message's sender (``AgentPaneAgentReply``).

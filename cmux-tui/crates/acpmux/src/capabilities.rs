@@ -158,6 +158,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
+    // The person takes a managed chat over and hands it back (`hub/agent_hold.rs`).
+    Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now

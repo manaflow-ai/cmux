@@ -2004,5 +2004,34 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "agent_hold known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": true
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "agent_hold unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": true,
+    "peerSessionId": "b"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

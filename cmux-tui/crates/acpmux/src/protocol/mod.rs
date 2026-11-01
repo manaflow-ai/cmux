@@ -227,6 +227,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
+        untyped(method::MUX_AGENT_HOLD, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
         request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
         untyped(method::MUX_PROCESS_LIST, Request),
