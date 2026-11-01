@@ -485,6 +485,13 @@ class RealKeySteps(unittest.TestCase):
         self.assertLessEqual(done["clicked_at"], done["returned_at"])
         self.assertIn("click", j.marks)
         self.assertEqual(done["journal_mouse_down"]["modifiers"], ["cmd"])
+        # A window on another display (debug.layers names no primary screen): not run before any click.
+        layers["windows"][0]["screen_frame"] = [1920, 0, 1920, 1080]
+        clicks_before = len([c for c in calls if c[0] == "click"])
+        with self.assertRaises(self.NotRun):
+            self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"]})
+        self.assertEqual(len([c for c in calls if c[0] == "click"]), clicks_before)
+        layers["windows"][0]["screen_frame"] = [0, 0, 1920, 1080]
         # The click reached cmux without Cmd, or somewhere else: not run (CuaDriver modifiers or coordinates).
         for bad in ([350.5, 139.0, 0], [700.0, 280.0, 1]):
             landed[:] = bad

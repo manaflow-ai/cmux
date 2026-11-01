@@ -340,7 +340,7 @@ def _journal_last_seq(j):
     return max([int(e.get("seq") or 0) for e in _journal_entries(j, 5)] or [0])
 
 
-def _journal_mouse_down(j, after_seq):
+def _journal_mouse_down(j, after_seq, window=None):
     """The newest left mouse-down in the app's input journal with seq above AFTER_SEQ: {x, y, clickCount, modifiers
     (names)}, or None."""
     for e in reversed(_journal_entries(j)):
@@ -349,6 +349,8 @@ def _journal_mouse_down(j, after_seq):
         kind = e.get("kind") or {}
         mouse = (kind.get("mouse") or {}).get("_0") if isinstance(kind.get("mouse"), dict) else None
         mouse = mouse or kind.get("mouse")
+        if window and e.get("window") not in (None, window):
+            continue  # a click in another cmux window at the same local point is not this one (review note)
         if isinstance(mouse, dict) and mouse.get("phase") == "down" and int(mouse.get("button") or 0) == 0:
             mods = mouse.get("modifiers")
             names = mods if isinstance(mods, list) else [n for bit, n in ((1, "cmd"), (2, "shift"), (4, "option"),
@@ -382,7 +384,12 @@ def step_real_click(j, step):
     wx, wy, ww, wh = win["frame"]
     # Desktop clicks are global from the PRIMARY display's top-left (review S1 at 60a6d675a01), whatever display the
     # window is on: flip by the primary screen's height (the screen whose origin is 0,0), not the window's screen.
-    primary_top = win.get("primary_max_y") or (win["screen"][1] + win["screen"][3])
+    if not win.get("primary_max_y"):
+        # Review at 3166f4f5f41: debug.layers names no primary screen, so a window on another display cannot be
+        # placed in global coordinates; refuse BEFORE clicking (a wrong point could press another app's control).
+        raise D.NotRun(f"real_click: the window is not on the primary display (screen {win['screen']}); the kit "
+                       "cannot place a desktop click there")
+    primary_top = win["primary_max_y"]
     screen_point = (wx + point[0], primary_top - (wy + wh) + point[1])
     vx, vy, vw, vh = win.get("visible") or win["screen"]
     if not (vx <= wx + point[0] <= vx + vw and vy <= (wy + wh) - point[1] <= vy + vh):
@@ -402,7 +409,7 @@ def step_real_click(j, step):
     time.sleep(float(step.get("settle", 0.5)))
     # Proof the click landed in cmux at the point and carried its modifiers (review S1): the app's own input journal,
     # its newest left mouse-down after the click (window-local points from the top-left, its modifier classes).
-    landed = _journal_mouse_down(j, seq_before)
+    landed = _journal_mouse_down(j, seq_before, getattr(j, "key_window", None))
     if landed is None:
         raise D.NotRun("real_click: the app's input journal has no mouse-down after the click (it did not reach cmux, "
                        "or another window took it)")
