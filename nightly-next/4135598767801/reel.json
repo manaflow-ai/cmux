@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4135598767801",
+  "notes": "notes/4135598767801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31337,
+      "title": "cloud image: bake and enable acpmux user service",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31353,
+      "title": "Mint DEV guest links' owner tokens from the development API",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28611,
+      "title": "cmux NEXT menus: no wasted gutter or padding in any menu, field menus as wide as their field, the History menu is glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31368,
+      "title": "fix(cmux-tui): the tree key covers the app's cmux-cli-path files the daemon embeds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28577,
+      "title": "cmux NEXT: attachment source in Chromium agent chats (paste, drop, Attach files)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29451,
+      "title": "Harnesses page: rows and controls on the 4 pt grid (fail-level grid checks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29994,
+      "title": "Transcript: preserve date separators after invisible turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30065,
+      "title": "Agent chat: switch between Transcript and Messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30243,
+      "title": "feat(sidebar): show the operating Chief avatar on chat rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30525,
+      "title": "fix(ios): scrub Cloud proof identities from public evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30892,
+      "title": "cmux NEXT incognito: terminals keep no shell history, scrollback or relaunch record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30002,
+      "title": "cmux NEXT Cloud: picking another machine for a Cloud chat whose first send failed moves it there and sends again",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
