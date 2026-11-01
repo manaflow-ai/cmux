@@ -246,10 +246,12 @@ async fn exec(
 ) -> Result<ExecAnswer, Failure> {
     let url =
         format!("{}/v5/vms/{}/exec-await", grant.api_base_url.trim_end_matches('/'), grant.vm_id);
-    let mut body =
-        json!({ "command": command, "linuxUser": grant.linux_user, "timeoutMs": timeout_ms });
+    let mut body = serde_json::Map::new();
+    body.insert("command".into(), json!(command));
+    body.insert("linuxUser".into(), json!(grant.linux_user));
+    body.insert("timeoutMs".into(), json!(timeout_ms));
     if let Some(stdin) = stdin {
-        body["stdin"] = json!(BASE64.encode(stdin));
+        body.insert("stdin".into(), json!(BASE64.encode(stdin)));
     }
     let response = client
         .post(url)

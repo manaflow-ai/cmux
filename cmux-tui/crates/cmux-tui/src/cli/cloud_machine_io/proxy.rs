@@ -33,9 +33,14 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
             client.post(format!("{base}/fs/mkdir")).json(&json!({ "path": path })).timeout(SHORT)
         }
         Op::Write => {
-            let mut body = json!({ "path": path, "dataBase64": request.data_base64.clone().unwrap_or_default() });
+            let mut body = serde_json::Map::new();
+            body.insert("path".into(), json!(path));
+            body.insert(
+                "dataBase64".into(),
+                json!(request.data_base64.clone().unwrap_or_default()),
+            );
             if let Some(mode) = request.mode {
-                body["mode"] = json!(mode);
+                body.insert("mode".into(), json!(mode));
             }
             client.post(format!("{base}/fs/write")).json(&body).timeout(FILE)
         }
