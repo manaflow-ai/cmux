@@ -44,6 +44,7 @@ daemon runs ${prior_tui})
                                          and its screen together hold PREFIX1 .. PREFIXLAST, each once, in order
 """
 import json
+import re
 import time
 
 D = None
@@ -185,8 +186,10 @@ def step_real_quit(j, step):
 
 
 def step_quit_why(j, step):
-    """Evidence (after the checks, so it never eats their time): see _why."""
-    return _why(j, getattr(j, "quit_wall", time.time() - 120))
+    """Evidence (after the checks, so it never eats their time): see _why. Nothing when no real Cmd-Q was sent."""
+    if not hasattr(j, "quit_wall"):
+        return {"skipped": "no real Cmd-Q in this run"}
+    return _why(j, j.quit_wall)
 
 
 def _why(j, since_wall):
@@ -286,13 +289,16 @@ def cond_daemon_handed_off(j, want, cache):
         return True, detail
     prior = j.sub("${prior_tui}")
     if pid == before["daemon_pid"]:
-        versions = {}
+        versions, commits = {}, {}
         for name, path in (("prior", prior), ("bundled", bundled)):
             out = D.subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
             versions[name] = out[:120]
+            # The app's own parse (DaemonLauncher.parseBuildCommit): the hex run after "(", 7 digits or more.
+            found = re.search(r"\(([0-9a-fA-F]+)", out)
+            commits[name] = found.group(1) if found and len(found.group(1)) >= 7 else None
         detail["versions"] = versions
-        same = versions["prior"] and versions["prior"] == versions["bundled"]
-        unknown = any("(" not in v for v in versions.values())
+        same = commits["prior"] is not None and commits["prior"] == commits["bundled"]
+        unknown = None in commits.values()
         if same or unknown:
             raise D.NotRun(f"set-up: no handoff can run (prior and bundled builds: {json.dumps(versions)})")
         return False, dict(detail, why="the reopened app kept the prior build's daemon: no handoff ran")

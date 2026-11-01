@@ -117,6 +117,52 @@
   },
   {
    "do": "use",
+   "name": "right"
+  },
+  {
+   "do": "expect",
+   "title": "the split came back with its text and the keyboard",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    },
+    {
+     "app_text_line": "right-${nonce}-42"
+    },
+    {
+     "app_pane": {
+      "focused": true
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo back-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "back"
+  },
+  {
+   "do": "expect",
+   "title": "the restored shell that had the keyboard (the split, focused before the quit) takes input",
+   "since": "back",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "back-${nonce}-42"
+    },
+    {
+     "app_text_line": "back-${nonce}-42"
+    },
+    {
+     "frame_text": "back-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "use",
    "name": "main"
   },
   {
@@ -144,47 +190,6 @@
     },
     {
      "frame_text": "jq-${nonce}-400"
-    }
-   ]
-  },
-  {
-   "do": "type",
-   "text": "echo back-${nonce}-$((6*7))",
-   "enter": true,
-   "mark": "back"
-  },
-  {
-   "do": "expect",
-   "title": "the restored shell takes input",
-   "since": "back",
-   "within": 3,
-   "timeout": 10,
-   "all": [
-    {
-     "daemon_line": "back-${nonce}-42"
-    },
-    {
-     "app_text_line": "back-${nonce}-42"
-    },
-    {
-     "frame_text": "back-${nonce}-42"
-    }
-   ]
-  },
-  {
-   "do": "use",
-   "name": "right"
-  },
-  {
-   "do": "expect",
-   "title": "the split came back with its text",
-   "timeout": 20,
-   "all": [
-    {
-     "daemon_line": "right-${nonce}-42"
-    },
-    {
-     "app_text_line": "right-${nonce}-42"
     }
    ]
   },
