@@ -719,6 +719,14 @@ export type AcpmuxSnapshot = {
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
+  /// Agent ids whose usage/progress changed in this snapshot. This lets rows subscribe without
+  /// rescanning every agent on a token update.
+  subagentProgress?: Record<
+    string,
+    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+  >;
+  /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
+  subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;

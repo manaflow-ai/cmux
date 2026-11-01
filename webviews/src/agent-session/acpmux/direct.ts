@@ -1,3 +1,4 @@
+import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
@@ -6028,11 +6029,17 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    const publishedRows = this.rows.sorted();
+    const progressSource = this.subagents.progressSource;
+    markAgentProgressSource(publishedRows, progressSource);
+    const changedProgress = progressSource.takeChangedProgress();
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
-      rows: this.rows.sorted(),
+      rows: publishedRows,
       subagentViews: this.subagents.views(),
+      ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
+      subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
       peers: this.peers,
       peerKinds: this.peerKinds,
@@ -8929,6 +8936,11 @@ export class AcpmuxDirectClient {
     // from before this page keeps finding its row (links.ts). The held events' entries win, since
     // they are the live turn's.
     const messageRows = new Map([...this.messageRows, ...live.messageRows]);
+    // History brings ended agents absent from the live fold; preserve their progress without
+    // replacing newer live values. This reconciliation runs only when loading an older page.
+    for (const agent of this.subagents.all()) {
+      if (!live.subagents.progressSource.has(agent.id)) live.subagents.progressSource.updateAgent(agent);
+    }
     Object.assign(this, live, { forkedAtSeq, messageRows });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
