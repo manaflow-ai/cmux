@@ -678,6 +678,39 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
 
+    def test_generated_shared_build_no_verdict_reruns_its_prerequisite(self):
+        """A cancelled-before-start Swift host leaves the dependent check without evidence.
+
+        The workflow intentionally keeps generated-verdict fail-closed.  Its diagnostic is a request to
+        rerun the host and dependent together, not a test or compile failure that can be compared with base.
+        The shell source echoes the same error branch, so the classifier must read the live annotation only.
+        """
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        no_verdict = "swift-test (cancelled) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run swift-test."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        echoed = [
+            '##[group]Run case "$VERDICT" in',
+            'echo "::error::swift-test ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, r"no generated files verdict.*re-run its prerequisite and this dependent"):
+            self.judge()
+
+    def test_generated_shared_build_real_stale_error_is_still_compared(self):
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        stale = "Generated cmux-next files are stale. swift-test's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        self.gh.logs[1] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.assertTrue(self.judge())
+
     def test_a_cancelled_or_timed_out_job_is_never_excused(self):
         for conclusion in ("cancelled", "timed_out"):
             self.gh.jobs[1]["conclusion"] = conclusion

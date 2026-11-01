@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
@@ -27,6 +28,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
+import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -120,7 +122,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 /// activity line under it.
 export function turnView(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   options: {
     now?: number;
     working?: boolean;
@@ -138,7 +140,7 @@ export function turnView(
 /// A turn view (``turnViewFrom``) with what it was drawn from, for the next snapshot to build on.
 export type TurnView = {
   source: readonly AcpmuxRow[];
-  expanded: ReadonlySet<string>;
+  expanded: Folds;
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
@@ -171,7 +173,7 @@ const NO_PENDING: readonly AcpmuxRow[] = [];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   {
     now = Date.now(),
     working = false,
@@ -259,7 +261,10 @@ export function turnViewFrom(
     out = [];
     index = 0;
     // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
-    while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+    while (index < rows.length && rows[index]!.kind !== "user") {
+      const row = rows[index++]!;
+      if (!isVisiblyEmptyMessage(row)) out.push(row);
+    }
     lead = index;
     starts = [];
     times = [];
@@ -364,7 +369,7 @@ const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 /// so a remembered open state never changes the transcript while the next turn is running. A
 /// history page can begin at a landed steer; accept that provisional key until the older prompt
 /// arrives, so loading history does not erase an explicit open choice.
-function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: ReadonlySet<string>): string {
+function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
   for (let index = start + 1; index < end; index += 1) {
@@ -379,7 +384,7 @@ function shapedTurn(
   rows: readonly AcpmuxRow[],
   start: number,
   end: number,
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   live: boolean,
   last: boolean,
   clockOffset: number,
@@ -390,8 +395,9 @@ function shapedTurn(
   agentFamily?: string,
 ): AcpmuxRow[] {
   const user = rows[start]!;
+  // A running turn changes with every event: it is neither read from nor kept in the cache, so its
+  // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
-  // A running turn changes with every event.
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -425,7 +431,12 @@ function shapedTurn(
       ),
   );
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
-  const date = dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
+  const visibleTurn =
+    !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
+  const date = dated && visibleTurn ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
+  // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
+  // measures zero. Only a wholly invisible completed turn is omitted below.
+  const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
   // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
   // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
   // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
@@ -435,7 +446,7 @@ function shapedTurn(
     const { status, queued } = user;
     const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
     if (status) Object.assign(line, { status, queued });
-    shaped = [...date, status ? { ...user, status: undefined } : user, line];
+    shaped = [...date, ...(status ? [{ ...user, status: undefined }] : drawnUser), line];
   } else {
     const body = shapeTurn(
       user,
@@ -454,10 +465,14 @@ function shapedTurn(
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    const emptyCompleted =
+      isVisiblyEmptyMessage(user) &&
+      body.length === 0 &&
+      turn.some((row) => row.kind === "turnSummary" && row.status === "completed");
     shaped = [
       ...date,
       // Bookkeeping alone starts a turn but draws nothing (incomingMessage.ts).
-      ...(user.incoming?.kind === "hidden" ? [] : [user]),
+      ...(emptyCompleted ? [] : drawnUser),
       ...body,
       ...held,
       ...line,
@@ -498,7 +513,7 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
 }
 
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
-const isReply = (row: AcpmuxRow) => isAnswer(row) && (row.text ?? "").trim().length > 0;
+const isReply = (row: AcpmuxRow) => isAnswer(row) && !isVisiblyEmptyText(row.text);
 
 /// The finished turn's one disclosure, its final answer, and work recorded after that answer.
 export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: AcpmuxRow; after?: AcpmuxRow[] };
@@ -549,7 +564,7 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
 function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   foldOpen: boolean,
   live: boolean,
   last: boolean,
@@ -570,8 +585,11 @@ function shapeTurn(
         ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
-  const body = turn.slice(0, end);
+  const body = turn.slice(0, end).filter((row) => !isVisiblyEmptyMessage(row));
   const preserveAssistantText = agentFamily?.startsWith("claude") === true;
+  // Notification turns can contain an empty assistant segment and a summary solely for
+  // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
+  if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   const shaped: AcpmuxRow[] = [];
@@ -833,6 +851,7 @@ function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
 /// the newest (codexLiveTurn); an ended turn's never got their input. Which calls it drops follows
 /// from the row's items, so its version stands.
 function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
+  if (isVisiblyEmptyMessage(row)) return [];
   if (row.kind !== "activity") return [row];
   const items = row.items ?? [];
   const kept = items.filter((item) => !(item.tool && isDraftCall(item.tool)));
@@ -863,7 +882,7 @@ function liveTurn(
   sessionStatus = false,
   lineBelow = false,
 ): AcpmuxRow[] {
-  const drawn = turn.filter((row) => row.kind !== "typing");
+  const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
   let last: AcpmuxRow | undefined;
@@ -1285,10 +1304,9 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
   return first && `${WORKED}-${first.id}`;
 }
 
-/// Toggle at the person's click, clearing provisional steer keys for the same turn too. This
-/// keeps a fold opened at a history page's edge closable after the original prompt arrives.
-export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, id: string): Set<string> {
-  const next = new Set(expanded);
+/// The keys a click on fold `id` covers: `id`, and when it is a turn's "Worked for", that turn's
+/// original prompt's (`key`) and each of its steers' (openFolds reads them all).
+function turnFoldKeys(rows: readonly AcpmuxRow[], id: string): { keys: string[]; key?: string } {
   const keys = [id];
   const index = id.startsWith(`${WORKED}-`) ? rows.findIndex((row) => `${WORKED}-${row.id}` === id) : -1;
   const key = index >= 0 ? turnFoldFor(rows, index) : undefined;
@@ -1300,9 +1318,47 @@ export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet
       if (at === start || continuesTurn(row)) keys.push(`${WORKED}-${row.id}`);
     }
   }
+  return { keys, key };
+}
+
+/// Toggle at the person's click, clearing provisional steer keys for the same turn too. This
+/// keeps a fold opened at a history page's edge closable after the original prompt arrives.
+export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(expanded);
+  const { keys, key } = turnFoldKeys(rows, id);
   const open = keys.some((key) => expanded.has(key));
   for (const key of keys) next.delete(key);
   if (!open) next.add(key ?? id);
+  return next;
+}
+
+/// The same click in Thinking or Verbose, where a turn's "Worked for" is open unless the reader
+/// closed it there (viewFolds.ts `toggled`): closing marks every key of the turn, so a steer's key
+/// does not hold the fold open; opening clears them all.
+export function toggleViewTurnFold(rows: readonly AcpmuxRow[], toggled: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(toggled);
+  const { keys } = turnFoldKeys(rows, id);
+  const closed = keys.some((key) => toggled.has(key));
+  for (const key of keys) {
+    if (closed) next.delete(key);
+    else next.add(key);
+  }
+  return next;
+}
+
+/// Open fold `id` in Thinking or Verbose for Find or a link: forget every close of its turn (the
+/// original prompt's key and each steer's, as toggleViewTurnFold marks them). The same set back when
+/// none was closed. Before (cmux#28782 review at 7e02fd5c), only `id` was forgotten, so a turn with a
+/// steer closed by hand stayed closed when a match in it was revealed.
+export function openViewTurnFold(
+  rows: readonly AcpmuxRow[],
+  toggled: ReadonlySet<string>,
+  id: string,
+): ReadonlySet<string> {
+  const { keys } = turnFoldKeys(rows, id);
+  if (!keys.some((key) => toggled.has(key))) return toggled;
+  const next = new Set(toggled);
+  for (const key of keys) next.delete(key);
   return next;
 }
 

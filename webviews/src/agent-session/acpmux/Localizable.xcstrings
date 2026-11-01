@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chatMenu.transcriptView": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaz transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transskriptvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista de la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage de la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプト表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkripsjonsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Widok transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização da transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вид стенограммы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вигляд стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话记录视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話記錄檢視"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.normal": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.thinking": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.verbose": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفصّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausführlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detallado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détaillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자세히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegółowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Детальний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.makeDefault": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اجعل {view} الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi {view} kao zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør {view} til standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} als Standard festlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make {view} the default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar {view} de forma predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir {view} par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta {view} come predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}をデフォルトにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ {view} ជាលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}을(를) 기본값으로 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør {view} til standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw {view} jako domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tornar {view} o padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сделать «{view}» по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้ง {view} เป็นค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} varsayılan olsun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зробити «{view}» типовим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt {view} làm mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将{view}设为默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將{view}設為預設"
+          }
+        }
+      }
+    },
     "switch.action.shareWithMe": {"comment":"Agent pane: a teammate's Cloud machine refused the chat; grant yourself chats on it (team admins)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Share with Me"}},"ar":{"stringUnit":{"state":"needs_review","value":"شاركه معي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Podijeli sa mnom"}},"da":{"stringUnit":{"state":"needs_review","value":"Del med mig"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit mir teilen"}},"es":{"stringUnit":{"state":"needs_review","value":"Compartir conmigo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Partager avec moi"}},"it":{"stringUnit":{"state":"needs_review","value":"Condividi con me"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分と共有"}},"km":{"stringUnit":{"state":"needs_review","value":"ចែករំលែកជាមួយខ្ញុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"나와 공유"}},"nb":{"stringUnit":{"state":"needs_review","value":"Del med meg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Udostępnij mi"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Compartilhar comigo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться со мной"}},"th":{"stringUnit":{"state":"needs_review","value":"แชร์ให้ฉัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Benimle paylaş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися зі мною"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chia sẻ với tôi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"与我共享"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"與我共享"}}}},
     "switch.action.askOwner": {"comment":"Agent pane: copy a request asking the machine's owner to share it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ask the Owner"}},"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من المالك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pitaj vlasnika"}},"da":{"stringUnit":{"state":"needs_review","value":"Spørg ejeren"}},"de":{"stringUnit":{"state":"needs_review","value":"Besitzer fragen"}},"es":{"stringUnit":{"state":"needs_review","value":"Pedir al propietario"}},"fr":{"stringUnit":{"state":"needs_review","value":"Demander au propriétaire"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al proprietario"}},"ja":{"stringUnit":{"state":"needs_review","value":"オーナーに依頼"}},"km":{"stringUnit":{"state":"needs_review","value":"សួរម្ចាស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"소유자에게 요청"}},"nb":{"stringUnit":{"state":"needs_review","value":"Spør eieren"}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś właściciela"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pedir ao dono"}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросить владельца"}},"th":{"stringUnit":{"state":"needs_review","value":"ขอจากเจ้าของ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sahibine sor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросити власника"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hỏi chủ sở hữu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请求所有者"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請求擁有者"}}}},
     "switch.share.forbidden": {"comment":"Agent pane: Share with Me was refused because the person is neither the machine's creator nor a team admin","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only the machine's creator or a team admin can share it. Ask the owner to share it with you."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يمكن مشاركة الجهاز إلا لمنشئه أو لمسؤول الفريق. اطلب من المالك مشاركته معك."}},"bs":{"stringUnit":{"state":"needs_review","value":"Mašinu može podijeliti samo njen kreator ili administrator tima. Zamolite vlasnika da je podijeli s vama."}},"da":{"stringUnit":{"state":"needs_review","value":"Kun maskinens opretter eller en teamadministrator kan dele den. Bed ejeren om at dele den med dig."}},"de":{"stringUnit":{"state":"needs_review","value":"Nur wer die Maschine erstellt hat oder ein Team-Admin kann sie teilen. Bitte den Besitzer, sie mit dir zu teilen."}},"es":{"stringUnit":{"state":"needs_review","value":"Solo quien creó la máquina o un administrador del equipo puede compartirla. Pide al propietario que la comparta contigo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Seul le créateur de la machine ou un administrateur de l'équipe peut la partager. Demandez au propriétaire de la partager avec vous."}},"it":{"stringUnit":{"state":"needs_review","value":"Solo chi ha creato la macchina o un amministratore del team può condividerla. Chiedi al proprietario di condividerla con te."}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンを共有できるのは作成者かチーム管理者だけです。オーナーに共有を依頼してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មានតែអ្នកបង្កើតម៉ាស៊ីន ឬអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចចែករំលែកវាបាន។ សូមស្នើម្ចាស់ឱ្យចែករំលែកវាជាមួយអ្នក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기는 만든 사람이나 팀 관리자만 공유할 수 있습니다. 소유자에게 공유를 요청하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bare den som opprettet maskinen eller en teamadministrator kan dele den. Be eieren om å dele den med deg."}},"pl":{"stringUnit":{"state":"needs_review","value":"Maszynę może udostępnić tylko jej twórca lub administrator zespołu. Poproś właściciela, aby ci ją udostępnił."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Só quem criou a máquina ou um administrador da equipe pode compartilhá-la. Peça ao dono para compartilhá-la com você."}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться машиной может только её создатель или администратор команды. Попросите владельца поделиться ею с вами."}},"th":{"stringUnit":{"state":"needs_review","value":"มีเพียงผู้สร้างเครื่องหรือผู้ดูแลทีมเท่านั้นที่แชร์เครื่องนี้ได้ ขอให้เจ้าของแชร์ให้คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi yalnızca onu oluşturan kişi veya bir ekip yöneticisi paylaşabilir. Sahibinden makineyi sizinle paylaşmasını isteyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися машиною може лише її творець або адміністратор команди. Попросіть власника поділитися нею з вами."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chỉ người tạo máy hoặc quản trị viên nhóm mới chia sẻ được máy này. Hãy nhờ chủ sở hữu chia sẻ với bạn."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"只有这台机器的创建者或团队管理员可以共享它。请让所有者与你共享。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"只有這台機器的建立者或團隊管理員可以共享它。請擁有者與你共享。"}}}},
@@ -545,6 +1205,10 @@
     "cloudStart.networkLimited": {"comment":"Agent pane: a new chat starting in Cloud, the machine's network: only what its policy allows","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"محدود"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ograničena"}},"da":{"stringUnit":{"state":"needs_review","value":"Begrænset"}},"de":{"stringUnit":{"state":"translated","value":"Eingeschränkt"}},"en":{"stringUnit":{"state":"translated","value":"Limited"}},"es":{"stringUnit":{"state":"translated","value":"Limitado"}},"fr":{"stringUnit":{"state":"translated","value":"Limité"}},"it":{"stringUnit":{"state":"needs_review","value":"Limitata"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり"}},"km":{"stringUnit":{"state":"needs_review","value":"មានកំណត់"}},"ko":{"stringUnit":{"state":"translated","value":"제한됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Begrenset"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ograniczona"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Limitada"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ограниченный"}},"th":{"stringUnit":{"state":"needs_review","value":"จำกัด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sınırlı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Обмежений"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giới hạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"受限"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"受限"}}}},
     "composer.cloudAttachments": {"comment":"Agent pane: a notice when a new chat set to run in Cloud has attachments, which a Cloud chat does not take yet (preview)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A Cloud chat takes text only for now. Remove the attachments, or start the chat on this Mac."}},"de":{"stringUnit":{"state":"translated","value":"Ein Cloud-Chat nimmt vorerst nur Text an. Entferne die Anhänge oder starte den Chat auf diesem Mac."}},"fr":{"stringUnit":{"state":"translated","value":"Une discussion Cloud n’accepte que du texte pour l’instant. Retirez les pièces jointes ou démarrez la discussion sur ce Mac."}},"ar":{"stringUnit":{"state":"translated","value":"تقبل دردشة Cloud النص فقط حاليًا. أزل المرفقات أو ابدأ الدردشة على هذا الـ Mac."}},"es":{"stringUnit":{"state":"translated","value":"Por ahora, un chat de Cloud solo acepta texto. Quita los adjuntos o inicia el chat en este Mac."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud 對話目前只接受文字。請移除附件，或在這台 Mac 上開始對話。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud 对话目前只接受文字。请移除附件，或在这台 Mac 上开始对话。"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud 채팅은 지금은 텍스트만 받습니다. 첨부 파일을 지우거나 이 Mac에서 채팅을 시작하세요."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud チャットは現在テキストのみ受け付けます。添付を外すか、この Mac でチャットを始めてください。"}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat zasad prima samo tekst. Uklonite priloge ili pokrenite chat na ovom Macu."}},"da":{"stringUnit":{"state":"needs_review","value":"En Cloud-chat tager kun tekst indtil videre. Fjern vedhæftningerne, eller start chatten på denne Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"Per ora una chat Cloud accetta solo testo. Rimuovi gli allegati o avvia la chat su questo Mac."}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud ទទួលតែអត្ថបទប៉ុណ្ណោះសម្រាប់ពេលនេះ។ ដកឯកសារភ្ជាប់ចេញ ឬចាប់ផ្តើមការជជែកនៅលើ Mac នេះ។"}},"nb":{"stringUnit":{"state":"needs_review","value":"En Cloud-chat tar bare tekst foreløpig. Fjern vedleggene, eller start chatten på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat Cloud przyjmuje na razie tylko tekst. Usuń załączniki albo rozpocznij czat na tym Macu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Por enquanto, um chat Cloud aceita só texto. Remova os anexos ou inicie o chat neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud пока принимает только текст. Уберите вложения или начните чат на этом Mac."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud รับได้แค่ข้อความในตอนนี้ เอาไฟล์แนบออก หรือเริ่มแชตบน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud sohbeti şimdilik yalnızca metin alır. Ekleri kaldırın ya da sohbeti bu Mac’te başlatın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud поки приймає лише текст. Приберіть вкладення або почніть чат на цьому Mac."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện tại, cuộc trò chuyện Cloud chỉ nhận văn bản. Hãy gỡ tệp đính kèm hoặc bắt đầu trò chuyện trên máy Mac này."}}}},
     "composer.cloudRunDetail": {"comment":"Environment picker: one line under the Cloud row (preview): a new chat runs on a Cloud machine the app picks and sizes for it, with no setup","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Picks and sizes a machine for this chat. Nothing to set up."}},"de":{"stringUnit":{"state":"translated","value":"Wählt und dimensioniert eine Maschine für diesen Chat. Nichts einzurichten."}},"fr":{"stringUnit":{"state":"translated","value":"Choisit et dimensionne une machine pour cette discussion. Rien à configurer."}},"ar":{"stringUnit":{"state":"translated","value":"يختار جهازًا لهذه الدردشة ويحدد حجمه. لا شيء لإعداده."}},"es":{"stringUnit":{"state":"translated","value":"Elige y dimensiona una máquina para este chat. Nada que configurar."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"為這段對話挑選並配置合適大小的機器，無需任何設定。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"为这段对话挑选并配置合适大小的机器，无需任何设置。"}},"ko":{"stringUnit":{"state":"translated","value":"이 채팅에 맞는 머신을 골라 크기를 정합니다. 설정할 것이 없습니다."}},"ja":{"stringUnit":{"state":"translated","value":"このチャットに合うマシンを選んでサイズを決めます。設定は不要です。"}},"bs":{"stringUnit":{"state":"needs_review","value":"Bira i dimenzionira mašinu za ovaj chat. Ništa za podešavanje."}},"da":{"stringUnit":{"state":"needs_review","value":"Vælger og dimensionerer en maskine til denne chat. Intet at sætte op."}},"it":{"stringUnit":{"state":"needs_review","value":"Sceglie e dimensiona una macchina per questa chat. Niente da configurare."}},"km":{"stringUnit":{"state":"needs_review","value":"ជ្រើសរើស និងកំណត់ទំហំម៉ាស៊ីនសម្រាប់ការជជែកនេះ។ មិនចាំបាច់រៀបចំអ្វីទេ។"}},"nb":{"stringUnit":{"state":"needs_review","value":"Velger og dimensjonerer en maskin for denne chatten. Ingenting å sette opp."}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybiera i dobiera rozmiar maszyny dla tego czatu. Nic do konfigurowania."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Escolhe e dimensiona uma máquina para este chat. Nada para configurar."}},"ru":{"stringUnit":{"state":"needs_review","value":"Подбирает машину нужного размера для этого чата. Ничего настраивать не нужно."}},"th":{"stringUnit":{"state":"needs_review","value":"เลือกและกำหนดขนาดเครื่องให้แชตนี้ ไม่ต้องตั้งค่าอะไร"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet için bir makine seçer ve boyutlandırır. Kurulacak bir şey yok."}},"uk":{"stringUnit":{"state":"needs_review","value":"Підбирає машину потрібного розміру для цього чату. Нічого налаштовувати не треба."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chọn và định cỡ một máy cho cuộc trò chuyện này. Không cần thiết lập gì."}}}},
+    "host.peerUnreachable": {"comment":"Agent pane: one muted line above the composer once a chat's machine has been unreachable for minutes (never while it reconnects); {machine} is a machine name such as dev-vm-2","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر الوصول إلى {machine}."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće dosegnuti {machine}."}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke nå {machine}."}},"de":{"stringUnit":{"state":"needs_review","value":"{machine} ist nicht erreichbar."}},"en":{"stringUnit":{"state":"translated","value":"Can't reach {machine}."}},"es":{"stringUnit":{"state":"needs_review","value":"No se puede conectar con {machine}."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre {machine}."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere {machine}."}},"ja":{"stringUnit":{"state":"needs_review","value":"{machine} に接続できません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅ {machine} បានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{machine}에 연결할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Får ikke kontakt med {machine}."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można połączyć się z {machine}."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível alcançar {machine}."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удаётся связаться с {machine}."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเชื่อมต่อ {machine} ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{machine} makinesine ulaşılamıyor."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдається зв'язатися з {machine}."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể kết nối tới {machine}."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接到 {machine}。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線到 {machine}。"}}}},
+    "host.peerUnreachableUnnamed": {"comment":"Agent pane: one muted line above the composer once a chat's machine has been unreachable for minutes, when its name is unknown","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر الوصول إلى جهاز هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće dosegnuti računar ovog chata."}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke nå denne chats maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Rechner dieses Chats ist nicht erreichbar."}},"en":{"stringUnit":{"state":"translated","value":"Can't reach this chat's machine."}},"es":{"stringUnit":{"state":"needs_review","value":"No se puede conectar con la máquina de este chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre la machine de cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere la macchina di questa chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットのマシンに接続できません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅម៉ាស៊ីនរបស់ការជជែកនេះបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅의 머신에 연결할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Får ikke kontakt med maskinen til denne chatten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można połączyć się z maszyną tego czatu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível alcançar a máquina deste chat."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удаётся связаться с машиной этого чата."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเชื่อมต่อเครื่องของแชตนี้ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbetin makinesine ulaşılamıyor."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдається зв'язатися з машиною цього чату."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể kết nối tới máy của cuộc trò chuyện này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接到此聊天所在的机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線到此聊天所在的機器。"}}}},
+    "host.unavailable": {"comment":"Agent pane: one muted line above the composer when the agent service failed in words meant for its command line (they are behind Details)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر الوصول إلى خدمة الوكيل."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće dosegnuti uslugu agenta."}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke nå agenttjenesten."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Agent-Dienst ist nicht erreichbar."}},"en":{"stringUnit":{"state":"translated","value":"Can't reach the agent service."}},"es":{"stringUnit":{"state":"needs_review","value":"No se puede conectar con el servicio de agentes."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre le service d'agents."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere il servizio degli agenti."}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントサービスに接続できません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅសេវាភ្នាក់ងារបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 서비스에 연결할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Får ikke kontakt med agenttjenesten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można połączyć się z usługą agenta."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível alcançar o serviço de agentes."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удаётся связаться со службой агентов."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเชื่อมต่อบริการเอเจนต์ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan hizmetine ulaşılamıyor."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдається зв'язатися зі службою агентів."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể kết nối tới dịch vụ tác tử."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接到智能体服务。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線到代理服務。"}}}},
+    "host.details": {"comment":"Agent pane: a quiet button on the line above the composer that shows the agent service's own error text","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Detalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details"}},"en":{"stringUnit":{"state":"translated","value":"Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Dettagli"}},"ja":{"stringUnit":{"state":"needs_review","value":"詳細"}},"km":{"stringUnit":{"state":"needs_review","value":"ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보"}},"nb":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"รายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"詳細資料"}}}},
     "prompt.failure.tooLarge": {"comment":"Agent pane: under a prompt refused because it was larger than one message can carry (inline attachments); Retry is not offered, Edit is","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent: this message is too large to send at once. Take out an attachment with Edit, or send the attachments in separate messages."}},"ar":{"stringUnit":{"state":"needs_review","value":"لم تُرسَل: هذه الرسالة أكبر من أن تُرسَل دفعة واحدة. أزِل مرفقًا عبر «تعديل»، أو أرسل المرفقات في رسائل منفصلة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano: ova poruka je prevelika da bi se poslala odjednom. Uklonite prilog pomoću Uredi ili pošaljite priloge u zasebnim porukama."}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne besked er for stor til at blive sendt på én gang. Fjern en vedhæftning med Rediger, eller send vedhæftningerne i separate beskeder."}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht gesendet: Diese Nachricht ist zu groß, um auf einmal gesendet zu werden. Entferne mit Bearbeiten einen Anhang oder sende die Anhänge in getrennten Nachrichten."}},"es":{"stringUnit":{"state":"needs_review","value":"No enviado: este mensaje es demasiado grande para enviarlo de una vez. Quita un adjunto con Editar o envía los adjuntos en mensajes separados."}},"fr":{"stringUnit":{"state":"needs_review","value":"Non envoyé : ce message est trop volumineux pour être envoyé en une fois. Retirez une pièce jointe avec Modifier, ou envoyez les pièces jointes dans des messages séparés."}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato: questo messaggio è troppo grande per essere inviato in una volta. Rimuovi un allegato con Modifica o invia gli allegati in messaggi separati."}},"ja":{"stringUnit":{"state":"needs_review","value":"未送信：このメッセージは一度に送信するには大きすぎます。「編集」で添付ファイルを外すか、添付ファイルを別々のメッセージで送信してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ៖ សារនេះធំពេកមិនអាចផ្ញើក្នុងពេលតែមួយបានទេ។ ដកឯកសារភ្ជាប់មួយចេញដោយប្រើ កែសម្រួល ឬផ្ញើឯកសារភ្ជាប់ក្នុងសារដាច់ដោយឡែក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내지 않음: 이 메시지는 한 번에 보내기에 너무 큽니다. 편집으로 첨부 파일을 빼거나 첨부 파일을 별도의 메시지로 보내세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne meldingen er for stor til å sendes på én gang. Fjern et vedlegg med Rediger, eller send vedleggene i separate meldinger."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano: ta wiadomość jest za duża, by wysłać ją naraz. Usuń załącznik przez Edytuj albo wyślij załączniki w osobnych wiadomościach."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada: esta mensagem é grande demais para ser enviada de uma vez. Remova um anexo com Editar ou envie os anexos em mensagens separadas."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено: это сообщение слишком велико, чтобы отправить его за раз. Уберите вложение через «Изменить» или отправьте вложения отдельными сообщениями."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง: ข้อความนี้ใหญ่เกินกว่าจะส่งในครั้งเดียว นำไฟล์แนบออกด้วย แก้ไข หรือส่งไฟล์แนบแยกเป็นหลายข้อความ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi: bu ileti tek seferde gönderilemeyecek kadar büyük. Düzenle ile bir eki çıkarın ya da ekleri ayrı iletilerde gönderin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано: це повідомлення завелике, щоб надіслати його за раз. Приберіть вкладення через «Редагувати» або надішліть вкладення окремими повідомленнями."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi: tin nhắn này quá lớn để gửi một lần. Gỡ một tệp đính kèm bằng Sửa, hoặc gửi các tệp đính kèm trong các tin nhắn riêng."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未发送：此消息太大，无法一次发送。请用“编辑”移除一个附件，或将附件分成多条消息发送。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未傳送：此訊息太大，無法一次傳送。請用「編輯」移除一個附件，或將附件分成多則訊息傳送。"}}}},
     "prompt.failure.tooLargeFile": {"comment":"Agent pane: under a prompt refused because it was larger than one message can carry; {name} is the attachment that takes the most of it. Retry is not offered, Edit is","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent: this message is too large to send at once. Take out {name} with Edit, or send it in a message of its own."}},"ar":{"stringUnit":{"state":"needs_review","value":"لم تُرسَل: هذه الرسالة أكبر من أن تُرسَل دفعة واحدة. أزِل {name} عبر «تعديل»، أو أرسله في رسالة مستقلة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano: ova poruka je prevelika da bi se poslala odjednom. Uklonite {name} pomoću Uredi ili ga pošaljite u zasebnoj poruci."}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne besked er for stor til at blive sendt på én gang. Fjern {name} med Rediger, eller send den i en besked for sig."}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht gesendet: Diese Nachricht ist zu groß, um auf einmal gesendet zu werden. Entferne {name} mit Bearbeiten oder sende es in einer eigenen Nachricht."}},"es":{"stringUnit":{"state":"needs_review","value":"No enviado: este mensaje es demasiado grande para enviarlo de una vez. Quita {name} con Editar o envíalo en un mensaje aparte."}},"fr":{"stringUnit":{"state":"needs_review","value":"Non envoyé : ce message est trop volumineux pour être envoyé en une fois. Retirez {name} avec Modifier, ou envoyez-le dans un message à part."}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato: questo messaggio è troppo grande per essere inviato in una volta. Rimuovi {name} con Modifica o invialo in un messaggio a parte."}},"ja":{"stringUnit":{"state":"needs_review","value":"未送信：このメッセージは一度に送信するには大きすぎます。「編集」で {name} を外すか、別のメッセージで送信してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ៖ សារនេះធំពេកមិនអាចផ្ញើក្នុងពេលតែមួយបានទេ។ ដក {name} ចេញដោយប្រើ កែសម្រួល ឬផ្ញើវាក្នុងសារដាច់ដោយឡែក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내지 않음: 이 메시지는 한 번에 보내기에 너무 큽니다. 편집으로 {name}을(를) 빼거나 별도의 메시지로 보내세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne meldingen er for stor til å sendes på én gang. Fjern {name} med Rediger, eller send den i en egen melding."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano: ta wiadomość jest za duża, by wysłać ją naraz. Usuń {name} przez Edytuj albo wyślij to w osobnej wiadomości."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada: esta mensagem é grande demais para ser enviada de uma vez. Remova {name} com Editar ou envie em uma mensagem separada."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено: это сообщение слишком велико, чтобы отправить его за раз. Уберите {name} через «Изменить» или отправьте отдельным сообщением."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง: ข้อความนี้ใหญ่เกินกว่าจะส่งในครั้งเดียว นำ {name} ออกด้วย แก้ไข หรือส่งแยกเป็นข้อความของมันเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi: bu ileti tek seferde gönderilemeyecek kadar büyük. Düzenle ile {name} ögesini çıkarın ya da ayrı bir iletide gönderin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано: це повідомлення завелике, щоб надіслати його за раз. Приберіть {name} через «Редагувати» або надішліть окремим повідомленням."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi: tin nhắn này quá lớn để gửi một lần. Gỡ {name} bằng Sửa, hoặc gửi nó trong một tin nhắn riêng."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未发送：此消息太大，无法一次发送。请用“编辑”移除 {name}，或单独发送它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未傳送：此訊息太大，無法一次傳送。請用「編輯」移除 {name}，或單獨傳送它。"}}}},
     "host.tooLarge": {"comment":"Agent pane: the line above the composer when a chat could not be opened because acpmux's reply was larger than one message; the pane no longer retries on its own, the line's Retry does","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This chat is too large to open. Update acpmux, then Retry."}},"ar":{"stringUnit":{"state":"needs_review","value":"هذه المحادثة أكبر من أن تُفتح. حدّث acpmux، ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat je prevelik za otvaranje. Ažurirajte acpmux, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat er for stor til at åbne. Opdater acpmux, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat ist zu groß zum Öffnen. Aktualisiere acpmux und versuche es erneut."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat es demasiado grande para abrirlo. Actualiza acpmux y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette discussion est trop volumineuse pour s’ouvrir. Mettez à jour acpmux, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è troppo grande per essere aperta. Aggiorna acpmux, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットは大きすぎて開けません。acpmux を更新してから再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះធំពេកមិនអាចបើកបានទេ។ ធ្វើបច្ចុប្បន្នភាព acpmux រួចព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 너무 커서 열 수 없습니다. acpmux를 업데이트한 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten er for stor til å åpnes. Oppdater acpmux, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat jest za duży, by go otworzyć. Zaktualizuj acpmux, a potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat é grande demais para abrir. Atualize o acpmux e tente novamente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат слишком велик, чтобы его открыть. Обновите acpmux и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทนี้ใหญ่เกินกว่าจะเปิดได้ อัปเดต acpmux แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet açılamayacak kadar büyük. acpmux'u güncelleyip yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат завеликий, щоб його відкрити. Оновіть acpmux, а тоді повторіть спробу."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này quá lớn để mở. Hãy cập nhật acpmux rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天太大，无法打开。请更新 acpmux，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天太大，無法開啟。請更新 acpmux，然後重試。"}}}},
@@ -572,6 +1236,8 @@
     "composer.connectPhone": {"comment":"Agent pane: the environment picker's row under New environment that opens the Mobile Pairing page, so cmux on iPhone reaches this Mac (EnvironmentPicker.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect Phone…"}},"ar":{"stringUnit":{"state":"translated","value":"ربط الهاتف…"}},"bs":{"stringUnit":{"state":"translated","value":"Poveži telefon…"}},"da":{"stringUnit":{"state":"translated","value":"Forbind telefon…"}},"de":{"stringUnit":{"state":"translated","value":"Telefon verbinden…"}},"es":{"stringUnit":{"state":"translated","value":"Conectar teléfono…"}},"fr":{"stringUnit":{"state":"translated","value":"Connecter un téléphone…"}},"it":{"stringUnit":{"state":"translated","value":"Collega telefono…"}},"ja":{"stringUnit":{"state":"translated","value":"電話を接続…"}},"km":{"stringUnit":{"state":"translated","value":"ភ្ជាប់ទូរសព្ទ…"}},"ko":{"stringUnit":{"state":"translated","value":"휴대폰 연결…"}},"nb":{"stringUnit":{"state":"translated","value":"Koble til telefon…"}},"pl":{"stringUnit":{"state":"translated","value":"Połącz telefon…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectar celular…"}},"ru":{"stringUnit":{"state":"translated","value":"Подключить телефон…"}},"th":{"stringUnit":{"state":"translated","value":"เชื่อมต่อโทรศัพท์…"}},"tr":{"stringUnit":{"state":"translated","value":"Telefon Bağla…"}},"uk":{"stringUnit":{"state":"translated","value":"Підключити телефон…"}},"vi":{"stringUnit":{"state":"translated","value":"Kết nối điện thoại…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"连接手机…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"連接手機…"}}}},
     "composer.plusChatsHint": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Find an earlier conversation"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث عن محادثة سابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Pronađi raniji razgovor"}},"da":{"stringUnit":{"state":"translated","value":"Find en tidligere samtale"}},"de":{"stringUnit":{"state":"translated","value":"Eine frühere Unterhaltung finden"}},"es":{"stringUnit":{"state":"translated","value":"Buscar una conversación anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Retrouver une conversation précédente"}},"it":{"stringUnit":{"state":"translated","value":"Trova una conversazione precedente"}},"ja":{"stringUnit":{"state":"translated","value":"以前のチャットを探す"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកការជជែកមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 대화 찾기"}},"nb":{"stringUnit":{"state":"translated","value":"Finn en tidligere samtale"}},"pl":{"stringUnit":{"state":"translated","value":"Znajdź wcześniejszą rozmowę"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Encontre uma conversa anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Найти прошлую беседу"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาการสนทนาก่อนหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki bir sohbeti bul"}},"uk":{"stringUnit":{"state":"translated","value":"Знайти попередню розмову"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm cuộc trò chuyện trước"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"查找之前的对话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"尋找先前的對話"}}}},
     "composer.plusPagesHint": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Find a visited page"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث عن صفحة زرتها"}},"bs":{"stringUnit":{"state":"translated","value":"Pronađi posjećenu stranicu"}},"da":{"stringUnit":{"state":"translated","value":"Find en besøgt side"}},"de":{"stringUnit":{"state":"translated","value":"Eine besuchte Seite finden"}},"es":{"stringUnit":{"state":"translated","value":"Buscar una página visitada"}},"fr":{"stringUnit":{"state":"translated","value":"Retrouver une page visitée"}},"it":{"stringUnit":{"state":"translated","value":"Trova una pagina visitata"}},"ja":{"stringUnit":{"state":"translated","value":"訪問したページを探す"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកទំព័រដែលបានចូលមើល"}},"ko":{"stringUnit":{"state":"translated","value":"방문한 페이지 찾기"}},"nb":{"stringUnit":{"state":"translated","value":"Finn en besøkt side"}},"pl":{"stringUnit":{"state":"translated","value":"Znajdź odwiedzoną stronę"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Encontre uma página visitada"}},"ru":{"stringUnit":{"state":"translated","value":"Найти посещённую страницу"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาหน้าที่เคยเข้าชม"}},"tr":{"stringUnit":{"state":"translated","value":"Ziyaret edilen bir sayfayı bul"}},"uk":{"stringUnit":{"state":"translated","value":"Знайти відвідану сторінку"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm trang đã truy cập"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"查找访问过的页面"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"尋找瀏覽過的頁面"}}}},
+    "composer.plusSkills": {"comment":"Composer + menu: the one row that opens the slash list of skills and commands (skills are never listed in + itself)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Skills…"}},"ar":{"stringUnit":{"state":"translated","value":"المهارات…"}},"bs":{"stringUnit":{"state":"translated","value":"Vještine…"}},"da":{"stringUnit":{"state":"translated","value":"Færdigheder…"}},"de":{"stringUnit":{"state":"translated","value":"Skills…"}},"es":{"stringUnit":{"state":"translated","value":"Habilidades…"}},"fr":{"stringUnit":{"state":"translated","value":"Compétences…"}},"it":{"stringUnit":{"state":"translated","value":"Competenze…"}},"ja":{"stringUnit":{"state":"translated","value":"スキル…"}},"km":{"stringUnit":{"state":"translated","value":"ជំនាញ…"}},"ko":{"stringUnit":{"state":"translated","value":"스킬…"}},"nb":{"stringUnit":{"state":"translated","value":"Ferdigheter…"}},"pl":{"stringUnit":{"state":"translated","value":"Umiejętności…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Habilidades…"}},"ru":{"stringUnit":{"state":"translated","value":"Навыки…"}},"th":{"stringUnit":{"state":"translated","value":"ทักษะ…"}},"tr":{"stringUnit":{"state":"translated","value":"Beceriler…"}},"uk":{"stringUnit":{"state":"translated","value":"Навички…"}},"vi":{"stringUnit":{"state":"translated","value":"Kỹ năng…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"技能…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"技能…"}}}},
+    "composer.plusSkillsHint": {"comment":"Composer + menu: the muted description beside Skills…","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search skills and commands"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث في المهارات والأوامر"}},"bs":{"stringUnit":{"state":"translated","value":"Pretraži vještine i naredbe"}},"da":{"stringUnit":{"state":"translated","value":"Søg i færdigheder og kommandoer"}},"de":{"stringUnit":{"state":"translated","value":"Skills und Befehle durchsuchen"}},"es":{"stringUnit":{"state":"translated","value":"Buscar habilidades y comandos"}},"fr":{"stringUnit":{"state":"translated","value":"Rechercher des compétences et des commandes"}},"it":{"stringUnit":{"state":"translated","value":"Cerca competenze e comandi"}},"ja":{"stringUnit":{"state":"translated","value":"スキルとコマンドを検索"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកជំនាញ និងពាក្យបញ្ជា"}},"ko":{"stringUnit":{"state":"translated","value":"스킬 및 명령 검색"}},"nb":{"stringUnit":{"state":"translated","value":"Søk i ferdigheter og kommandoer"}},"pl":{"stringUnit":{"state":"translated","value":"Szukaj umiejętności i poleceń"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pesquisar habilidades e comandos"}},"ru":{"stringUnit":{"state":"translated","value":"Поиск навыков и команд"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาทักษะและคำสั่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Becerileri ve komutları ara"}},"uk":{"stringUnit":{"state":"translated","value":"Пошук навичок і команд"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm kỹ năng và lệnh"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"搜索技能和命令"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"搜尋技能和指令"}}}},
     "composer.plusSearchPages": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search pages"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث في الصفحات"}},"bs":{"stringUnit":{"state":"translated","value":"Pretraži stranice"}},"da":{"stringUnit":{"state":"translated","value":"Søg i sider"}},"de":{"stringUnit":{"state":"translated","value":"Seiten durchsuchen"}},"es":{"stringUnit":{"state":"translated","value":"Buscar páginas"}},"fr":{"stringUnit":{"state":"translated","value":"Rechercher des pages"}},"it":{"stringUnit":{"state":"translated","value":"Cerca pagine"}},"ja":{"stringUnit":{"state":"translated","value":"ページを検索"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកទំព័រ"}},"ko":{"stringUnit":{"state":"translated","value":"페이지 검색"}},"nb":{"stringUnit":{"state":"translated","value":"Søk i sider"}},"pl":{"stringUnit":{"state":"translated","value":"Szukaj stron"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pesquisar páginas"}},"ru":{"stringUnit":{"state":"translated","value":"Искать страницы"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Sayfalarda ara"}},"uk":{"stringUnit":{"state":"translated","value":"Шукати сторінки"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm trang"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"搜索页面"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"搜尋頁面"}}}},
     "retry.running": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux refused a retry because it already runs again (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Already running again"}},"ar":{"stringUnit":{"state":"needs_review","value":"يعمل مرة أخرى بالفعل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Već ponovo radi"}},"da":{"stringUnit":{"state":"needs_review","value":"Kører allerede igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft bereits wieder"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya se está ejecutando de nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déjà relancé"}},"it":{"stringUnit":{"state":"needs_review","value":"Già di nuovo in esecuzione"}},"ja":{"stringUnit":{"state":"needs_review","value":"すでに再実行中です"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដំណើរការម្តងទៀតរួចហើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이미 다시 실행 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører allerede igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Już działa ponownie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Já está em execução novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Уже снова выполняется"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังทำงานอีกครั้งแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaten yeniden çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Уже знову виконується"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chạy lại rồi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已在重新运行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已在重新執行"}}}},
     "retry.gone": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux can no longer retry it (the chat closed or stopped, or the subagent resumed, was replaced, ended or is unknown) (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Can no longer be retried"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يعد من الممكن إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Više se ne može ponoviti"}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke længere prøves igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Kann nicht mehr wiederholt werden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya no se puede reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ne peut plus être réessayé"}},"it":{"stringUnit":{"state":"needs_review","value":"Non è più possibile riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行できなくなりました"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចព្យាយាមម្តងទៀតបានទៀតទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 이상 재시도할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kan ikke lenger prøves igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można już ponowić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não é mais possível tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить больше нельзя"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่ไม่ได้อีกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Artık yeniden denenemez"}},"uk":{"stringUnit":{"state":"needs_review","value":"Більше не можна повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể thử lại nữa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已无法重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已無法重試"}}}},
@@ -632,7 +1298,7 @@
     "workflow.unassigned": {"comment":"Agent pane: workflow unassigned","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unassigned"}},"ja":{"stringUnit":{"state":"translated","value":"未割り当て"}},"de":{"stringUnit":{"state":"translated","value":"Nicht zugewiesen"}},"fr":{"stringUnit":{"state":"translated","value":"Non attribués"}},"es":{"stringUnit":{"state":"translated","value":"Sin asignar"}},"ar":{"stringUnit":{"state":"translated","value":"غير معيّن"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未分配"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"未指派"}},"ko":{"stringUnit":{"state":"translated","value":"미할당"}},"bs":{"stringUnit":{"state":"translated","value":"Nedodijeljeno"}},"da":{"stringUnit":{"state":"translated","value":"Ikke tildelt"}},"it":{"stringUnit":{"state":"translated","value":"Non assegnati"}},"km":{"stringUnit":{"state":"translated","value":"មិនបានកំណត់"}},"nb":{"stringUnit":{"state":"translated","value":"Ikke tilordnet"}},"pl":{"stringUnit":{"state":"translated","value":"Nieprzypisane"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não atribuídos"}},"ru":{"stringUnit":{"state":"translated","value":"Не назначено"}},"th":{"stringUnit":{"state":"translated","value":"ยังไม่ได้กำหนด"}},"tr":{"stringUnit":{"state":"translated","value":"Atanmamış"}},"uk":{"stringUnit":{"state":"translated","value":"Не призначено"}},"vi":{"stringUnit":{"state":"translated","value":"Chưa phân công"}}}},
     "transcript.viaCli": {"comment":"Agent pane: under a prompt the person sent with acpmux send from a terminal; host is the machine it ran on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أنت · عبر CLI على {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"vi · putem CLI-ja na {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"dig · via CLI på {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"du · über CLI auf {host}"}},"en":{"stringUnit":{"state":"translated","value":"you · via CLI on {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"tú · por CLI en {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"vous · via la CLI sur {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"tu · tramite CLI su {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"あなた · {host} の CLI から"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នក · តាម CLI លើ {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"나 · {host}의 CLI에서"}},"nb":{"stringUnit":{"state":"needs_review","value":"deg · via CLI på {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"ty · przez CLI na {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"você · via CLI em {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"вы · через CLI на {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"คุณ · ผ่าน CLI บน {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"sen · {host} üzerinde CLI ile"}},"uk":{"stringUnit":{"state":"needs_review","value":"ви · через CLI на {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"bạn · qua CLI trên {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你 · 通过 {host} 上的 CLI"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你 · 透過 {host} 上的 CLI"}}}},
     "composer.reorderAttachmentsHint": {"comment":"Agent pane: a hidden hint on the composer's attachment strip, how to move an attachment from the keyboard","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يحرّك Option مع السهم الأيسر أو الأيمن المرفق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Option-lijevo ili Option-desno pomiče prilog"}},"da":{"stringUnit":{"state":"needs_review","value":"Option-venstre eller Option-højre flytter en vedhæftning"}},"de":{"stringUnit":{"state":"needs_review","value":"Wahl-Links oder Wahl-Rechts verschiebt einen Anhang"}},"en":{"stringUnit":{"state":"translated","value":"Option-Left or Option-Right moves an attachment"}},"es":{"stringUnit":{"state":"needs_review","value":"Opción-Izquierda u Opción-Derecha mueve un adjunto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Option-Gauche ou Option-Droite déplace une pièce jointe"}},"it":{"stringUnit":{"state":"needs_review","value":"Opzione-Sinistra o Opzione-Destra sposta un allegato"}},"ja":{"stringUnit":{"state":"needs_review","value":"Option-左/右で添付ファイルを移動"}},"km":{"stringUnit":{"state":"needs_review","value":"Option-ឆ្វេង ឬ Option-ស្ដាំ ផ្លាស់ទីឯកសារភ្ជាប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"Option-왼쪽 또는 Option-오른쪽으로 첨부 파일 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Option-venstre eller Option-høyre flytter et vedlegg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Option-lewo lub Option-prawo przesuwa załącznik"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Option-Esquerda ou Option-Direita move um anexo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Option-влево или Option-вправо перемещает вложение"}},"th":{"stringUnit":{"state":"needs_review","value":"Option-ซ้าย หรือ Option-ขวา เพื่อย้ายไฟล์แนบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Option-Sol veya Option-Sağ bir eki taşır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Option-ліворуч або Option-праворуч переміщує вкладення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Option-Trái hoặc Option-Phải để di chuyển tệp đính kèm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Option-左箭头或 Option-右箭头可移动附件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Option-左鍵或 Option-右鍵可移動附件"}}}},
-    "chatInspector.reorderSection": {"comment":"Agent pane: Session Info, the six-dot handle at a section's left; dragging it, or Up/Down Arrow on it, moves the section ({section} is its title, e.g. Outputs)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نقل {section}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premjesti {section}"}},"da":{"stringUnit":{"state":"needs_review","value":"Flyt {section}"}},"de":{"stringUnit":{"state":"needs_review","value":"{section} verschieben"}},"en":{"stringUnit":{"state":"translated","value":"Move {section}"}},"es":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacer {section}"}},"it":{"stringUnit":{"state":"needs_review","value":"Sposta {section}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{section}を移動"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លាស់ទី {section}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{section} 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flytt {section}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przenieś {section}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переместить {section}"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้าย {section}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{section} öğesini taşı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемістити {section}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Di chuyển {section}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"移动{section}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"移動{section}"}}}},
+    "sessionInfo.reorderSection": {"comment":"Agent pane: Session Info, the six-dot handle at a section's left; dragging it, or Up/Down Arrow on it, moves the section ({section} is its title, e.g. Outputs)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نقل {section}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premjesti {section}"}},"da":{"stringUnit":{"state":"needs_review","value":"Flyt {section}"}},"de":{"stringUnit":{"state":"needs_review","value":"{section} verschieben"}},"en":{"stringUnit":{"state":"translated","value":"Move {section}"}},"es":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacer {section}"}},"it":{"stringUnit":{"state":"needs_review","value":"Sposta {section}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{section}を移動"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លាស់ទី {section}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{section} 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flytt {section}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przenieś {section}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переместить {section}"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้าย {section}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{section} öğesini taşı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемістити {section}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Di chuyển {section}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"移动{section}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"移動{section}"}}}},
     "composer.attachmentMoved": {"comment":"Agent pane: announced when an attachment is moved in the composer's strip","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نُقل {name} إلى {position} من {count}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} premješten na {position} od {count}"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} flyttet til {position} af {count}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} an Position {position} von {count} verschoben"}},"en":{"stringUnit":{"state":"translated","value":"{name} moved to {position} of {count}"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} movido a {position} de {count}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} déplacé en {position} sur {count}"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} spostato in {position} di {count}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name}を{count}件中{position}番目に移動"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្លាស់ {name} ទៅ {position} នៃ {count}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}을(를) {count}개 중 {position}번째로 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} flyttet til {position} av {count}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przeniesiono {name} na {position} z {count}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} movido para {position} de {count}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} перемещено на {position} из {count}"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้าย {name} ไปที่ {position} จาก {count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name}, {count} içinde {position}. sıraya taşındı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} переміщено на {position} з {count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chuyển {name} đến vị trí {position}/{count}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已将 {name} 移到第 {position} 个（共 {count} 个）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已將 {name} 移到第 {position} 個（共 {count} 個）"}}}},
     "composer.cancelAttachment": {"comment":"Agent pane: the × of an attachment still loading in the composer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name}をキャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់ {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} iptal et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消 {name}"}}}},
     "composer.retryAttachment": {"comment":"Agent pane: the button on an attachment that could not be attached, to try it again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Retry"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្ដងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}},
@@ -171175,133 +171841,133 @@
       }
     },
     "summary.subagents.openPanes" : {
-      "comment" : "Agent pane: the summary card's switch (summary/SubagentStatusList.tsx)",
+      "comment" : "Agent pane: the summary card's switch: on, a click on a subagent and each new one open in a pane of their own; off, they show in the chat (summary/SubagentStatusList.tsx)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "فتح الوكلاء الفرعيين الجدد في أجزاء"
+            "state" : "translated",
+            "value" : "فتح الوكلاء الفرعيين في أجزاء"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otvori nove podagente u oknima"
+            "state" : "translated",
+            "value" : "Otvori podagente u oknima"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åbn nye underagenter i ruder"
+            "state" : "translated",
+            "value" : "Åbn underagenter i ruder"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Neue Subagenten in Bereichen öffnen"
+            "state" : "translated",
+            "value" : "Subagenten in Bereichen öffnen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open new subagents in panes"
+            "value" : "Open subagents in panes"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir subagentes nuevos en paneles"
+            "state" : "translated",
+            "value" : "Abrir subagentes en paneles"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ouvrir les nouveaux sous-agents dans des sous-fenêtres"
+            "state" : "translated",
+            "value" : "Ouvrir les sous-agents dans des sous-fenêtres"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Apri i nuovi subagenti in riquadri"
+            "state" : "translated",
+            "value" : "Apri i subagenti in riquadri"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "新しいサブエージェントをペインで開く"
+            "state" : "translated",
+            "value" : "サブエージェントをペインで開く"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បើកភ្នាក់ងាររងថ្មីក្នុងផ្ទាំង"
+            "state" : "translated",
+            "value" : "បើកភ្នាក់ងាររងក្នុងផ្ទាំង"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "새 하위 에이전트를 창에서 열기"
+            "state" : "translated",
+            "value" : "하위 에이전트를 창에서 열기"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åpne nye underagenter i ruter"
+            "state" : "translated",
+            "value" : "Åpne underagenter i ruter"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otwieraj nowe podagenty w panelach"
+            "state" : "translated",
+            "value" : "Otwieraj podagenty w panelach"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir novos subagentes em painéis"
+            "state" : "translated",
+            "value" : "Abrir subagentes em painéis"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Открывать новых субагентов в панелях"
+            "state" : "translated",
+            "value" : "Открывать субагентов в панелях"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เปิดเอเจนต์ย่อยใหม่ในบานหน้าต่าง"
+            "state" : "translated",
+            "value" : "เปิดเอเจนต์ย่อยในบานหน้าต่าง"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Yeni alt ajanları bölmelerde aç"
+            "state" : "translated",
+            "value" : "Alt ajanları bölmelerde aç"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Відкривати нових субагентів у панелях"
+            "state" : "translated",
+            "value" : "Відкривати субагентів у панелях"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mở tác tử phụ mới trong khung"
+            "state" : "translated",
+            "value" : "Mở tác tử phụ trong khung"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在窗格中打开新的子代理"
+            "state" : "translated",
+            "value" : "在窗格中打开子代理"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在窗格中開啟新的子代理"
+            "state" : "translated",
+            "value" : "在窗格中開啟子代理"
           }
         }
       }
@@ -202619,7 +203285,7 @@
         }
       }
     },
-    "chatInspector.subagent": {
+    "sessionInfo.subagent": {
       "comment": "Agent pane: the Inspector's title while it lists one subagent's things, before its name (\"Subagent · Explore\")",
       "extractionState": "manual",
       "localizations": {
@@ -202751,7 +203417,7 @@
         }
       }
     },
-    "chatInspector.subagent.back": {
+    "sessionInfo.subagent.back": {
       "comment": "Agent pane: the Inspector's back button on a subagent's panel, to what spawned it (the chat, or its parent subagent)",
       "extractionState": "manual",
       "localizations": {
@@ -202883,7 +203549,7 @@
         }
       }
     },
-    "chatInspector.close": {
+    "sessionInfo.close": {
       "comment": "Agent pane: the Inspector's close button (top right of the panel); Esc closes it too",
       "extractionState": "manual",
       "localizations": {
@@ -203015,7 +203681,7 @@
         }
       }
     },
-    "chatInspector.title": {
+    "sessionInfo.title": {
       "comment": "Agent pane: Session Info (formerly the Inspector), the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label and its palette entry",
       "extractionState": "manual",
       "localizations": {
@@ -203147,7 +203813,7 @@
         }
       }
     },
-    "chatInspector.changes.code": {
+    "sessionInfo.changes.code": {
       "comment": "Agent pane Inspector, Changes: a pull request's line counts in code files (hover breakdown)",
       "extractionState": "manual",
       "localizations": {
@@ -203279,7 +203945,7 @@
         }
       }
     },
-    "chatInspector.changes.tests": {
+    "sessionInfo.changes.tests": {
       "comment": "Agent pane Inspector, Changes: a pull request's line counts in test files (hover breakdown)",
       "extractionState": "manual",
       "localizations": {
@@ -203411,7 +204077,7 @@
         }
       }
     },
-    "chatInspector.changes.generated": {
+    "sessionInfo.changes.generated": {
       "comment": "Agent pane Inspector, Changes: a pull request's line counts in generated files (hover breakdown)",
       "extractionState": "manual",
       "localizations": {
@@ -203543,7 +204209,7 @@
         }
       }
     },
-    "chatInspector.changes.docs": {
+    "sessionInfo.changes.docs": {
       "comment": "Agent pane Inspector, Changes: a pull request's line counts in documentation files (hover breakdown)",
       "extractionState": "manual",
       "localizations": {
@@ -203675,7 +204341,7 @@
         }
       }
     },
-    "chatInspector.changes.open": {
+    "sessionInfo.changes.open": {
       "comment": "Agent pane Inspector, Changes: a pull request's state, still open (screen reader label of its state icon)",
       "extractionState": "manual",
       "localizations": {
@@ -203807,7 +204473,7 @@
         }
       }
     },
-    "chatInspector.changes.draft": {
+    "sessionInfo.changes.draft": {
       "comment": "Agent pane Inspector, Changes: a pull request's state, a draft (screen reader label of its state icon)",
       "extractionState": "manual",
       "localizations": {
@@ -203939,7 +204605,7 @@
         }
       }
     },
-    "chatInspector.changes.failing": {
+    "sessionInfo.changes.failing": {
       "comment": "Agent pane Inspector, Changes: how many of a pull request's checks fail",
       "extractionState": "manual",
       "localizations": {
@@ -204071,7 +204737,7 @@
         }
       }
     },
-    "chatInspector.changes.failingOnBase": {
+    "sessionInfo.changes.failingOnBase": {
       "comment": "Agent pane Inspector, Changes: after the failing count, how many of those checks already fail on the base branch (not this pull request's fault); shown dimmed",
       "extractionState": "manual",
       "localizations": {
@@ -204203,7 +204869,7 @@
         }
       }
     },
-    "chatInspector.changes.ownerLabel": {
+    "sessionInfo.changes.ownerLabel": {
       "comment": "Agent pane Inspector, Changes: screen reader word before a pull request's owner chip (an agent or person)",
       "extractionState": "manual",
       "localizations": {
@@ -204335,7 +205001,7 @@
         }
       }
     },
-    "chatInspector.changes.more": {
+    "sessionInfo.changes.more": {
       "comment": "Agent pane Inspector, Changes: the label of a pull request's ⋯ menu button; {reference} is owner/repo#N",
       "extractionState": "manual",
       "localizations": {
@@ -204467,7 +205133,7 @@
         }
       }
     },
-    "chatInspector.changes.actions": {
+    "sessionInfo.changes.actions": {
       "comment": "Agent pane Inspector, Changes: the accessible name of a pull request's ⋯ menu; {reference} is owner/repo#N",
       "extractionState": "manual",
       "localizations": {
@@ -204599,7 +205265,7 @@
         }
       }
     },
-    "chatInspector.changes.openBeside": {
+    "sessionInfo.changes.openBeside": {
       "comment": "Agent pane Inspector, Changes ⋯ menu: opens the pull request in the browser beside the chat",
       "extractionState": "manual",
       "localizations": {
@@ -204731,7 +205397,7 @@
         }
       }
     },
-    "chatInspector.changes.copyLink": {
+    "sessionInfo.changes.copyLink": {
       "comment": "Agent pane Inspector, Changes ⋯ menu: copies the pull request's URL",
       "extractionState": "manual",
       "localizations": {
@@ -204863,7 +205529,7 @@
         }
       }
     },
-    "chatInspector.changes.copyReference": {
+    "sessionInfo.changes.copyReference": {
       "comment": "Agent pane Inspector, Changes ⋯ menu: copies owner/repo#N",
       "extractionState": "manual",
       "localizations": {
@@ -204995,7 +205661,7 @@
         }
       }
     },
-    "chatInspector.changes.showMore": {
+    "sessionInfo.changes.showMore": {
       "comment": "Agent pane Inspector, Changes: button under the first five pull requests that shows the rest",
       "extractionState": "manual",
       "localizations": {
@@ -205127,7 +205793,7 @@
         }
       }
     },
-    "chatInspector.changes.showLess": {
+    "sessionInfo.changes.showLess": {
       "comment": "Agent pane Inspector, Changes: button under the whole list of pull requests that folds it back to five",
       "extractionState": "manual",
       "localizations": {
@@ -205259,7 +205925,7 @@
         }
       }
     },
-    "chatInspector.changes.comments": {
+    "sessionInfo.changes.comments": {
       "comment": "Agent pane Inspector, Changes: how many comments a pull request has (screen reader label beside its speech bubble icon)",
       "extractionState": "manual",
       "localizations": {
@@ -205391,7 +206057,7 @@
         }
       }
     },
-    "chatInspector.connectors.reconnect": {
+    "sessionInfo.connectors.reconnect": {
       "comment": "Agent pane Inspector, Connectors head: how many MCP servers failed and need reconnecting",
       "extractionState": "manual",
       "localizations": {
@@ -205523,7 +206189,7 @@
         }
       }
     },
-    "chatInspector.connectors.needsReconnect": {
+    "sessionInfo.connectors.needsReconnect": {
       "comment": "Agent pane Inspector, Connectors: an MCP server that failed and needs reconnecting",
       "extractionState": "manual",
       "localizations": {
@@ -205655,7 +206321,7 @@
         }
       }
     },
-    "chatInspector.connectors.reconnectAction": {
+    "sessionInfo.connectors.reconnectAction": {
       "comment": "Agent pane Inspector, Connectors: the button on a failed MCP server's row that asks the agent to connect it again",
       "extractionState": "manual",
       "localizations": {
@@ -205787,7 +206453,7 @@
         }
       }
     },
-    "chatInspector.connectors.reconnecting": {
+    "sessionInfo.connectors.reconnecting": {
       "comment": "Agent pane Inspector, Connectors: a failed MCP server's Reconnect button while the agent connects it again",
       "extractionState": "manual",
       "localizations": {
@@ -205919,7 +206585,7 @@
         }
       }
     },
-    "chatInspector.connectors.retry": {
+    "sessionInfo.connectors.retry": {
       "comment": "Agent pane Inspector, Connectors: a failed MCP server's Reconnect button after the reconnect failed; clicking tries again",
       "extractionState": "manual",
       "localizations": {
@@ -206051,7 +206717,7 @@
         }
       }
     },
-    "chatInspector.context.used": {
+    "sessionInfo.context.used": {
       "comment": "Agent pane Inspector, Context (open): the row with the tokens used of the context window",
       "extractionState": "manual",
       "localizations": {
@@ -206183,7 +206849,7 @@
         }
       }
     },
-    "chatInspector.context.left": {
+    "sessionInfo.context.left": {
       "comment": "Agent pane Inspector, Context (open): the row with the tokens left in the context window",
       "extractionState": "manual",
       "localizations": {
@@ -207107,9 +207773,9 @@
         }
       }
     },
-    "chatInspector.context.compactSession": {"comment":"Agent pane Session Info, Context (open): the button under the rows that sends the agent its /compact","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ضغط الجلسة"}},"bs":{"stringUnit":{"state":"translated","value":"Sažmi sesiju"}},"da":{"stringUnit":{"state":"translated","value":"Komprimér session"}},"de":{"stringUnit":{"state":"translated","value":"Sitzung komprimieren"}},"en":{"stringUnit":{"state":"translated","value":"Compact session"}},"es":{"stringUnit":{"state":"translated","value":"Compactar sesión"}},"fr":{"stringUnit":{"state":"translated","value":"Compacter la session"}},"it":{"stringUnit":{"state":"translated","value":"Compatta sessione"}},"ja":{"stringUnit":{"state":"translated","value":"セッションを圧縮"}},"km":{"stringUnit":{"state":"translated","value":"បង្រួមសម័យ"}},"ko":{"stringUnit":{"state":"translated","value":"세션 압축"}},"nb":{"stringUnit":{"state":"translated","value":"Komprimer økten"}},"pl":{"stringUnit":{"state":"translated","value":"Kompaktuj sesję"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Compactar sessão"}},"ru":{"stringUnit":{"state":"translated","value":"Сжать сеанс"}},"th":{"stringUnit":{"state":"translated","value":"ย่อเซสชัน"}},"tr":{"stringUnit":{"state":"translated","value":"Oturumu sıkıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Стиснути сеанс"}},"vi":{"stringUnit":{"state":"translated","value":"Thu gọn phiên"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"压缩会话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"壓縮工作階段"}}}},
-    "chatInspector.context.untilAutoCompact": {"comment":"Agent pane Session Info, Context (open): beside Compact session, the free tokens left before the agent compacts on its own; {tokens} is a compact token count (130K)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"{tokens} حتى الضغط التلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"{tokens} do automatskog sažimanja"}},"da":{"stringUnit":{"state":"translated","value":"{tokens} til automatisk komprimering"}},"de":{"stringUnit":{"state":"translated","value":"{tokens} bis zur automatischen Komprimierung"}},"en":{"stringUnit":{"state":"translated","value":"{tokens} until auto-compact"}},"es":{"stringUnit":{"state":"translated","value":"{tokens} hasta la compactación automática"}},"fr":{"stringUnit":{"state":"translated","value":"{tokens} avant la compaction automatique"}},"it":{"stringUnit":{"state":"translated","value":"{tokens} alla compattazione automatica"}},"ja":{"stringUnit":{"state":"translated","value":"自動圧縮まで {tokens}"}},"km":{"stringUnit":{"state":"translated","value":"{tokens} មុនការបង្រួមស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"translated","value":"자동 압축까지 {tokens}"}},"nb":{"stringUnit":{"state":"translated","value":"{tokens} til automatisk komprimering"}},"pl":{"stringUnit":{"state":"translated","value":"{tokens} do automatycznej kompaktacji"}},"pt-BR":{"stringUnit":{"state":"translated","value":"{tokens} até a compactação automática"}},"ru":{"stringUnit":{"state":"translated","value":"{tokens} до автосжатия"}},"th":{"stringUnit":{"state":"translated","value":"อีก {tokens} ก่อนย่ออัตโนมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik sıkıştırmaya {tokens}"}},"uk":{"stringUnit":{"state":"translated","value":"{tokens} до автостиснення"}},"vi":{"stringUnit":{"state":"translated","value":"Còn {tokens} đến khi tự thu gọn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"距自动压缩还有 {tokens}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"距自動壓縮還有 {tokens}"}}}},
-    "chatInspector.context.free": {
+    "sessionInfo.context.compactSession": {"comment":"Agent pane Session Info, Context (open): the button under the rows that sends the agent its /compact","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ضغط الجلسة"}},"bs":{"stringUnit":{"state":"translated","value":"Sažmi sesiju"}},"da":{"stringUnit":{"state":"translated","value":"Komprimér session"}},"de":{"stringUnit":{"state":"translated","value":"Sitzung komprimieren"}},"en":{"stringUnit":{"state":"translated","value":"Compact session"}},"es":{"stringUnit":{"state":"translated","value":"Compactar sesión"}},"fr":{"stringUnit":{"state":"translated","value":"Compacter la session"}},"it":{"stringUnit":{"state":"translated","value":"Compatta sessione"}},"ja":{"stringUnit":{"state":"translated","value":"セッションを圧縮"}},"km":{"stringUnit":{"state":"translated","value":"បង្រួមសម័យ"}},"ko":{"stringUnit":{"state":"translated","value":"세션 압축"}},"nb":{"stringUnit":{"state":"translated","value":"Komprimer økten"}},"pl":{"stringUnit":{"state":"translated","value":"Kompaktuj sesję"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Compactar sessão"}},"ru":{"stringUnit":{"state":"translated","value":"Сжать сеанс"}},"th":{"stringUnit":{"state":"translated","value":"ย่อเซสชัน"}},"tr":{"stringUnit":{"state":"translated","value":"Oturumu sıkıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Стиснути сеанс"}},"vi":{"stringUnit":{"state":"translated","value":"Thu gọn phiên"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"压缩会话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"壓縮工作階段"}}}},
+    "sessionInfo.context.untilAutoCompact": {"comment":"Agent pane Session Info, Context (open): beside Compact session, the free tokens left before the agent compacts on its own; {tokens} is a compact token count (130K)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"{tokens} حتى الضغط التلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"{tokens} do automatskog sažimanja"}},"da":{"stringUnit":{"state":"translated","value":"{tokens} til automatisk komprimering"}},"de":{"stringUnit":{"state":"translated","value":"{tokens} bis zur automatischen Komprimierung"}},"en":{"stringUnit":{"state":"translated","value":"{tokens} until auto-compact"}},"es":{"stringUnit":{"state":"translated","value":"{tokens} hasta la compactación automática"}},"fr":{"stringUnit":{"state":"translated","value":"{tokens} avant la compaction automatique"}},"it":{"stringUnit":{"state":"translated","value":"{tokens} alla compattazione automatica"}},"ja":{"stringUnit":{"state":"translated","value":"自動圧縮まで {tokens}"}},"km":{"stringUnit":{"state":"translated","value":"{tokens} មុនការបង្រួមស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"translated","value":"자동 압축까지 {tokens}"}},"nb":{"stringUnit":{"state":"translated","value":"{tokens} til automatisk komprimering"}},"pl":{"stringUnit":{"state":"translated","value":"{tokens} do automatycznej kompaktacji"}},"pt-BR":{"stringUnit":{"state":"translated","value":"{tokens} até a compactação automática"}},"ru":{"stringUnit":{"state":"translated","value":"{tokens} до автосжатия"}},"th":{"stringUnit":{"state":"translated","value":"อีก {tokens} ก่อนย่ออัตโนมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik sıkıştırmaya {tokens}"}},"uk":{"stringUnit":{"state":"translated","value":"{tokens} до автостиснення"}},"vi":{"stringUnit":{"state":"translated","value":"Còn {tokens} đến khi tự thu gọn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"距自动压缩还有 {tokens}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"距自動壓縮還有 {tokens}"}}}},
+    "sessionInfo.context.free": {
       "comment": "Agent pane Inspector, Context (open): the row with the tokens still free in the context window",
       "extractionState": "manual",
       "localizations": {
@@ -207241,7 +207907,7 @@
         }
       }
     },
-    "chatInspector.environment.remoteControl": {
+    "sessionInfo.environment.remoteControl": {
       "comment": "Agent pane Inspector, Environment: the switch that lets this chat be continued from another device",
       "extractionState": "manual",
       "localizations": {
@@ -207373,7 +208039,7 @@
         }
       }
     },
-    "chatInspector.environment.remoteControl.help": {
+    "sessionInfo.environment.remoteControl.help": {
       "comment": "Agent pane Inspector, Environment: the Remote Control switch's tooltip. It is the Mac-wide iPhone connections switch, so it covers every chat on this Mac",
       "extractionState": "manual",
       "localizations": {
@@ -207505,7 +208171,7 @@
         }
       }
     },
-    "chatInspector.environment.save": {
+    "sessionInfo.environment.save": {
       "comment": "Agent pane Inspector, Environment: a link that saves this machine, folder and branch as a reusable environment",
       "extractionState": "manual",
       "localizations": {
@@ -207637,7 +208303,7 @@
         }
       }
     },
-    "chatInspector.servers": {
+    "sessionInfo.servers": {
       "comment": "Agent pane Inspector: the section of dev servers the chat runs in the background",
       "extractionState": "manual",
       "localizations": {
@@ -207769,7 +208435,7 @@
         }
       }
     },
-    "chatInspector.servers.open": {
+    "sessionInfo.servers.open": {
       "comment": "Agent pane Inspector, Servers: the label of a port button, which opens the local address beside the chat; {url} is http://localhost:PORT",
       "extractionState": "manual",
       "localizations": {
@@ -207901,7 +208567,7 @@
         }
       }
     },
-    "chatInspector.tasks.lost": {
+    "sessionInfo.tasks.lost": {
       "comment": "Agent pane Inspector, Background tasks: a command that ended without anyone seeing how (its harness exited)",
       "extractionState": "manual",
       "localizations": {
@@ -212127,7 +212793,6 @@
     },
     "trust.continueWithoutFolderLabel": {"comment":"Folder trust: action to continue without a project","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder"}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون مجلد"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez foldera"}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappe"}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordner fortfahren"}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans dossier"}},"it":{"stringUnit":{"state":"translated","value":"Continua senza cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダなしで続行"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 없이 계속"}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappe"}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez folderu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem pasta"}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без папки"}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีโฟลเดอร์"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör olmadan devam et"}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без папки"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹的情况下继续"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾的情況下繼續"}}}},
     "trust.continueWithoutFolder": {"comment":"Folder trust: continue after declining access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder context: project hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون سياق المجلد: لن تُحمّل إعدادات المشروع وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez konteksta foldera: postavke i hookovi projekta se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappekontekst: projektets hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordnerkontext fortfahren: Projekt-Hooks und -Konfiguration werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración del proyecto. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans contexte de dossier : les hooks et la configuration du projet ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."}},"it":{"stringUnit":{"state":"translated","value":"Continua senza contesto della cartella: hook e configurazione del progetto non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."}},"ja":{"stringUnit":{"state":"translated","value":"フォルダのコンテキストなしで続行：プロジェクトのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់គម្រោងនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 컨텍스트 없이 계속: 프로젝트 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappekontekst: prosjektets hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez kontekstu folderu: hooki i konfiguracja projektu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem contexto da pasta: os hooks e a configuração do projeto não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без контекста папки: хуки и конфигурация проекта не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าโปรเจกต์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör bağlamı olmadan devam et: proje kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без контексту папки: хуки та конфігурацію проєкту не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình dự án sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹上下文的情况下继续：不会加载项目钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾內容的情況下繼續：不會載入專案掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"}}}},
-
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",
@@ -232951,7 +233616,7 @@
         }
       }
     },
-    "chatInspector.context.mcpTools": {
+    "sessionInfo.context.mcpTools": {
       "comment": "Inspector Context and the composer's context details: the fold that lists the MCP tools the context window holds, with their count.",
       "extractionState": "manual",
       "localizations": {
@@ -233083,7 +233748,7 @@
         }
       }
     },
-    "chatInspector.context.memoryFiles": {
+    "sessionInfo.context.memoryFiles": {
       "comment": "Inspector Context and the composer's context details: the fold that lists the memory files (CLAUDE.md and the like) the context window holds, with their count.",
       "extractionState": "manual",
       "localizations": {
@@ -233215,7 +233880,7 @@
         }
       }
     },
-    "chatInspector.context.skills": {
+    "sessionInfo.context.skills": {
       "comment": "Inspector Context and the composer's context details: the fold that lists the agent skills the context window holds, with their count.",
       "extractionState": "manual",
       "localizations": {
@@ -233347,7 +234012,7 @@
         }
       }
     },
-    "chatInspector.outputs.artifact": {
+    "sessionInfo.outputs.artifact": {
       "comment": "Agent pane Inspector, Outputs: the kind tag on a row that is a document the chat produced (an HTML page, an SVG or Markdown), which opens in the side panel",
       "extractionState": "manual",
       "localizations": {
@@ -233479,7 +234144,7 @@
         }
       }
     },
-    "chatInspector.outputs.link": {
+    "sessionInfo.outputs.link": {
       "comment": "Agent pane Inspector, Outputs: the kind tag on a row that is a web link the chat's replies gave",
       "extractionState": "manual",
       "localizations": {
@@ -233611,7 +234276,7 @@
         }
       }
     },
-    "chatInspector.subagents.more": {
+    "sessionInfo.subagents.more": {
       "comment": "Agent pane Inspector, Subagents: under the first running subagents and chats, opens the {n} more that run",
       "extractionState": "manual",
       "localizations": {
@@ -233743,7 +234408,7 @@
         }
       }
     },
-    "chatInspector.subagents.less": {
+    "sessionInfo.subagents.less": {
       "comment": "Agent pane Inspector, Subagents: under every running subagent and chat, shows only the first few again",
       "extractionState": "manual",
       "localizations": {
@@ -233875,7 +234540,7 @@
         }
       }
     },
-    "chatInspector.tasks.noTerminal.remote": {
+    "sessionInfo.tasks.noTerminal.remote": {
       "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open, in a chat on another machine (SSH or Cloud) whose transcript does not hold the call that started the command",
       "extractionState": "manual",
       "localizations": {
@@ -234007,7 +234672,7 @@
         }
       }
     },
-    "chatInspector.tasks.noTerminal.noCall": {
+    "sessionInfo.tasks.noTerminal.noCall": {
       "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open because no tool call in the chat is linked to the command",
       "extractionState": "manual",
       "localizations": {
@@ -241732,7 +242397,7 @@
     "composer.envOpenMachine": {"comment":"Agent pane: environment picker and Computer menu, after a Cloud machine of the person's account that acpmux does not list: a pick opens the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn"}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri"}},"ja":{"stringUnit":{"state":"needs_review","value":"開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើក"}},"ko":{"stringUnit":{"state":"needs_review","value":"열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟"}}}},
     "composer.envPausedResume": {"comment":"Agent pane: environment picker and Computer menu, after a paused Cloud machine of the person's account: it is paused, and a pick resumes it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متوقف مؤقتًا · استئناف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pauzirano · Nastavi"}},"da":{"stringUnit":{"state":"needs_review","value":"Sat på pause · Genoptag"}},"de":{"stringUnit":{"state":"needs_review","value":"Pausiert · Fortsetzen"}},"en":{"stringUnit":{"state":"translated","value":"Paused · Resume"}},"es":{"stringUnit":{"state":"needs_review","value":"En pausa · Reanudar"}},"fr":{"stringUnit":{"state":"needs_review","value":"En pause · Reprendre"}},"it":{"stringUnit":{"state":"needs_review","value":"In pausa · Riprendi"}},"ja":{"stringUnit":{"state":"needs_review","value":"一時停止中 · 再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្អាក · បន្ត"}},"ko":{"stringUnit":{"state":"needs_review","value":"일시 중지됨 · 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Satt på pause · Gjenoppta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstrzymano · Wznów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pausado · Retomar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Приостановлено · Возобновить"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดชั่วคราว · ดำเนินการต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Duraklatıldı · Sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Призупинено · Відновити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã tạm dừng · Tiếp tục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已暂停 · 恢复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已暫停 · 繼續"}}}},
     "composer.envStarting": {"comment":"Agent pane: environment picker and Computer menu, after a Cloud machine of the person's account that is being created or is booting","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ البدء…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird gestartet…"}},"en":{"stringUnit":{"state":"translated","value":"Starting…"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarrage…"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio in corso…"}},"ja":{"stringUnit":{"state":"needs_review","value":"起動中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើម…"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작하는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่ม…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başlatılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khởi động…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在启动…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在啟動…"}}}},
-    "chatInspector.subagents.limit.running" : {
+    "sessionInfo.subagents.limit.running" : {
       "comment" : "Agent pane Inspector, Subagents: how many of the chats this chat's agent started run a turn now ({running}) of the most that may run at once ({max})",
       "extractionState" : "manual",
       "localizations" : {
@@ -241864,7 +242529,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.queued" : {
+    "sessionInfo.subagents.limit.queued" : {
       "comment" : "Agent pane Inspector, Subagents: how many of the chats this chat's agent started wait for a free slot under the running limit. {n} is the count.",
       "extractionState" : "manual",
       "localizations" : {
@@ -241996,7 +242661,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.lower" : {
+    "sessionInfo.subagents.limit.lower" : {
       "comment" : "Agent pane Inspector, Subagents: the minus button's label, which lowers how many of the chats this chat's agent started may run at once to {n}",
       "extractionState" : "manual",
       "localizations" : {
@@ -242128,7 +242793,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.raise" : {
+    "sessionInfo.subagents.limit.raise" : {
       "comment" : "Agent pane Inspector, Subagents: the plus button's label, which raises how many of the chats this chat's agent started may run at once to {n}",
       "extractionState" : "manual",
       "localizations" : {
@@ -242260,7 +242925,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.refused" : {
+    "sessionInfo.subagents.limit.refused" : {
       "comment" : "Agent pane Inspector, Subagents: shown for a few seconds beside the running limit when acpmux refused to change it",
       "extractionState" : "manual",
       "localizations" : {
@@ -242392,7 +243057,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.reset" : {
+    "sessionInfo.subagents.limit.reset" : {
       "comment" : "Agent pane Inspector, Subagents: a short button beside the running limit that drops this chat's own limit for the one it inherits",
       "extractionState" : "manual",
       "localizations" : {
@@ -242524,7 +243189,7 @@
         }
       }
     },
-    "chatInspector.subagents.limit.resetLabel" : {
+    "sessionInfo.subagents.limit.resetLabel" : {
       "comment" : "Agent pane Inspector, Subagents: the Reset button's label: this chat goes back to the running limit it inherits (its parent's, the workspace's or the settings')",
       "extractionState" : "manual",
       "localizations" : {
