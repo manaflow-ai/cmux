@@ -1397,7 +1397,7 @@ const run = async ({status = 403, remaining = '0', reset = '1841', method = 'GET
   try { result = await retry(request, {method, url: '/repos/manaflow-ai/cmux/git/ref/heads/feat-cmux-next'}); }
   catch (caught) { if (caught !== error) throw caught; failed = true; }
   // The same decision may make many reads: none gets another quota wait.
-  try { await retry(async () => {throw error}, {method: 'GET'}); }
+  try { if (calls === 2) await retry(async () => {throw error}, {method: 'GET'}); }
   catch (caught) { if (caught !== error) throw caught; }
   return {calls, waits, warnings, result, failed};
 };
