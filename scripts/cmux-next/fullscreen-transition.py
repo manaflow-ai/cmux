@@ -23,6 +23,13 @@ Usage: fullscreen-transition.py --tag <tag> --app PATH [--rounds 3] [--parked 10
        [--json PATH] [--out DIR] [--gate]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+# perfx/close-no-flash A/B (scratch overlay, never lands): --close-flash runs the close-flash bench on this tagged build.
+if "--close-flash" in sys.argv[1:]:
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("close_flash_bench", os.path.join(os.path.dirname(os.path.abspath(__file__)), "close-flash-bench.py"))
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    sys.exit(_mod.main(sys.argv[1:]))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
