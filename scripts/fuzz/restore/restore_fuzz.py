@@ -84,10 +84,17 @@ MAX_WS, MAX_TABS = 5, 4
 
 
 def say(*parts):
+    """Prints and logs one line; a closed stdout (the ssh that started this run ended) never stops the caller."""
     line = " ".join(str(p) for p in parts)
-    print(line, flush=True)
-    LOG.write(time.strftime("%H:%M:%S ") + line + "\n")
-    LOG.flush()
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):
+        pass
+    try:
+        LOG.write(time.strftime("%H:%M:%S ") + line + "\n")
+        LOG.flush()
+    except (OSError, ValueError):
+        pass
 
 
 def wait(predicate, seconds, step=0.25):
@@ -373,12 +380,31 @@ def cli(*args, timeout=ACTION_BOUND):
             answer = {"error": (r.stdout + r.stderr).strip()[:400] or f"exit {r.returncode}"}
     except subprocess.TimeoutExpired:
         answer = {"error": f"no answer within {timeout} s", "stall": True}
-    if isinstance(answer, dict) and "error" in answer:
-        ERRORS.append({"cmd": " ".join(args[:2]), "error": str(answer.get("error"))[:300], "typed": typed_error(answer)})
+    if isinstance(answer, dict) and "error" in answer and ACTION_ERRORS[0]:
+        ERRORS.append({"cmd": " ".join(args[:2]), "error": str(answer.get("error"))[:300], "typed": typed_error(answer),
+                       "stall": bool(answer.get("stall"))})
     return answer, time.time() - started
 
 
-ERRORS = []  # every error answer of the current iteration (diskfull: refusals must be typed)
+ERRORS = []  # error answers to the iteration's own actions and creates (not the harness's list reads)
+ACTION_ERRORS = [False]  # set while do_action()/fresh() create calls run
+
+
+def may_degrade(rec, errors):
+    """A not-run iteration is "degraded" only when the full disk refused it with answers and nothing else went
+    wrong: its one problem is the not-run reason, every error is a real answer (no stall), and there is one."""
+    only_reason = (len(rec.get("problems", [])) == 1
+                   and rec["problems"][0].startswith(("no fz workspace in the daemon topology at the start",
+                                                      "the daemon topology could not be read after")))
+    return rec.get("verdict") == "not run" and only_reason and bool(errors) and not any(e.get("stall") for e in errors)
+
+
+def kill_counts(records):
+    kills = {}
+    for r in records:
+        if r.get("target") and r["verdict"] in ("pass", "fail", "degraded"):
+            kills[r["target"]] = kills.get(r["target"], 0) + 1
+    return kills
 
 
 def typed_error(answer):
@@ -543,6 +569,14 @@ def pick_action(run, state):
 
 def do_action(kind, p):
     """Runs one action on the daemon: (answer, seconds)."""
+    ACTION_ERRORS[0] = True
+    try:
+        return _do_action(kind, p)
+    finally:
+        ACTION_ERRORS[0] = False
+
+
+def _do_action(kind, p):
     if kind == "ws_create":
         answer, took = cli("workspace", "create", "--name", p["name"])
         created(p["name"], answer)
@@ -720,9 +754,15 @@ def visible_problems(state, surfaces):
     return hard, dead
 
 
-def judge_visible(samples, killed, end):
-    """Problems of a kill-to-settle window of samples [(at, debug.daemon, debug.surfaces)]."""
+def judge_visible(samples, killed, end, need_answers=True):
+    """Problems of a kill-to-settle window of samples [(at, debug.daemon, debug.surfaces)]. need_answers: like
+    RecoverySampler, at least one answer of each call after the kill (an app that never answers shows nothing)."""
     problems, dead_since = [], None
+    if need_answers:
+        if not any(st for at, st, _ in samples if at >= killed):
+            problems.append("debug.daemon never answered after the kill")
+        if not any(isinstance(su, dict) and "error" not in su for at, _, su in samples if at >= killed):
+            problems.append("debug.surfaces never answered after the kill")
     for at, state, surfaces in samples:
         hard, dead = visible_problems(state, surfaces)
         problems += [f"{at:.2f} s: {h}" for h in hard]
@@ -769,7 +809,7 @@ class VisibleSampler:
         killed = 0.0
         if target == "app":
             first = next((at for at, st, _ in self.samples if st), None)
-            killed = first if first is not None else end
+            killed = first if first is not None else 0.0  # no answer at all: judged from the kill (never a pass)
         seen = {}
         for _, st, su in self.samples:
             shows = ",".join(sorted({w.get("shows", "?") for w in (st or {}).get("windows") or []})) or "no answer"
@@ -880,7 +920,11 @@ def fresh(run):
     names = []
     for _ in range(run.rng.randint(1, 3)):
         name = run.name()
-        answer, _ = cli("workspace", "create", "--name", name)
+        ACTION_ERRORS[0] = True
+        try:
+            answer, _ = cli("workspace", "create", "--name", name)
+        finally:
+            ACTION_ERRORS[0] = False
         if created(name, answer):
             names.append(name)
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
@@ -1043,8 +1087,12 @@ def parse_procargs2(blob):
     argc = struct.unpack_from("i", blob, 0)[0]
     rest = blob[4:]
     end = rest.find(b"\0")
-    rest = rest[end:].lstrip(b"\0")
-    words = rest.split(b"\0")
+    # The exec path, then NUL padding, then argv (psutil's rule). An empty argv[0] cannot be told from the padding;
+    # the harness reads only env values, and a cmux-tui daemon's argv[0] is its path, so that case does not apply.
+    pos = end
+    while pos < len(rest) and rest[pos] == 0:
+        pos += 1
+    words = rest[pos:].split(b"\0")
     argv = [w.decode(errors="replace") for w in words[:argc]]
     env = {}
     for w in words[argc:]:
@@ -1060,6 +1108,8 @@ def proc_args_exact(pid):
     """(argv, env) of a same-user process through sysctl KERN_PROCARGS2 (exact values), or None."""
     try:
         libc = ctypes.CDLL(None)
+        libc.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+                                ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
         mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
         size = ctypes.c_size_t(0)
         if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
@@ -1097,6 +1147,10 @@ def check_state_dir(state_dir, home):
     return None
 
 
+class HarnessInvalid(Exception):
+    """The harness cannot keep its own safety rule (no verdict, never PASS)."""
+
+
 class DiskVolume:
     """A bounded HFS+ image mounted at the daemon's state dir: filling it fills only the image, never the host."""
 
@@ -1119,7 +1173,10 @@ class DiskVolume:
         return st.f_bavail * st.f_frsize
 
     def fill(self, margin_mb):
-        """Writes the filler until the image has margin_mb free; the free bytes after."""
+        """Writes the filler until the image has margin_mb free; the free bytes after. Only on the mounted image:
+        if the mount is gone, statvfs would be the host disk's, so it refuses (HarnessInvalid)."""
+        if not os.path.ismount(self.mountpoint) or self.free() > self.size_mb * (1 << 20):
+            raise HarnessInvalid(f"{self.mountpoint} is not the mounted {self.size_mb} MB image; refusing to fill")
         want = filler_bytes(self.free(), margin_mb)
         chunk = b"\0" * (8 << 20)
         with open(self.filler, "ab") as f:
@@ -1164,15 +1221,27 @@ def daemon_state_dir():
     return None
 
 
-def stop_build_processes():
-    """SIGKILL this slot build's app, daemon and acpmux (the same set kill() takes), and wait until they are gone."""
-    pids = kill("app") + APP.daemon_pids() + APP.acpmux_pids()
+def bundle_pids(exclude=()):
+    """Every process run from this slot's bundle (the app, its daemon, acpmux, helpers), by its ps row: no rpc, so
+    an app that hangs on a full disk is found too."""
+    return [pid for pid, _, args in ps_table() if APP.mine(args) and pid != os.getpid() and pid not in exclude]
+
+
+def stop_build_processes(exclude=()):
+    """SIGKILL every process of this slot's bundle and poll (locally: never wait(), which exits once the parent is
+    gone) until they end; True when all ended within 20 s."""
+    pids = bundle_pids(exclude)
     for pid in pids:
         try:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-    return wait(lambda: not any(APP.alive(p) for p in pids), 20, 0.2)
+    end = time.time() + 20
+    while time.time() < end:
+        if not any(APP.alive(p) for p in pids):
+            return True
+        time.sleep(0.2)
+    return False
 
 
 def tree_bytes(path):
@@ -1189,7 +1258,10 @@ def tree_bytes(path):
 def detach_stale_images():
     """Detaches fzdisk images an earlier run of this harness left mounted under this slot's HOME (a run whose
     driver ended before its teardown). Only volumes named fzdisk mounted inside the slot HOME."""
-    home = (APP.env.get("HOME") or "").rstrip("/") + "/"
+    if not APP.env.get("HOME"):
+        say("  diskfull: no slot HOME; the stale-image repair does nothing (fail closed)")
+        return []
+    home = APP.env["HOME"].rstrip("/") + "/"
     out = subprocess.run(["/sbin/mount"], capture_output=True, text=True).stdout
     found = []
     for line in out.splitlines():
@@ -1202,14 +1274,27 @@ def detach_stale_images():
     for mountpoint in found:
         done = subprocess.run(["/usr/bin/hdiutil", "detach", "-force", mountpoint], capture_output=True, text=True)
         say(f"  diskfull: stale fzdisk image at {mountpoint}: detach exit {done.returncode}")
-        orig = mountpoint + ".fz-orig"
-        if done.returncode == 0 and os.path.isdir(orig):
-            try:
-                os.rmdir(mountpoint)
-                os.rename(orig, mountpoint)
-                say("  diskfull: original state dir of the earlier run restored")
-            except OSError as error:
-                say(f"  diskfull: WARNING could not restore {orig}: {error}")
+        if done.returncode == 0:
+            restore_moved_state(mountpoint, mountpoint + ".fz-orig")
+    # A moved state dir with no mount (an earlier teardown that stopped after the detach), and stale image files.
+    for root, dirs, _ in os.walk(home):
+        for name in list(dirs):
+            if name.endswith(".fz-orig"):
+                state = os.path.join(root, name[: -len(".fz-orig")])
+                if restore_moved_state(state, os.path.join(root, name)):
+                    found.append(state)
+                dirs.remove(name)
+        if root.count(os.sep) - home.count(os.sep) > 8:
+            dirs[:] = []
+    tmp = APP.env.get("TMPDIR") or ""
+    if tmp:
+        for name in os.listdir(tmp) if os.path.isdir(tmp) else []:
+            if name.startswith("fz-disk-") and name.endswith(".dmg"):
+                try:
+                    os.remove(os.path.join(tmp, name))
+                    say(f"  diskfull: removed stale image file {name}")
+                except OSError:
+                    pass
     return found
 
 
@@ -1233,16 +1318,13 @@ def setup_diskfull():
     if not stop_build_processes():
         return "the build's processes did not end"
     orig = state + ".fz-orig"
+    DISK.update(volume=vol, state_dir=state, orig=orig)  # recorded BEFORE the rename: teardown can always undo it
     os.rename(state, orig)
     os.makedirs(state)
     attached = subprocess.run(vol.attach_cmd(), capture_output=True, text=True, timeout=120)
     if attached.returncode:
-        os.rmdir(state)
-        os.rename(orig, state)
-        APP.relaunch()
-        return f"hdiutil attach failed: {attached.stderr.strip()[:200]}"
+        return f"hdiutil attach failed: {attached.stderr.strip()[:200]}"  # teardown puts the state dir back
     vol.mounted = True
-    DISK.update(volume=vol, state_dir=state, orig=orig)
     copied = subprocess.run(["/bin/cp", "-a", orig + "/.", state + "/"], capture_output=True, text=True, timeout=120)
     if copied.returncode:
         say(f"  diskfull: cp of the state dir reported: {copied.stderr.strip()[:300]}")
@@ -1251,7 +1333,11 @@ def setup_diskfull():
     if not wait(lambda: daemon_state() is not None, 60, 0.5):
         return "the daemon did not answer after the state dir moved onto the image"
     DISK["phase"] = "full"
-    say(f"  diskfull: {state} is a {opts.disk_image_mb} MB image; free after fill: {vol.fill(opts.disk_margin_mb) >> 10} KB")
+    try:
+        left = vol.fill(opts.disk_margin_mb)
+    except HarnessInvalid as error:
+        return str(error)
+    say(f"  diskfull: {state} is a {opts.disk_image_mb} MB image; free after fill: {left >> 10} KB")
     return None
 
 
@@ -1276,6 +1362,10 @@ def recover_after_space(target, old_daemons):
     free = vol.unfill()
     DISK["phase"] = "free"
     say(f"  diskfull: restore failed on a full disk; space freed ({free >> 10} KB), waiting for the build to recover")
+    if target == "app":
+        # The relaunch that failed may still run (it never answered): stop every process of the bundle first, so the
+        # recovery relaunch is the only instance on this state dir.
+        stop_build_processes()
     sampler = VisibleSampler()
     state, timings, problem = restore(target, freed_at, old_daemons)
     seen, n = sampler.finish(target)
@@ -1288,6 +1378,8 @@ def recover_after_space(target, old_daemons):
         # The person's way out: press Restart cmux-tui (the button's path, as restore-journey's daemon-stop does).
         pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
         pressed_at = time.time()
+        if target == "app" and not isinstance(pressed, dict):
+            stop_build_processes()  # no app answered the press: one fresh instance only
         state2, timings2, problem2 = restore(target, pressed_at, old_daemons)
         out.update(restart_pressed=pressed if isinstance(pressed, dict) else str(pressed)[:200],
                    recovered_after_restart=problem2 is None, after_restart_s=timings2.get("settled_s"),
@@ -1300,27 +1392,55 @@ def recover_after_space(target, old_daemons):
 
 
 def teardown_diskfull():
-    """Detaches the image, puts the original state dir back, removes the image file. Logs each step."""
+    """Detaches the image, puts the original state dir back, removes the image file. Signals are ignored meanwhile
+    and each step runs even if one before it failed; nothing here uses wait() or needs stdout."""
     vol = DISK.pop("volume", None)
     if not vol:
         return
-    stop_build_processes()
-    if not vol.detach():
-        say(f"  diskfull: WARNING the image is still mounted at {vol.mountpoint}; the lease cleanup must detach it")
-        return
-    say(f"  diskfull: image detached from {vol.mountpoint}")
-    orig = DISK.get("orig")
-    if orig and os.path.isdir(orig):
-        try:
-            os.rmdir(vol.mountpoint)
-            os.rename(orig, vol.mountpoint)
-            say("  diskfull: original state dir restored")
-        except OSError as error:
-            say(f"  diskfull: WARNING could not restore the original state dir: {error}")
+    old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
     try:
-        os.remove(vol.image)
-    except OSError:
-        pass
+        try:
+            stop_build_processes()
+        except Exception as error:  # noqa: BLE001 - the restore below must still run
+            say(f"  diskfull: stopping the build failed: {error}")
+        mounted = os.path.ismount(vol.mountpoint)
+        if mounted:
+            try:
+                vol.mounted = True
+                mounted = not vol.detach()
+            except Exception as error:  # noqa: BLE001
+                say(f"  diskfull: detach failed: {error}")
+        if mounted:
+            say(f"  diskfull: WARNING the image is still mounted at {vol.mountpoint}; the next run detaches it")
+        else:
+            say(f"  diskfull: image detached from {vol.mountpoint}")
+            restore_moved_state(vol.mountpoint, DISK.get("orig"))
+        try:
+            os.remove(vol.image)
+        except OSError:
+            pass
+    finally:
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+
+
+def restore_moved_state(state, orig):
+    """Puts <state>.fz-orig back at <state> when <state> is not a mount (an empty dir, or a dir that holds only what
+    a daemon wrote into the bare mount point after a forced detach: kept beside as <state>.fz-stray)."""
+    if not orig or not os.path.isdir(orig) or os.path.ismount(state):
+        return False
+    try:
+        if os.path.isdir(state):
+            try:
+                os.rmdir(state)
+            except OSError:
+                os.rename(state, state + f".fz-stray-{int(time.time())}")
+        os.rename(orig, state)
+        say("  diskfull: original state dir restored")
+        return True
+    except OSError as error:
+        say(f"  diskfull: WARNING could not restore {orig}: {error}")
+        return False
 
 
 # ---- chaos -------------------------------------------------------------------------------------
@@ -1413,7 +1533,7 @@ def main():
         i = 0
         # An iteration may need: actions, a settle (SETTLE_BOUND), and under diskfull a recovery wait and a Restart
         # wait (2 more SETTLE_BOUNDs) plus the evidence re-read (30 s). Start one only if it can end inside the lease.
-        need = 60 + (3 * SETTLE_BOUND + 40 if opts.chaos == "diskfull" else 0)
+        need = 60 + (3 * SETTLE_BOUND + 3 * 60 + 40 if opts.chaos == "diskfull" else 0)
         while time.time() < deadline - need and (not opts.iterations or i < opts.iterations):
             dead = [proc.pid for proc in CHAOS_PROCS if proc.poll() is not None]
             if dead:
@@ -1421,7 +1541,12 @@ def main():
                 say(f"chaos process(es) {dead} ended early; stopping (the iterations after this would not be under chaos)")
                 break
             it_seed = seeds[0] if seeds else master.randrange(1 << 31)
-            phase = disk_phase(i)
+            try:
+                phase = disk_phase(i)
+            except HarnessInvalid as error:
+                say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged=0 not_run=0 "
+                    f"violations=0 chaos_lost=0 harness_invalid=1 ({error})")
+                sys.exit(75)
             ERRORS.clear()
             rec = iteration(it_seed, targets, label=f"iter{i}")
             if phase:
@@ -1434,7 +1559,7 @@ def main():
                 rec["errors"] = list(ERRORS[:20])
                 rec["errors_untyped"] = sum(1 for e in ERRORS if not e["typed"])
                 # A full disk may refuse work: that is degraded, not "not run", when it refused with an answer.
-                if phase["phase"] == "full" and rec["verdict"] == "not run" and ERRORS:
+                if phase["phase"] == "full" and may_degrade(rec, ERRORS):
                     rec["verdict"] = "degraded"
                 # Recovery: with the filler removed, the iteration must run (its creates must work again).
                 if phase["phase"] == "free" and rec["verdict"] == "not run":
@@ -1467,9 +1592,7 @@ def main():
     # A degraded iteration is judged too: on a full disk it refused or stalled visibly, recovered by itself, lost nothing.
     judged = [r for r in records if r["verdict"] in ("pass", "fail", "degraded")]
     degraded = [r for r in records if r["verdict"] == "degraded"]
-    kills = {}
-    for r in judged:
-        kills[r["target"]] = kills.get(r["target"], 0) + 1
+    kills = kill_counts(records)
     settle = sorted(r["timings"]["settled_s"] for r in judged if r.get("timings", {}).get("settled_s") is not None)
     for v in violations:
         r = v["record"]

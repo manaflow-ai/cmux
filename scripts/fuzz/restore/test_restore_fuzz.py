@@ -321,6 +321,77 @@ class VisibleState(unittest.TestCase):
         self.assertTrue(any("did not answer" in v for v in rf.judge_visible(silent, killed=0.0, end=2.0)))
 
 
+class DiskFullReview(unittest.TestCase):
+    """Review FIX at ecfe39ee320 (#30208): each case red before its fix."""
+
+    def test_degraded_only_for_a_pure_refusal(self):
+        refusal = {"verdict": "not run", "problems": ["no fz workspace in the daemon topology at the start (None)"]}
+        answered = [{"typed": True, "stall": False}]
+        self.assertTrue(rf.may_degrade(refusal, answered))
+        lossy = {"verdict": "not run", "problems": ["silent loss: x", "the daemon topology could not be read after split"]}
+        self.assertFalse(rf.may_degrade(lossy, answered))
+        self.assertFalse(rf.may_degrade(refusal, [{"typed": True, "stall": True}]))
+        self.assertFalse(rf.may_degrade(refusal, []))
+
+    def test_visible_needs_answers_after_the_kill(self):
+        silent = [(0.25 * i, None, None) for i in range(40)]
+        self.assertTrue(rf.judge_visible(silent, killed=10.0, end=10.0, need_answers=True))
+
+    def test_summary_counts_kills_without_target(self):
+        recs = [{"verdict": "degraded", "problems": []}, {"verdict": "pass", "target": "app", "problems": []}]
+        self.assertEqual(rf.kill_counts(recs), {"app": 1})
+
+    def test_only_refusals_is_no_verdict(self):
+        self.assertTrue(vd.verdict("RESTORE-FUZZ SUMMARY seed=1 judged=3 kills={} violations=0 degraded=3\n")
+                        .startswith("NOVERDICT"))
+        self.assertEqual(vd.verdict('RESTORE-FUZZ SUMMARY seed=1 judged=3 kills={"app": 1} violations=0 degraded=2\n'), "PASS")
+
+    def test_fill_refuses_without_the_mount(self):
+        import tempfile
+        vol = rf.DiskVolume("/nonexistent.dmg", tempfile.mkdtemp(), 512)  # a plain dir, not a mount
+        with self.assertRaises(rf.HarnessInvalid):
+            vol.fill(2)
+
+    def test_say_survives_a_closed_stdout(self):
+        import io
+        saved = sys.stdout
+        broken = io.StringIO()
+        broken.close()
+        sys.stdout = broken
+        try:
+            rf.say("x")  # must not raise
+        finally:
+            sys.stdout = saved
+
+
+class MovedState(unittest.TestCase):
+    def test_restore_moved_state(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        state, orig = os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")
+        os.makedirs(orig)
+        open(os.path.join(orig, "state.db"), "w").close()
+        os.makedirs(state)  # the bare mount point after a detach
+        self.assertTrue(rf.restore_moved_state(state, orig))
+        self.assertTrue(os.path.isfile(os.path.join(state, "state.db")))
+        self.assertFalse(os.path.exists(orig))
+
+    def test_restore_keeps_stray_writes_aside(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        state, orig = os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")
+        os.makedirs(orig)
+        os.makedirs(state)
+        open(os.path.join(state, "written-after-detach"), "w").close()
+        self.assertTrue(rf.restore_moved_state(state, orig))
+        self.assertTrue(any(n.startswith("tui.fz-stray-") for n in os.listdir(root)))
+
+    def test_no_orig_does_nothing(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        self.assertFalse(rf.restore_moved_state(os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")))
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
