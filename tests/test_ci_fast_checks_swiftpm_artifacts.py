@@ -54,7 +54,7 @@ class WorkflowTests(unittest.TestCase):
     def test_the_store_lives_on_the_cache_disk(self) -> None:
         body = step("Prefetch SwiftPM binary artifacts")
         self.assertIn('"$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py"', body)
-        self.assertIn("--store /home/runner/.cache/fast-checks/swiftpm-artifacts", body)
+        self.assertIn('--store "${{ runner.temp }}/fast-checks-cache/swiftpm-artifacts"', body)
         self.assertIn('--command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"', body)
 
     def test_both_steps_run_only_for_swift_commands(self) -> None:

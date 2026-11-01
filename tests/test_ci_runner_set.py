@@ -40,6 +40,8 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
+    'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
+     {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
@@ -214,8 +216,9 @@ class RuleTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_fast_checks_reads_the_linux_pool(self) -> None:
         runs_on = {(path, name): value for path, name, value in jobs()}[("fast-checks.yml", "checks")]
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
-        self.assertNotRegex(runs_on.split("inputs.runner ||")[-1], r"'blacksmith-")
+        self.assertIn("needs.admit.outputs.runner", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
 
     def test_no_job_names_only_literal_labels(self) -> None:
         pinned = {(path, job) for path, (_, names) in PINNED.items() for job in names}
