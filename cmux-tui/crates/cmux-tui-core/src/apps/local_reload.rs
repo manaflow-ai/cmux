@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Weak};
 
-use notify::Watcher as _;
 use notify::event::{AccessKind, AccessMode, EventKind};
 use serde_json::json;
 
