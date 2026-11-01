@@ -15969,6 +15969,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "browser toggle-minimap",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "toggleFileEditorMinimap",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Editor Minimap",
+      "title_key" : "action.toggleFileEditorMinimap",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser open-file-with",
       "context_menu" : "noTargetSurface",
@@ -21655,6 +21683,34 @@
     },
     {
       "cli" : "focusMove",
+      "cli_name" : "action agent-jump-to-next-needing-input",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.jumpToNextNeedingInput",
+      "main_menu" : "window",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Go to Next Agent Needing Input",
+      "title_key" : "action.agent.jumpToNextNeedingInput",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
       "cli_name" : "notification jump-to-latest-unread",
       "context_menu" : "focusMove",
       "context_menus" : [
@@ -25376,6 +25432,146 @@
       "palette_suggested" : null,
       "title" : "Copy Chat Host",
       "title_key" : "action.agentChat.copyHost",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-session-file-paths",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copySessionFilePaths",
+      "main_menu" : null,
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Session File Paths",
+      "title_key" : "action.agentChat.copySessionFilePaths",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-transcript-file",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyTranscriptFile",
+      "main_menu" : null,
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Transcript File",
+      "title_key" : "action.agentChat.copyTranscriptFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-harness-config-file",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyHarnessConfigFile",
+      "main_menu" : null,
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Harness Config File",
+      "title_key" : "action.agentChat.copyHarnessConfigFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-harness-settings-file",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyHarnessSettingsFile",
+      "main_menu" : null,
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Harness Settings File",
+      "title_key" : "action.agentChat.copyHarnessSettingsFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-acpmux-session-file",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyAcpmuxSessionFile",
+      "main_menu" : null,
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy acpmux Session File",
+      "title_key" : "action.agentChat.copyAcpmuxSessionFile",
       "title_table" : "ActionCatalog"
     },
     {
@@ -36280,6 +36476,34 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-compact-list-toggle",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.compactList.toggle",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Compact Workspace List",
+      "title_key" : "action.sidebar.compactList.toggle",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-edit",
       "context_menu" : "offered",
       "context_menus" : [
@@ -43937,7 +44161,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.enableMinimalMode",
+              "id" : "sidebar.compactList.toggle",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -43950,9 +44174,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.disableMinimalMode",
+              "id" : "palette.enableMinimalMode",
               "kind" : "action",
               "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.disableMinimalMode",
+              "kind" : "action",
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43966,7 +44203,7 @@
               "id" : "sidebar.density.compact",
               "kind" : "action",
               "label" : "Compact Rows",
-              "order" : 3,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43980,7 +44217,7 @@
               "id" : "sidebar.density.comfortable",
               "kind" : "action",
               "label" : "Comfortable Rows",
-              "order" : 4,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43994,7 +44231,7 @@
               "id" : "sidebar.density.expanded",
               "kind" : "action",
               "label" : "Expanded Rows",
-              "order" : 5,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44007,7 +44244,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.noFade.on",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44020,7 +44257,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.noFade.off",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44033,7 +44270,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.controlsOnHover.on",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44046,7 +44283,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.controlsOnHover.off",
               "kind" : "action",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44057,13 +44294,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

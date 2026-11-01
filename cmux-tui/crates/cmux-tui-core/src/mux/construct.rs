@@ -200,6 +200,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,

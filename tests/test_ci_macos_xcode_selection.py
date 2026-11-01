@@ -105,6 +105,10 @@ EXEMPT = {
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check; the compile runs on a fleet worker, never with this "
         "runner's Xcode",
+    ("cmux-next.yml", "fast-tier-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "run (package-test-lane.sh suites); the suites build on a fleet "
+        "worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "

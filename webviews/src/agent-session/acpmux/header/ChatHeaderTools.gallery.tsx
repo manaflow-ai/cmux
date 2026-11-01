@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
@@ -318,6 +319,15 @@ const keyboardMenu: Play = async (ctx) => {
       ctx.document.activeElement?.getAttribute("aria-label") === "Chat actions"
     );
   });
+};
+
+// The chat's grants, revocable with default settings: the chat menu's Revoke Granted Access lists
+// each one (header/grantsMenu.ts), now that the composer's mode menu lists the modes alone.
+const revokeAccessOpen: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Revoke Granted Access" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
 };
 
 const keyboardSubmenu: Play = async (ctx) => {
@@ -637,6 +647,23 @@ export default componentEntry<HeaderToolsProps>({
         },
       },
       play: openMenu,
+    },
+    "menu-revoke-access": {
+      height: 860,
+      note: "A chat whose folder is trusted and that allows a command for the chat: Revoke Granted Access ends the tools rows and lists each grant; a pick revokes it. Grants live here, in every chat with default settings, not in the composer's mode menu (Leo, 2026-10-29).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const revoke = revokeAccessRows([
+            { id: "folder-trust", label: "Trusted atlas", onRemove: noop },
+            { id: "chat-permission", label: "Allow for this chat", onRemove: noop },
+          ]);
+          return [...rows.slice(0, archive), ...revoke, "separator", ...rows.slice(archive)];
+        },
+      },
+      play: revokeAccessOpen,
     },
     "menu-cloud-machine-running": {
       height: 860,

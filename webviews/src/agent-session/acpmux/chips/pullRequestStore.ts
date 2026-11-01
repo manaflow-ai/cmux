@@ -14,6 +14,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { HeaderPullRequest } from "../header/headerState";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /** One file of a pull request, for the card's by-kind breakdown of its `+/−`. */
 export type PullRequestFile = {
@@ -58,6 +59,8 @@ const MAX_KEPT = 200;
 
 const answers = new Map<string, PullRequestAnswer>();
 const asking = new Set<string>();
+/// Links a card asked to read while a cache-only ask (a chip's) was running: read once it settles.
+const readAfter = new Set<string>();
 const listeners = new Set<() => void>();
 /// Bumped by every answer the store takes, so a reader of many links can keep its snapshot until one changes.
 let version = 0;
@@ -102,7 +105,12 @@ function readFromOf(
 }
 
 function ask(url: string, cached = false) {
-  if (asking.has(url)) return;
+  if (asking.has(url)) {
+    if (!cached) readAfter.add(url);
+    return;
+  }
+  // A read that starts now covers any read a card was waiting to make.
+  if (!cached) readAfter.delete(url);
   asking.add(url);
   let settled = false;
   void callChipHost("pr.inspect", cached ? { url, cached: true } : { url })
@@ -131,6 +139,7 @@ function ask(url: string, cached = false) {
     .finally(() => {
       asking.delete(url);
       if (settled) changed();
+      if (readAfter.delete(url)) ask(url);
     });
 }
 
@@ -149,7 +158,9 @@ export function subscribePullRequests(listener: () => void): () => void {
  * What the host has for the pull request at `url`; asks while `open` (a shown card), and again
  * while the host says it is reading. Undefined before the first answer.
  */
-export function usePullRequestAnswer(url: string | undefined, open: boolean): PullRequestAnswer | undefined {
+export function usePullRequestAnswer(given: string | undefined, open: boolean): PullRequestAnswer | undefined {
+  // Read only (a guest), the owner's host is never asked about a pull request.
+  const url = useTranscriptReadOnly() ? undefined : given;
   // The snapshot is the answer itself, not a version counter: a counter leaves the map read
   // outside React's view, and the React Compiler then memoizes a stale answer forever (the card
   // stayed empty in the gallery build). An unchanged link keeps the same object, so this
@@ -172,9 +183,25 @@ export function usePullRequestAnswer(url: string | undefined, open: boolean): Pu
   return answer;
 }
 
+/**
+ * The state of the pull request at `url` ("open", "merged", …) for its chip's mark, from what the
+ * host already has: one cached-only ask when the chip first draws (`askPullRequest`, never a
+ * GitHub read), then whatever a hover card or Session Info's read brings in. Undefined until then.
+ */
+export function usePullRequestState(given: string | undefined): string | undefined {
+  const url = useTranscriptReadOnly() ? undefined : given;
+  const read = () => (url ? answers.get(url)?.pullRequest?.state : undefined);
+  const state = useSyncExternalStore(subscribe, read, read);
+  useEffect(() => {
+    if (url && !answers.has(url)) askPullRequest(url);
+  }, [url]);
+  return state || undefined;
+}
+
 /** Tests start from nothing. */
 export function resetPullRequestStore(): void {
   answers.clear();
   asking.clear();
+  readAfter.clear();
   changed();
 }

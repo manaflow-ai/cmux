@@ -27,6 +27,7 @@ extension ChatColumnPlacement {
 
     /// Whether a person's New Tab page from `controller`'s pane opens there (``keepsNewTabPage(from:columns:)``).
     @MainActor static func keepsNewTabPage(in controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return keepsNewTabPage(from: controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
+    @MainActor static func isBelowChat(_ controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return isBelowChat(controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
 
     /// The strip pane a terminal or browser picked on a New Tab page in `controller`'s pane opens in
     /// (``pagePick(from:columns:recent:zoomed:)``), nil when the pick takes the page's place.
