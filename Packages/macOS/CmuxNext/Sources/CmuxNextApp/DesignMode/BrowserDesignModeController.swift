@@ -123,7 +123,7 @@ final class BrowserDesignModeController {
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
-        guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
         let store = services.daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }
         let panes = workspace.screens.flatMap(\.panes).sorted { $0.focusedAt > $1.focusedAt }

@@ -36,7 +36,48 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
+  source?: AttachmentSource;
 };
+
+/// The app an attachment came from (AttachmentSource.swift): its name ("Google Chrome",
+/// "Screenshot", "cmux"), the bundle id its icon is read by, and for a download the site's host.
+export type AttachmentSource = { name: string; bundleId?: string; site?: string };
+
+const BUNDLE_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+$/;
+const SITE = /^[a-z0-9.-]+$/;
+
+/// A source the host sent (or acpmux kept), its fields checked as the host makes them; undefined
+/// for anything else.
+export function attachmentSource(value: unknown): AttachmentSource | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { name, bundleId, site } = value as Record<string, unknown>;
+  if (typeof name !== "string") return undefined;
+  const trimmed = name.trim();
+  if (!trimmed || Array.from(trimmed).length > 64) return undefined;
+  if (bundleId !== undefined && (typeof bundleId !== "string" || bundleId.length > 255 || !BUNDLE_ID.test(bundleId)))
+    return undefined;
+  if (site !== undefined && (typeof site !== "string" || site.length > 253 || !SITE.test(site))) return undefined;
+  return {
+    name: trimmed,
+    ...(bundleId !== undefined ? { bundleId: bundleId as string } : {}),
+    ...(site !== undefined ? { site: site as string } : {}),
+  };
+}
+
+/// Files the page made that already know their source (a capture cmux took): their chips wear it.
+const fileSources = new WeakMap<File, AttachmentSource>();
+
+/// `file`, known to come from `source`.
+export function withSource(file: File, source: AttachmentSource | undefined): File {
+  if (source) fileSources.set(file, source);
+  return file;
+}
+
+/// The source a file the page made was given (`withSource`).
+export function sourceOfFile(file: File): AttachmentSource | undefined {
+  return fileSources.get(file);
+}
 
 export type AttachmentError = {
   name: string;
@@ -84,6 +125,29 @@ export function decodeInlineId(raw: string): string {
 export function inlineToken(id: string): string {
   return `${INLINE_ATTACHMENT_MARK}${encodeInlineId(id)}${INLINE_ATTACHMENT_MARK}`;
 }
+
+/// The person's own U+FFFC as the composer's draft writes it (MarkdownField.tsx): between two word
+/// joiners, in a run of their text that holds a token's shape (U+FFFC, an id, U+FFFC), so text they
+/// typed or pasted so never reads as an attachment's place. Only the editor's own nodes write a bare
+/// token (review of #26667). Their other text is written as it is.
+const WORD_JOINER = "\u2060";
+const ESCAPED_MARK = `${WORD_JOINER}${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`;
+const TOKEN_SHAPED = /\uFFFC[\w.~%-]+\uFFFC/;
+
+/// `text`, a run of the person's own text, as the draft writes it (`ESCAPED_MARK`).
+export function escapeTextMarks(text: string): string {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text;
+  // Their word joiner beside a U+FFFC is escaped too, so reading the run back is exact.
+  const shaped =
+    TOKEN_SHAPED.test(text) ||
+    text.includes(`${WORD_JOINER}${INLINE_ATTACHMENT_MARK}`) ||
+    text.includes(`${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`);
+  return shaped ? text.replaceAll(INLINE_ATTACHMENT_MARK, ESCAPED_MARK) : text;
+}
+
+/// The person's text as they wrote it, from the draft (`escapeTextMarks`).
+export const unescapeTextMarks = (text: string) =>
+  text.includes(ESCAPED_MARK) ? text.replaceAll(ESCAPED_MARK, INLINE_ATTACHMENT_MARK) : text;
 
 /// The id of a copy pasted beside the attachment `id` names (composer/inlineNode.ts): that whole id,
 /// whatever it holds (a path's own `~`), then `~copy-` and eight hex digits of its own.
@@ -283,13 +347,16 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
   return text.includes(INLINE_ATTACHMENT_MARK) ? wordsOf(inlineRuns(text, known)) : text;
 }
 
-export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
+/// `strip`: an attachment the person left in the strip, which goes after the text, not in it.
+export type OrderedDraftPart =
+  | { type: "text"; text: string }
+  | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
  * as a link to its copy (intakeFiles.ts). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -402,8 +469,9 @@ export const thumbnail = thumbnailOffThread;
 /// Its tokens read as `orderedDraftParts` reads them.
 export function promptText(text: string, attachments: ComposerAttachment[], options: InlineReadOptions = {}): string {
   const runs = inlineRuns(text, idsOf(attachments), options.dropped);
-  const visibleText =
-    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs);
+  const visibleText = unescapeTextMarks(
+    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs),
+  );
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -438,15 +506,16 @@ export function orderedDraftParts(
   if (placesSome(runs)) {
     const placed = new Set<string>();
     const parts = runs.map((run): OrderedDraftPart => {
-      if (run.type === "text") return run;
+      if (run.type === "text") return { type: "text", text: unescapeTextMarks(run.text) };
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
-    for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
+    for (const attachment of chips)
+      if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment, strip: true });
     return parts;
   }
   if (!legacyMarks(input, chips)) {
-    const words = wordsOf(runs);
+    const words = unescapeTextMarks(wordsOf(runs));
     return words
       ? [
           { type: "text", text: words },
@@ -468,7 +537,7 @@ export function orderedDraftParts(
   const tail = input.slice(start);
   if (tail) parts.push({ type: "text", text: tail });
   // The attachments not placed in the text (the strip's) go after it, in their order.
-  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment, strip: true });
   return parts;
 }
 
@@ -527,8 +596,11 @@ export function promptBlocks(
 export type LinkItem = { path: string; folder: boolean };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
-/// (`chat.attach.dropped`): a drop on the page, or a paste.
-export type DroppedKind = "drop" | "paste";
+/// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
+export type DroppedKind = "drop" | "paste" | "choose";
+/// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
+export type SourceKind = DroppedKind;
 
 /// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
 /// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.
@@ -618,7 +690,7 @@ export function audioAttachment(
 /// A finished session's recording for the composer. One that fits a prompt goes as an audio
 /// block; a longer one, the WAV the host wrote on this Mac, goes as a saved original the chat's
 /// agent opens (`local`). Undefined for a chat on another computer, which cannot open that file:
-/// its prompt gets the transcript (`recordingLeftOutNotice("elsewhere")`).
+/// the host sends it there (`remoteRecordingAttachment`).
 export function recordingAttachment(
   audio: DictationRecording,
   name: string,
@@ -627,6 +699,28 @@ export function recordingAttachment(
   if (audio.path)
     return local ? { ...savedAttachment(audio.path, `${name}.wav`), size: audio.byteCount ?? 0 } : undefined;
   return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
+}
+
+/// A long recording for a chat on another computer (an ssh peer's, a Cloud chat's): the host sends
+/// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
+/// takes only a recording the host itself gave this page), and the chip links the copy there, so
+/// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
+/// it (an older host, an upload that failed or a stager that refused it): the composer's pending
+/// chip for it (Composer.tsx `attachLater`) then fails with Retry, and a prompt sent meanwhile keeps
+/// waiting for it until Retry makes it or its × takes the recording out.
+export async function remoteRecordingAttachment(
+  audio: DictationRecording,
+  name: string,
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): Promise<ComposerAttachment | undefined> {
+  if (!audio.path) return undefined;
+  try {
+    const path = ((await call("dictation.recording.upload", { path: audio.path })) as { path?: unknown } | null)?.path;
+    if (typeof path !== "string" || !path.startsWith("/")) return undefined;
+    return { ...savedAttachment(path, `${name}.wav`), size: audio.byteCount ?? 0 };
+  } catch {
+    return undefined;
+  }
 }
 
 /// The notice for a recording that goes no further than its transcript: the host left it out

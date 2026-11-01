@@ -92,6 +92,9 @@ public struct Action: Identifiable {
     /// Whether a toggle is on for the focused object, read without refusing
     /// anything; the palette row then shows a check. Nil for a plain row.
     public var paletteState: (@MainActor () -> Bool)?
+    /// Why the palette row cannot run for the focused object, read without refusing anything; the
+    /// row is then disabled with it. Nil (or nil returned) for a row that runs.
+    public var paletteUnavailableReason: (@MainActor () -> String?)?
     /// The current value of this action's choices argument for a target (a
     /// context menu's choices submenu checks it); nil defers to the registry's `choiceState`.
     public var choiceState: (@MainActor (ActionTargetRef?) -> String?)?

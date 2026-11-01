@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""The cmux NEXT post-publish launch smoke (nightly-next-launch-smoke.yml) is not a publish gate.
+"""The cmux NEXT fresh-home launch smoke: a pre-publish gate in nightly.yml, and a post-publish backstop.
+
+Leo, 2026-10-29, on build 4091813159501, which Sparkle downloaded and the post-publish smoke pulled
+afterwards: "Just don't have that be the downloading thing." So nightly.yml smokes the exact DMG it
+would publish before any appcast names it (scripts/ci/nightly-steps/launch-smoke-gate.sh, in
+verify-final-dmg-nightly and verify-recovered-nightly-next): a crash on both attempts fails the verify
+job, and publish-nightly, which needs that job's success, puts nothing of the build on the feed.
 
 Leo, 2026-10-23: "we want no smoke tests. No smoke tests, okay? Or at least, like, you know,
 previously we had the daemon with a smoke test literally block the entire nightly release, right?
-Like, that's unacceptable." So nightly.yml publishes without waiting on the smoke, and the smoke
-acts only after the fact:
+Like, that's unacceptable." So only a crash with the app's own launch evidence holds a build: a
+cannot-run (no GUI session, a harness or infrastructure error before launch, a hung attempt) passes
+the gate, and the post-publish smoke (nightly-next-launch-smoke.yml) acts after the fact:
 
   - pass does nothing; cannot-run (no Mac, an infrastructure or harness error before launch, or a
     check cut short) does nothing and never rolls back;
   - a crash on both attempts rolls the feed back through nightly-next-rollback.yml (dispatched, no
     second copy of its logic), only while the build is still the feed's newest, so a second report
     of the same build does nothing and a rollback never goes past the kept good build;
-  - nothing waits on it: no nightly.yml job needs it or reads its result.
+  - nothing waits on the post-publish workflow: no nightly.yml job needs it or reads its result.
 """
 from __future__ import annotations
 
@@ -21,6 +28,8 @@ import importlib.util
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,6 +41,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly-next-launch-smoke.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
+GATE = ROOT / "scripts" / "ci" / "nightly-steps" / "launch-smoke-gate.sh"
 
 
 def load(name: str, path: Path):
@@ -168,6 +178,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("EXC_BAD_ACCESS SIGSEGV", body)
         self.assertIn("line 99", body)
         self.assertNotIn("line 50\n", body)
+
+
+class DmgDigestTests(unittest.TestCase):
+    """The smoke checks the downloaded DMG's bytes against the feed item's edSignature
+    (nightly_next_artifact_check.py), not only its byte length."""
+
+    def test_pick_names_the_items_ed_signature(self) -> None:
+        text = feed(300, 200, channel={300: "cmux-next-dev"})
+        self.assertEqual(smoke.pick(text), (200, f"{BASE}/cmux-nightly-next-macos-arm64-200.dmg", "5", "s"))
+        unsigned = text.replace(' sparkle:edSignature="s"', "")
+        self.assertEqual(smoke.pick(unsigned)[3], "")
+
+    def test_the_download_step_verifies_the_bytes(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["pick"]["outputs"]["ed_signature"], "${{ steps.feed.outputs.ed_signature }}")
+        self.assertEqual(jobs["smoke"]["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        sparse = jobs["smoke"]["steps"][0]["with"]["sparse-checkout"].split()
+        self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
+        self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
+        download = next(step for step in jobs["smoke"]["steps"] if step.get("id") == "dmg")["run"]
+        self.assertIn("nightly_next_artifact_check.py dmg", download)
+        self.assertIn('--ed-signature "$DMG_ED_SIGNATURE"', download)
+        self.assertIn('--length "$DMG_LENGTH"', download)
 
 
 class NothingWaitsOnTheSmokeTests(unittest.TestCase):
@@ -370,6 +403,129 @@ class InFlightTests(unittest.TestCase):
             self.assertIn("in-flight state unknown", summary.read_text(encoding="utf-8"))
             self.assertIn("next scheduled tick", summary.read_text(encoding="utf-8"))
 
+
+class PrePublishGateTests(unittest.TestCase):
+    """nightly.yml smokes the DMG it would publish before an appcast names it."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.jobs = yaml.safe_load(NIGHTLY.read_text(encoding="utf-8"))["jobs"]
+
+    def smoke_step(self, job: str) -> tuple[list, int]:
+        steps = self.jobs[job]["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertEqual(names.count("Launch smoke from a fresh home"), 1, job)
+        return steps, names.index("Launch smoke from a fresh home")
+
+    def assert_gates(self, job: str, dmg: str) -> None:
+        steps, index = self.smoke_step(job)
+        step = steps[index]
+        self.assertIn("scripts/ci/nightly-steps/launch-smoke-gate.sh", step["run"])
+        self.assertIn(dmg, step["run"])
+        # A crash fails the job: never continue-on-error, and it runs before the tested digests go up.
+        self.assertNotIn("continue-on-error", step)
+        self.assertLessEqual(int(step["timeout-minutes"]), 12)
+        upload = [s.get("name") for s in steps].index("Upload tested DMG digests")
+        self.assertLess(index, upload, f"{job}: the smoke must run before the tested digests upload")
+        # The app runs only in a job without secrets or an environment.
+        self.assertNotIn("environment", self.jobs[job])
+        self.assertNotIn("secrets.", json.dumps(self.jobs[job]))
+
+    def test_this_runs_build_is_smoked_before_publish(self) -> None:
+        self.assert_gates("verify-final-dmg-nightly", 'final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg')
+        steps, index = self.smoke_step("verify-final-dmg-nightly")
+        condition = steps[index]["if"]
+        self.assertIn("env.TRACK == 'nightly-next'", condition)
+        self.assertIn("matrix.variant == 'arm64'", condition)
+        # The harness comes from the workflow commit, not the build's (possibly older) checkout.
+        self.assertIn(".publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh", steps[index]["run"])
+        tooling = next(i for i, s in enumerate(steps) if s.get("with", {}).get("path") == ".publish-tooling")
+        self.assertEqual(steps[tooling]["with"]["ref"], "${{ github.sha }}")
+        self.assertLess(tooling, index)
+
+    def test_a_recovered_build_is_smoked_before_publish(self) -> None:
+        self.assert_gates("verify-recovered-nightly-next", 'recovered/${CHANNEL_DMG_PREFIX}-arm64.dmg')
+
+    def test_publish_needs_both_verify_jobs_to_pass(self) -> None:
+        publish = self.jobs["publish-nightly"]
+        self.assertIn("verify-final-dmg-nightly", publish["needs"])
+        self.assertIn("verify-recovered-nightly-next", publish["needs"])
+        self.assertIn("needs.verify-final-dmg-nightly.result == 'success'", publish["if"])
+        self.assertIn("needs.verify-recovered-nightly-next.result == 'success'", publish["if"])
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("perl"), "needs bash and perl")
+class GateScriptTests(unittest.TestCase):
+    """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
+
+    def run_gate(self, plan: list[str], attempt_seconds: str = "60") -> tuple[int, str, Path]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ci = root / "scripts" / "ci"
+            (ci / "nightly-steps").mkdir(parents=True)
+            (ci / "frame-pacing").mkdir()
+            (ci / "lib").mkdir()
+            shutil.copy(GATE, ci / "nightly-steps" / GATE.name)
+            shutil.copy(ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py", ci)
+            shutil.copy(ROOT / "scripts" / "ci" / "lib" / "signing-runtime-guard.sh", ci / "lib")
+            (ci / "frame-pacing" / "console-session.sh").write_text('#!/usr/bin/env bash\nexec "$@"\n')
+            (ci / "frame-pacing" / "console-session.sh").chmod(0o755)
+            # The stub harness: attempt N follows PLAN[N-1] (pass, crash, cannot-run or hang).
+            (ci / "fresh_home_launch_smoke.py").write_text(
+                "import json, os, signal, sys, time\n"
+                "out = sys.argv[sys.argv.index('--out') + 1]\n"
+                "n = int(out.rsplit('-', 1)[1])\n"
+                "kind = os.environ['STUB_PLAN'].split(',')[n - 1]\n"
+                "if kind == 'hang':\n"
+                # A harness stopped by SIGTERM cleans up, and even an exit 1 with a fail report is no crash.
+                "    def stop(*_):\n"
+                "        open(os.path.join(out, 'cleaned'), 'w').close()\n"
+                "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps({'verdict': 'fail', 'pid': 1}))\n"
+                "        sys.exit(1)\n"
+                "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
+                "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
+                "report = {'pass': {'verdict': 'pass', 'pid': 1}, 'crash': {'verdict': 'fail', 'pid': 1,"
+                " 'failures': ['the app exited (signal 11)']}, 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
+                "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
+                "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
+                "sys.exit({'pass': 0, 'crash': 1, 'cannot-run': 3}[kind])\n")
+            dmg = root / "app.dmg"
+            dmg.write_bytes(b"dmg")
+            (root / "runner").mkdir()
+            env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
+                   "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
+                   "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
+            result = subprocess.run(["bash", str(ci / "nightly-steps" / GATE.name), str(dmg)], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            cleaned = (root / "runner" / "launch-smoke" / "attempt-1" / "cleaned").exists()
+            return result.returncode, result.stdout + result.stderr, cleaned
+
+    def test_a_pass_passes(self) -> None:
+        self.assertEqual(self.run_gate(["pass"])[0], 0)
+        self.assertEqual(self.run_gate(["crash", "pass"])[0], 0)
+
+    def test_a_crash_on_both_attempts_holds_the_build(self) -> None:
+        status, output, _ = self.run_gate(["crash", "crash"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("not published", output)
+
+    def test_what_could_not_run_never_holds_the_build(self) -> None:
+        status, output, _ = self.run_gate(["cannot-run"])
+        self.assertEqual(status, 0, output)
+        self.assertIn("::warning", output)
+        self.assertEqual(self.run_gate(["crash", "cannot-run"])[0], 0)
+
+    def test_a_hung_attempt_is_stopped_with_sigterm_so_the_harness_cleans_up(self) -> None:
+        status, output, cleaned = self.run_gate(["hang"], attempt_seconds="2")
+        self.assertEqual(status, 0, output)
+        self.assertTrue(cleaned, "the harness got SIGTERM and ran its cleanup")
+        self.assertIn("still running after 2s", output)
+        self.assertIn("::warning", output)
+
+    def test_a_harness_that_ignores_sigterm_is_killed_and_never_holds_the_build(self) -> None:
+        status, output, _ = self.run_gate(["stubborn"], attempt_seconds="1")
+        self.assertEqual(status, 0, output)
+        self.assertIn("::warning", output)
 
 if __name__ == "__main__":
     unittest.main()

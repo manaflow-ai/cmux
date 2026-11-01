@@ -185,6 +185,8 @@ REACT_EXACT = {
     "scripts/ci/webviews-tests-new-reds.sh",
     "scripts/ci/webviews_test_results.py",
     "scripts/ci/guards_new_reds.py",
+    # and the base's flake history that keeps a test flipping there a warning.
+    "scripts/ci/webviews_test_history.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",

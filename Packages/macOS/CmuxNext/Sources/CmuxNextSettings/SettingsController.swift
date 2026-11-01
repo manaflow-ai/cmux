@@ -73,6 +73,8 @@ public final class SettingsController {
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// ``onEveryLoad(_:)``'s calls, in the order they were added.
+    @ObservationIgnored private var loadHooks: [@MainActor () -> Void] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
     @ObservationIgnored private var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
@@ -161,6 +163,13 @@ public final class SettingsController {
         } onCancel: {
             Task { @MainActor [weak self] in self?.resumeWaiter(token) }
         }
+    }
+
+    /// Runs `body` in every later load itself, before it changes ``snapshot`` or ``loadCount``, on the
+    /// main actor: nothing can read the new settings first. For a check that must never lag a load (a
+    /// consent grant the Labs switch gates); everything else observes ``snapshot``. Ends with the controller.
+    public func onEveryLoad(_ body: @escaping @MainActor () -> Void) {
+        loadHooks.append(body)
     }
 
     private func resumeWaiter(_ token: UUID) {
@@ -357,6 +366,7 @@ public final class SettingsController {
     }
 
     private func adopt(_ loaded: Loaded) {
+        loadHooks.forEach { $0() }
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -372,6 +382,12 @@ public final class SettingsController {
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features
             if let problem = policy.problem { diagnostics.append(problem) }
+            // Settings > Menus: the person's right-click menu arrangements (ContextMenusSetting).
+            var menuProblems: [SettingsDiagnostic] = []
+            let menus = ContextMenusSetting.parse(effective.root, diagnostics: &menuProblems)
+            applier.registry.contextMenuLayouts = menus.layouts
+            applier.registry.showsCustomizeMenuItem = menus.showsCustomizeItem
+            diagnostics += menuProblems
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }
