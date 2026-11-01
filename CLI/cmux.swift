@@ -12430,6 +12430,7 @@ struct CMUXCLI {
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
         if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
         if let enabled = payload["full_width_tab_mode"] { summaryParts.append("full_width_tab_mode=\(enabled)") }
+        if let visible = payload["text_box_visible"] { summaryParts.append("text_box_visible=\(visible)") }
         if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
@@ -22129,6 +22130,7 @@ struct CMUXCLI {
               move-to-new-workspace
               reload | duplicate
               pin | unpin | mark-unread | toggle-full-width-tab
+              toggle-text-box
 
             Flags:
               --action <name>              Action name (required if not positional)
