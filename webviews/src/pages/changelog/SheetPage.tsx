@@ -8,6 +8,7 @@
 // says "Maintenance and fixes". Days load as they near the viewport (JournalPage.loadNear); J and K
 // move between them. The rows use the pane's width, dense (Leo 2026-11-01: "this is way too narrow
 // and not info dense enough"): `layout` (the route's `sheet=`) sets them; styles.css .cls-inline.
+import type { CSSProperties } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, type ReleaseView } from "./model";
@@ -78,7 +79,11 @@ function SheetDay({
         {installed && <span className="cl-installed">{strings.t("changelog.page.current")}</span>}
       </h2>
       {pending && rows.length === 0 ? (
-        <div className="clj-placeholder" aria-busy="true" />
+        <div
+          className="clj-placeholder"
+          aria-busy="true"
+          style={{ "--cls-rows": placeholderRows(builds) } as CSSProperties}
+        />
       ) : rows.length === 0 ? (
         <Maintenance strings={strings} />
       ) : (
@@ -98,6 +103,14 @@ function SheetDay({
       )}
     </section>
   );
+}
+
+/** About how many rows a loading day will have: its highlights as the index counts them, else
+    three. The placeholder holds that height, so the days under it barely move when the rows
+    arrive (gallery shift baselines nightly-update, nightly-history, many-builds). */
+export function placeholderRows(builds: IndexEntry[]): number {
+  const highlights = builds.reduce((sum, b) => sum + b.highlights, 0);
+  return Math.min(highlights > 0 ? highlights : 3, 60);
 }
 
 interface SheetRow {
