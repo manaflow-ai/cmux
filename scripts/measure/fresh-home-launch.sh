@@ -29,7 +29,15 @@ rm -rf "$out" && mkdir -p "$out"
 src="$here"
 if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   [[ "$ref" =~ ^[0-9a-f]{40}$ ]] || { echo "ref= must be a 40-hex commit" >&2; exit 2; }
-  git cat-file -e "$ref^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$ref" || { echo "cannot fetch $ref" >&2; exit 3; }
+  # A fleet step's checkout has no origin: try it, then the worker's mirror, then GitHub (a PR head
+  # is fetchable there by sha).
+  if ! git cat-file -e "$ref^{commit}" 2>/dev/null; then
+    fetched=false
+    for remote in origin /Users/Shared/cmux-build-fleet/git/cmux.git https://github.com/manaflow-ai/cmux.git; do
+      git fetch --quiet --depth 1 "$remote" "$ref" 2>/dev/null && { fetched=true; break; }
+    done
+    $fetched || { echo "cannot fetch $ref" >&2; exit 3; }
+  fi
   scratch="$(mktemp -d)"
   src="$scratch/src"
   git worktree add --quiet --detach "$src" "$ref" || { rm -rf "$scratch"; exit 3; }
