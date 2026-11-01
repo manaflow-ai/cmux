@@ -305,8 +305,10 @@ pub(super) fn handle_resource_connection_message(
             );
             let operation = request.envelope.operation;
             let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool) == Some(true);
-            let claim = if super::incognito_orphans::moves_content(operation) {
-                super::incognito_orphans::begin_move(mux)
+            let claim = if operation == ResourceOperation::WorkspaceCreate && ephemeral {
+                super::incognito_orphans::begin_move(mux, true)
+            } else if super::incognito_orphans::moves_content(operation) {
+                super::incognito_orphans::begin_move(mux, false)
             } else {
                 None
             };

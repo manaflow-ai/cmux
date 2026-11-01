@@ -10,16 +10,24 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
-    // A move into a new workspace out of an incognito one makes another
-    // incognito workspace; its app owns it (incognito_orphans).
-    let moves_to_new_workspace = matches!(
+    // A move out of an incognito workspace can make another incognito
+    // workspace; its app owns it (incognito_orphans). Every move command
+    // takes part, so none commits outside the serialized moves.
+    let moves = matches!(
         cmd,
         Command::MoveTabToNewWorkspace { .. }
             | Command::MoveTabGroupToNewWorkspace { .. }
-            | Command::MoveScreen { new_workspace: true, .. }
-            | Command::MoveScreenGroup { new_workspace: true, .. }
+            | Command::MoveScreen { .. }
+            | Command::MoveScreenGroup { .. }
+            | Command::MoveTabToWorkspace { .. }
+            | Command::MoveTab { .. }
+            | Command::MoveTabToSplit { .. }
+            | Command::MoveTabGroup { .. }
+            | Command::MoveTabGroupToSplit { .. }
+            | Command::MoveTabGroupToColumn { .. }
+            | Command::MoveTerminal { .. }
     );
-    let claim = if moves_to_new_workspace { incognito_orphans::begin_move(mux) } else { None };
+    let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
     let result = dispatch_command(mux, client, cmd, writer, cancellation);
     if let Some(claim) = claim
         && result.is_ok()

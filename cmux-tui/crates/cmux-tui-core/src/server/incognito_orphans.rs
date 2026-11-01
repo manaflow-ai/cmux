@@ -79,11 +79,12 @@ pub(super) struct MoveClaim<'a> {
     _moves: std::sync::MutexGuard<'a, ()>,
 }
 
-/// Before a move: nothing while no incognito workspace is tracked (a move
-/// then makes none an app owns).
-pub(super) fn begin_move(mux: &Mux) -> Option<MoveClaim<'_>> {
+/// Before a move, or before an incognito create (`always`): nothing for a
+/// move while no incognito workspace is tracked (it then makes none an app
+/// owns).
+pub(super) fn begin_move(mux: &Mux, always: bool) -> Option<MoveClaim<'_>> {
     let creators = &mux.control_clients.incognito_creators;
-    if creators.by_workspace.lock().recover_poison().is_empty() {
+    if !always && creators.by_workspace.lock().recover_poison().is_empty() {
         return None;
     }
     let moves = creators.moves.lock().recover_poison();
@@ -177,13 +178,16 @@ fn connected(mux: &Mux) -> HashSet<String> {
 }
 
 /// Before an app connection's session read: close the incognito workspaces
-/// of app processes that are gone. Cheap when there are none.
+/// of app processes that are gone. Cheap when there are none. It runs with
+/// the moves held, so no create or move registers a workspace while it
+/// prunes, and a concurrent reader waits until the closes are done.
 pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
     let creators = &mux.control_clients.incognito_creators;
     if creators.by_workspace.lock().recover_poison().is_empty() {
         return;
     }
     let Some(reader) = app_peer_key(mux, client) else { return };
+    let _moves = creators.moves.lock().recover_poison();
     // Workspaces closed another way leave the record here.
     match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
         Ok(live) => {
@@ -198,19 +202,20 @@ pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
     // Lock order: the client state, then the creators (never the reverse).
     let connected = connected(mux);
     let orphans = {
-        let mut by_workspace = creators.by_workspace.lock().recover_poison();
-        let orphans = orphaned(&by_workspace, &reader, &connected, process_gone);
-        orphans
-            .into_iter()
-            .filter_map(|workspace| {
-                by_workspace.remove(&workspace).map(|creator| (workspace, creator))
-            })
-            .collect::<Vec<_>>()
+        let by_workspace = creators.by_workspace.lock().recover_poison();
+        orphaned(&by_workspace, &reader, &connected, process_gone)
     };
-    for (workspace, creator) in orphans {
-        if let Err(error) = mux.close_ephemeral_workspace(&workspace) {
+    for workspace in orphans {
+        // A terminal another connection placed since is left running.
+        let result = mux.close_ephemeral_workspace(
+            &workspace,
+            crate::mux::TerminalCloseGuard::UnplacedAndNotKept,
+        );
+        // The record goes once the workspace is closed.
+        let creator = creators.by_workspace.lock().recover_poison().remove(&workspace);
+        if let Err(error) = result {
             eprintln!(
-                "cmux-tui: could not close incognito workspace {workspace} of gone app {creator}: {error:#}"
+                "cmux-tui: could not close incognito workspace {workspace} of gone app {creator:?}: {error:#}"
             );
         }
     }

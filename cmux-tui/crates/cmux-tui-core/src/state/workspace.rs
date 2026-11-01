@@ -230,17 +230,21 @@ impl Mux {
         crate::state::status_owners::resume(self);
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
-            self.close_ephemeral_workspace(&workspace_id)?;
+            self.close_ephemeral_workspace(&workspace_id, TerminalCloseGuard::None)?;
         }
         Ok(())
     }
 
     /// Close ephemeral workspace `workspace_id` (a public id) and end the
     /// terminals that only it showed. Nothing when it is not live or not
-    /// ephemeral (a workspace this daemon does not hold is skipped).
+    /// ephemeral (a workspace this daemon does not hold is skipped). With
+    /// `guard` [`TerminalCloseGuard::UnplacedAndNotKept`] (a running
+    /// daemon), the placement check repeats atomically with each terminal's
+    /// close, so a terminal another connection placed since keeps running.
     pub(crate) fn close_ephemeral_workspace(
         self: &Arc<Self>,
         workspace_id: &str,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<()> {
         let ephemeral =
             self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
@@ -285,13 +289,15 @@ impl Mux {
             }
             let host = self.workspace_registry.lock().unwrap().terminal_host_id(&terminal)?;
             if let Some(host) = host
-                && let Err(error) = self.close_terminal_with_mutation(
+                && let Err(error) = self.close_terminal_guarded(
                     &host,
                     None,
                     None,
                     None,
                     &WorkspaceMutation::daemon_local("cmux-tui-ephemeral"),
+                    guard,
                 )
+                && error.downcast_ref::<TerminalCloseGuardFailed>().is_none()
             {
                 eprintln!(
                     "cmux-tui: could not end terminal {terminal} of an ephemeral workspace: {error}"
