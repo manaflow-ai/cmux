@@ -24,8 +24,8 @@ pub struct ChiefSettings {
     /// answers (`replies.thread`). Default `auto`.
     pub reply_threads: ReplyThreads,
     /// A subagent's report that names landed commits, pages or preview files
-    /// gets a `<show>` block for the Chief to open them in the column right of
-    /// its chat (`show.afterReport`, crate::show). Default true.
+    /// gets a `<show>` block for the Chief to open them in the subagent's
+    /// workspace or a new one (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
     /// The trace keeps whole texts (replies, tool arguments) for replaying
     /// real turns (`trace.full`). Default false.
