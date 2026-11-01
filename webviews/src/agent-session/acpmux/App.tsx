@@ -133,7 +133,7 @@ import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -683,6 +683,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import { withCloudMachineSummary } from "./cloudSummary";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -5267,12 +5268,13 @@ export function VirtualTranscript({
         {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+        // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+        // 2026-10-23: "that little bit above composer can flicker").
         data-seeking={seeking || undefined}
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-        data-fade-bottom={
-          (!renderFollowing && layout.totalHeight - (renderScroll.top - origin) - height > 0.5) || undefined
-        }
+        data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
         // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
         // out of sight behind it instead of reading through its glass.
         data-jump-shown={(jumpButton && behind) || undefined}
@@ -6923,6 +6925,11 @@ function AcpmuxPane() {
     () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
     [snapshot, cardRows],
   );
+  const sessionInfoSnapshot = useMemo(() => {
+    const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
+    return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
+  }, [cardSnapshot, cloudMachineID]);
+  const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],
@@ -7571,7 +7578,7 @@ function AcpmuxPane() {
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
-        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
+        hostKind: cloudRouteHostKind,
         ...(cloudMachineID && cloudTeamMachine && { teamMachine: true }),
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
@@ -7594,6 +7601,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
+      cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       cloudTeamMachine,
       snapshot.summary?.hostKind,
@@ -8219,7 +8227,7 @@ function AcpmuxPane() {
   }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
-  const sessionInfoSummary = snapshot.summary;
+  const sessionInfoSummary = sessionInfoSnapshot.summary;
   const sessionInfoLocal =
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
@@ -8324,7 +8332,7 @@ function AcpmuxPane() {
     [restartChat, compactOffered],
   );
   const sessionInfo = useSessionInfo({
-    snapshot: cardSnapshot,
+    snapshot: sessionInfoSnapshot,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,

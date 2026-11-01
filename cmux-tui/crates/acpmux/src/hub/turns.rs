@@ -2198,6 +2198,8 @@ impl Hub {
             if sessions.get(&session.id).is_some_and(|current| Arc::ptr_eq(current, session)) {
                 sessions.remove(&session.id);
             }
+            drop(sessions);
+            self.remove_live_session_index(&session.id);
         }
         Ok(())
     }

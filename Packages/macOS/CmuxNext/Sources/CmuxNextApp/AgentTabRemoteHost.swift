@@ -123,7 +123,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         handshake.machineName = machine
         (handshake.cloudMachineID, handshake.cloudAccount) = (cloudMachineID, cloudAccount)
         (handshake.cloudCredentialRecoveryAvailable, handshake.cloudTeamMachine) = (cloudCredentialRecoveryAvailable, cloudTeamMachine ? true : nil)
-        handshake.cloudRepositoryAvailable = true
+        handshake.cloudRepositoryAvailable = cloudMachineID != nil
         if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
     }
