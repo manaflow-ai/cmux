@@ -351,6 +351,13 @@
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
   --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
 }
+/* A text file's page card in the text: as tall as a thumbnail there, two lines over its label. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card .acpmux-attachment-pasted-open {
+  padding-top: 4px;
+}
 .acpmux-md-inline-chip[data-chip="strip"] {
   min-width: 0;
   height: auto;

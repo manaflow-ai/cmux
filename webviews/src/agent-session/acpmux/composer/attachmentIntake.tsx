@@ -1210,9 +1210,7 @@ export function AttachmentChip({
             {body}
           </button>
         ) : (
-          <span className="acpmux-attachment-pasted-open" role="img" aria-label={accessible}>
-            {body}
-          </span>
+          <span className="acpmux-attachment-pasted-open">{body}</span>
         )}
         {remove}
       </div>,
@@ -1232,7 +1230,7 @@ export function AttachmentChip({
         /* tooltip-allow: the card cuts a long name; the tooltip has it whole */
         title={attachment.path ?? attachment.name}
       >
-        <span className="acpmux-attachment-pasted-open" role="img" aria-label={label}>
+        <span className="acpmux-attachment-pasted-open">
           <TextAttachmentCard text={attachment.text} label={label} />
         </span>
         {remove}

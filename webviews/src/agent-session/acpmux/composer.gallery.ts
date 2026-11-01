@@ -894,7 +894,7 @@ export default agentPaneEntry({
     // type attachments' previews". In the default inline view the paste is a small page of its first
     // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
     "text-pasted-inline": {
-      note: "A 40-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 40 lines, after the typed words.",
+      note: "A 41-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 41 lines, after the typed words.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
