@@ -77,7 +77,9 @@ bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: `cmux mcp serve` indexes the embedded v2 catalog without parsing it into one
+# tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
 cmux-panic-log.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
