@@ -11,6 +11,8 @@ struct FeedInboxHeader: View {
     let hasUnread: Bool
     let canRefresh: Bool
     let canAddConnection: Bool
+    /// The host can send a reply to a report (the Feed page), so the Reports tab is offered.
+    var showsReports = false
     let markRead: () -> Void
     let refresh: () -> Void
     let addConnection: () -> Void
@@ -21,6 +23,7 @@ struct FeedInboxHeader: View {
             HStack(spacing: 5) {
                 connectionTab(.github, title: FeedStrings.github, icon: .brandGithub)
                 connectionTab(.feed, title: FeedStrings.title, icon: .inbox)
+                if showsReports { connectionTab(.reports, title: FeedStrings.reportsTitle, icon: .agentChat) }
                 Spacer(minLength: 0)
                 if canAddConnection {
                     Button(action: addConnection) {
@@ -36,6 +39,13 @@ struct FeedInboxHeader: View {
             }
             .padding(.horizontal, 10).frame(height: 43)
             FeedHairline()
+            // The reports basket has its own list and reply box; the item search and triage stay with the items.
+            if filter.connection != .reports { triage }
+        }
+    }
+
+    private var triage: some View {
+        VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
                 ThemedField(text: $filter.query, placeholder: FeedStrings.filterInbox, font: .systemFont(ofSize: 12),
