@@ -61,7 +61,7 @@ struct AgentPaneVideoTranscriptTests {
     }
 
     /// The synthesizer's buffers, written to a file as they come (on the synthesizer's own queue, one at a time).
-    private final class SpeechSink: @unchecked Sendable {
+    nonisolated private final class SpeechSink: @unchecked Sendable {
         let url: URL
         var file: AVAudioFile?
         init(url: URL) { self.url = url }
