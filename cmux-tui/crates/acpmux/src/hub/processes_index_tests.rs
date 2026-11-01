@@ -43,7 +43,10 @@ fn three_thousand_replayed_processes_have_one_index_slot_each() {
     assert_eq!(table.by_tool.len(), 3_000);
     for i in 0..3_000 {
         assert_eq!(table.find_tool(&format!("tool-{i}")), Some(i));
-        assert_eq!(table.find_id(&format!("session/task-{i}")).unwrap().tool_call_id, format!("tool-{i}"));
+        assert_eq!(
+            table.find_id(&format!("session/task-{i}")).unwrap().tool_call_id,
+            format!("tool-{i}")
+        );
     }
     // A historical answer arriving again replaces its row, never duplicates it.
     table.upsert(process("session/task-999", "tool-999"));

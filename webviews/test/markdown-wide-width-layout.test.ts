@@ -234,6 +234,53 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await page.close();
       });
 
+      // User 2026-10-31: "the markdown viewer can't expand?" A wide table was held to the 72ch
+      // reading column on a wide pane, with half the pane empty beside it.
+      test("a wide table uses the pane past the reading column, starting where the text starts", async () => {
+        const page = await open(engine, 1800);
+        const box = await page.evaluate(() => {
+          const doc = document.querySelector<HTMLElement>(".md-doc")!;
+          const pane = document.querySelector<HTMLElement>(".md-scroll")!;
+          const prose = document.querySelector<HTMLElement>(".md-prose")!.getBoundingClientRect();
+          const wrapper = document.querySelector<HTMLElement>(".md-prose .tableWrapper")!;
+          const table = wrapper.querySelector("table")!.getBoundingClientRect();
+          return {
+            textLeft: prose.left,
+            textRight: prose.right,
+            tableLeft: table.left,
+            boxRight: wrapper.getBoundingClientRect().right,
+            paneRight: pane.getBoundingClientRect().left + pane.clientWidth,
+            padding: parseFloat(getComputedStyle(doc).paddingLeft),
+            pageScrollWidth: pane.scrollWidth,
+            paneWidth: pane.clientWidth,
+          };
+        });
+        expect(Math.abs(box.tableLeft - box.textLeft)).toBeLessThan(2);
+        expect(box.boxRight).toBeGreaterThan(box.textRight + 100);
+        expect(Math.abs(box.boxRight - (box.paneRight - box.padding))).toBeLessThan(2);
+        expect(box.pageScrollWidth).toBeLessThanOrEqual(box.paneWidth + 1);
+        await page.close();
+      });
+
+      // User 2026-10-31: faint text from behind the window read through the markdown viewer. Over a
+      // see-through window the page background is transparent (`--cmux-surface-background`); the
+      // viewer paints the theme's opaque surface (`--cmux-surface-solid`) instead.
+      test("over a see-through window the page paints the opaque surface", async () => {
+        const page = await open(engine, 1200);
+        const background = await page.evaluate(() => {
+          const root = document.documentElement;
+          // The app's theme bootstrap rule (WebTheme.bootstrapScript), as the app injects it.
+          const bootstrap = document.createElement("style");
+          bootstrap.textContent = "html{background:var(--cmux-surface-background) !important}";
+          document.head.append(bootstrap);
+          root.style.setProperty("--cmux-surface-background", "rgba(30, 30, 46, 0)");
+          root.style.setProperty("--cmux-surface-solid", "rgb(30, 30, 46)");
+          return getComputedStyle(root).backgroundColor;
+        });
+        expect(background).toBe("rgb(30, 30, 46)");
+        await page.close();
+      });
+
       test("code is 85-90% of the body text, at the default and at a 14px body", async () => {
         const page = await open(engine, 1200);
         for (const css of ["", "--cmux-md-font-size: 14px;", "--cmux-md-font-size: 22px;"]) {

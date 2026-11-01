@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentLanes
+import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
@@ -43,8 +43,9 @@ enum OnboardingHandlers {
                                               terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
                     }
                 }
+                // The caller's acpmux session, by id (O(1)): its title and latest reply.
                 return CookieImportRequester(invocation, among: tabs) { session in
-                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
+                    services.agentLanes.lane(session).map { ($0.title, $0.preview) }
                 }
             },
             target: { invocation in

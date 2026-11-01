@@ -815,7 +815,9 @@ fn agent_chat_dock_splits_down_and_refuses_other_splits() {
             fields,
             Some((38, 11)),
         );
-        let Err(error) = refused else { panic!("{direction}: a split above or left of the chat was taken") };
+        let Err(error) = refused else {
+            panic!("{direction}: a split above or left of the chat was taken")
+        };
         let error = format!("{error:#}");
         assert!(error.contains("dock-column-agent-chat"), "{direction}: {error}");
         assert_eq!(column_panes(&wire), before, "{direction}: a refused split changes nothing");
@@ -826,7 +828,8 @@ fn agent_chat_dock_splits_down_and_refuses_other_splits() {
     let swapped = wire.send(json!({"cmd": "swap-pane", "pane": panes[0], "target": below}));
     assert_eq!(swapped["ok"], false, "{swapped}");
     let chat_tab = wire.mux.with_state(|state| state.panes[&panes[0]].tabs[0]);
-    let moved = wire.send(json!({"cmd": "move-tab", "surface": chat_tab, "pane": below, "index": 0}));
+    let moved =
+        wire.send(json!({"cmd": "move-tab", "surface": chat_tab, "pane": below, "index": 0}));
     assert_ne!(moved["data"]["moved"], true, "the chat's tab stays in its own pane: {moved}");
     assert_eq!(column_panes(&wire), before, "a refused swap or move changes nothing");
     assert_eq!(wire.dock(), vec![Some(chat), None]);
@@ -834,7 +837,11 @@ fn agent_chat_dock_splits_down_and_refuses_other_splits() {
     // Closing the chat's own pane leaves the panes below as a plain dock: no terminal is taken for the chat.
     wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
     assert_eq!(column_panes(&wire), vec![vec![below, lowest], vec![panes[1]]]);
-    assert_eq!(wire.dock(), vec![dock("left", "docked"), None], "the dock drops its agent chat role");
+    assert_eq!(
+        wire.dock(),
+        vec![dock("left", "docked"), None],
+        "the dock drops its agent chat role"
+    );
     let split = wire.send(json!({"cmd": "split", "pane": below, "dir": "right"}));
     assert_eq!(split["ok"], true, "a plain dock splits as any column: {split}");
 }

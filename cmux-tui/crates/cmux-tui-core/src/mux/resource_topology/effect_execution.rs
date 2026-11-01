@@ -888,8 +888,7 @@ impl Mux {
         .wire_name();
         // Split Down (`down`, not swapped above its target) may grow the agent chat dock below
         // its chat (#29848); every other new pane in the dock is refused.
-        let splits_down = row_height.is_none()
-            && split_direction == Some((SplitDir::Down, false));
+        let splits_down = row_height.is_none() && split_direction == Some((SplitDir::Down, false));
         if viewport_width.is_none() {
             self.with_state(|state| {
                 ensure_pane_column_not_agent_chat(operation, state, target, splits_down)
