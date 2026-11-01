@@ -44,6 +44,7 @@ import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon } from "../ComposerPickers";
+import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -600,8 +601,9 @@ export function NewTabScreen(props: Props) {
   const [startError, setStartError] = useState<string>();
   const asking = useRef(false);
   /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
-  /// no project, leaves only once it has started): the composer says "Starting Claude Code…" until
-  /// the start answers, so a slow start never reads as Return having done nothing.
+  /// no project, leaves only once it has started): Send spins in its own box until the start
+  /// answers (and a hidden live line says "Starting Claude Code…"), so a slow start never reads as
+  /// Return having done nothing, and nothing around the composer moves.
   const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
@@ -1584,9 +1586,11 @@ export function NewTabScreen(props: Props) {
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
               disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
+              data-starting={starting !== undefined ? "" : undefined}
               onClick={send}
             >
-              <ArrowUpIcon />
+              {/* While the chat starts (`starting`), in Send's own box: nothing else moves. */}
+              {starting !== undefined ? <Spinner size={14} loading /> : <ArrowUpIcon />}
             </button>
           )}
         </span>
@@ -1668,7 +1672,9 @@ export function NewTabScreen(props: Props) {
           </p>
         ) : (
           starting !== undefined && (
-            <output className="acpmux-composer-remote-note">
+            // Read out, not drawn: a line here pushed the card while the chat started (Leo,
+            // 2026-11-01: "then the stupid ass layout shift"). Send's spinner shows the start.
+            <output className="acpmux-hidden-label">
               {t("switch.starting", {
                 agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
               })}

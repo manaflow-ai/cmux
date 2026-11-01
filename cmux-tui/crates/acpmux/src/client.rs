@@ -16,6 +16,8 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The session this connection proved at initialize, never the caller's claim.
+    proven_caller_session: std::sync::OnceLock<String>,
     /// Absolute path to the CLI bundled with the app that started the daemon,
     /// when the daemon was launched by an app. A standalone acpmux CLI does
     /// not inherit the app's environment, so this is how `--group` finds the
@@ -106,6 +108,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -138,6 +141,10 @@ impl Client {
             hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
+        if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
+        {
+            let _ = client.proven_caller_session.set(session.to_owned());
+        }
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         *client.daemon_cli_path.lock_or_recover() = init
@@ -157,6 +164,12 @@ impl Client {
                 Some((n.to_owned(), c.to_owned()));
         }
         Ok(client)
+    }
+
+    /// The session the daemon authenticated on this connection. Older daemons
+    /// report none, so consumers requiring a caller binding fail closed.
+    pub fn proven_caller_session(&self) -> Option<&str> {
+        self.proven_caller_session.get().map(String::as_str)
     }
 
     /// Proves this connection is the person (`_acpmux/person_prove`) with the

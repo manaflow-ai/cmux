@@ -57,7 +57,10 @@
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
   --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
-  --cv-message-line: 26px; /* another agent's message line, and the head of the group of those that wait */
+  /* Another agent's message line, an inbox line, and the head of a report batch or of the group of
+     messages that wait: the tool rows' line, so every one-line row is one height (Leo, 2026-11-01:
+     "doesn't make sense for these to be spaced differently"). */
+  --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
   --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
@@ -80,6 +83,8 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  /* Over a tool run (`.cv-tools`' top margin) and over every one-line row (`.acpmux-row--line`). */
+  --cv-tool-run-top-gap: 2px;
   /* A status row between two replies (a tool run, a subagent's or a background command's end,
      another agent's message: model.ts `isStatusRow`) sits in the middle of the gap, as Claude Code
      desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more
@@ -541,20 +546,6 @@
   gap: 2px;
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
-}
-/* Cancel on the start status line, which then reads "Thinking" in the same place (cx-ncc.58). */
-.cv-thinking__cancel {
-  margin-left: 6px;
-  border: 0;
-  padding: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.cv-thinking__cancel:hover {
-  color: var(--cv-text);
 }
 
 /* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
@@ -2863,6 +2854,9 @@ pre.cv-math-source {
   display: inline-flex;
   flex: none;
   align-items: center;
+  /* The line's height, never its 24px button's: the button centers on the line and overhangs it by
+     a pixel, so the sent line is as tall as every one-line row (`.acpmux-row--line`). */
+  height: var(--cv-tool-row-height);
   margin-inline-start: 4px;
   opacity: 0;
 }
@@ -2906,12 +2900,13 @@ pre.cv-math-source {
   -webkit-font-smoothing: antialiased;
   color: var(--cv-activity-text);
 }
-/* Another agent's message (IncomingMessageCard.tsx): the shared DisclosureRow's line, 26px in 2px
-   margins (model.ts estimates that), quiet as Claude Code's "Received a message" line: the
+/* Another agent's message (IncomingMessageCard.tsx): the shared DisclosureRow's line, on the tool
+   rows' line with no margins of its own (its row's frame, `.acpmux-row--line`, gives the room and
+   model.ts estimates that), quiet as Claude Code's "Received a message" line: the
    sender's name in the theme's text, the first line of the message muted after it, then the
    chevron. Never cut without a way to open it: the line opens the whole message under it. */
 .cv-disclosure.cv-received {
-  margin: 2px 0;
+  margin: 0;
 }
 /* One row, the same whether a message is delivered or waits, closed or open (Leo, 2026-10-29: "this
    ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
@@ -2923,7 +2918,7 @@ pre.cv-math-source {
    row's own box (the transcript row clips paint, so it can't bleed past the column). */
 .cv-received > .cv-disclosure__line {
   position: relative;
-  height: var(--cv-disclosure-line-height);
+  height: var(--cv-message-line);
   min-height: 0;
   color: var(--cv-activity-text);
   /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
@@ -2940,10 +2935,15 @@ pre.cv-math-source {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
-  height: 26px;
   box-sizing: border-box;
   padding-block: 0;
   padding-inline: 0;
+}
+/* The line's buttons are the line's height: DisclosureRow.css gives them a sub-session row's 26px
+   floor, which would stand out of the 22px line. */
+.cv-received :is(.cv-disclosure__toggle, .cv-disclosure__open) {
+  height: var(--cv-message-line);
+  min-height: 0;
 }
 .cv-received .cv-disclosure__toggle:is(:hover, :focus-visible) {
   background: none;
@@ -4817,8 +4817,40 @@ a.cv-sha:focus-visible {
   color: var(--agent-status-failure);
 }
 
-/* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
-   a step row next to another adds no gap, so they sit 26px apart as inside one row (Leo 2026-10-13). */
+/* A one-line row that is not a tool run (model.ts `isLineRow`: another agent's message, a notice, an
+   inbox notice, a report batch's or the waiting group's head) takes a one-call tool run's frame: 2px
+   over its line, the run gap under it, no 34px floor. Beside another step row it joins as one does
+   (below), so tool, message, inbox and fold rows all sit one 22px line apart (Leo, 2026-11-01:
+   "doesn't make sense for these to be spaced differently"; test/transcript-row-pitch-browser.test.ts).
+   The turn's last row keeps the turn gap. */
+.acpmux-row.acpmux-row--line {
+  min-height: 0;
+  padding-top: var(--cv-tool-run-top-gap);
+}
+/* The element selector outranks the user row's message gap (styles.css); the status edges below,
+   as specific and later, still give a line between two replies its centred room. */
+article.acpmux-row.acpmux-row--line {
+  padding-bottom: var(--cv-tool-run-bottom-gap);
+}
+article.acpmux-row.acpmux-row--line.acpmux-row--last-turn {
+  padding-bottom: var(--cv-turn-gap);
+}
+.acpmux-row.acpmux-row--line.acpmux-row--after-step {
+  padding-top: 0;
+}
+article.acpmux-row.acpmux-row--line.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+/* A notice's tool line (IncomingMessageCard.tsx IncomingNotice) takes the row's width: the row is a
+   user row, which puts its content at the end. */
+.acpmux-row--line .cv-tools {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+/* One rhythm for steps (tool calls, thoughts, a background task's end, the one-line rows above)
+   across transcript rows: a step row next to another adds no gap, so they sit one tool row apart
+   as inside one row (Leo 2026-10-13). */
 .acpmux-row.acpmux-row--before-step,
 .acpmux-row.acpmux-row--after-step {
   /* A row's 34px floor would put the gap back under a one-step row. */

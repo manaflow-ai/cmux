@@ -140,6 +140,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
+        body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + 120)
         if bodyID != id { body.resetDetails() }
         // Activation ran while the card was pending, before this body existed, so details
         // opened here (Show Resource Usage) start their sampling below, once bodyID is set.
@@ -155,7 +156,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
-        body.tabList.configure(title: ws.rawValue, tabs: workspace.tabs)
+        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs)
         body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self else { return }
@@ -299,15 +300,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The card sizes to its content between these widths (POLISH: no
     /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { 280 }
+    /// The card's widest by default: the tab rows' details read whole up to it (the owner, on msg 19245's
+    /// gallery: "the card is too narrow to show the detail you added").
+    static var maxCardWidth: CGFloat { 320 }
+    /// This card's widest: `maxCardWidth`, or less beside a narrow sidebar (its width plus 120).
+    var widthCap: CGFloat = WorkspaceHoverCardView.maxCardWidth
     static var minCardWidth: CGFloat { 180 }
     /// The full history layout's width: a prompt reads in longer lines (u3320).
     static var logCardWidth: CGFloat { 340 }
     /// How tall the history may grow before it scrolls: the default card, and the full history.
     static var timelineMaxHeight: CGFloat { 220 }
     static var logMaxHeight: CGFloat { 360 }
-    private static var iconSize: CGFloat { HoverCardRowView.iconSize }
-    /// Where every row's text starts, past the icon column: the name, the status word, the
-    /// stats and each fact share this one leading edge.
+    /// The card's one icon column's width: the kind icon, the status mark, each fact's and each tab's icon.
+    static var iconSize: CGFloat { HoverCardRowView.iconSize }
+    /// Where every row's text starts, past the icon column: the name, the status word, the stats, each
+    /// fact, each tab's title and detail line, "Show N more" and "Show details" share this one leading edge
+    /// (Lawrence msg 19245: "alignment here looks bad").
     static var textInset: CGFloat { iconSize + Metrics.space2 }
     /// The body font with digits of one width, for lines whose running time ticks.
     private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
@@ -340,6 +348,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let statsRow = NSStackView()
     /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
     let detailsToggle = WorkspaceHoverCardDisclosure()
+    /// The summary header's line under the name: tab count, running and unread (`style.header`).
+    private let summaryLabel = ChromeLabel(labelWithString: "")
+    private let summaryRow = NSStackView()
+    let style: WorkspaceTabHoverCardStyle
     private var detailsExpanded = false
     var isDetailsExpanded: Bool { detailsExpanded }
     var onDetailsChanged: (() -> Void)?
@@ -369,9 +381,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The shown status word, before its elapsed time.
     private var activityWord: String?
 
-    init(tabPlacement: TabPlacement = .afterTitle, tabLimit: Int = 4, tabDetails: Bool = true) {
+    init(tabPlacement: TabPlacement = .afterTitle, style: WorkspaceTabHoverCardStyle = .standard) {
         self.tabPlacement = tabPlacement
-        tabList = WorkspaceTabHoverCardView(rowHeight: tabDetails ? 36 : 26, rowLimit: tabLimit, showsFolder: tabDetails)
+        self.style = style
+        tabList = WorkspaceTabHoverCardView(style: style)
         super.init(frame: .zero)
         let content = self
         titleLabel.font = Typography.bodyEmphasized
@@ -426,12 +439,18 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         statsRow.setViews([statsLabel], in: .leading)
         statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
         statsRow.isHidden = true
+        // The summary line starts on the text column too, not under the icons.
+        summaryLabel.font = Typography.caption
+        summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryRow.setViews([summaryLabel], in: .leading)
+        summaryRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
+        summaryRow.isHidden = true
         builtIn = [activityRow, statsRow, factsStack, timeline, resourceRow]
         // The shipped card is Rex-style: tabs are immediately available and a one-click
         // details disclosure keeps the existing rich content available. Gallery variants
         // retain their requested tab placement when details are expanded.
-        var rows: [NSView] = [customSlot, titleRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
-        let tabIndex = tabPlacement == .afterTitle ? 2 : (tabPlacement == .afterStatus ? 4 : 7)
+        var rows: [NSView] = [customSlot, titleRow, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
+        let tabIndex = tabPlacement == .afterTitle ? 3 : (tabPlacement == .afterStatus ? 5 : 9)
         rows.insert(tabList, at: tabIndex)
         rows.insert(detailsToggle, at: tabIndex + 1)
         rows.insert(hostRow, at: 2)
@@ -441,6 +460,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         stack.spacing = Metrics.space3
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
+        stack.setCustomSpacing(Metrics.space1, after: titleRow)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         let p = Self.padding
@@ -483,6 +503,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         if !statsRow.isHidden { lines.append(statsLabel.stringValue) }
         if !factsStack.isHidden { lines += factViews.filter { !$0.isHidden }.map(\.shownText) }
+        if !summaryRow.isHidden { lines.append(summaryLabel.stringValue) }
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
@@ -521,7 +542,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if let host {
             hostRow.configure(host.row, image: Self.ownImage(host) ?? NSImage.icon(host.icon, size: Self.iconSize))
         }
-        width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
+        width = content.options.layout == .log ? Self.logCardWidth : widthCap
         widthLimit?.constant = width
         statsLabel.stringValue = content.stats ?? ""
         statsRow.isHidden = content.stats == nil
@@ -585,6 +606,26 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         detailsExpanded = true
         updateDetailsVisibility()
         needsLayout = true
+    }
+
+    /// The tab list and the summary header for `tabs`, as of `now` (their times).
+    func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date()) {
+        tabList.configure(title: title, tabs: tabs, now: now)
+        summaryRow.isHidden = style.header != .summary || tabs.isEmpty
+        let running = tabs.filter { $0.state.isWorking || $0.state.isLoading }.count
+        let unread = tabs.filter(\.isUnread).count
+        summaryLabel.stringValue = [Strings.tabCount(tabs.count), running > 0 ? Strings.hoverCardRunning(running) : nil,
+                                    unread > 0 ? Strings.unreadCount(unread) : nil].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The tab rows' fill reaches past the content's edges (`WorkspaceTabHoverCardRow.fillOutset`): a point
+    /// there belongs to the list, not to the card around it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if !tabList.isHiddenOrHasHiddenAncestor, let listParent = tabList.superview,
+           let hit = tabList.hitTest(listParent.convert(point, from: superview)) {
+            return hit
+        }
+        return super.hitTest(point)
     }
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
@@ -707,6 +748,14 @@ extension WorkspaceHoverCardView {
         tabList.applyColors()
         detailsToggle.applyColors()
         performWithTheme {
+            // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
+            // the theme's window background over the glass, below the overlay rule's solid alpha.
+            wantsLayer = true
+            layer?.cornerRadius = Metrics.panelCornerRadius
+            layer?.cornerCurve = .continuous
+            // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
+            layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil
+            summaryLabel.textColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
@@ -715,6 +764,7 @@ extension WorkspaceHoverCardView {
             timeline.applyColors()
             customError.textColor = Palette.textSecondary
         }
+        detailsToggle.needsDisplay = true
         // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
         // Claude desktop's session card), each row in its own theme tokens; no fill of its own,
         // the shared overlay glass shows.

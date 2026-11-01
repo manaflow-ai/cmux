@@ -1,12 +1,13 @@
 /* The messages that wait for the agent, as one group (PendingMessagesCard.tsx): its head is one
-   tool row in 2px margins (MessageGroupHead.css; model.ts estimates that): the sender's mark in the
-   icon column, the count, the senders muted and cut to the line (none in a narrow pane). Open, each sender's 22px head (its
+   tool row on the tool rows' line (MessageGroupHead.css), no margins of its own (its row's frame
+   gives the room; model.ts estimates that): the sender's mark in the icon column, the count, the
+   senders muted and cut to the line (none in a narrow pane). Open, each sender's 22px head (its
    mark and name, which opens its chat, and how many it sent), then its messages, each its own
    received line; a line in the group leaves out the sender the head names. Never an opaque or
    bordered box, and nothing animates in: only the chevron turns. The hover highlight is the
    toggle's own, never the whole row's. */
 .cv-pending {
-  margin: 2px 0;
+  margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);

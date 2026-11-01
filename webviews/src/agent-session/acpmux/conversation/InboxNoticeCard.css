@@ -39,7 +39,7 @@
 /* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): a tool-row head
    (MessageGroupHead.css), and opened, the threads' lines start at the tool rows' words. */
 .cv-inbox--group {
-  margin: 2px 0;
+  margin: 0;
   container-type: inline-size;
 }
 .cv-inbox__body {
