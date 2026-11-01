@@ -29,7 +29,7 @@
 //!   changed since. Answers the chat's folder there, and how it got there:
 //!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
 //!   `install_url` when a seed copied instead, and `skipped_files`. The push's
-//!   progress lines go to stderr.
+//!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
 //! - `ensure --workspace W --key K --repo OWNER/NAME [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -52,6 +52,7 @@ mod ledger;
 mod pick;
 #[cfg(test)]
 mod tests;
+mod trust;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -66,7 +67,7 @@ const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -719,6 +720,8 @@ pub(super) struct StartCopy {
     pub(super) subpath: String,
     /// The machine's folders for copies, in the order they are tried.
     pub(super) work_roots: Vec<String>,
+    /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
+    pub(super) acpmux_home: Option<PathBuf>,
 }
 
 impl StartCopy {
@@ -743,6 +746,7 @@ impl StartCopy {
             local: local.to_string(),
             subpath,
             work_roots,
+            acpmux_home: trust::acpmux_home(flags),
         })
     }
 
@@ -776,7 +780,10 @@ impl StartCopy {
     /// on that machine) stays on the machine; nothing cleans it up.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
         let started_at = now_millis();
-        let answer = self.run_copy(ledger, push);
+        let mut answer = self.run_copy(ledger, push);
+        if let Some(done) = answer.as_object_mut().filter(|a| a.get("ok") == Some(&json!(true))) {
+            done.insert("source_trusted".into(), json!(self.source_trusted()));
+        }
         let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
             (
                 "done",

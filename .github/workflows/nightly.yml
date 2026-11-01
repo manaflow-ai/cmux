@@ -2722,7 +2722,7 @@ jobs:
         env:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
-          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock scripts/ci/nightly-steps
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh
 

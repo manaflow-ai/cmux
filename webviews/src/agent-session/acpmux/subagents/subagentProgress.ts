@@ -12,7 +12,7 @@ import type { Subagent } from "./subagentFold";
 export function subagentProgress(
   t: Translate,
   language: PaneLanguage,
-  agent: Subagent,
+  agent: Pick<Subagent, "agents" | "tokens" | "toolUses">,
   { usage = true }: { usage?: boolean } = {},
 ): string[] {
   const parts: string[] = [];

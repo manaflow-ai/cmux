@@ -86,7 +86,7 @@ struct CloudStartChatMachineTests {
 
     /// A machine's daemon link as the copy sees it: its socket and handshake key, observable, both
     /// gone while the daemon restarts.
-    @MainActor @Observable private final class Link {
+    @MainActor @Observable fileprivate final class Link {
         private(set) var generation: Int? = 1
         var socket: String? { generation.map { "link-\($0).sock" } }
         var key: String? { generation.map { "key-\($0)" } }
