@@ -11,7 +11,7 @@ import Testing
 actor AppTestDaemonOwner {
     private let launcher: DaemonLauncher
     private var endpoints: Set<DaemonEndpoint> = []
-    private var processes: [DaemonEndpoint: AcpmuxUnresponsiveWatch.Daemon] = [:]
+    private var processes: [DaemonEndpoint: AcpmuxDaemonStop.Daemon] = [:]
     private var ensureFailed = false
     private var stopping = false
     private var ensures: [UUID: Task<DaemonEndpoint, any Error>] = [:]
@@ -102,10 +102,10 @@ actor AppTestDaemonOwner {
         endpoints.insert(endpoint)
         guard processes[endpoint] == nil, let pid = endpoint.pid, pid > 1, pid != getpid(),
               endpoint.bridge == nil,
-              let before = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid),
+              let before = AcpmuxDaemonStop.kernelProcess(pid: pid),
               AcpmuxVersionHandoff.executablePath(pid: pid) == launcher.configuration.binary.resolvingSymlinksInPath().path,
               Self.listenerPID(socketPath: endpoint.socketPath) == pid,
-              AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) == before else { return }
+              AcpmuxDaemonStop.kernelProcess(pid: pid) == before else { return }
         processes[endpoint] = before
     }
 
@@ -136,9 +136,9 @@ actor AppTestDaemonOwner {
 
     /// Waits for this recorded process to exit without treating an unreadable identity as exit.
     /// The exit source is registered first; an already-gone PID is handled by its ESRCH check.
-    static func waitForRecordedExit(pid: Int32, process: AcpmuxUnresponsiveWatch.Daemon,
+    static func waitForRecordedExit(pid: Int32, process: AcpmuxDaemonStop.Daemon,
                                     timeout: Duration = .seconds(60),
-                                    currentProcess: @Sendable (Int32) -> AcpmuxUnresponsiveWatch.Daemon? = AcpmuxUnresponsiveWatch.kernelProcess(pid:)) async -> Bool {
+                                    currentProcess: @Sendable (Int32) -> AcpmuxDaemonStop.Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) async -> Bool {
         await AgentPaneProcessExit(pid: pid).event(within: timeout) {
             guard let current = currentProcess(pid) else { return nil }
             return current == process ? nil : true
@@ -147,31 +147,45 @@ actor AppTestDaemonOwner {
 
     /// Shared with the failure-path regression: graceful shutdown may throw before identify.
     /// Its fallback uses the existing audit-token signaler and bounded TERM/KILL exit watches.
-    static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxUnresponsiveWatch.Daemon?,
+    static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxDaemonStop.Daemon?,
                      grace: Duration = .seconds(10),
                      shutdown: @Sendable () async throws -> Bool) async -> Bool {
-        guard let pid = endpoint.pid, pid > 1 else { return false }
+        guard let pid = endpoint.pid, pid > 1,
+              let process, process.pid == pid else {
+            // An endpoint without a verified kernel identity is retained for a later teardown.
+            // Never send a graceful shutdown over its socket: it may now belong to a replacement
+            // daemon that this test did not launch.
+            return false
+        }
         if (try? await shutdown()) == true {
-            guard let process, process.pid == pid else {
-                // Without a recorded kernel identity, a PID-only wait can observe a replacement.
-                // Preserve ownership until a later teardown can verify this daemon's exit.
-                return false
-            }
             // Register the exit source before checking identity. A changed or missing identity
             // proves the recorded daemon is gone; the same identity leaves completion to the
             // kernel exit event, so PID reuse cannot be mistaken for a clean reap.
             return await waitForRecordedExit(pid: pid, process: process, timeout: .seconds(60))
         }
-        guard let process, process.pid == pid else {
-            // An unverified live pid is evidence to preserve, never permission to signal it.
-            return false
-        }
-        let watch = AcpmuxUnresponsiveWatch(clock: ContinuousClock(), process: { pid in
+        return await stop(process, grace: grace, currentProcess: { pid in
             // Unreadable identity is not proof of exit. The retained audit token still lets
             // the kernel refuse a signal to any replacement process without a pid-only fallback.
-            AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) ?? process
+            AcpmuxDaemonStop.kernelProcess(pid: pid) ?? process
         })
-        return await watch.stop(process, grace: grace)
+    }
+
+    /// Test teardown only: SIGTERM, then SIGKILL when `daemon` outlives `grace`. True once it
+    /// exited. Each signal goes through ``AcpmuxDaemonStop/signal(_:_:process:)``, so it reaches only
+    /// the process `daemon` names (exit watch first, then the audit token); a pid that names
+    /// another process now means `daemon` exited. The app itself never SIGKILLs acpmux (#28083).
+    static func stop(_ daemon: AcpmuxDaemonStop.Daemon, grace: Duration,
+                     currentProcess: @escaping @Sendable (Int32) -> AcpmuxDaemonStop.Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) async -> Bool {
+        let pid = daemon.pid
+        func send(_ signal: Int32) -> Bool? { AcpmuxDaemonStop.signal(daemon, signal, process: currentProcess) }
+        var unsent = false
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
+            let answer = send(SIGTERM)
+            unsent = answer != nil
+            return answer
+        }
+        if exited || unsent { return exited }
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
     }
 }
 
@@ -231,8 +245,13 @@ struct PinnedPageTests {
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
-    /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
-    static func withApp(_ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    /// The app's services on a fresh same-tree daemon, ready once the launch's restore is over and
+    /// its first terminal shows.
+    /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
+    /// `bridge`: the app reaches the daemon's socket (its path) through this bridge, a proxy a test scripts.
+    static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
+                        bridge: (@Sendable (String) -> DaemonBridge)? = nil,
+                        _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false
@@ -243,11 +262,14 @@ struct PinnedPageTests {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), heldKeyReplay: heldKeyReplay)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: owner.endpointProvider)
+            let owned = owner.endpointProvider
+            var endpoints = owned
+            if let bridge { endpoints = { var endpoint = try await owned(); endpoint.bridge = bridge(endpoint.socketPath); return endpoint } }
+            return DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: endpoints)
         }
         services.windows.restoreWhenLoaded()
         // Registered before restore can suspend or fail, including before the test body starts.
@@ -261,6 +283,12 @@ struct PinnedPageTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // The launch is over: restore installed the saved windows (or gave up). The panes show
+            // before that, and a restore that lands mid-body installs the saved registry over what
+            // the body made: a workspace just moved to a new window lost that window (base8 at
+            // 61ad0ed216f, MoveToNewWindowTests), and a save asked for then was still blocked
+            // (SavedWindowsLaunchTests).
+            try await until({ !services.windows.registry.isLaunching || services.windows.restoreGaveUp }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))

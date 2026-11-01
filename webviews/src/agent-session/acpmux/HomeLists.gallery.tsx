@@ -173,6 +173,17 @@ const baseline: Props = {
   onAnswer: () => Promise.resolve("answered" as const),
 };
 
+// Equal-length ages with narrow and wide digits expose proportional-number drift.
+const numericAges = (minutes: number): Props => ({
+  ...baseline,
+  sessions: baseline.sessions.map((entry) => ({
+    ...entry,
+    activityAt: minutesAgo(minutes),
+    updatedAt: minutesAgo(minutes),
+  })),
+  asks: asks.map((ask) => ({ ...ask, at: minutesAgo(minutes) })),
+});
+
 const empty: Props = {
   sessions: [current, ...hidden],
   currentId: current.sessionId,
@@ -192,6 +203,55 @@ const longCommands: Props = {
       command: `bun test packages/payments/integration/checkout/subscriptions/regression/${index === 0 ? "annual-renewal.test.ts" : "monthly-renewal.test.ts"}`,
     },
   })),
+};
+
+// Long titles and folders cut at the row's edge (their whole value is the tooltip), and ages past
+// a week read as a date instead of "45d ago" or "3mo ago" (#28079).
+const DAY_MINUTES = 24 * 60;
+const longValues: Props = {
+  ...baseline,
+  sessions: [
+    session({
+      sessionId: "home-long-input",
+      title: "Reconcile the payment ledger against the processor export before the quarterly close",
+      cwd: "/Users/sample/projects/atlas-web-payments-reconciliation-service",
+      status: "waiting",
+      indicator: "input",
+      pendingPermissions: 1,
+      updatedAt: minutesAgo(9 * DAY_MINUTES),
+    }),
+    session({
+      sessionId: "home-long-review",
+      title: "Retry policy",
+      cwd: "/Users/sample/projects/atlas-web-payments-reconciliation-service",
+      updatedAt: minutesAgo(45 * DAY_MINUTES),
+      pullRequest: {
+        number: 19050,
+        title: "Make the reconciliation worker retry with backoff so a dropped connection never double-charges",
+        state: "open",
+        reviewReady: true,
+      },
+    }),
+    session({
+      sessionId: "home-recent-review",
+      title: "Polish the sidebar",
+      updatedAt: minutesAgo(3 * DAY_MINUTES),
+      pullRequest: { number: 19051, title: "Polish the sidebar", state: "open", reviewReady: true },
+    }),
+    current,
+  ],
+  asks: [
+    {
+      sessionId: "home-long-input",
+      at: minutesAgo(9 * DAY_MINUTES),
+      permission: {
+        permissionId: "home-long-ask",
+        title: "Write reconciliation/processor-export/2026-q3/ledger-differences-by-merchant.csv",
+        pending: true,
+        options: yesNo,
+      },
+    },
+  ],
 };
 
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
@@ -346,6 +406,14 @@ export default componentEntry<Props>({
       note: "Needs you lists every other chat's ask with its chat, folder and age, Allow once and Deny in place (the first takes ⌥⌘1 and ⌥⌘3); a question and another computer's chat open their chat. Ready for review stays separate, and the current, archived, side and not-ready chats stay out.",
       props: baseline,
     },
+    "ages-11": {
+      note: "Inbox and review ages with narrow digits: 11 minutes. Compare ages-58 at the same width and theme.",
+      props: numericAges(11),
+    },
+    "ages-58": {
+      note: "The same inbox and review ages with wide digits: 58 minutes. The numeric text keeps the width of ages-11.",
+      props: numericAges(58),
+    },
     compact: {
       note: "The compact look: one line per ask, its answers at its end.",
       props: { ...baseline, look: "compact" },
@@ -372,6 +440,10 @@ export default componentEntry<Props>({
     empty: {
       note: "A clean new chat has no home lists when every other session is current, archived, side, or not ready.",
       props: empty,
+    },
+    "long-values": {
+      note: "Long titles, asks and folders cut at the row's edge and carry their whole value as a tooltip; ages from a week on read as a date.",
+      props: longValues,
     },
     "cap-filter": {
       note: "Ready for review caps at three newest rows; chats with no ask read here still show in Needs you, so none is left to find.",

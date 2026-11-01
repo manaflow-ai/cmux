@@ -25,7 +25,10 @@ permissions:
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The Linux pool's live member, never LINUX_RUNNER alone: on 2026-11-01
+    # LINUX_RUNNER sat on a stalled blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited
+    # 50 minutes unassigned, holding every webview shard behind it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
       db: ${{ steps.scope.outputs.db }}
@@ -292,10 +295,14 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
-    # 4 vCPU runner (run 37666132324). The 32 vCPU size has the memory and runs
-    # 32 files and 8 dev-server files at once (run-webviews-tests.sh). Fork pull
+    # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
+    # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
+    # largest Blacksmith spend (about 99k 32 vCPU minutes a day, 2026-10-29/30);
+    # the 16 vCPU shards of the same days took 14% longer at p50 (1107 s against
+    # 972 s, pull requests) for half the per-minute price, the longest 2139 s, under
+    # the 40 min timeout. The overflow failover still goes to 32 vCPU. Fork pull
     # requests run the same suite on the hosted runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -303,6 +310,12 @@ jobs:
     # that warm-up and ran their dev-server files two at a time: 12 shards on
     # 8 vCPU took 14.3 min (run 39347314726), barely under 2 shards' 15.5.
     # Fewer, wider shards share each warm cache across more files.
+    # On 16 vCPU a shard runs its dev-server files 4 at a time, and they are
+    # most of its wall time: 4 shards took 18-26 min of "Test webviews" each
+    # (run 41236343549), the long pole from ask to merge for a webview fix.
+    # 8 shards halve each shard's dev-server files for about 2 min more setup
+    # and Vite warm-up per added shard (Leo, 2026-10-31: a straightforward fix
+    # lands within the hour).
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -310,13 +323,21 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 4
+            shard_count: 8
           - shard: 2
-            shard_count: 4
+            shard_count: 8
           - shard: 3
-            shard_count: 4
+            shard_count: 8
           - shard: 4
-            shard_count: 4
+            shard_count: 8
+          - shard: 5
+            shard_count: 8
+          - shard: 6
+            shard_count: 8
+          - shard: 7
+            shard_count: 8
+          - shard: 8
+            shard_count: 8
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -436,7 +457,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -505,7 +526,9 @@ jobs:
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          # The comparison and the flake history are the head's too: the base's copies may predate --flaky.
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
+            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
@@ -520,6 +543,22 @@ jobs:
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
           retention-days: 14
+
+      # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
+      # pull request's base replay reads so a test that flips by itself on the base only warns.
+      # Optional upkeep, like the durations below: it never fails the shard.
+      - name: Upload this push's webview results
+        id: history-upload
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-test-history-shard${{ matrix.shard }}
+          overwrite: true
+          path: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          if-no-files-found: ignore
+          retention-days: 1
 
       # Every event: push runs on feat-cmux-next keep the manifest fresh for everyone.
       # Optional upkeep: an artifact-service failure or stall never fails the
@@ -552,6 +591,7 @@ jobs:
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
+          HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -560,6 +600,9 @@ jobs:
           failed=0
           if [ "$DURATIONS_UPLOAD" = failure ]; then
             echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
+          fi
+          if [ "$HISTORY_UPLOAD" = failure ]; then
+            echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
           fi
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
@@ -591,7 +634,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     name: react-apps-base-check (${{ matrix.shard }})
     strategy:
@@ -602,6 +645,10 @@ jobs:
           - shard: 2
           - shard: 3
           - shard: 4
+          - shard: 5
+          - shard: 6
+          - shard: 7
+          - shard: 8
     steps:
       # The base is the merge commit's first parent, the commit the head shards
       # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
@@ -662,6 +709,19 @@ jobs:
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 
+      # The base's recent push verdicts (webviews-test-history), newest first. A test whose
+      # verdict flipped by itself there passed this replay by chance as often as not, so it
+      # only warns: agent-pane-suggested-tasks was charged to 9 of 40 sampled red pull
+      # request runs (2026-10-30). Read-only and optional: no history means no flakes.
+      - name: Restore the base's webview test history
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-test-history/history.json
+          key: webviews-test-history-${{ github.base_ref }}-none
+          restore-keys: webviews-test-history-${{ github.base_ref }}-
+
       - name: Run base reds and compare
         working-directory: webviews
         env:
@@ -690,7 +750,12 @@ jobs:
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
               bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
           fi
-          python3 ../scripts/ci/guards_new_reds.py --label "Webview test" "$HEAD_RESULTS" "$BASE_RESULTS"
+          runner="$RUNNER_TEMP/head-results/runner"
+          flaky="$RUNNER_TEMP/flaky-on-base"
+          python3 "$runner/webviews_test_history.py" flaky "$RUNNER_TEMP/webviews-test-history/history.json" \
+            --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
+          if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
+          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS"
 
   # The runner capability map (.github/runners.json), for jobs that pick a
   # size from it. Resolves in parallel with web-subarea-scope.
@@ -740,7 +805,7 @@ jobs:
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
@@ -781,7 +846,7 @@ jobs:
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
@@ -819,6 +884,68 @@ jobs:
         with:
           path: ${{ runner.temp }}/webviews-durations/manifest.json
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # The base's flake history: each feat-cmux-next push's webview verdicts (the shards'
+  # results), appended to the newest saved history and saved again under this run's key.
+  # react-apps-base-check reads it (webviews_test_history.py flaky). Pushes only: a pull
+  # request saves nothing, so its restore falls through to its base branch's history.
+  # Optional upkeep outside the required gate, like webviews-test-durations; two pushes
+  # finishing together may drop one of their runs, which costs one data point.
+  webviews-test-history:
+    needs: [web-subarea-scope, react-apps-check-shard]
+    if: ${{ always() && github.event_name == 'push' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the history helper
+        id: history-checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/webviews_test_history.py
+            scripts/ci/web_subareas.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download this push's results
+        id: history-download
+        if: ${{ steps.history-checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: webviews-test-history-shard*
+          path: ${{ runner.temp }}/history-results
+
+      - name: Restore the history
+        if: ${{ steps.history-download.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-test-history/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: webviews-test-history-${{ github.ref_name }}-
+
+      - name: Add this push to the history
+        id: history-record
+        if: ${{ steps.history-download.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          shards=("$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-head-results.json)
+          [ -e "${shards[0]}" ] || { echo "no shard recorded results"; exit 1; }
+          history="$RUNNER_TEMP/webviews-test-history/history.json"
+          python3 scripts/ci/webviews_test_history.py record "$history" "$history.new" \
+            --sha "$GITHUB_SHA" --attempt "$GITHUB_RUN_ATTEMPT" --time "$(git log -1 --format=%ct)" \
+            --inputs "$(python3 scripts/ci/webviews_test_history.py inputs)" "${shards[@]}"
+          mv "$history.new" "$history"
+
+      - name: Save the history
+        if: ${{ steps.history-record.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-test-history/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
@@ -889,7 +1016,7 @@ jobs:
   web-db-migrations:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     # Matches web-production-build and diff-sidecar-check, the other 15s here.
     timeout-minutes: 15
     defaults:
@@ -960,7 +1087,7 @@ jobs:
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs

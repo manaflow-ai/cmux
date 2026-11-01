@@ -8,6 +8,14 @@ name: Swift packages on Linux
 # package, the list or the script, so a listed package that stops building on
 # Linux turns it red. tests/test_swift_linux_packages.py keeps the list, the
 # manifests and this workflow in step.
+#
+# Cache: every listed package's .build, restored on every run and saved only by
+# a successful push to feat-cmux-next (never a pull request or a fork). The key
+# is the ISO week + toolchain + arch + the packages' manifests, Package.resolved,
+# the list (its per-package ENV) and the debug-info flags, never github.sha:
+# .build is rebuildable state, so the first push for a key seeds an immutable
+# entry and later runs build on it incrementally. Same pattern as
+# swift-packages-linux.yml (tests/test_ci_swift_packages_linux_cache.py).
 
 on:
   pull_request:
@@ -31,12 +39,13 @@ permissions:
 
 concurrency:
   group: swift-linux-packages-${{ github.ref }}
-  cancel-in-progress: true
+  # A push run finishes, so it can seed the cache; a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   swift-linux-packages:
     name: Swift packages on Linux (listed)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     container: swift:6.2-noble
     defaults:
@@ -50,6 +59,29 @@ jobs:
       - name: Python for the lane's watchdog
         run: command -v python3 >/dev/null || { apt-get update && apt-get install -y --no-install-recommends python3; }
 
+      - name: Cache key
+        id: key
+        run: |
+          set -euo pipefail
+          inputs="$({ find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+              -type f \( -name Package.swift -o -name Package.resolved \) -print0
+            printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
+            LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
+          {
+            echo "inputs=$inputs"
+            echo "week=$(date -u +%G-W%V)"
+            echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore .build
+        id: build_cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}
+          restore-keys: |
+            swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-
+
       - name: package-test-lane.sh suite, every listed package
         run: |
           set -euo pipefail
@@ -61,3 +93,10 @@ jobs:
             echo "::endgroup::"
           done < scripts/ci/swift-linux-packages.txt
           exit "$status"
+
+      - name: Save .build
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}

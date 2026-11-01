@@ -246,6 +246,8 @@ fn one_line(text: &str) -> String {
 fn digestible(q: &QueuedPrompt) -> bool {
     let run = &q.run;
     run.agent.is_some()
+        // One that waits for the owner runs only once approved, in its place (`queue_approve.rs`).
+        && !q.awaiting_owner
         && !is_digest(run.provenance.as_ref())
         && !q.steer
         && !q.sent_now
@@ -315,6 +317,15 @@ impl Hub {
         .with_data(json!({"reason": "inbox_digest.other_agent"}))
     }
 
+    /// The refusal of a drain of a review box: its agent messages each wait as their own prompt
+    /// behind the review (`inbox.rs`), never one digest.
+    pub fn inbox_digest_review_box() -> RpcError {
+        RpcError::invalid_params(
+            "inbox_digest.review_box: a review box's agent messages run each as its own prompt after the review",
+        )
+        .with_data(json!({"reason": "inbox_digest.review_box"}))
+    }
+
     /// The refusal of a drain from a connection whose caller token this daemon run did not issue.
     pub fn inbox_digest_caller_not_proven() -> RpcError {
         RpcError::invalid_params(
@@ -341,6 +352,9 @@ impl Hub {
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
+        }
+        if super::super::inbox::review_box(session) {
+            return Err(Self::inbox_digest_review_box());
         }
         // Read before the queue's lock. A turn that ends before the steer reaches it leaves the
         // digest next among the agent messages (`steer_turn`'s fallback, `queue.rs` `enqueue`).
@@ -380,12 +394,20 @@ impl Hub {
             q
         });
         *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
+        // Out of the queue, they still wait: charged under this lock (`queue_admission.rs`).
+        digest.charge(session, &queue, &taken);
         // Its turn takes them over (`take_joined`).
         let digests = &session.inbox_digests;
         digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
         let at = place(&queue);
+        // While a person's Stop holds the other agents' messages (`cancel.rs`
+        // `hold_agent_messages`), their digest waits held in its place and steers into nothing;
+        // read under the queue's lock, where the hold begins and ends.
+        let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
+            size: super::queue_admission::content_bytes(&blocks, None).into(),
             blocks: blocks.clone(),
             display_parts: None,
             control,
@@ -395,6 +417,9 @@ impl Hub {
             class: None,
             supersede: None,
             full_access_device: None,
+            // The digest is no session's message: the messages it took kept theirs.
+            message_id: None,
+            message_sender: None,
         };
         queue.insert(
             at,
@@ -409,7 +434,10 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer,
-                held: false,
+                held: stop_held,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
@@ -442,6 +470,10 @@ impl Hub {
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         self.append(session, "mux", "queue_order", json!({"promptId": digest_id, "order": order}));
+        if stop_held {
+            let msg = json!({"held": [digest_id], "reason": "stop"});
+            self.append(session, "mux", "queue_paused", msg);
+        }
         let left = session.queued();
         for q in &taken {
             let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "queued": left, "digestPromptId": digest_id, "digestTurnId": turn_id});
@@ -478,6 +510,12 @@ impl Hub {
                     let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                     hub.append(&s, "mux", "prompt_refused", msg);
                 }
+            }
+            // Whatever way it ended, its messages wait with it no more (`queue_admission.rs`):
+            // its turn took them over, or `requeue_joined` put them back. Once only.
+            {
+                let queue = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                digest.release(&s, &queue);
             }
             digest.answer.send_replace(Some(result));
         });

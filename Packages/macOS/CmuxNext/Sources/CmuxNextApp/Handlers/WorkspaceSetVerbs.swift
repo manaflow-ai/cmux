@@ -18,6 +18,11 @@ enum WorkspaceSetVerbs {
                 if let window = controller.window { WindowTargeting.close(window) }
             }
         })
+        // Every other normal window's workspaces move here (each keeps its space); those windows close.
+        registry.bindEffect("window.mergeAll", requires: nil, effect: { invocation in
+            try context.services.windows.mergeWindows(into: context.window(invocation).state)
+            return .done
+        })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
         // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat or sits on a canvas.
@@ -26,7 +31,7 @@ enum WorkspaceSetVerbs {
             let services = context.services
             let pane: PaneController? = switch target.kind {
             case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
-            case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
+            case .tab: context.targetTab(target.id, invocation).flatMap { services.paneController(for: $0.1) }
             default: nil
             }
             var facts: ActionContext = []

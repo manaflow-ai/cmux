@@ -20,12 +20,12 @@ extension UpdaterService {
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
         return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
-                               changelog: stagedChangelog)
+                               changelog: stagedChangelog, failure: UpdateInstallFailure.forStaged(stagedBuild(), failed: failedInstall))
     }
 
     /// The staged update's pill when the user asked to check while it waits.
     private var askedWhileStaged: UpdateFooterPill? {
-        guard flow.userAsked, case .ready = flow.phase else { return nil }
+        guard flow.userAsked, case .ready = flow.phase, !stagedPulledHeld else { return nil }
         return .ready
     }
 
@@ -88,6 +88,7 @@ extension UpdaterService {
     /// staged `version` with `notes`, no download; nil clears it.
     public func debugStage(version: String?, notes: ReleaseNotes?) {
         guard let version else {
+            newestFetch = nil
             debugIndicatorPhase = nil
             return
         }

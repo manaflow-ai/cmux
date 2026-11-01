@@ -17,6 +17,15 @@ public enum DaemonStartupState: Sendable, Equatable {
         if case .unavailable = self { return true }
         return false
     }
+
+    /// Whether a failed connect attempt marks the store failed now (`DaemonStore.markFailed`). A launch's
+    /// first attempts fail while the daemon (or this Mac's Chief owner) still starts, and a failed store
+    /// read "Unreachable" and "offline" on every launch: while connecting only a failure no retry can fix
+    /// shows (`DaemonStartup.isPermanent`, or `retries` false: no attempt follows). Past the deadline
+    /// (`DaemonService` marks the last failure then) or after a connection was up, every failure shows.
+    public func showsFailure(_ error: DaemonError, retries: Bool) -> Bool {
+        self != .connecting || !retries || DaemonStartup.shared.isPermanent(error)
+    }
 }
 
 /// First connect with retry. `DaemonConnection.start()` tries once; after
@@ -82,7 +91,7 @@ public struct DaemonStartup: Sendable {
                 guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
             }
         }
-        // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             let connection = makeConnection()
             // The tuple is built after the do/catch: Swift -O drops tuple elements returned
@@ -90,7 +99,15 @@ public struct DaemonStartup: Sendable {
             var identity: DaemonIdentity?
             do {
                 DaemonLaunchTimings.shared.mark("daemon.connect_start")
-                identity = try await connection.start()
+                // The service owns this startup task. If teardown cancels it before the
+                // connection is adopted, close the attempt so its endpoint provider cannot
+                // keep launching a daemon after shutdown has joined the service task.
+                identity = try await withTaskCancellationHandler {
+                    try await connection.start()
+                } onCancel: {
+                    // concurrency-allow: cancellation cleanup is actor-isolated and joined by closeAndWait.
+                    Task { await connection.close() }
+                }
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
             } catch {
                 await connection.closeAndWait()

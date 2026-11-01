@@ -143,6 +143,27 @@ struct MoveToNewWindowTests {
         }
     }
 
+    /// v2.2.6-opt gate (mw-restart-three-windows; handoff/v224-gate-triage.md): two Move to New Window from one window
+    /// opened both new windows at the same frame ([438, 242, 1100, 720] when the source had no room beside it), so the
+    /// second hid the first completely. A new window never opens exactly on a window already there: it steps on from
+    /// it, as AppKit's `cascadeTopLeft(from:)` does.
+    @Test func twoMovesFromOneWindowOpenTwoWindowsThatDoNotCoverEachOther() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let first = try await Self.newWorkspace(services)
+            let second = try await Self.newWorkspace(services)
+            let source = try Self.window(ofTab: try #require(first.screens.first?.panes.first?.tabs.first).id, services)
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, first.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
+            // Back to the source window, as the gate journey moves both workspaces out of window 1.
+            if let window = services.windows.controller(for: source) { services.windows.bringToFront(window) }
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, second.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 3 })
+            let frames = services.windows.controllers.compactMap { $0.window?.frame }
+            let origins = Set(frames.map { "\(Int($0.minX)),\(Int($0.minY))" })
+            #expect(origins.count == frames.count, "two windows opened on the same frame: \(frames)")
+        }
+    }
+
     /// The placement rule: beside the source on its right when the screen
     /// has room, else on its left, else cascaded; always on the screen.
     @Test func theNewWindowOpensBesideTheOldOne() {
@@ -155,6 +176,19 @@ struct MoveToNewWindowTests {
         let wide = CGRect(x: 200, y: 200, width: 2600, height: 700)
         let cascaded = placement.frame(beside: wide, on: screen)
         #expect(cascaded.size == wide.size && cascaded != wide && screen.contains(cascaded))
+    }
+
+    /// A source window that fills its screen (zoomed) or nearly fills it leaves no room to cascade on the screen: the
+    /// cascade wrapped back to the spot a window already took, so the second move from a zoomed window still opened
+    /// exactly on the first (review of #30011). Every move gets a spot of its own, partly off screen if it must.
+    @Test(arguments: [CGRect(x: 0, y: 0, width: 1512, height: 944), CGRect(x: 20, y: 20, width: 1480, height: 900),
+                      CGRect(x: 206, y: 112, width: 1100, height: 720)])
+    func threeMovesFromOneWindowEachGetASpotOfTheirOwn(source: CGRect) {
+        let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        var open = [source]
+        for _ in 0..<3 { open.append(MovedWindowPlacement().frame(beside: source, on: screen, avoiding: open)) }
+        let spots = Set(open.map { "\(Int($0.minX.rounded())),\(Int($0.maxY.rounded()))" })
+        #expect(spots.count == open.count, "two windows share a top-left: \(open)")
     }
 
     // MARK: Helpers

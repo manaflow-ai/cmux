@@ -101,6 +101,10 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
+  // Whether the stage has seen a fresh press (a click run's first, `detail` 1) since the viewer
+  // opened. A double click on a chat thumbnail opens the viewer on its first click; its second
+  // lands here as a double click and must not zoom (or close) the image that just opened (#27955).
+  const pressedHere = useRef(false);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
 
@@ -297,16 +301,21 @@ export function ImageViewer({
           ref={stageRef}
           className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
           onPointerDown={onPointerDown}
+          onMouseDown={(event) => {
+            if (event.detail <= 1) pressedHere.current = true;
+          }}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={(event) => {
+            if (!pressedHere.current) return;
             const point = fromCenter(event.clientX, event.clientY);
             setView((current) => (current.scale > MIN_SCALE ? FIT : zoomAbout(current, STEP, point)));
           }}
           onClick={(event) => {
-            // A click beside the fitted image closes the viewer, as on the scrim of a sheet.
-            if (event.target === event.currentTarget && view.scale === MIN_SCALE) onClose();
+            // A click beside the fitted image closes the viewer, as on the scrim of a sheet; not the
+            // second click of the double click that opened it.
+            if (event.target === event.currentTarget && view.scale === MIN_SCALE && pressedHere.current) onClose();
           }}
         >
           <img
@@ -314,6 +323,7 @@ export function ImageViewer({
             src={image.src}
             alt={image.alt}
             draggable={false}
+            decoding="sync"
             style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
           />
         </div>

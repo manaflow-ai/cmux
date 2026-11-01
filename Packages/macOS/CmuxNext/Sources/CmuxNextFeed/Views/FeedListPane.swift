@@ -36,7 +36,7 @@ final class FeedListPane: NSView {
         markAll.imagePosition = .imageOnly
         markAll.target = self
         markAll.action = #selector(markAllRead)
-        markAll.toolTip = FeedStrings.markAllRead
+        markAll.themedToolTip = FeedStrings.markAllRead
         markAll.setAccessibilityLabel(FeedStrings.markAllRead)
         markAll.setAccessibilityIdentifier("cmux.feed.markAllRead")
         emptyIcon.image?.isTemplate = true

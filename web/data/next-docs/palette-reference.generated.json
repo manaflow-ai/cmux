@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1224,
+    "entries": 1266,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "automations.show",
+          "title": "Automations",
+          "shortcut": null,
+          "command": "cmux automation show-page"
         },
         {
           "id": "home.chatColors",
@@ -70,6 +76,12 @@
           "command": "cmux app close-all-windows"
         },
         {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
+        },
+        {
           "id": "window.closeOthers",
           "title": "Close Other Windows",
           "shortcut": null,
@@ -98,6 +110,12 @@
           "title": "Conversation Info…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.hideConversation",
+          "title": "Delete Conversation from List",
+          "shortcut": null,
+          "command": "cmux home hide"
         },
         {
           "id": "home.disableChannels",
@@ -172,6 +190,12 @@
           "command": "cmux home invite"
         },
         {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
+        },
+        {
           "id": "keepMacAwake",
           "title": "Keep Mac Awake",
           "shortcut": null,
@@ -194,6 +218,12 @@
           "title": "Location History…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "window.mergeAll",
+          "title": "Merge All Windows",
+          "shortcut": null,
+          "command": "cmux app merge-all-windows"
         },
         {
           "id": "home.messageChiefPet",
@@ -427,7 +457,7 @@
           "id": "openSettings",
           "title": "Settings…",
           "shortcut": "⌘,",
-          "command": null
+          "command": "cmux app settings"
         },
         {
           "id": "agentHistory.show",
@@ -452,6 +482,12 @@
           "title": "Show cmux",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.showHiddenConversations",
+          "title": "Show Hidden Conversations",
+          "shortcut": null,
+          "command": "cmux home show-hidden"
         },
         {
           "id": "history.show",
@@ -944,6 +980,24 @@
           "title": "Move Space to Start",
           "shortcut": null,
           "command": "cmux space move-to-start"
+        },
+        {
+          "id": "space.bringHere",
+          "title": "Move Space to This Window",
+          "shortcut": null,
+          "command": "cmux space bring-here"
+        },
+        {
+          "id": "workspace.moveAbove",
+          "title": "Move Workspace Above…",
+          "shortcut": null,
+          "command": "cmux workspace move-above"
+        },
+        {
+          "id": "workspace.moveBelow",
+          "title": "Move Workspace Below…",
+          "shortcut": null,
+          "command": "cmux workspace move-below"
         },
         {
           "id": "moveWorkspaceDown",
@@ -1984,6 +2038,12 @@
           "command": "cmux pane open-find-as"
         },
         {
+          "id": "file.openRecoveredDraft",
+          "title": "Open Recovered Draft…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.openVaultPane",
           "title": "Open Vault as Pane",
           "shortcut": null,
@@ -2828,6 +2888,12 @@
           "title": "Move Tab to Previous Pane",
           "shortcut": "⌃⇧⌘[",
           "command": "cmux tab move-to-previous-pane"
+        },
+        {
+          "id": "tab.moveToSpace",
+          "title": "Move Tab to Space…",
+          "shortcut": null,
+          "command": "cmux tab move-to-space"
         },
         {
           "id": "tab.moveToWorkspace",
@@ -3856,6 +3922,12 @@
           "command": "cmux bookmark edit"
         },
         {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
+        },
+        {
           "id": "fileEditorZoomReset",
           "title": "Editor: Actual Size",
           "shortcut": "⌘0",
@@ -4196,6 +4268,12 @@
           "title": "Open All Bookmarks in Folder",
           "shortcut": null,
           "command": "cmux bookmark open-all"
+        },
+        {
+          "id": "file.openAsPage",
+          "title": "Open as Page",
+          "shortcut": null,
+          "command": "cmux file open-as-page"
         },
         {
           "id": "bookmark.openInBackgroundTab",
@@ -4672,6 +4750,12 @@
           "command": null
         },
         {
+          "id": "browser.showCookieImportBanner",
+          "title": "Show Import Cookies Banner",
+          "shortcut": null,
+          "command": "cmux browser show-cookie-banner"
+        },
+        {
           "id": "showBrowserJavaScriptConsole",
           "title": "Show JavaScript Console",
           "shortcut": "⌥⌘J",
@@ -4765,6 +4849,12 @@
           "id": "toggleBrowserDeveloperTools",
           "title": "Toggle Developer Tools",
           "shortcut": "⌥⌘I",
+          "command": null
+        },
+        {
+          "id": "toggleFileEditorMinimap",
+          "title": "Toggle Editor Minimap",
+          "shortcut": null,
           "command": null
         },
         {
@@ -4872,6 +4962,12 @@
         {
           "id": "sidebar.section.toggleCollapsed",
           "title": "Collapse/Expand Section",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.compactList.toggle",
+          "title": "Compact Workspace List",
           "shortcut": null,
           "command": null
         },
@@ -5290,12 +5386,6 @@
           "command": "cmux sidebar show-spaces"
         },
         {
-          "id": "sidebar.workspaceTabs.toggle",
-          "title": "Show Tabs Under Workspaces",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "switchRightSidebarToSessions",
           "title": "Show Vault",
           "shortcut": null,
@@ -5412,6 +5502,12 @@
         {
           "id": "notificationDismiss",
           "title": "Dismiss Notification",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agent.jumpToNextNeedingInput",
+          "title": "Go to Next Agent Needing Input",
           "shortcut": null,
           "command": null
         },
@@ -5626,6 +5722,12 @@
           "command": null
         },
         {
+          "id": "chief.screenShare.look",
+          "title": "Chief: Look at Screen Now",
+          "shortcut": null,
+          "command": "cmux chief look-at-screen"
+        },
+        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
@@ -5636,6 +5738,12 @@
           "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "chief.screenShare.toggle",
+          "title": "Chief: Toggle Screen Sharing",
+          "shortcut": null,
+          "command": "cmux chief toggle-screen-share"
         },
         {
           "id": "agentPane.git.commit",
@@ -5650,8 +5758,20 @@
           "command": null
         },
         {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
+        },
+        {
           "id": "agentPane.continueIn",
           "title": "Continue In…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyAcpmuxSessionFile",
+          "title": "Copy acpmux Session File",
           "shortcut": null,
           "command": null
         },
@@ -5680,8 +5800,20 @@
           "command": null
         },
         {
+          "id": "agentChat.copyHarnessConfigFile",
+          "title": "Copy Harness Config File",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.copyHarnessSessionID",
           "title": "Copy Harness Session ID",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyHarnessSettingsFile",
+          "title": "Copy Harness Settings File",
           "shortcut": null,
           "command": null
         },
@@ -5694,6 +5826,18 @@
         {
           "id": "agentChat.copySessionDetails",
           "title": "Copy Session Details",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copySessionFilePaths",
+          "title": "Copy Session File Paths",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyTranscriptFile",
+          "title": "Copy Transcript File",
           "shortcut": null,
           "command": null
         },
@@ -5758,6 +5902,24 @@
           "command": "cmux agent fork-conversation-below"
         },
         {
+          "id": "palette.forkAgentConversationNewColumnLeft",
+          "title": "Fork Conversation to New Column Left",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-column-left"
+        },
+        {
+          "id": "palette.forkAgentConversationNewColumnRight",
+          "title": "Fork Conversation to New Column Right",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-column-right"
+        },
+        {
+          "id": "palette.forkAgentConversationNewRow",
+          "title": "Fork Conversation to New Row",
+          "shortcut": null,
+          "command": "cmux agent fork-conversation-to-new-row"
+        },
+        {
           "id": "palette.forkAgentConversationNewTab",
           "title": "Fork Conversation to New Tab",
           "shortcut": null,
@@ -5789,7 +5951,7 @@
         },
         {
           "id": "palette.forkAgentConversationTo",
-          "title": "Fork to…",
+          "title": "Fork To…",
           "shortcut": null,
           "command": null
         },
@@ -5986,6 +6148,12 @@
           "command": null
         },
         {
+          "id": "agentPane.runInBackground",
+          "title": "Run in Background",
+          "shortcut": null,
+          "command": "cmux agent run-in-background"
+        },
+        {
           "id": "agentPane.searchChats",
           "title": "Search Agent Chats",
           "shortcut": null,
@@ -6016,10 +6184,34 @@
           "command": "cmux agent set-model"
         },
         {
+          "id": "agent.share",
+          "title": "Share Chat with Guest…",
+          "shortcut": null,
+          "command": "cmux share chat"
+        },
+        {
+          "id": "chief.screenShare.start",
+          "title": "Share Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief share-screen"
+        },
+        {
           "id": "stats.show",
           "title": "Show Agent Stats",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.showBackgroundTasks",
+          "title": "Show Background Tasks in Session Info",
+          "shortcut": null,
+          "command": "cmux agent show-background-tasks"
+        },
+        {
+          "id": "agentPane.showSubagents",
+          "title": "Show Subagents in Session Info",
+          "shortcut": null,
+          "command": "cmux agent show-subagents"
         },
         {
           "id": "palette.quickAgentChat",
@@ -6044,6 +6236,18 @@
           "title": "Stop Computer Use",
           "shortcut": null,
           "command": "cmux agent stop-computer-use"
+        },
+        {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
+        },
+        {
+          "id": "chief.screenShare.stop",
+          "title": "Stop Sharing Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief stop-sharing-screen"
         },
         {
           "id": "home.stopChief",
@@ -6092,6 +6296,12 @@
           "title": "Toggle Preview Beside Chat",
           "shortcut": null,
           "command": "cmux agent toggle-preview"
+        },
+        {
+          "id": "agentPane.toggleQueueing",
+          "title": "Toggle Prompt Queueing",
+          "shortcut": null,
+          "command": "cmux agent toggle-queueing"
         },
         {
           "id": "agentPane.toggleSessionInfo",
@@ -6298,10 +6508,22 @@
           "command": "cmux cloud hand-off-machine"
         },
         {
+          "id": "cloudSetNetworkAccess",
+          "title": "Internet Access…",
+          "shortcut": null,
+          "command": "cmux cloud set-network-access"
+        },
+        {
           "id": "cloudKillMachine",
           "title": "Kill Machine",
           "shortcut": null,
           "command": "cmux cloud kill-machine"
+        },
+        {
+          "id": "cloudAPIKeyList",
+          "title": "List Cloud API Keys",
+          "shortcut": null,
+          "command": "cmux cloud api-key-list"
         },
         {
           "id": "cloudDomainList",
@@ -6424,6 +6646,12 @@
           "command": "cmux cloud promote-machine-to-template"
         },
         {
+          "id": "cloudProvisionAPI",
+          "title": "Provision API on Machine…",
+          "shortcut": null,
+          "command": "cmux cloud provision-api"
+        },
+        {
           "id": "accounts.reauthenticate",
           "title": "Re-authenticate Provider…",
           "shortcut": null,
@@ -6478,6 +6706,12 @@
           "command": "cmux cloud resume-machine"
         },
         {
+          "id": "cloudAPIKeyRevoke",
+          "title": "Revoke Cloud API Key",
+          "shortcut": null,
+          "command": "cmux cloud api-key-revoke"
+        },
+        {
           "id": "cloudTunnelRotateKey",
           "title": "Rotate Cloud Tunnel Key",
           "shortcut": null,
@@ -6494,6 +6728,12 @@
           "title": "Set Up GitHub on This Machine",
           "shortcut": null,
           "command": "cmux cloud setup-github"
+        },
+        {
+          "id": "cloudShareMachine",
+          "title": "Share Machine…",
+          "shortcut": null,
+          "command": "cmux cloud share-machine"
         },
         {
           "id": "palette.auth.signIn",
@@ -6730,6 +6970,12 @@
           "command": null
         },
         {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.uiScale.decrease",
           "title": "Decrease Interface Scale",
           "shortcut": "⌃⇧⌘-",
@@ -6832,6 +7078,12 @@
           "command": null
         },
         {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
+        },
+        {
           "id": "palette.applyUpdateIfAvailable",
           "title": "Install Available Update",
           "shortcut": null,
@@ -6848,12 +7100,6 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "team.invite",
-          "title": "Invite to Team…",
-          "shortcut": null,
-          "command": "cmux team invite"
         },
         {
           "id": "help.discord",
@@ -6956,6 +7202,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",

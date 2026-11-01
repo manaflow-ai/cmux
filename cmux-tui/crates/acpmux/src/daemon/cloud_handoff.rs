@@ -28,7 +28,7 @@
 //! session reports nothing until it reopens.
 //!
 //! A turn that failed on an error acpmux retries by itself (`hub/auto_resume.rs`:
-//! a connection cut, no capacity) is not reported failed yet: its continuation
+//! a connection cut, no capacity; a first send a revoked token failed) is not reported failed yet: its continuation
 //! (`<prompt id>~resume-<n>`, naming the same turn) goes on with it. It is
 //! reported failed once no continuation comes: `auto_resume_settled`,
 //! `_exhausted` or `_skipped`, another prompt begins, the session closes, no
@@ -48,11 +48,12 @@
 
 use crate::hub::Hub;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -75,6 +76,8 @@ const MAX_CLOSED: usize = 4096;
 /// The agent answers within its own bounds (a queued ask waits at most 60 s,
 /// then up to three API calls of 20 s); past this it is not answering.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(150);
+/// A fire-and-forget attention line must not hold the hand-off worker on a dead socket.
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(2);
 /// The longest reply line read.
 const MAX_REPLY: u64 = 64 * 1024;
 /// A report that did not reach the store is sent again after these waits.
@@ -118,10 +121,17 @@ pub(super) enum Step {
     /// A turn ended: how, and the hand-off turn its prompt names, if it names one.
     Ended(End, Option<u64>),
     /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
-    /// `auto_resume_exhausted`, `auto_resume_skipped`).
+    /// `auto_resume_exhausted`, `auto_resume_skipped`, `auto_resume_stopped`).
     NoRetry,
+    /// A terminal retry decision observed after reporter restart, before its failed
+    /// turn was seen. Carries the named hand-off turn so it can be closed.
+    NoRetryFor { turn: u64, why: String },
     /// A failed turn's automatic continuation is scheduled (`auto_resume_scheduled`).
     RetryScheduled,
+    /// A retry restored after a daemon restart, before the reporter has seen its
+    /// original failed turn. Carries the named hand-off turn and failure summary
+    /// so terminal skip/stop events can close the hand-off after reporter restart.
+    RetryRestored { turn: u64, why: String },
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -140,7 +150,8 @@ pub(super) enum End {
     /// Finished, with the start of its last reply when it was read.
     Completed(Option<String>),
     /// Why it failed (masked, cut), and whether acpmux decides on a continuation of it
-    /// (`turn_errors::resume_cause`, as `hub/auto_resume.rs` does).
+    /// (`turn_errors::resume_cause`, as `hub/auto_resume.rs` does, or a revoked token, which
+    /// a chat's first send is retried on: `hub/auto_resume/first_send.rs`).
     Failed { why: String, retried: bool },
     /// Stopped before it finished.
     Cancelled,
@@ -152,10 +163,38 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     let named = || named_turn(msg["promptId"].as_str());
     match kind {
         "turn_started" => Some(Step::Began(named())),
-        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_skipped" => {
-            Some(Step::NoRetry)
+        "auto_resume_settled" | "auto_resume_exhausted" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            let why = msg["why"].as_str().or_else(|| msg["reason"].as_str()).unwrap_or("policy");
+            Some(Step::NoRetryFor { turn, why: format!("Automatic retry settled ({why}).") })
+        }
+        // A Stop ended the wait (`hub/auto_resume.rs` records only `turnId` and `promptId`):
+        // the person stopped it, no policy settled it.
+        "auto_resume_stopped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            Some(Step::NoRetryFor { turn, why: "Automatic retry stopped.".to_owned() })
+        }
+        "auto_resume_skipped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            let skipped = msg["skipped"].as_str().unwrap_or("policy");
+            Some(Step::NoRetryFor { turn, why: format!("Automatic retry skipped ({skipped}).") })
         }
         "auto_resume_scheduled" => Some(Step::RetryScheduled),
+        "auto_resume_restored" => {
+            let turn = named_turn(msg["promptId"].as_str())?;
+            let why = match msg["reason"].as_str().unwrap_or("transport") {
+                "capacity" => "The provider had no capacity.".to_owned(),
+                "agent_exited" => "The agent exited before finishing.".to_owned(),
+                _ => "The connection was interrupted.".to_owned(),
+            };
+            Some(Step::RetryRestored { turn, why })
+        }
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -174,7 +213,13 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
                     // The hub decides on the agent's own error or the recorded one
                     // (`turn_errors::continuation_error`): either may be the cause.
                     let cause = crate::hub::turn_errors::resume_cause;
-                    let retried = cause(raw, raw).is_some() || cause(why, why).is_some();
+                    // A first send a revoked token failed may be sent again (`first_send.rs`):
+                    // a later turn's is settled `auto_resume_settled` at once.
+                    let revoked = crate::claude_auth::is_revoked_token;
+                    let retried = cause(raw, raw).is_some()
+                        || cause(why, why).is_some()
+                        || revoked(raw)
+                        || revoked(why);
                     End::Failed { why: cut(why, NOTE_CHARS), retried }
                 }
             };
@@ -239,6 +284,140 @@ pub(super) fn cut(text: &str, max: usize) -> String {
     cut
 }
 
+/// Converts prompt-owned mux records into attention events without requiring
+/// a hand-off row. Background turns never emit `turn_started`, so they are
+/// excluded by the active-turn gate in `handoff_loop`.
+fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Option<Value> {
+    let kind = match kind {
+        "permission_request" => {
+            if crate::hub::is_question(&msg["request"]) {
+                "question"
+            } else {
+                "permission"
+            }
+        }
+        "turn_result" if msg["status"] == "completed" => "done",
+        _ => return None,
+    };
+    let semantic_id = match kind {
+        "question" | "permission" => msg
+            .get("permissionId")
+            .and_then(Value::as_str)
+            .or_else(|| msg.pointer("/request/requestId").and_then(Value::as_str)),
+        "done" => msg
+            .get("turnId")
+            .and_then(Value::as_str)
+            .or_else(|| msg.get("promptId").and_then(Value::as_str)),
+        _ => None,
+    }
+    .unwrap_or("record");
+    let key =
+        if semantic_id == "record" { format!("record-{seq}") } else { semantic_id.to_owned() };
+    let digest = Sha256::digest(format!("{session}\0{key}\0{kind}").as_bytes());
+    let event_id =
+        format!("attn_{}", digest.iter().take(20).map(|b| format!("{b:02x}")).collect::<String>());
+    Some(json!({
+        "event_id": event_id,
+        "kind": kind,
+        "session": session,
+        "title": "Cloud chat",
+        "occurred_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    }))
+}
+
+fn attention_for_event(
+    active_turn: Option<&str>,
+    kind: &str,
+    msg: &Value,
+    session: &str,
+    seq: u64,
+) -> Option<Value> {
+    let active_turn = active_turn?;
+    if kind == "permission_request"
+        && let Some(turn_id) = msg.get("turnId").and_then(Value::as_str)
+        && !active_turn.is_empty()
+        && turn_id != active_turn
+    {
+        return None;
+    }
+    attention_for_record(kind, msg, session, seq)
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::{attention_for_event, attention_for_record};
+    use serde_json::json;
+
+    #[test]
+    fn only_prompt_owned_turns_emit_attention() {
+        let permission =
+            json!({"request": {"toolCall": {"title": "Run tests", "kind": "execute"}}});
+        assert_eq!(attention_for_event(None, "permission_request", &permission, "s", 1), None);
+        assert_eq!(
+            attention_for_event(Some("turn-1"), "permission_request", &permission, "s", 1)
+                .expect("permission")["kind"],
+            "permission"
+        );
+        assert_eq!(
+            attention_for_event(Some("turn-1"), "background_turn", &json!({}), "s", 2),
+            None
+        );
+        assert_eq!(
+            attention_for_event(
+                Some("turn-1"),
+                "turn_result",
+                &json!({"status": "completed"}),
+                "s",
+                3
+            )
+            .expect("done")["kind"],
+            "done"
+        );
+    }
+
+    #[test]
+    fn question_and_permission_are_distinct() {
+        let question = json!({"request": {"toolCall": {"title": "AskUserQuestion",
+            "_meta": {"claude": {"tool": "AskUserQuestion"}},
+            "rawInput": {"questions": [{"question": "Ship it?"}]}}}});
+        let permission =
+            json!({"request": {"toolCall": {"title": "Write file", "kind": "execute"}}});
+        assert_eq!(
+            attention_for_record("permission_request", &question, "s", 1).expect("question")["kind"],
+            "question"
+        );
+        assert_eq!(
+            attention_for_record("permission_request", &permission, "s", 2).expect("permission")["kind"],
+            "permission"
+        );
+    }
+
+    #[test]
+    fn semantic_ids_survive_record_replay() {
+        let permission = json!({"permissionId": "perm-1", "request": {"toolCall": {"title": "Write", "kind": "execute"}}});
+        let first = attention_for_record("permission_request", &permission, "s", 1).unwrap();
+        let replay = attention_for_record("permission_request", &permission, "s", 99).unwrap();
+        assert_eq!(first["event_id"], replay["event_id"]);
+        let done = json!({"status": "completed", "turnId": "turn-1"});
+        let first = attention_for_record("turn_result", &done, "s", 2).unwrap();
+        let replay = attention_for_record("turn_result", &done, "s", 100).unwrap();
+        assert_eq!(first["event_id"], replay["event_id"]);
+    }
+
+    #[test]
+    fn late_permission_from_an_old_turn_is_ignored() {
+        let permission = json!({"turnId": "turn-old", "permissionId": "perm-1",
+            "request": {"toolCall": {"title": "Write", "kind": "execute"}}});
+        assert_eq!(
+            attention_for_event(Some("turn-new"), "permission_request", &permission, "s", 1),
+            None
+        );
+    }
+}
+
 /// The store's session id shape (`[A-Za-z0-9_.:-]{1,128}`); any other session has no hand-off.
 fn valid_session(id: &str) -> bool {
     !id.is_empty()
@@ -263,6 +442,8 @@ pub(super) trait Io {
     fn present(&self) -> bool;
     /// One line to the agent and what came back.
     fn send(&self, line: String) -> impl Future<Output = Reply> + Send;
+    /// Queue an independent attention event; the Cloud agent owns retries.
+    fn notify(&self, line: String) -> impl Future<Output = ()> + Send;
 }
 
 /// How the store answered one report.
@@ -308,6 +489,9 @@ struct Track {
     now: Now,
     /// The last turn the store refused (or had no hand-off for): its end is not sent.
     refused: Option<u64>,
+    /// The newest turn whose end was reported here (sent, or waiting in `later`): a late retry
+    /// decision for it or an older turn never replaces that end (hand-off turns only grow).
+    ended: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -358,6 +542,12 @@ impl<I: Io> Reporter<I> {
             handoff_closed: Remembered::default(),
             silent_until: None,
             later: HashMap::new(),
+        }
+    }
+
+    async fn notify_attention(&self, attention: Value) {
+        if self.io.present() {
+            self.io.notify(json!({ "attention": attention }).to_string()).await;
         }
     }
 
@@ -419,9 +609,30 @@ impl<I: Io> Reporter<I> {
                 self.begin(session, named).await;
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
+            // A retry decision for a turn that ended here comes late (the automatic retry a
+            // manual one overtook): the turn's end stands.
+            (Step::NoRetryFor { turn, why }, Now::Quiet) if !self.ended_here(session, turn) => {
+                self.finish(session, turn, "failed", Some(why)).await;
+            }
+            (Step::NoRetryFor { turn, .. }, Now::Retrying { turn: current, .. })
+                if turn == current =>
+            {
+                self.give_up_retry(session, turn).await;
+            }
             (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryRestored { turn, why }, Now::Quiet) if !self.ended_here(session, turn) => {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            // Only the held turn's own marker renews its wait.
+            (Step::RetryRestored { turn, .. }, Now::Retrying { turn: current, why, .. })
+                if turn == current =>
+            {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn: current, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
@@ -478,8 +689,17 @@ impl<I: Io> Reporter<I> {
         status: &'static str,
         note: Option<String>,
     ) {
+        // An older turn's end than one reported here is stale: the store keeps one turn, and a
+        // newer end waiting to be sent again stays.
+        let newest = self.tracks.get(session).and_then(|t| t.ended);
+        if newest.max(self.later.get(session).map(|l| l.turn)) > Some(turn) {
+            return;
+        }
         // A newer end of the session replaces one still waiting (the store keeps one turn).
         self.later.remove(session);
+        if let Some(track) = self.tracks.get_mut(session) {
+            track.ended = track.ended.max(Some(turn));
+        }
         if self.report(session, turn, status, note.clone()).await == Outcome::Unsent {
             self.send_later(
                 session,
@@ -499,6 +719,13 @@ impl<I: Io> Reporter<I> {
         }
         later.at = tokio::time::Instant::now() + *wait;
         self.later.insert(session.to_owned(), later);
+    }
+
+    /// Whether the end of `turn`, or of a newer turn, was reported here or waits to be sent
+    /// again: a decision for `turn` comes late then.
+    fn ended_here(&self, session: &str, turn: u64) -> bool {
+        self.tracks.get(session).is_some_and(|t| t.ended >= Some(turn))
+            || self.later.get(session).is_some_and(|l| l.turn >= turn)
     }
 
     /// A failed turn acpmux was to continue gets no continuation: reported failed now.
@@ -617,6 +844,13 @@ impl<I: Io> Reporter<I> {
             None => None,
         };
         let Some(track) = self.tracks.get_mut(session) else { return };
+        // A new attempt of the newest ended turn, one the store may have taken: its end is to
+        // come again. A stale begin (refused) or one of an older turn reopens nothing.
+        if let Some((turn, Outcome::Accepted | Outcome::Unsent)) = answer
+            && track.ended == Some(turn)
+        {
+            track.ended = turn.checked_sub(1);
+        }
         track.now = match answer {
             Some((turn, Outcome::Accepted)) => Now::Reporting { turn, last: Some("running") },
             // The store did not answer: the turn's later reports still go to its turn.
@@ -708,7 +942,12 @@ impl<I: Io> Reporter<I> {
                 self.set_now(session, Now::Quiet);
             }
             // Not this turn, or no hand-off for the session: its end is not sent.
-            Outcome::Refused | Outcome::NotFound => {
+            Outcome::Refused => {
+                if let Some(track) = self.tracks.get_mut(session) {
+                    track.refused = Some(turn);
+                }
+            }
+            Outcome::NotFound => {
                 if let Some(track) = self.tracks.get_mut(session) {
                     track.refused = Some(turn);
                 }
@@ -744,12 +983,50 @@ impl Io for AgentSocket {
             Ok(_) => Reply::Failed,
         }
     }
+
+    async fn notify(&self, line: String) {
+        let Ok(Ok(mut stream)) =
+            tokio::time::timeout(NOTIFY_TIMEOUT, tokio::net::UnixStream::connect(&self.path)).await
+        else {
+            return;
+        };
+        let _ =
+            tokio::time::timeout(NOTIFY_TIMEOUT, stream.write_all(format!("{line}\n").as_bytes()))
+                .await;
+    }
 }
 
 /// Follows this daemon's own sessions (never a peer's) and reports their turns to their
 /// hand-offs while the Cloud agent's socket is there.
+/// The Cloud agent's socket: `ACPMUX_CLOUD_AGENT_SOCKET`, else [`SOCKET`].
+fn agent_socket() -> PathBuf {
+    std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
+}
+
+/// The Cloud agent's socket was seen, by the census or by [`handoff_loop`] as it queued a report.
+static SEEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
+/// here never stops for being unused (`unused_exit.rs`, which asks at each census). Once seen, for
+/// the rest of the daemon's life: the agent's restart removes its socket for a while, and the
+/// reports wait for it (`handoff_loop`).
+pub(super) fn reports_here() -> bool {
+    reports_to(&agent_socket(), &SEEN)
+}
+
+fn reports_to(socket: &std::path::Path, seen: &AtomicBool) -> bool {
+    if seen.load(Ordering::SeqCst) {
+        return true;
+    }
+    let here = cfg!(target_os = "linux") && socket.exists();
+    if here {
+        seen.store(true, Ordering::SeqCst);
+    }
+    here
+}
+
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
-    let path = std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from);
+    let path = agent_socket();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Queued>(QUEUE_CAP);
     // Bumped when steps were lost (a full queue, a lagging event stream).
     let losses = Arc::new(AtomicU64::new(0));
@@ -799,17 +1076,22 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                     .flatten()
                     .map(|r| cut(&r, DONE_CHARS));
             }
+            if let Some(attention) = queued.attention {
+                reporter.notify_attention(attention).await;
+            }
             reporter.step_at(&queued.session, queued.step, queued.at).await;
         }
     });
     let mut events = hub.subscribe();
     let mut cloud = false;
+    let mut active_turns = HashMap::<String, String>::new();
     loop {
         let ev = match events.recv().await {
             Ok(ev) => ev,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!(missed = n, "hand-off reports: the event stream lagged");
                 losses.fetch_add(1, Ordering::SeqCst);
+                active_turns.clear();
                 continue;
             }
             Err(_) => break,
@@ -822,9 +1104,29 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
         // Once the socket was seen, steps are kept while it is gone (an agent restart).
-        cloud = cloud || path.exists();
+        // The same latch the unused exit reads, so a report queued here keeps the daemon.
+        cloud = cloud || reports_to(&path, &SEEN);
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
+        }
+        if ev.record.kind == "turn_started" {
+            if active_turns.len() >= MAX_TRACKS {
+                active_turns.clear();
+            }
+            active_turns.insert(
+                ev.session_id.clone(),
+                ev.record.msg.get("turnId").and_then(Value::as_str).unwrap_or("").to_owned(),
+            );
+        }
+        let attention = attention_for_event(
+            active_turns.get(&ev.session_id).map(String::as_str),
+            &ev.record.kind,
+            &ev.record.msg,
+            &ev.session_id,
+            ev.record.seq,
+        );
+        if ev.record.kind == "turn_result" || matches!(step, Step::Closed | Step::Reopened) {
+            active_turns.remove(&ev.session_id);
         }
         if !step.lifecycle() && tx.capacity() <= QUEUE_CAP - QUEUE_SOFT_CAP {
             tracing::warn!(session = %ev.session_id, "hand-off reports: queue long, a step dropped");
@@ -839,6 +1141,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         let queued = Queued {
             session: ev.session_id.clone(),
             step,
+            attention,
             reply,
             losses: losses.load(Ordering::SeqCst),
             at: tokio::time::Instant::now(),
@@ -864,6 +1167,8 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 struct Queued {
     session: String,
     step: Step,
+    /// A prompt-owned durable attention transition, independent of hand-offs.
+    attention: Option<Value>,
     /// A completed turn's records to read its reply from: after this seq, up to that one.
     reply: Option<(u64, u64)>,
     /// The loss count when it was queued.

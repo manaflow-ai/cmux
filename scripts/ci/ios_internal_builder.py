@@ -33,6 +33,14 @@ FALLBACK_AFTER = dt.timedelta(hours=12)
 PACKAGE_SWIFT = "cmux-next-ios/CmuxMobileKit/Package.swift"
 PROJECT_YML = "cmux-next-ios/project.yml"
 BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
+# testflight-build.sh runs this before it builds and refuses to archive on drift, so the plan runs the same
+# comparison on Linux first (package_drift): a drifted head would only fail ~25 Mac minutes later.
+SYNC_SCRIPT = "cmux-next-ios/scripts/check-tabskit-sync.sh"
+# A failing builder backs off instead of building every new head: after the second failure in a row it waits
+# FAILURE_BACKOFF_START, doubling per failure up to FAILURE_BACKOFF_MAX, and the same iOS input as the newest
+# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it.
+FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
+FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -102,12 +110,34 @@ class Decision:
     base: str | None  # last uploaded SHA: the "What to Test" range starts here
 
 
+def failure_streak(runs: list[dict]) -> tuple[int, dict | None]:
+    """Completed runs that failed since the newest success (newest first), and the newest of them."""
+    done = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") not in ("cancelled", "skipped")]
+    streak = 0
+    for r in done:
+        if r.get("conclusion") == "success":
+            break
+        streak += 1
+    return streak, (done[0] if streak else None)
+
+
+def failure_backoff(streak: int) -> dt.timedelta:
+    """How long after the newest failure the next head may build: none after one failure, then 30 min doubling to 6 h."""
+    if streak < 2:
+        return dt.timedelta(0)
+    return min(FAILURE_BACKOFF_MAX, FAILURE_BACKOFF_START * 2 ** min(streak - 2, 16))
+
+
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
-         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True) -> Decision:
+         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
+         since_failure: list[str] | None = None, drift: str | None = None, force: bool = False) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
     changed: files changed from the last uploaded SHA to head; None when unknown.
+    since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
+    drift: why head's shared iOS packages differ from upstream (testflight-build.sh refuses those); None if not.
+    force: a person dispatched the trigger; the failure backoff does not apply.
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
@@ -123,10 +153,29 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
+    if drift:
+        return Decision(False, f"BLOCKED: {drift}; testflight-build.sh refuses to archive that, so no Mac build "
+                               f"until the packages match again ({SYNC_SCRIPT})", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
     failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
         return Decision(False, f"{head[:12]} already failed in run {failed.get('id')}; waiting for a new head", base)
+    streak, newest_failure = failure_streak(runs)
+    if newest_failure and not force:
+        failed_at, run_id = _parse(newest_failure["created_at"]), newest_failure.get("id")
+        if any(r.get("status") != "completed" for r in runs):
+            # A dispatch now would start the moment the running build ends, before the plan sees how it ended.
+            return Decision(False, f"BLOCKED: the builder is failing (run {run_id}) and a build is still running; "
+                                   "the next push after it ends plans again", base)
+        if since_failure is not None and not touches_ios(since_failure, prefixes) \
+                and now - failed_at < FAILURE_BACKOFF_MAX:
+            return Decision(False, f"BLOCKED: run {run_id} failed on {newest_failure['sha'][:12]} and nothing the app "
+                                   f"builds from changed since; it retries after {FAILURE_BACKOFF_MAX} (an infra "
+                                   "failure) or on an iOS change", base)
+        wait = failure_backoff(streak)
+        if now - failed_at < wait:
+            return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
+                                   f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:
@@ -232,6 +281,41 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
         return None
 
 
+def sync_pairs(sync_script: str | None) -> list[tuple[str, str]]:
+    """(package path, upstream branch) pairs from check-tabskit-sync.sh's `pairs=( "PATH BRANCH" ... )` list."""
+    block = re.search(r"^pairs=\((.*?)^\)", sync_script or "", re.M | re.S)
+    return re.findall(r'"(\S+) (\S+)"', block.group(1)) if block else []
+
+
+def package_drift(repo: str, head: str, pairs: list[tuple[str, str]]) -> str | None:
+    """What check-tabskit-sync.sh would call drift at head (a package tree that differs from its upstream branch's).
+
+    Reads trees only: a depth-1 blobless fetch of each upstream branch. None when every package matches, or when
+    an upstream cannot be fetched (unknown: the Mac build then runs the check itself).
+    """
+    try:
+        depth = ["--depth=1"] if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true" else []
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    drifted = []
+    for path, branch in pairs:
+        ref = f"refs/ios-internal-upstream/{branch}"
+        try:
+            fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *depth, "--filter=blob:none",
+                                      "origin", f"+refs/heads/{branch}:{ref}"], capture_output=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            return None
+        if fetched.returncode != 0:
+            return None
+        ours = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", f"{head}:{path}"],
+                              capture_output=True, text=True).stdout.strip()
+        theirs = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", f"{ref}:{path}"],
+                                capture_output=True, text=True).stdout.strip()
+        if ours != theirs:
+            drifted.append(f"{path} differs from origin/{branch}")
+    return "; ".join(drifted) or None
+
+
 def builder_has_script() -> bool:
     """Whether the signing branch carries this layout's testflight-build.sh (fails open on API errors)."""
     branch = BUILDER_REF.removeprefix("refs/heads/")
@@ -253,7 +337,7 @@ def _write_outputs(decision: Decision) -> None:
             fh.write(f"reason={decision.reason}\n")
 
 
-def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep) -> int:
+def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
         runs = builder_runs(runner=runner, sleep=sleep)
@@ -266,9 +350,17 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep) -> i
     ready = builder_has_script()
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
+    _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
+                                              reverse=True))
+    since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
+    drift = package_drift(repo, head, sync_pairs(_show(repo, head, SYNC_SCRIPT))) if has_cmux_next_ios else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
-                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
+                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready,
+                    since_failure=since_failure, drift=drift, force=force)
     _write_outputs(decision)
+    if decision.reason.startswith("BLOCKED"):
+        # An annotation on the decide run; the builder's own newest run stays red, which is what alerts read.
+        print(f"::error title=cmux INTERNAL builder held::{decision.reason}")
     return 0
 
 
@@ -473,6 +565,7 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("plan")
     p.add_argument("--head", required=True)
     p.add_argument("--repo", default=".")
+    p.add_argument("--force", action="store_true", help="a person asked: skip the failure backoff")
     s = sub.add_parser("stamp")
     s.add_argument("--project-yml", type=Path, default=Path(PROJECT_YML))
     s.add_argument("--last", default=None)
@@ -484,7 +577,7 @@ def main(argv: list[str]) -> int:
     st.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "plan":
-        return cmd_plan(args.head, args.repo)
+        return cmd_plan(args.head, args.repo, force=args.force)
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":

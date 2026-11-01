@@ -436,6 +436,14 @@ class GroupCycle(unittest.TestCase):
                  run("build", "SUCCESS", "2026-10-06T02:00:00Z", workflow="b")]
         self.assertEqual(sorted(nb.newest_checks(nb.parse_contexts(twins))),
                          [("build", "completed", "failure"), ("build", "completed", "success")])
+        # A skipped newest run (a label event the workflow skips, cmux#29747) gives way to the red before it.
+        relabeled = [run("check", "FAILURE", "2026-10-06T01:00:00Z", workflow="cmux VM"),
+                     run("check", "SKIPPED", "2026-10-06T02:00:00Z", workflow="cmux VM")]
+        checks = nb.newest_checks(nb.parse_contexts(relabeled))
+        self.assertEqual(checks, [("check", "completed", "failure")])
+        self.assertEqual(nb.red_fast_checks(pr(1, checks=checks)), ["check"])
+        # Skipped with no other run: the skip stands.
+        self.assertEqual(nb.newest_checks(nb.parse_contexts(relabeled[1:])), [("check", "completed", "skipped")])
         # A queued rerun (no start time yet) is the newest run.
         queued = [run("lint", "FAILURE", "2026-10-06T01:00:00Z"), run("lint", None, None, status="QUEUED")]
         self.assertEqual(nb.newest_checks(nb.parse_contexts(queued)), [("lint", "queued", "")])

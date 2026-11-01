@@ -196,6 +196,8 @@ import Testing
         let recorder = Recorder()
         page.setMachineVmHost = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
         page.setDeviceFullAccess = { id, on in recorder.sets.append("device \(id) \(on)"); return nil }
+        page.ownerConfirm = SettingsWideningSwitchPersonGateTests.AlwaysConfirms() // the confirm: SettingsWideningSwitchPersonGateTests
+        page.personBacksGesture = { _ in true }
         return (page, recorder, directory)
     }
 

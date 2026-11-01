@@ -8,7 +8,6 @@ import QuartzCore
 /// alone shown as a small dot; a browser workspace's page icon, untinted;
 /// else nothing. It has no kind glyph or agent brand fallback: workspace rows
 /// are text only by default (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence 2026-10-14).
-/// Tab rows draw their own kind and brand marks.
 final class SidebarIconView: NSView {
     private let imageView = DecorativeImageView()
     private let swatch = CALayer()
@@ -109,18 +108,22 @@ final class SidebarIconView: NSView {
 
     override func layout() {
         super.layout()
-        imageView.frame = bounds
-        emoji.frame = bounds
+        // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
+        // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
+        let side = min(bounds.width, bounds.height, SidebarStyle.iconBox)
+        let content = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        imageView.frame = content
+        emoji.frame = content
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .emoji(_, _?)? = icon {
             // The chip fills the icon square behind the emoji.
-            swatch.frame = bounds
+            swatch.frame = content
             swatch.cornerRadius = bounds.height * 0.25
         } else {
-            let side = SidebarStyle.dotSize
-            swatch.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-            swatch.cornerRadius = side / 2
+            let dot = SidebarStyle.dotSize
+            swatch.frame = CGRect(x: (bounds.width - dot) / 2, y: (bounds.height - dot) / 2, width: dot, height: dot)
+            swatch.cornerRadius = dot / 2
         }
         CATransaction.commit()
         needsDisplay = true

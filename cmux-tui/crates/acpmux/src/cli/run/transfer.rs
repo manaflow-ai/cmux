@@ -16,17 +16,19 @@ pub(super) async fn run(
 ) -> Result<()> {
     let src = connect(true).await?;
     let dst = Client::connect(to).await?;
-    dst.request(
-        method::INITIALIZE,
-        json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-transfer"}}),
-    )
-    .await?;
+    let dst_init = dst
+        .request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-transfer"}}),
+        )
+        .await?;
     let id = resolve_id(&src, session).await?;
     // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
     let socket = std::path::absolute(to)?;
     let to_meta = json!({"socket": to});
     let watch = json!({"socket": socket});
-    let moved = move_chat(&src, &dst, &id, Some(watch), cwd, name, interrupt, to_meta).await?;
+    let moved =
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, interrupt, to_meta).await?;
     if json_out {
         print_json(&moved);
     } else {
@@ -50,7 +52,10 @@ pub(super) async fn begin_move(
     watch: Option<Value>,
     interrupt: bool,
 ) -> Result<Begun> {
-    let mut begin_params = json!({"sessionId": id, "interrupt": interrupt});
+    // This client hands the bundle on only to a receiver whose own `initialize` listed queue
+    // approval when it carries approved prompts that still wait (`receiver_takes`).
+    let mut begin_params =
+        json!({"sessionId": id, "interrupt": interrupt, "gatesQueueApproval": true});
     if let Some(to) = watch {
         begin_params.set("to", to);
     }
@@ -73,6 +78,7 @@ pub(super) async fn abort_move(src: &Client, id: &str, begun: &Begun) {
 pub(super) async fn move_chat(
     src: &Client,
     dst: &Client,
+    dst_init: &Value,
     id: &str,
     watch: Option<Value>,
     cwd: Option<String>,
@@ -81,14 +87,39 @@ pub(super) async fn move_chat(
     to_meta: Value,
 ) -> Result<Value> {
     let begun = begin_move(src, id, watch, interrupt).await?;
-    finish_move(src, dst, id, &begun, cwd, name, to_meta).await
+    finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
+}
+
+/// Whether the receiver may take the bundle `begin` made: one that carries prompts the owner
+/// approved that still wait (`approvedWaiting`) goes only to a daemon whose own `initialize`
+/// (`dst_init`, the reply on the connection that sends the bundle) listed queue approval. An
+/// older one ignores `queue_approved` and would run them under their sender's rules alone; a
+/// peer record or host name says nothing of the daemon at this socket (review of #28859).
+pub(crate) fn receiver_takes(begin: &Value, dst_init: &Value) -> Result<()> {
+    let Some(ids) =
+        begin.get("approvedWaiting").filter(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+    else {
+        return Ok(());
+    };
+    let features = dst_init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
+    let listed = features.is_some_and(|f| {
+        f.iter().any(|f| f.as_str() == Some(crate::author::QUEUE_APPROVAL_FEATURE))
+    });
+    if listed {
+        return Ok(());
+    }
+    let why = "the daemon it moves to does not list queue approval";
+    let e = crate::hub::approved_prompts_error(ids.clone(), why);
+    Err(anyhow::Error::from(crate::client::DaemonError(e)))
 }
 
 /// The rest of a move [`begin_move`] began: the bundle paged into a receive on `dst`, finished
 /// there, and committed on `src`. A failure that leaves the chat nowhere else aborts the move.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn finish_move(
     src: &Client,
     dst: &Client,
+    dst_init: &Value,
     id: &str,
     begun: &Begun,
     cwd: Option<String>,
@@ -96,6 +127,10 @@ pub(super) async fn finish_move(
     to_meta: Value,
 ) -> Result<Value> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
+    if let Err(e) = receiver_takes(begin, dst_init) {
+        abort_move(src, id, begun).await;
+        return Err(e);
+    }
     let receive = match dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await {
         Ok(receive) => receive,
         Err(e) => {
@@ -103,7 +138,16 @@ pub(super) async fn finish_move(
             return Err(e);
         }
     };
-    let moved = match copy(src, dst, begin, &receive["receiveId"], cwd, name).await {
+    let moved = match copy(
+        src,
+        dst,
+        begin,
+        receive.get("receiveId").unwrap_or(&Value::Null),
+        cwd,
+        name,
+    )
+    .await
+    {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
@@ -122,7 +166,7 @@ pub(super) async fn finish_move(
         },
     };
     let mut to_meta = to_meta;
-    to_meta.set("sessionId", moved["sessionId"].clone());
+    to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
     src.request(
         "_acpmux/transfer_commit",
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta}),

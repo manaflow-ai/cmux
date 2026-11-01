@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -31,78 +32,184 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"0" * 32
 GIF = b"GIF89a" + b"0" * 32
 
-NOT_FOUND = "gh: Not Found (HTTP 404)"
-
-
 def written(directory, name, data=b"media"):
     path = Path(directory) / name
     path.write_bytes(data)
     return path
 
 
-class FakeGh:
-    """Stands in for `gh`, recording the calls and the decoded bodies.
+def git(cwd, *args, input=None):
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                          input=input).stdout
 
-    It answers the four routes the script uses (a branch read, a pull request
-    read, a contents read, a contents PUT) the way GitHub does, including the
-    422 for a write over an existing file with no sha: a fake that accepts that
-    write lets a real bug through.
-    """
 
-    def __init__(self, existing=(), fail=(), missing_branch=False, missing_pr=False,
-                 read_error=None, conflict_once=(), comment_fails=False, put_errors=None):
-        self.existing = {path: "abc123" for path in existing}
-        self.fail = set(fail)
-        self.missing_branch = missing_branch
-        self.missing_pr = missing_pr
-        self.read_error = read_error
-        self.conflict_once = set(conflict_once)
-        self.comment_fails = comment_fails
-        # target -> replies the next PUTs get before one succeeds (a busy media branch)
-        self.put_errors = {target: list(errors) for target, errors in (put_errors or {}).items()}
+class Origin:
+    """A bare repository standing in for GitHub: a pr-media branch, `refs/pull/N/head` for open pull requests,
+    and partial-clone support (a `file://` URL goes through the same transport as GitHub's). Every test that
+    reads or writes the branch gets one, with its own cache dir and with the host's git config shut out."""
+
+    def __init__(self, case, existing=(), pulls=(7, 8, 3, 5, 15277), branch="pr-media"):
+        temporary = tempfile.TemporaryDirectory(prefix="pr-media-origin-")
+        case.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        empty = self.root / "gitconfig"
+        empty.write_text("")
+        patcher = mock.patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": str(empty), "GIT_CONFIG_NOSYSTEM": "1",
+            "PR_MEDIA_REMOTE_URL": f"file://{self.root / 'origin.git'}",
+            "PR_MEDIA_CACHE_DIR": str(self.root / "cache")})
+        patcher.start()
+        case.addCleanup(patcher.stop)
+        for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+            if name in os.environ:
+                token = mock.patch.dict(os.environ)
+                token.start()
+                case.addCleanup(token.stop)
+                del os.environ[name]
+        MODULE._BRANCHES.clear()
+        case.addCleanup(MODULE._BRANCHES.clear)
+        MODULE._GIT_FAILED.clear()
+        case.addCleanup(MODULE._GIT_FAILED.clear)
+        self.bare = self.root / "origin.git"
+        # GitHub's GraphQL API over the same repository, for the fallback when git can't reach it.
+        self.api = FakeApi(self.bare, branch)
+        api = mock.patch.object(MODULE, "API_RUNNER", self.api)
+        api.start()
+        case.addCleanup(api.stop)
+        subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
+        git(self.bare, "config", "uploadpack.allowFilter", "true")
+        git(self.bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+        self.writer = self.root / "writer"
+        subprocess.run(["git", "init", "-q", "-b", branch, str(self.writer)], check=True)
+        for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+            git(self.writer, "config", key, value)
+        git(self.writer, "remote", "add", "origin", str(self.bare))
+        self.branch = branch
+        self.write({"README.md": b"media only\n", **{path: b"old " + path.encode() for path in existing}})
+        tip = git(self.writer, "rev-parse", "HEAD").strip()
+        for number in pulls:
+            git(self.bare, "update-ref", f"refs/pull/{number}/head", tip)
+
+    def write(self, files):
+        """Another uploader's commit, pushed to the origin."""
+        for path, data in files.items():
+            (self.writer / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.writer / path).write_bytes(data)
+            git(self.writer, "add", path)
+        git(self.writer, "commit", "-q", "-m", "write " + ", ".join(files))
+        git(self.writer, "push", "-q", "origin", f"HEAD:refs/heads/{self.branch}")
+
+    def files(self):
+        """Path -> bytes on the origin's branch now."""
+        listed = git(self.bare, "ls-tree", "-r", "-z", self.branch).split("\0")
+        found = {}
+        for line in filter(None, listed):
+            meta, _, path = line.partition("\t")
+            found[path] = subprocess.run(["git", "-C", str(self.bare), "cat-file", "blob", meta.split()[2]],
+                                         check=True, capture_output=True).stdout
+        return found
+
+    def blob(self, path):
+        return git(self.bare, "rev-parse", f"{self.branch}:{path}").strip()
+
+    def commits(self):
+        return int(git(self.bare, "rev-list", "--count", self.branch))
+
+    def hook(self, script):
+        """A pre-receive hook on the origin (a refusal, or a branch that keeps moving)."""
+        hook = self.bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\n" + script)
+        hook.chmod(0o755)
+
+
+class FakeApi:
+    """Stands in for `gh api graphql` over the Origin's bare repository: the ref and object reads and
+    createCommitOnBranch that ApiBranch makes when git can't reach the remote. Anything else, a REST call
+    included, fails the test. `fails` makes every call fail as a host with no gh login would."""
+
+    def __init__(self, bare, branch):
+        self.bare, self.branch = Path(bare), branch
         self.calls = []
-        self.puts = {}
+        self.fails = False
+
+    def __call__(self, argv, input=None, **kwargs):
+        if argv != ["gh", "api", "graphql", "--input", "-"]:
+            raise AssertionError(f"only `gh api graphql --input -` may run, ran {argv}")
+        assert kwargs["env"]["GLAEDA_GH_CACHE_TTL"] == "0"
+        request = json.loads(input)
+        self.calls.append(request)
+        if self.fails:
+            return SimpleNamespace(returncode=1, stdout="", stderr="gh: To get started with GitHub CLI, run: gh auth login")
+        query, variables = request["query"], request["variables"]
+        if "createCommitOnBranch" in query:
+            data, errors = self.commit(variables["input"])
+        elif "pullRequest(" in query:
+            found = self.rev(f"refs/pull/{variables['number']}/head")
+            data = {"repository": {"pullRequest": {"number": variables["number"]} if found else None}}
+            errors = [] if found else [{"type": "NOT_FOUND", "message": "Could not resolve to a PullRequest"}]
+        elif "ref(qualifiedName" in query:
+            tip = self.rev(variables["ref"])
+            data, errors = {"repository": {"ref": {"target": {"oid": tip}} if tip else None}}, []
+        elif "object(expression" in query:
+            oid = self.rev(variables["expression"])
+            kind = self.git("cat-file", "-t", oid).stdout.strip() if oid else ""
+            data = {"repository": {"object": {"__typename": kind.capitalize(), "oid": oid} if oid else None}}
+            errors = []
+        else:
+            raise AssertionError(f"unexpected query {query}")
+        answer = {"data": data, **({"errors": errors} if errors else {})}
+        return SimpleNamespace(returncode=1 if errors else 0, stdout=json.dumps(answer), stderr="")
+
+    def git(self, *args, input=None, env=None):
+        return subprocess.run(["git", "-C", str(self.bare), *args], capture_output=True, input=input,
+                              text=not isinstance(input, bytes), env={**os.environ, **(env or {})})
+
+    def rev(self, name):
+        done = self.git("rev-parse", "--verify", "--quiet", name)
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    def commit(self, given):
+        ref = f"refs/heads/{given['branch']['branchName']}"
+        tip = self.rev(ref)
+        if tip != given["expectedHeadOid"]:
+            return None, [{"message": f'Expected branch to point to "{given["expectedHeadOid"]}" but it did not. '
+                                      "Pull and try again."}]
+        with tempfile.TemporaryDirectory() as scratch:
+            index = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
+            assert self.git("read-tree", tip, env=index).returncode == 0
+            for added in given["fileChanges"]["additions"]:
+                blob = subprocess.run(["git", "-C", str(self.bare), "hash-object", "-w", "--stdin"],
+                                      input=base64.b64decode(added["contents"]), capture_output=True,
+                                      check=True).stdout.decode().strip()
+                assert self.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{added['path']}",
+                                env=index).returncode == 0
+            tree = self.git("write-tree", env=index).stdout.strip()
+        commit = self.git("-c", "user.name=api", "-c", "user.email=api@example.com", "commit-tree", tree,
+                          "-p", tip, "-m", given["message"]["headline"]).stdout.strip()
+        assert self.git("update-ref", ref, commit, tip).returncode == 0
+        return {"createCommitOnBranch": {"commit": {"oid": commit}}}, []
+
+
+class FakeGh:
+    """Stands in for `gh` as main()'s runner, which only `--comment` uses (the branch is read and written with
+    git, or through FakeApi when git can't reach it). Any other gh call fails the test."""
+
+    def __init__(self, comment_fails=False):
+        self.comment_fails = comment_fails
+        self.calls = []
         self.comments = []
 
     def __call__(self, argv, **kwargs):
         self.calls.append(argv)
-        if argv[:2] == ["gh", "pr"]:
+        if argv[:3] == ["gh", "pr", "comment"]:
             if self.comment_fails:
                 return self.reply(1, "", "HTTP 403: Resource not accessible")
             self.comments.append(kwargs.get("input", ""))
             return self.reply(0, "")
-        if "--method" in argv and "PUT" in argv:
-            return self.put(argv, kwargs)
-        if self.read_error:
-            return self.reply(1, "", self.read_error)
-        joined = " ".join(argv)
-        if "/branches/" in joined:
-            if self.missing_branch:
-                return self.reply(1, "", NOT_FOUND)
-            return self.reply(0, json.dumps({"name": argv[-1].rsplit("/", 1)[-1]}))
-        if "/pulls/" in joined:
-            if self.missing_pr:
-                return self.reply(1, "", NOT_FOUND)
-            return self.reply(0, json.dumps({"number": int(argv[-1].rsplit("/", 1)[-1])}))
-        path = urllib.parse.unquote(argv[-1].split("/contents/", 1)[-1].split("?")[0])
-        sha = self.existing.get(path)
-        return self.reply(0, json.dumps({"sha": sha})) if sha else self.reply(1, "", NOT_FOUND)
-
-    def put(self, argv, kwargs):
-        target = urllib.parse.unquote(argv[argv.index("--method") + 2].split("/contents/", 1)[-1])
-        body = json.loads(kwargs["input"])
-        if target in self.fail:
-            return self.reply(1, "", "422 could not write")
-        if self.put_errors.get(target):
-            return self.reply(1, "", self.put_errors[target].pop(0))
-        if target in self.conflict_once:
-            self.conflict_once.discard(target)
-            return self.reply(1, "", "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123")
-        if target in self.existing and "sha" not in body:
-            return self.reply(1, "", '422 Unprocessable Entity: "sha" wasn\'t supplied')
-        self.puts[target] = body
-        self.existing[target] = "newsha"
-        return self.reply(0, json.dumps({"content": {"path": target}}))
+        if argv[0] == "ffprobe":
+            # convert() reads the clip's rate for the gif; an unreadable rate starts at the default.
+            return self.reply(0, "")
+        raise AssertionError(f"only `gh pr comment` may run, ran {argv}")
 
     def reply(self, code, out, err=""):
         return SimpleNamespace(returncode=code, stdout=out, stderr=err)
@@ -269,6 +376,54 @@ class GifCommandTests(unittest.TestCase):
         self.assertEqual(argv[-1], "out.gif")
 
 
+class GifRateTests(unittest.TestCase):
+    """Leo, 2026-10-31, on 4 and then 10-15 fps previews: "WHY ... IS IT NOT 30/60/120"."""
+
+    def test_the_default_is_smooth(self):
+        self.assertGreaterEqual(MODULE.DEFAULT_GIF_FPS, 30)
+        self.assertEqual(MODULE.gif_attempts((900, 720, 558))[0], (30, 900))
+
+    def test_a_60_fps_clip_starts_at_the_fastest_rate_a_gif_plays(self):
+        # Delays are hundredths of a second and browsers play 1/100 s as 1/10 s: 50 fps is the real ceiling.
+        self.assertEqual(MODULE.GIF_MAX_FPS, 50)
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=60.0)[0], (50, 900))
+        self.assertEqual(MODULE.gif_attempts((900,), fps=120)[0], (50, 900))
+
+    def test_it_gets_narrower_before_it_gets_choppier(self):
+        attempts = MODULE.gif_attempts((900, 720, 558), source_rate=60.0)
+        self.assertEqual(attempts[:4], [(50, 900), (30, 900), (30, 720), (30, 558)])
+        self.assertEqual(attempts[4:], [(24, 558), (20, 558), (15, 558), (12, 558), (10, 558)])
+
+    def test_a_slow_clip_never_gets_repeated_frames(self):
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=2.0), [(2, 900)])
+        self.assertTrue(all(rate <= 24 for rate, _ in MODULE.gif_attempts((900,), source_rate=23.976)))
+
+    def test_a_width_or_rate_under_one_is_refused_up_front(self):
+        for flags in (["--gif-width", "0"], ["--gif-width", "-5"], ["--gif-fps", "0"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                MODULE.parse_args(["--pr", "1", "clip.mp4", *flags])
+        self.assertIsNone(MODULE.parse_args(["--pr", "1", "clip.mp4"]).gif_fps)
+
+    def test_widths_step_down_from_the_requested_one(self):
+        self.assertEqual(MODULE.gif_widths(900), (900, 720, 558))
+
+    def test_the_source_rate_is_read_from_ffprobe(self):
+        def runner(stdout):
+            return lambda argv, **kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffprobe"):
+            read = lambda out: MODULE.source_fps(Path("c.mp4"), runner(out))
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"60/1","avg_frame_rate":"30/1"}]}'), 60.0)
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"48/1"}]}'), 48.0)
+            # A variable-rate capture's average undercounts it; it never caps the gif below the default.
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"7/1"}]}'),
+                             float(MODULE.DEFAULT_GIF_FPS))
+            self.assertIsNone(read(""))
+            self.assertIsNone(read('{"streams":[]}'))
+        with mock.patch.object(MODULE.shutil, "which", return_value=None):
+            self.assertIsNone(MODULE.source_fps(Path("c.mp4")))
+
+
 class ConvertTests(unittest.TestCase):
     """`convert` itself, with ffmpeg faked: it decides whether a gif is usable."""
 
@@ -335,6 +490,25 @@ class ConvertTests(unittest.TestCase):
                 MODULE.convert(self.upload(source), Path(scratch), 10, 900, runner=runner)
             self.assertIn("no gif", str(raised.exception))
 
+    def test_a_gif_over_the_limit_is_made_again_smaller_instead_of_refused(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            source = written(scratch, "clip.mp4", MP4)
+            into = Path(scratch) / "out"
+            into.mkdir()
+            calls = []
+
+            def runner(argv, **kwargs):
+                if argv[0] == "ffprobe":
+                    return SimpleNamespace(returncode=0, stdout='{"streams":[{"r_frame_rate":"60/1"}]}', stderr="")
+                calls.append(argv[argv.index("-filter_complex") + 1].split(",")[0])
+                Path(argv[-1]).write_bytes(GIF + (b"0" * 4096 if len(calls) < 3 else b""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with self.ffmpeg(runner):
+                made = MODULE.convert(self.upload(source), into, None, 900, runner=runner, limit=1024)
+            self.assertEqual(calls, ["fps=50", "fps=30", "fps=30"])
+            self.assertEqual(made.read_bytes(), GIF)
+
     def test_a_missing_ffmpeg_names_the_flag_that_skips_it(self):
         with tempfile.TemporaryDirectory() as scratch:
             source = written(scratch, "clip.mp4", MP4)
@@ -377,117 +551,459 @@ class SizeTests(unittest.TestCase):
 
 
 class ReadTests(unittest.TestCase):
-    """A failed `gh` read is a failure, not an absence."""
+    """The branch, the pull request and what is already uploaded are read with git, never the REST API: the
+    host's gh guard refuses `contents/` reads and REST reads with no GraphQL equivalent."""
 
-    def test_a_read_that_is_not_a_404_surfaces_what_gh_said(self):
-        gh = FakeGh(read_error="gh: Bad credentials (HTTP 401)")
+    def test_a_missing_branch_is_the_one_case_that_says_create_it(self):
+        Origin(self, branch="other")
         with self.assertRaises(MODULE.MediaError) as raised:
-            MODULE.require_branch("o/r", "pr-media", runner=gh)
-        message = str(raised.exception)
-        self.assertIn("HTTP 401", message)
-        self.assertIn("gh auth status", message)
-        # The one thing it must never say: that the shared branch is missing.
-        self.assertNotIn("create it", message)
-
-    def test_a_404_on_the_branch_is_the_one_case_that_says_create_it(self):
-        gh = FakeGh(missing_branch=True)
-        with self.assertRaises(MODULE.MediaError) as raised:
-            MODULE.require_branch("o/r", "pr-media", runner=gh)
+            MODULE.require_branch("o/r", "pr-media")
         self.assertIn("create it", str(raised.exception))
-        self.assertFalse([argv for argv in gh.calls if "PUT" in argv])
 
-    def test_an_existing_branch_is_accepted_and_read_with_a_quoted_name(self):
-        gh = FakeGh()
-        MODULE.require_branch("o/r", "pr media/2", runner=gh)
-        self.assertIn("pr%20media%2F2", " ".join(gh.calls[0]))
-
-    def test_a_sha_read_that_fails_for_another_reason_does_not_look_absent(self):
-        gh = FakeGh(read_error="gh: Forbidden (HTTP 403)")
+    def test_an_unreachable_remote_with_no_api_either_says_both_and_never_says_create_it(self):
+        origin = Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        origin.api.fails = True
         with self.assertRaises(MODULE.MediaError) as raised:
-            MODULE.existing_sha("o/r", "pr-media", "1/shot.png", runner=gh)
-        self.assertIn("HTTP 403", str(raised.exception))
+            MODULE.require_branch("o/r", "pr-media")
+        self.assertIn("ls-remote", str(raised.exception))
+        self.assertIn("gh auth login", str(raised.exception))
+        # The one thing it must never say: that the shared branch is missing.
+        self.assertNotIn("create it", str(raised.exception))
+
+    def test_when_git_cannot_reach_the_remote_the_reads_go_through_graphql(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.require_pull_request(7, "o/r")
+        with self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.require_pull_request(999999, "o/r")
+        self.assertIn("999999", str(raised.exception))
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/shot.png"), origin.blob("12/shot.png"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/other.png"))
+        # Every read is GraphQL; none asks for a file's content.
+        self.assertTrue(origin.api.calls)
+        self.assertFalse([call for call in origin.api.calls if "text" in call["query"] or "contents" in call["query"]])
+
+    def test_git_is_tried_once_per_run_then_the_api_answers_at_once(self):
+        origin = Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        tried = []
+        real = MODULE.MediaBranch.ls_remote
+
+        def ls_remote(store, ref):
+            tried.append(ref)
+            return real(store, ref)
+
+        with mock.patch.object(MODULE.MediaBranch, "ls_remote", ls_remote):
+            MODULE.require_branch("o/r", "pr-media")
+            MODULE.require_pull_request(7, "o/r")
+        self.assertEqual(tried, ["refs/heads/pr-media"])
+
+    def test_the_api_is_never_asked_while_git_works(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.require_pull_request(7, "o/r")
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        self.assertEqual(origin.api.calls, [])
+
+    def test_an_existing_branch_and_pull_request_are_accepted(self):
+        Origin(self)
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.require_pull_request(7, "o/r")
 
     def test_a_pull_request_that_does_not_exist_is_named(self):
-        gh = FakeGh(missing_pr=True)
+        Origin(self)
         with self.assertRaises(MODULE.MediaError) as raised:
-            MODULE.require_pull_request(999999, "o/r", runner=gh)
+            MODULE.require_pull_request(999999, "o/r")
         self.assertIn("999999", str(raised.exception))
         self.assertIn("o/r", str(raised.exception))
 
+    def test_a_file_on_the_branch_gives_the_blob_sha_github_reports(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/shot.png"), origin.blob("12/shot.png"))
+
+    def test_a_missing_path_or_a_folder_is_absent(self):
+        Origin(self, existing=["12/shot.png"])
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/other.png"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "99/shot.png"))
+
+    def test_the_cache_clone_is_bare_shallow_blobless_and_reused(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        clone = origin.root / "cache" / "o_r.git"
+        self.assertEqual(git(clone, "rev-parse", "--is-bare-repository").strip(), "true")
+        self.assertEqual(git(clone, "rev-parse", "--is-shallow-repository").strip(), "true")
+        self.assertEqual(git(clone, "config", "remote.origin.partialclonefilter").strip(), "blob:none")
+        # The branch's media never comes down: its blob is not in the clone.
+        missing = subprocess.run(["git", "-C", str(clone), "cat-file", "-e", origin.blob("12/shot.png")],
+                                 env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
+        self.assertNotEqual(missing.returncode, 0)
+        # A later run on the host reuses the clone and sees what landed since.
+        origin.write({"12/late.png": b"late"})
+        MODULE._BRANCHES.clear()
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/late.png"), origin.blob("12/late.png"))
+
+    def test_a_path_that_climbs_out_is_refused(self):
+        Origin(self)
+        for path in ("../x.png", "a//b.png", "/abs.png", ""):
+            with self.subTest(path=path), self.assertRaises(MODULE.MediaError):
+                MODULE.existing_sha("o/r", "pr-media", path)
+
 
 class UploadTests(unittest.TestCase):
-    def test_a_new_file_is_created_and_an_existing_one_carries_its_sha(self):
+    def test_a_new_file_lands_and_an_existing_one_is_replaced_in_one_commit_each(self):
+        origin = Origin(self, existing=["15277/shot.png"])
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(existing={"15277/shot.png"})
-            MODULE.put_file("o/r", "pr-media", "15277/shot.png", shot, "msg", runner=gh)
-            body = gh.puts["15277/shot.png"]
-            self.assertEqual(body["sha"], "abc123")
-            self.assertEqual(base64.b64decode(body["content"]), PNG)
-            self.assertEqual(body["branch"], "pr-media")
+            before = origin.commits()
+            MODULE.put_file("o/r", "pr-media", "15277/shot.png", shot, "msg", checked=True)
+            MODULE.put_file("o/r", "pr-media", "15277/new.png", shot, "msg", checked=True)
+        files = origin.files()
+        self.assertEqual(files["15277/shot.png"], PNG)
+        self.assertEqual(files["15277/new.png"], PNG)
+        self.assertEqual(files["README.md"], b"media only\n")  # nothing else on the branch is touched
+        self.assertEqual(origin.commits(), before + 2)
 
-            fresh = FakeGh()
-            MODULE.put_file("o/r", "pr-media", "15277/new.png", shot, "msg", runner=fresh)
-            self.assertNotIn("sha", fresh.puts["15277/new.png"])
-
-    def test_the_body_goes_in_on_stdin_rather_than_the_argument_list(self):
+    def test_a_batch_lands_as_one_commit_and_deep_paths_get_their_folders(self):
+        origin = Origin(self, existing=["9/abc/next-tour/keep.png"])
         with tempfile.TemporaryDirectory() as scratch:
-            shot = written(scratch, "shot.png", b"x" * 4096)
-            gh = FakeGh()
-            MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-            put = [argv for argv in gh.calls if "PUT" in argv][0]
-            self.assertIn("--input", put)
-            self.assertEqual(put[put.index("--input") + 1], "-")
-            self.assertFalse(any(len(argument) > 300 for argument in put))
+            first, second = written(scratch, "a.png", PNG), written(scratch, "b.gif", GIF)
+            before = origin.commits()
+            MODULE.put_files("o/r", "pr-media", {"9/abc/next-tour/a.png": first, "10/b.gif": second}, "batch",
+                             checked=True)
+        files = origin.files()
+        self.assertEqual((files["9/abc/next-tour/a.png"], files["10/b.gif"]), (PNG, GIF))
+        self.assertEqual(files["9/abc/next-tour/keep.png"], b"old 9/abc/next-tour/keep.png")
+        self.assertEqual(origin.commits(), before + 1)
 
-    def test_a_refused_write_fails_the_run_with_what_github_said(self):
-        with tempfile.TemporaryDirectory() as scratch:
-            shot = written(scratch, "shot.png")
-            gh = FakeGh(fail={"1/shot.png"})
-            with self.assertRaises(MODULE.MediaError) as raised:
-                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-            self.assertIn("could not write", str(raised.exception))
+    def test_a_write_that_lost_a_race_is_built_again_on_the_new_tip(self):
+        # Two sessions uploading to the branch at once: the rejected push is the branch moving under us,
+        # not a reason to lose the clip, nor to drop the other session's.
+        origin = Origin(self)
+        real_fetch = MODULE.MediaBranch.fetch
+        raced = []
 
-    def test_a_write_that_lost_a_race_is_retried_with_the_sha_it_read_again(self):
-        # Two sessions uploading to the branch at once: the 409 is the branch
-        # moving under us, not a reason to lose the clip.
-        with tempfile.TemporaryDirectory() as scratch:
-            shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(conflict_once={"1/shot.png"})
-            MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-            self.assertEqual(len([argv for argv in gh.calls if "PUT" in argv]), 2)
-            self.assertEqual(base64.b64decode(gh.puts["1/shot.png"]["content"]), PNG)
+        def fetch(store):
+            tip = real_fetch(store)
+            if not raced:
+                raced.append(tip)
+                origin.write({"7/theirs.png": b"theirs"})
+            return tip
 
-    def test_a_busy_branch_and_a_github_5xx_are_retried_until_the_write_lands(self):
-        # The gallery publish job uploads many thumbnails while other PRs do the
-        # same: two lost races in a row, or a 502, failed the whole job.
-        conflict = "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123"
-        for errors in ([conflict, conflict], ["gh: Server Error (HTTP 502)"],
-                       ["gh: Something went wrong on our side (HTTP 500)", conflict]):
-            with self.subTest(errors=errors), tempfile.TemporaryDirectory() as scratch, \
-                 mock.patch("time.sleep"):
-                shot = written(scratch, "shot.png", PNG)
-                gh = FakeGh(put_errors={"1/shot.png": errors})
-                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-                self.assertEqual(len([argv for argv in gh.calls if "PUT" in argv]), len(errors) + 1)
-                self.assertEqual(base64.b64decode(gh.puts["1/shot.png"]["content"]), PNG)
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
+                mock.patch.object(MODULE.time, "sleep") as slept:
+            MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
+        files = origin.files()
+        self.assertEqual((files["7/mine.png"], files["7/theirs.png"]), (PNG, b"theirs"))
+        self.assertGreaterEqual(slept.call_count, 1)  # at least the one lost race
 
-    def test_a_branch_that_stays_busy_still_fails_after_a_bounded_number_of_writes(self):
-        conflict = "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123"
+    def test_a_path_taken_after_the_check_is_never_replaced_without_force(self):
+        # Review of #28265: a run that saw 7/shot.png free, then lost the path to another uploader before its
+        # push, must not silently replace that upload. The check holds on the tip the commit is built on.
+        origin = Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(put_errors={"1/shot.png": [conflict] * 50})
-            with self.assertRaises(MODULE.MediaError), mock.patch("time.sleep"):
-                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-            self.assertLessEqual(len([argv for argv in gh.calls if "PUT" in argv]), 6)
+            real_put = MODULE.MediaBranch.put
 
-    def test_a_conflict_that_keeps_happening_still_fails_rather_than_looping(self):
+            def put(store, files, message, expect=None):
+                origin.write({"7/shot.png": b"theirs"})  # lands after main() checked, before the commit
+                return real_put(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.MediaBranch, "put", put), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 1)
+        self.assertIn("7/shot.png changed on pr-media", err.getvalue())
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_path_taken_during_a_lost_race_is_caught_on_the_rebuilt_tip(self):
+        origin = Origin(self)
+        real_fetch = MODULE.MediaBranch.fetch
+        fetches = []
+
+        def fetch(store):
+            tip = real_fetch(store)
+            fetches.append(tip)
+            if len(fetches) == 1:
+                origin.write({"7/shot.png": b"theirs"})  # the first push now loses, and the path is taken
+            return tip
+
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
+                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.put_files("o/r", "pr-media", {"7/shot.png": written(scratch, "shot.png", PNG)}, "m",
+                             checked=True, expect={"7/shot.png": None})
+        self.assertIn("changed on pr-media", str(raised.exception))
+        self.assertEqual(len(fetches), 2)
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_force_replaces_whatever_is_there_when_the_commit_is_built(self):
+        origin = Origin(self, existing=["7/shot.png"])
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(fail={"1/shot.png"}, conflict_once={"1/shot.png"})
-            with self.assertRaises(MODULE.MediaError):
-                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
-            self.assertLessEqual(len([argv for argv in gh.calls if "PUT" in argv]), 3)
+            real_put = MODULE.MediaBranch.put
+
+            def put(store, files, message, expect=None):
+                self.assertIsNone(expect)
+                origin.write({"7/shot.png": b"newer theirs"})
+                return real_put(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.MediaBranch, "put", put), contextlib.redirect_stdout(io.StringIO()):
+                code = MODULE.main(["--pr", "7", "--force", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 0)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
+    def test_only_the_cli_refuses_an_existing_path_and_put_file_replaces_it_as_on_base(self):
+        # The no-replace rule is main()'s (without --force); put_file, which publish.py and reel.py call,
+        # replaces the file, as the contents-API writer did by sending the existing sha with its PUT.
+        origin = Origin(self, existing=["7/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+            self.assertEqual(code, 1)
+            self.assertIn("--force", err.getvalue())
+            self.assertEqual(origin.files()["7/shot.png"], b"old 7/shot.png")
+            MODULE.put_file("o/r", "pr-media", "7/shot.png", shot, "m", checked=True)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
+    def test_a_refused_push_fails_with_what_the_remote_said_and_is_not_retried(self):
+        origin = Origin(self)
+        origin.hook("echo 'protected branch: no pushes here' >&2\nexit 1\n")
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause") as slept, \
+                self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m", checked=True)
+        self.assertIn("protected branch", str(raised.exception))
+        slept.assert_not_called()
+        # The remote answered and refused: the API would be refused the same way, so it is not asked.
+        self.assertEqual(origin.api.calls, [])
+        self.assertNotIn("1/shot.png", origin.files())
+
+    def test_a_branch_that_stays_busy_still_fails_after_a_bounded_number_of_pushes(self):
+        origin = Origin(self)
+        count = origin.root / "pushes"
+        origin.hook(f"echo x >> '{count}'\necho 'non-fast-forward' >&2\nexit 1\n")
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause"), \
+                self.assertRaises(MODULE.MediaError):
+            MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m", checked=True)
+        self.assertEqual(len(count.read_text().split()), MODULE.PUSH_ATTEMPTS)
+        # A race lost every time is not a transport failure: the API does not get a go at it.
+        self.assertEqual(origin.api.calls, [])
+
+    def test_a_folder_is_never_overwritten_by_a_file(self):
+        origin = Origin(self, existing=["1/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch, self.assertRaises(MODULE.MediaError):
+            MODULE.put_file("o/r", "pr-media", "1", written(scratch, "shot.png", PNG), "m", checked=True)
+        self.assertIn("1/shot.png", origin.files())
+
+    def test_in_ci_the_token_from_the_environment_authenticates_the_push(self):
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}):
+            args = MODULE.credential_args()
+        self.assertEqual(args[0::2], ["-c", "-c"])
+        self.assertEqual(args[1], "credential.https://github.com.helper=")
+        self.assertTrue(args[3].startswith("credential.https://github.com.helper=!"))
+        self.assertNotIn("t0ken", " ".join(args))  # read from the environment by the helper, never on a command line
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(MODULE.credential_args(), [])
+
+    def test_the_token_wins_over_a_helper_the_host_already_has(self):
+        # Review of #28265: the token helper was appended after the host's own, and git stops at the first
+        # helper that answers, so a cached account (one without push access, say) was used instead of GH_TOKEN.
+        cached = '!f() { test "$1" = get || exit 0; echo username=cached; echo password=CACHED; }; f'
+        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1",
+               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            args = MODULE.credential_args()
+            filled = subprocess.run(["git", *args, "credential", "fill"], input="url=https://github.com/o/r.git\n\n",
+                                    capture_output=True, text=True, check=True).stdout
+        self.assertIn("username=x-access-token\n", filled)
+        self.assertIn("password=t0ken\n", filled)
+        self.assertNotIn("CACHED", filled)
+
+    def test_a_credential_in_a_remote_url_never_reaches_git_or_an_error(self):
+        # Review of #28265: an origin like https://user:PAT@github.com/... was passed to ls-remote and
+        # printed in its error. The userinfo is dropped before git runs, and any URL in an error is redacted.
+        self.assertEqual(MODULE.without_userinfo("https://user:DUMMY_PAT@github.com/o/r.git"),
+                         "https://github.com/o/r.git")
+        self.assertEqual(MODULE.without_userinfo("https://x-access-token@github.com/o/r"), "https://github.com/o/r")
+        self.assertEqual(MODULE.without_userinfo("git@github.com:o/r.git"), "git@github.com:o/r.git")
+        self.assertNotIn("DUMMY_PAT", MODULE.redact("fatal: unable to access 'https://u:DUMMY_PAT@github.com/o/r/'"))
+        Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = "https://u:DUMMY_PAT@127.0.0.1:9/o/r.git"
+        store = MODULE.MediaBranch("o/r", "pr-media")
+        self.assertNotIn("DUMMY_PAT", store.url)
+        seen = []
+        real_run = subprocess.run
+
+        def run(argv, *args, **kwargs):
+            seen.append(" ".join(map(str, argv)))
+            return real_run(argv, *args, **kwargs)
+
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=run), \
+                self.assertRaises(MODULE.MediaError) as raised:
+            store.ls_remote("refs/heads/pr-media")
+        self.assertNotIn("DUMMY_PAT", str(raised.exception))
+        self.assertFalse([call for call in seen if "DUMMY_PAT" in call])
+
+    def test_a_credential_only_in_the_origin_url_still_authenticates_and_is_in_no_arguments(self):
+        # Review of #28265: dropping the URL's credential broke a host whose only credential was in that URL;
+        # rewriting the URL to carry it put it in git-remote-https's arguments. Git gets it from a credential
+        # helper that reads this child's environment, scoped to the clean URL.
+        Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = "https://u:DUMMY%40PAT@github.com/o/r.git"
+        store = MODULE.MediaBranch("o/r", "pr-media")
+        self.assertEqual(store.url, "https://github.com/o/r.git")
+        env = store.env()
+        self.assertNotIn("DUMMY", " ".join(value for key, value in env.items() if key.startswith("GIT_CONFIG")))
+        # A real request names the host only (no credential.useHttpPath); one with the path must match too.
+        for asked in ("url=https://github.com\n\n", "url=https://github.com/o/r.git\n\n"):
+            filled = subprocess.run(["git", "credential", "fill"], input=asked, capture_output=True, text=True,
+                                    env=env, check=True).stdout
+            self.assertIn("username=u\n", filled, asked)
+            self.assertIn("password=DUMMY@PAT\n", filled, asked)
+        # Any other host gets nothing from it.
+        other = subprocess.run(["git", "credential", "fill"], input="url=https://example.com/x\n\n",
+                               capture_output=True, text=True, env=env)
+        self.assertNotIn("DUMMY", other.stdout)
+        # The trace of a real fetch shows the secret in no process's arguments.
+        traced = subprocess.run(["git", "ls-remote", "https://127.0.0.1:9/o/r.git"], capture_output=True, text=True,
+                                env={**MODULE.MediaBranch("o/r", "pr-media",
+                                                          url="https://u:DUMMY_PAT@127.0.0.1:9/o/r.git").env(),
+                                     "GIT_TRACE": "1"}, timeout=60)
+        self.assertNotIn("DUMMY_PAT", traced.stderr)
+        store.dir.parent.mkdir(parents=True, exist_ok=True)
+        store.ensure_clone()
+        self.assertNotIn("DUMMY", (store.dir / "config").read_text())
+        token_only = MODULE.url_credential_env({}, "https://TOK@github.com/o/r.git", "https://github.com/o/r.git")
+        self.assertEqual((token_only["PR_MEDIA_URL_USERNAME"], token_only["PR_MEDIA_URL_PASSWORD"]),
+                         ("x-access-token", "TOK"))
+
+    def test_a_name_with_a_carriage_return_survives_an_unrelated_upload_byte_for_byte(self):
+        # Review of #28265: text-mode ls-tree turned "a\rb" into "a\nb", so with both on the branch an
+        # unrelated upload rewrote the tree with one of them gone.
+        origin = Origin(self)
+        for name in ("9/a\rb.png", "9/a\nb.png"):
+            (origin.writer / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin.writer / name).write_bytes(name.encode())
+            git(origin.writer, "add", "--", name)
+        git(origin.writer, "commit", "-q", "-m", "odd names")
+        git(origin.writer, "push", "-q", "origin", "HEAD:refs/heads/pr-media")
+
+        def names():
+            listed = subprocess.run(["git", "-C", str(origin.bare), "ls-tree", "-z", "--name-only", "pr-media:9"],
+                                    check=True, capture_output=True).stdout
+            return sorted(filter(None, listed.split(b"\0")))
+
+        before = names()
+        self.assertEqual(len(before), 2)
+        with tempfile.TemporaryDirectory() as scratch:
+            MODULE.put_file("o/r", "pr-media", "9/new.png", written(scratch, "new.png", PNG), "m", checked=True)
+        self.assertEqual(names(), sorted([*before, b"new.png"]))
+
+    def test_the_remote_is_a_local_clones_origin_when_there_is_one(self):
+        for url in ("git@github.com:o/r.git", "https://github.com/O/R", "https://x-access-token@github.com/o/r.git",
+                    "ssh://git@github.com/o/r.git"):
+            self.assertTrue(MODULE.origin_is(url, "o/r"), url)
+        for url in ("git@github.com:o/r2.git", "https://notgithub.com/o/r", "/srv/mirrors/github.com/o/r",
+                    "https://gitlab.com/o/r"):
+            self.assertFalse(MODULE.origin_is(url, "o/r"), url)
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HOME": home}), \
+                mock.patch.object(MODULE.Path, "cwd", return_value=Path(home)):
+            os.environ.pop("PR_MEDIA_REMOTE_URL", None)
+            self.assertEqual(MODULE.remote_url("o/r"), "https://github.com/o/r.git")
+            clone = Path(home) / "Projects" / "cmux"
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            git(clone, "remote", "add", "origin", "git@github.com:o/r.git")
+            self.assertEqual(MODULE.remote_url("o/r"), "git@github.com:o/r.git")
+
+
+class ApiFallbackUploadTests(unittest.TestCase):
+    """When git can't reach or authenticate to the remote, the batch still lands as one commit through
+    GraphQL's createCommitOnBranch, with the same no-replace rule."""
+
+    def unreachable(self, **options):
+        origin = Origin(self, **options)
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        return origin
+
+    def test_a_batch_lands_as_one_commit_through_the_api(self):
+        origin = self.unreachable()
+        before = origin.commits()
+        with tempfile.TemporaryDirectory() as scratch:
+            first, second = written(scratch, "a.png", PNG), written(scratch, "b.gif", GIF)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = MODULE.main(["--pr", "7", str(first), str(second)], runner=FakeGh())
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(origin.commits(), before + 1)
+        self.assertEqual((origin.files()["7/a.png"], origin.files()["7/b.gif"]), (PNG, GIF))
+        self.assertIn("![", out.getvalue())
+
+    def test_an_existing_file_needs_force_through_the_api_too(self):
+        origin = self.unreachable(existing=["7/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+            self.assertEqual(code, 1)
+            self.assertIn("--force", err.getvalue())
+            self.assertEqual(origin.files()["7/shot.png"], b"old 7/shot.png")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(MODULE.main(["--pr", "7", "--force", str(shot)], runner=FakeGh()), 0)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
+    def test_a_path_taken_after_the_check_is_never_replaced_through_the_api(self):
+        origin = self.unreachable()
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            real = MODULE.ApiBranch.put
+
+            def put(store, files, message, expect=None):
+                origin.write({"7/shot.png": b"theirs"})
+                return real(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.ApiBranch, "put", put), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 1)
+        self.assertIn("another upload got there first", err.getvalue())
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_lost_race_is_built_again_on_the_new_tip(self):
+        origin = self.unreachable()
+        api = MODULE.ApiBranch("o/r", "pr-media")
+        real_tip = api.tip
+        raced = []
+
+        def tip():
+            seen = real_tip()
+            if not raced:
+                raced.append(seen)
+                origin.write({"9/other.png": b"theirs"})
+            return seen
+
+        api.tip = tip
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause") as slept:
+            api.put({"9/shot.png": written(scratch, "shot.png", PNG)}, "m", expect={"9/shot.png": None})
+        self.assertEqual(slept.call_count, 1)
+        self.assertEqual(origin.files()["9/other.png"], b"theirs")
+        self.assertEqual(origin.files()["9/shot.png"], PNG)
+
+    def test_a_folder_is_never_overwritten_through_the_api(self):
+        origin = self.unreachable(existing=["1/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch, self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.put_file("o/r", "pr-media", "1", written(scratch, "shot.png", PNG), "m", checked=True)
+        self.assertIn("folder", str(raised.exception))
+        self.assertIn("1/shot.png", origin.files())
+
+    def test_library_callers_still_get_the_privacy_check_on_the_api_path(self):
+        self.unreachable()
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(MODULE, "check_privacy", side_effect=MODULE.PrivacyError("refused")), \
+                self.assertRaises(MODULE.PrivacyError):
+            MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m")
 
 
 class MainTests(unittest.TestCase):
@@ -504,7 +1020,8 @@ class MainTests(unittest.TestCase):
             def forbidden(argv, **kwargs):
                 raise AssertionError(f"a dry run must not run anything, ran {argv}")
 
-            code, out, _ = self.run_main(["--pr", "15277", "--dry-run", str(clip)], runner=forbidden)
+            with mock.patch.object(MODULE, "media_branch", side_effect=AssertionError("a dry run reads no branch")):
+                code, out, _ = self.run_main(["--pr", "15277", "--dry-run", str(clip)], runner=forbidden)
             self.assertEqual(code, 0)
             self.assertIn("plan   gif  15277/sidebar-drag.gif", out)
             self.assertIn("plan video  15277/sidebar-drag.mp4", out)
@@ -527,12 +1044,8 @@ class MainTests(unittest.TestCase):
     def test_the_default_branch_is_not_a_media_branch(self):
         with tempfile.TemporaryDirectory() as scratch:
             clip = written(scratch, "clip.gif", GIF)
-
-            def forbidden(argv, **kwargs):
-                raise AssertionError(f"must not reach gh, ran {argv}")
-
-            code, _, err = self.run_main(["--pr", "1", "--branch", "main", str(clip)],
-                                         runner=forbidden)
+            with mock.patch.object(MODULE, "media_branch", side_effect=AssertionError("must not reach the branch")):
+                code, _, err = self.run_main(["--pr", "1", "--branch", "main", str(clip)], runner=FakeGh())
             self.assertEqual(code, 1)
             self.assertIn("main", err)
 
@@ -543,6 +1056,7 @@ class MainTests(unittest.TestCase):
         self.assertNotIn("Traceback", err)
 
     def test_a_file_that_cannot_be_read_fails_with_one_line_too(self):
+        Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
             shot.chmod(0o000)
@@ -560,102 +1074,109 @@ class MainTests(unittest.TestCase):
             finally:
                 shot.chmod(0o600)
 
-    def test_an_upload_run_puts_every_file_and_prints_the_markdown(self):
+    def test_an_upload_run_puts_every_file_in_one_commit_and_prints_the_markdown(self):
+        origin = Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             first = written(scratch, "01-before.png", PNG)
             second = written(scratch, "02-after.png", PNG)
             gh = FakeGh()
+            before = origin.commits()
             code, out, _ = self.run_main(["--pr", "15277", str(first), str(second)], runner=gh)
             self.assertEqual(code, 0)
-            self.assertEqual(sorted(gh.puts), ["15277/01-before.png", "15277/02-after.png"])
+            self.assertEqual(sorted(path for path in origin.files() if path.startswith("15277/")),
+                             ["15277/01-before.png", "15277/02-after.png"])
+            self.assertEqual(origin.commits(), before + 1)
+            self.assertEqual(gh.calls, [])  # no gh call at all, REST or otherwise
             self.assertIn("![before](", out)
             self.assertIn("![after](", out)
 
     def test_an_mp4_is_converted_once_and_both_files_land(self):
+        origin = Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             clip = written(scratch, "drag.mp4", MP4)
-            gh = FakeGh()
             conversions = []
 
             def runner(argv, **kwargs):
                 if argv[0] == "ffmpeg":
                     conversions.append(argv)
                     Path(argv[-1]).write_bytes(GIF)
-                    return gh.reply(0, "")
-                return gh(argv, **kwargs)
+                    return SimpleNamespace(returncode=0, stdout="", stderr="")
+                return FakeGh()(argv, **kwargs)
 
             with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffmpeg"):
                 code, out, _ = self.run_main(["--pr", "8", str(clip)], runner=runner)
             self.assertEqual(code, 0, out)
             self.assertEqual(len(conversions), 1)
-            self.assertEqual(sorted(gh.puts), ["8/drag.gif", "8/drag.mp4"])
-            self.assertEqual(base64.b64decode(gh.puts["8/drag.gif"]["content"]), GIF)
-            self.assertEqual(base64.b64decode(gh.puts["8/drag.mp4"]["content"]), MP4)
+            files = origin.files()
+            self.assertEqual((files["8/drag.gif"], files["8/drag.mp4"]), (GIF, MP4))
 
     def test_an_upload_over_an_existing_clip_needs_force_and_says_what_it_replaces(self):
+        origin = Origin(self, existing=["7/shot.png"])
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(existing={"7/shot.png"})
-            code, _, err = self.run_main(["--pr", "7", str(shot)], runner=gh)
+            old = origin.blob("7/shot.png")
+            code, _, err = self.run_main(["--pr", "7", str(shot)], runner=FakeGh())
             self.assertEqual(code, 1)
             self.assertIn("7/shot.png", err)
             self.assertIn("--force", err)
-            self.assertFalse(gh.puts)
+            self.assertNotEqual(origin.files()["7/shot.png"], PNG)
 
-            forced = FakeGh(existing={"7/shot.png"})
-            code, out, _ = self.run_main(["--pr", "7", "--force", str(shot)], runner=forced)
+            MODULE._BRANCHES.clear()
+            code, out, _ = self.run_main(["--pr", "7", "--force", str(shot)], runner=FakeGh())
             self.assertEqual(code, 0)
             self.assertIn("replacing 7/shot.png", out)
-            self.assertIn("abc123", out)
+            self.assertIn(old, out)
+            self.assertEqual(origin.files()["7/shot.png"], PNG)
 
     def test_nothing_is_uploaded_when_one_of_the_files_is_too_big(self):
+        origin = Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             small = written(scratch, "01-small.png", PNG)
             big = written(scratch, "02-big.png", b"0" * (MODULE.INLINE_MAX_BYTES + 1))
-            gh = FakeGh()
-            code, _, err = self.run_main(["--pr", "3", str(small), str(big)], runner=gh)
+            before = origin.commits()
+            code, _, err = self.run_main(["--pr", "3", str(small), str(big)], runner=FakeGh())
             self.assertEqual(code, 1)
             self.assertIn("02-big.png", err)
-            self.assertFalse(gh.puts)
+            self.assertEqual(origin.commits(), before)
 
     def test_a_pull_request_that_does_not_exist_stops_before_the_first_write(self):
+        origin = Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(missing_pr=True)
-            code, _, err = self.run_main(["--pr", "424242", str(shot)], runner=gh)
+            before = origin.commits()
+            code, _, err = self.run_main(["--pr", "424242", str(shot)], runner=FakeGh())
             self.assertEqual(code, 1)
             self.assertIn("424242", err)
-            self.assertFalse(gh.puts)
+            self.assertEqual(origin.commits(), before)
 
-    def test_a_failure_part_way_through_still_prints_what_landed(self):
+    def test_a_refused_push_lands_nothing_and_prints_no_markdown(self):
+        origin = Origin(self)
+        origin.hook("echo 'could not write' >&2\nexit 1\n")
         with tempfile.TemporaryDirectory() as scratch:
             first = written(scratch, "01-before.png", PNG)
             second = written(scratch, "02-after.png", PNG)
-            gh = FakeGh(fail={"5/02-after.png"})
-            code, out, err = self.run_main(["--pr", "5", str(first), str(second)], runner=gh)
+            code, out, err = self.run_main(["--pr", "5", str(first), str(second)], runner=FakeGh())
             self.assertEqual(code, 1)
             self.assertIn("could not write", err)
-            # The one clip that did land is still linkable, and it is named as
-            # partial so nobody pastes half the evidence without knowing.
-            self.assertIn("![before](", out)
-            self.assertNotIn("![after](", out)
-            self.assertIn("5/01-before.png", out)
+            self.assertNotIn("![", out)
+            self.assertFalse([path for path in origin.files() if path.startswith("5/")])
 
     def test_the_markdown_is_printed_even_when_the_comment_is_refused(self):
+        Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
-            gh = FakeGh(comment_fails=True)
-            code, out, err = self.run_main(["--pr", "7", "--comment", str(shot)], runner=gh)
+            code, out, err = self.run_main(["--pr", "7", "--comment", str(shot)], runner=FakeGh(comment_fails=True))
             self.assertEqual(code, 1)
             self.assertIn("![shot](", out)
             self.assertIn("403", err)
 
     def test_comment_is_only_posted_when_it_is_asked_for(self):
+        Origin(self)
         with tempfile.TemporaryDirectory() as scratch:
             shot = written(scratch, "shot.png", PNG)
             for argv, expected in ([], 0), (["--comment"], 1):
                 gh = FakeGh()
-                code, _, _ = self.run_main(["--pr", "7", *argv, str(shot)], runner=gh)
+                code, _, _ = self.run_main(["--pr", "7", "--force", *argv, str(shot)], runner=gh)
                 self.assertEqual(code, 0)
                 self.assertEqual(len(gh.comments), expected, argv)
                 if expected:
@@ -695,6 +1216,10 @@ class PrivacyTests(unittest.TestCase):
         original = MODULE.check_privacy
         MODULE.check_privacy = check
         self.addCleanup(setattr, MODULE, "check_privacy", original)
+        self.origin = Origin(self)
+
+    def landed(self):
+        return sorted(path for path in self.origin.files() if path != "README.md")
 
     def run_main(self, argv, runner=None):
         with contextlib.redirect_stdout(io.StringIO()) as out, \
@@ -708,7 +1233,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "7", str(clean), str(leak)], runner=gh)
         self.assertEqual(code, 1)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
         self.assertIn("7/02-leak.png", err)
         self.assertIn("refused", err)
         self.assertNotIn("cmux7s", out + err)
@@ -718,7 +1243,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, _, _ = self.run_main(["--pr", "7", str(clean)], runner=gh)
         self.assertEqual(code, 0)
-        self.assertEqual(sorted(gh.puts), ["7/shot.png"])
+        self.assertEqual(self.landed(), ["7/shot.png"])
         self.assertEqual(self.ocr_calls, ["shot.png"])
 
     def test_a_teammates_capture_with_a_private_name_is_refused_and_names_only_its_category(self):
@@ -728,7 +1253,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "8", str(clean), str(frame)], runner=gh)
         self.assertEqual(code, 1)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
         self.assertIn("8/02-frame.png shows a personal machine or account name; refused", err)
         self.assertIn("then recapture", err)
         self.assertNotIn("glow", (out + err).replace(self.scratch, ""))
@@ -739,7 +1264,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
         self.assertEqual(code, 1)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
         self.assertIn("fleet Mac mini name", err)
         self.assertIn("fleet shell prompt", err)
         self.assertNotIn("cmux7s", out + err)
@@ -751,14 +1276,14 @@ class PrivacyTests(unittest.TestCase):
         def runner(argv, **kwargs):
             if argv[0] == "ffmpeg":
                 Path(argv[-1]).write_bytes(GIF + b"LEAK")
-                return gh.reply(0, "")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
             return gh(argv, **kwargs)
 
         with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffmpeg"):
             code, _, err = self.run_main(["--pr", "7", str(clip)], runner=runner)
         self.assertEqual(code, 1)
         self.assertIn("7/drag.gif", err)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
 
     def test_a_dry_run_checks_the_files_it_was_given(self):
         leak = written(self.scratch, "shot.png", PNG + b"LEAK")
@@ -784,7 +1309,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)
         self.assertEqual(code, 1)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
         self.assertIn("personal machine or account name", err)
 
     def test_a_refusal_is_a_privacy_error_so_callers_never_retry_it(self):
@@ -798,19 +1323,18 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.MediaError):
             MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh)
-        self.assertFalse(gh.puts)
+        self.assertEqual(self.landed(), [])
         MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh, checked=True)
-        self.assertEqual(list(gh.puts), ["nightly-next/reel/shot.png"])
+        self.assertEqual(self.landed(), ["nightly-next/reel/shot.png"])
 
     def test_a_refusal_is_never_retried_like_a_busy_branch(self):
         # put_file retries a lost race and a GitHub 5xx; a refusal gets the same
         # answer every time, so it must stop before the first write.
         leak = written(self.scratch, "shot.png", PNG + b"LEAK")
-        gh = FakeGh(put_errors={"7/shot.png": ["gh: Server Error (HTTP 502)"]})
         with contextlib.redirect_stderr(io.StringIO()), mock.patch("time.sleep") as slept, \
+                mock.patch.object(MODULE, "media_branch", side_effect=AssertionError("refused before the branch")), \
                 self.assertRaises(MODULE.PrivacyError):
-            MODULE.put_file("o/r", "pr-media", "7/shot.png", leak, "msg", runner=gh)
-        self.assertEqual(gh.calls, [])
+            MODULE.put_file("o/r", "pr-media", "7/shot.png", leak, "msg")
         slept.assert_not_called()
 
     def test_a_checkout_without_the_privacy_check_refuses_to_upload(self):

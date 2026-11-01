@@ -8,7 +8,7 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
-#include "command_line_switches.h"
+#include "command_line_apply.h"
 #include "artifact_page.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
@@ -98,18 +98,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     if (!process_type.empty()) {
       return;
     }
-    for (const std::string& entry : switches_) {
-      size_t eq = entry.find('=');
-      if (eq == std::string::npos) {
-        command_line->AppendSwitch(entry);
-      } else {
-        const std::string name = entry.substr(0, eq);
-        std::string value = entry.substr(eq + 1);
-        if (IsFeatureListSwitch(name) && command_line->HasSwitch(name)) {
-          value = MergeFeatureList(command_line->GetSwitchValue(name).ToString(), value);
-        }
-        command_line->AppendSwitchWithValue(name, value);
-      }
+    for (const std::string& name : ApplySwitches(command_line, switches_)) {
+      NSLog(@"cmux: Chromium switch refused (weakens the sandbox): %s", name.c_str());
     }
   }
 
@@ -558,6 +548,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
+    ForgetFileDialogRoute(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);

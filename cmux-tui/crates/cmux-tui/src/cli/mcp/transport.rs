@@ -47,7 +47,7 @@ pub(in crate::cli) struct CallFailure {
 }
 
 impl CallFailure {
-    pub(super) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
         Self {
             kind,
             error: json!({
@@ -108,6 +108,15 @@ pub(super) fn resource(
         })?;
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
+        // A local error in the resource shape (a server of another protocol) keeps its code.
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
+            CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+        }
+        resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
+        resolve::Failure::Refused => fail(NotRun, "session.busy", "session is busy".into()),
+        _ => fail(NotRun, "transport.failed", "client capability negotiation failed".into()),
+    })?;
     if !prefixes.is_empty() {
         let params = plan.params.as_object_mut().expect("validated params object");
         let route = ["machine", "session"]
@@ -134,6 +143,7 @@ pub(super) fn resource(
                 resolve::Failure::Resource(error) => {
                     CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
                 }
+                resolve::Failure::Refused => fail(NotRun, "session.busy", "session is busy".into()),
                 _ => fail(NotRun, "transport.failed", "lookup failed".into()),
             })?;
             let id = unique_prefix(&prefix.field, &value, &records).map_err(|error| {
@@ -162,9 +172,12 @@ pub(super) fn resource(
     // Once sent, a mutation's outcome is unknown until it answers; a read
     // changed nothing either way.
     let sent = if plan.operation.class() == OperationClass::Mutation { InProgress } else { NotRun };
-    resolve::send(&mut reader, &encoded)
-        .map_err(|message| fail(sent, "transport.failed", message))?;
-    match resolve::read_response(&mut reader, &request_id) {
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => fail(sent, "session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => fail(sent, "transport.failed", message),
+        _ => fail(sent, "transport.failed", "request could not be sent".into()),
+    })?;
+    match resolve::read_response(&mut reader, &request_id).map_err(resolve::response_failure) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => {
             // A browser the cmux app draws: the app runs the verb
@@ -181,7 +194,9 @@ pub(super) fn resource(
             }
             Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
         }
-        Err(message) => Err(fail(sent, "transport.failed", message)),
+        Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
+        Err(resolve::Failure::Transport(message)) => Err(fail(sent, "transport.failed", message)),
+        Err(_) => Err(fail(sent, "transport.failed", "request failed".into())),
     }
 }
 
@@ -224,10 +239,31 @@ pub(super) fn session_events(
             let message = format!("cannot connect to session socket {}: {error}", socket.display());
             local("transport.unavailable", message)
         })?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Ok(());
+    }
+    let _ = stream.set_read_timeout(Some(left.min(wire::SERVER_PREFLIGHT_TIMEOUT)));
     let mut reader = BufReader::new(stream);
+    let negotiated = super::super::tab_capabilities::negotiate(&mut reader);
+    if Instant::now() >= deadline {
+        return Ok(());
+    }
+    negotiated.map_err(|failure| match failure {
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
+            CallFailure { kind: NotRun, error, idempotency_key: None }
+        }
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        resolve::Failure::Refused => local("session.busy", "session is busy".into()),
+        _ => local("transport.failed", "client capability negotiation failed".into()),
+    })?;
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| local("validation.invalid", message))?;
-    resolve::send(&mut reader, &encoded).map_err(|message| local("transport.failed", message))?;
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => local("session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        _ => local("transport.failed", "request could not be sent".into()),
+    })?;
     let mut opened = false;
     let mut line = Vec::new();
     loop {
@@ -295,6 +331,10 @@ fn app_open_failure(failure: resolve::Failure, key: Option<&str>) -> CallFailure
         resolve::Failure::Transport(message) => (
             InProgress,
             json!({"code": "transport.failed", "message": message, "details": {}, "retryable": true}),
+        ),
+        resolve::Failure::Refused => (
+            NotRun,
+            json!({"code": "session.busy", "message": "session is busy", "details": {}, "retryable": true}),
         ),
         resolve::Failure::AppAction { action, .. } => (
             NotRun,
@@ -518,3 +558,7 @@ mod tests {
         assert!(!is_partial_id("ws_XY", "ws"));
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "transport_capabilities_tests.rs"]
+mod capabilities_tests;

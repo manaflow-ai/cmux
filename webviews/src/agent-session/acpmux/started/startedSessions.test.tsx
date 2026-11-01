@@ -9,6 +9,9 @@ import { sessionEntry } from "../sessionList";
 import { renderInline } from "../conversation/Markdown";
 import { turnView } from "../conversation/turns";
 import { StartedSessionCards } from "./StartedSessionCard";
+import { AgentMark } from "../../shared/AgentMark";
+import { rowIconSize } from "../icons/iconSize";
+import { agentTone } from "../subagents/agentTones";
 import {
   STARTED_SESSIONS,
   type StartedSession,
@@ -224,7 +227,7 @@ describe("name chips", () => {
       <>{renderInline("`Triage the failing tests` and twin-2", { started: { mentions, open: () => undefined } })}</>,
     );
     expect(html.match(/acpmux-started-chip/g)?.length).toBe(1);
-    expect(html).toContain(">twin-2</button>");
+    expect(html).toContain('>twin-2</button>');
   });
 
   test("a title standing in for a missing one (first prompt, New chat) is never a mention", () => {
@@ -272,9 +275,9 @@ describe("name chips", () => {
       <>{renderInline("Running: Triage the failing tests, `sess-2` and [it](cmux://session/sess-1).", { started })}</>,
     );
     expect(html.match(/acpmux-started-chip/g)?.length).toBe(3);
-    expect(html).toContain(">Triage the failing tests</button>");
-    expect(html).toContain(">sess-2</button>");
-    expect(html).toContain(">it</button>");
+    expect(html).toContain('>Triage the failing tests</button>');
+    expect(html).toContain('>sess-2</button>');
+    expect(html).toContain('>it</button>');
     // Without started chats a reply draws as before.
     expect(renderToStaticMarkup(<>{renderInline("Triage the failing tests")}</>)).not.toContain("acpmux-started");
   });
@@ -302,6 +305,23 @@ describe("StartedSessionCards", () => {
     expect(html).not.toContain("acpmux-started-dot");
     expect(html).toMatch(
       /class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092<[^]*>and 1 more</,
+    );
+  });
+
+  // Each row says which agent runs it, as Session Info's child chat rows do (ChildSessionRows.tsx):
+  // its harness's mark, else the chat icon in a tone stable for its id, before the title.
+  test("a row leads with its harness's mark, else its chat icon in its own stable tone", () => {
+    const mark = renderToStaticMarkup(<AgentMark agent="codex" size={rowIconSize(12)} />);
+    const html = draw(
+      { sessionId: "a", title: "Codex task", state: "idle", harness: "codex" },
+      { sessionId: "b", title: "Plain task", state: "idle" },
+    );
+    const [codex, plain] = html.split('class="acpmux-started-row"').slice(1);
+    expect(codex).toContain(`<span class="acpmux-started-icon" aria-hidden="true">${mark}`);
+    expect(codex!.indexOf("acpmux-started-icon")).toBeLessThan(codex!.indexOf("Codex task"));
+    expect(plain).toContain(`class="acpmux-toned-icon" data-agent-tone="${agentTone("b")}"`);
+    expect(draw({ sessionId: "b", title: "Plain task", state: "running" })).toContain(
+      `data-agent-tone="${agentTone("b")}"`,
     );
   });
 

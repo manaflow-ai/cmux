@@ -83,6 +83,18 @@
   overflow-y: auto;
 }
 
+/* A select's menu hugs its rows and lines up with its trigger (Leo 2026-10-30, on Settings > Updates'
+   Update Channel menu: "look for wastage"; leo-workspace design/settings.md and design/menus.md): it
+   is a field's drop-down (Select.tsx: matchTrigger, popupSurface.css .ui-menu-match-trigger), and its
+   rows are every menu's grid (popupSurface.css, "EVERY MENU ON ONE GRID"). */
+/* Its glass frosts what is under it (a slider, a number field) instead of letting it read through:
+   the menu tint and blur (desktop.css --ds-glass-menu-*), never opaque. Reduce Transparency still
+   makes it the solid popup surface (glass.css, !important). The lens keeps its own clearer glass. */
+.ui-popup.ui-glass.ui-select-popup {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+}
+
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
    or filtering a list never changes the composer's geometry. */
 .ui-picker-popup {
@@ -158,7 +170,6 @@
 .ui-menu-check {
   display: inline-flex;
   align-items: center;
-  width: 12px;
   justify-content: center;
   line-height: 1;
 }

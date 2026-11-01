@@ -5,6 +5,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
 ///
 /// The tab strip is the same view over terminal, Markdown and browser content, so its gaps hold
 /// for every tab kind; the omnibar row is the browser's.
-@MainActor @Suite(.serialized) struct PaneChromeEvenGapTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenGapTests {
     /// Applies `style` the way a settings load does, with nothing else set.
     private func load(_ style: ChromeStyle?) {
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])

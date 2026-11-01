@@ -25,6 +25,8 @@ import CmuxNextUpdater
 /// as the last seen version, so this launch
 /// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
 /// Share cmux modal and `{action: "share-copy"}` presses its Copy Link.
+/// `{action: "newest", pulled?}` shows the "Getting the Newest Build…" card (with `pulled`, its
+/// "This build was pulled." line); `{action: "unstage"}` ends it.
 /// `{action: "feedCards"}` posts sample installed-update Feed cards (cmux and Claude Code).
 @MainActor
 enum DebugUpdater {
@@ -79,13 +81,16 @@ enum DebugUpdater {
             guard let view = ShareCmuxPresenter.shown else { throw ControlError.invalidParams("debug.updater share-copy: the Share cmux modal is not open") }
             view.copyMessage()
             return .object(["copied": .string(view.messageText)])
+        case "newest":
+            services.updater.debugShowGettingNewest(pulled: params["pulled"]?.boolValue == true)
+            return .object(["notice": .string(services.updater.card?.kind ?? "none")])
         case "feedCards":
             return .object(["posted": JSONValue(UpdateFeedPosting.postSamples(services))])
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"press\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"feedCards\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"press\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"newest\", \"feedCards\", \"share\" or \"share-copy\"")
         }
     }
 

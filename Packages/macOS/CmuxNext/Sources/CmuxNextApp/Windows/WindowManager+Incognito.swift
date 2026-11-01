@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // Incognito windows (user decision 2026-09-30): a whole window whose
 // browser pages use one off-the-record browser profile (Chromium in-memory
@@ -41,10 +42,10 @@ extension WindowManager {
             EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice, space: space)
             return windowID
         }
-        // Claimed before anything else runs: the pending claim keeps the
-        // session alive until the window opens.
+        // Claimed before anything else runs: the pending claim keeps the session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
+        recordIncognitoWorkspaces() // phones hide it before the daemon creates it (PhoneIncognitoHiding)
         Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
@@ -53,7 +54,7 @@ extension WindowManager {
             do {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
                     if let space { try await pinToIncognitoSpace(key, space, on: daemon) }
-                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory(), on: connection)
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
@@ -119,9 +120,9 @@ extension WindowManager {
         var ids = value.discarding
         for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
         for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
-        // The daemon closes ephemeral workspaces itself; the ledger keeps
-        // only incognito workspaces it does not know as such.
+        // The daemon closes ephemeral workspaces itself; the ledger keeps only incognito workspaces it does not know as such.
         incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
+        PhoneIncognitoHiding.publish(ids, self)
     }
 
     /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows

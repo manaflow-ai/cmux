@@ -8,11 +8,18 @@
 // attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
-import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
-import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
+import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
+import { type EditorState, Plugin, Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet, type EditorView, type NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
-import { INLINE_ATTACHMENT_MARK, inlineCopyId, inlineToken, inlineTokenSpans } from "../attachments";
+import {
+  escapeTextMarks,
+  INLINE_ATTACHMENT_MARK,
+  inlineCopyId,
+  inlineToken,
+  inlineTokenSpans,
+  unescapeTextMarks,
+} from "../attachments";
 
 export const INLINE_NODE = "inline_attachment";
 
@@ -61,6 +68,10 @@ function holds(content: Fragment, test: (node: ProseNode) => boolean): boolean {
 /// it. A U+FFFC in other copied text (a page's bold run) is only text, and pastes as text.
 export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) => node.type.name === INLINE_NODE);
 
+/// The ids of the attachments placed in `doc`, its own nodes only (never text shaped like a token),
+/// in order, each once.
+export const inlineIds = (doc: ProseNode) => [...new Set(inlineNodes(doc).map((node) => node.id))];
+
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
   const found: { id: string; pos: number }[] = [];
@@ -86,7 +97,33 @@ export function placeTokensIn(tr: Transaction, known: InlineKnown): Transaction 
       tokens.push({ from: pos + span.from, to: pos + span.to, id: span.id });
   });
   for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
+  // The person's own U+FFFC, which the draft writes escaped (`withTextMarksEscaped`), is theirs again.
+  const escaped: { from: number; node: ProseNode }[] = [];
+  tr.doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    const text = unescapeTextMarks(node.text!);
+    if (text !== node.text) escaped.push({ from: pos, node });
+  });
+  for (const { from, node } of escaped.reverse())
+    tr.replaceWith(from, from + node.nodeSize, node.type.schema.text(unescapeTextMarks(node.text!), node.marks));
   return tr;
+}
+
+/// `doc` as the draft writes it: the person's own U+FFFC in a run of text shaped like a token
+/// escaped (attachments.ts escapeTextMarks), so only the nodes write tokens. `doc` itself when
+/// nothing needs it.
+export function withTextMarksEscaped(doc: ProseNode): ProseNode {
+  const runs: { from: number; to: number; node: ProseNode }[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK)) return;
+    const text = escapeTextMarks(node.text!);
+    if (text !== node.text)
+      runs.push({ from: pos, to: pos + node.nodeSize, node: node.type.schema.text(text, node.marks) });
+  });
+  let escaped = doc;
+  for (const { from, to, node } of runs.reverse())
+    escaped = escaped.replace(from, to, new Slice(Fragment.from(node), 0, 0));
+  return escaped;
 }
 
 /// After an edit that brought in placed attachments' nodes (a value set from outside, a paste of the
@@ -140,13 +177,95 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
   };
 }
 
+/// A piece of a selection as a copy carries it (composer/composerCopy.ts): a run of its text, as the
+/// field copies text (a line or block break a newline), or a placed attachment, by id.
+export type SelectionPart = { text: string } | { id: string };
+
+/// Stands in for each placed attachment while the selection's text is read: a private-use character,
+/// never in a node's text the field's own copy writes (`selectionParts`).
+const PART_MARK = "\uE000";
+
+/// The selection of `state` as its runs of text and its placed attachments, in order. Text runs
+/// read as the field's own copy does (MarkdownField `copiedText`).
+export function selectionParts(state: EditorState): SelectionPart[] {
+  const { from, to } = state.selection;
+  const ids: string[] = [];
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) ids.push(idOf(node));
+  });
+  const text = state.doc.textBetween(from, to, "\n", (leaf) =>
+    leaf.type.name === INLINE_NODE ? PART_MARK : (leaf.type.spec.leafText?.(leaf) ?? ""),
+  );
+  const parts: SelectionPart[] = [];
+  text.split(PART_MARK).forEach((run, index) => {
+    const id = index > 0 ? ids[index - 1] : undefined;
+    if (id !== undefined) parts.push({ id });
+    if (run) parts.push({ text: run });
+  });
+  return parts;
+}
+
+/// Whether the selection of `state` holds the whole draft: Select All, or a drag from its start to
+/// its end.
+export function wholeSelected(state: EditorState): boolean {
+  const { selection, doc } = state;
+  if (selection.empty) return false;
+  return selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to;
+}
+
+/// The placed attachments inside a selection wear the selection's tint, as its text does: a chip is
+/// not text, so the browser's own highlight passes over it (Leo, 2026-11-01: "select all in composer
+/// which also selects all the attachments").
+function selectedDecorations(state: EditorState): DecorationSet | null {
+  const { selection, doc } = state;
+  if (selection.empty) return null;
+  const marks: Decoration[] = [];
+  doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+    if (node.type.name === INLINE_NODE)
+      marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "acpmux-md-inline-selected" }));
+  });
+  return marks.length ? DecorationSet.create(doc, marks) : null;
+}
+
+/// Which way a key moves the caret through the document by one character: -1 back, 1 forward, 0
+/// for any other key. Left and Right follow the text's direction at the caret, as ProseMirror's own
+/// arrows do; the Mac's Ctrl-B and Ctrl-F always go back and forward.
+function horizontalStep(view: EditorView, event: KeyboardEvent): -1 | 0 | 1 {
+  if (event.isComposing || event.metaKey || event.altKey || event.shiftKey) return 0;
+  if (event.ctrlKey) {
+    if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return 0;
+    return event.key === "b" ? -1 : event.key === "f" ? 1 : 0;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return 0;
+  const { node } = view.domAtPos(view.state.selection.head);
+  const at = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const rtl = at ? view.dom.ownerDocument.defaultView?.getComputedStyle(at).direction === "rtl" : false;
+  return (event.key === "ArrowLeft") !== rtl ? -1 : 1;
+}
+
 export function inlinePlugin(views: InlineViews) {
   return $prose(
     () =>
       new Plugin({
         props: {
+          decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
           handleKeyDown: (view, event) => {
+            // Left and Right step over a placed attachment as over one character, never selecting it
+            // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
+            // treat them like it's one character"), as do the Mac's Ctrl-B and Ctrl-F. ProseMirror's
+            // own Shift+arrow already extends over it as one unit.
+            const step = horizontalStep(view, event);
+            if (step !== 0) {
+              const { selection } = view.state;
+              if (!selection.empty || !(selection instanceof TextSelection)) return false;
+              const { $head } = selection;
+              const adjacent = $head.textOffset ? null : step < 0 ? $head.nodeBefore : $head.nodeAfter;
+              if (adjacent?.type.name !== INLINE_NODE) return false;
+              const to = $head.pos + step * adjacent.nodeSize;
+              view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
+              return true;
+            }
             if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;
@@ -184,11 +303,16 @@ export function insertInline(view: EditorView, ids: readonly string[]): boolean 
 }
 
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
-export function removeInline(view: EditorView, id: string) {
+export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
   if (!found.length) return;
-  const tr = view.state.tr;
+  // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
+  // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
+  // chip back, never the typing before it.
+  const tr = caret ? closeHistory(view.state.tr) : view.state.tr;
+  const first = found[0]!.pos;
   for (const { pos } of found.reverse()) tr.delete(pos, pos + 1);
+  if (caret) tr.setSelection(TextSelection.create(tr.doc, first));
   view.dispatch(tr);
 }
 

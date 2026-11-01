@@ -60,6 +60,12 @@ export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCa
   return main;
 }
 
+/// Whether the run did more than one kind of work, so its glyph is the several-tools one, not one
+/// kind's. Reads and searches count as one kind: both draw the magnifier (ToolRun.tsx `runIcon`).
+export function isMixedToolRun(items: readonly AcpmuxActivity[]): boolean {
+  return new Set(toolRunCategories(items).map((category) => (category === "read" ? "searched" : category))).size > 1;
+}
+
 /// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
 /// run (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). Reads count the distinct
 /// files they opened, edits the files they changed, every other category its calls.

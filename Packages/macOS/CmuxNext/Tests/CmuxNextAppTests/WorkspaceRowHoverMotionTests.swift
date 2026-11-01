@@ -3,15 +3,16 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
-import CmuxNextTestSupport
 import Testing
+import CmuxNextTestSupport
 
 /// Leo 2026-10-13 (cosmic-gray): moving the pointer from one workspace row to
 /// the next snapped the hover state. Hover entry is immediate; clearing the
 /// fill uses the hover-out token (instant by default), and nothing in the row
 /// moves or resizes. Since Leo 2026-10-20 the controls clear at once too: no
 /// exit delay on hover-out, so the old row's buttons never trail the pointer.
-@MainActor @Suite(.closesItsWindows)
+@MainActor
+@Suite(.closesItsWindows)
 struct WorkspaceRowHoverMotionTests {
     private static let name = "a workspace whose name runs under the hover buttons"
 
@@ -45,8 +46,7 @@ struct WorkspaceRowHoverMotionTests {
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)

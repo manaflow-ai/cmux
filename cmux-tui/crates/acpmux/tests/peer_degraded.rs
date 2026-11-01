@@ -198,6 +198,7 @@ async fn a_stalled_peer_is_kept_as_stale_refused_clearly_and_picked_up_again() {
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!(listed[0]["stale"], false);
 
+    let mut changes = a.subscribe();
     // B stops answering: the keepalive drops the link within its budget.
     stall.send_replace(true);
     let down = until_state(&a, "reconnecting").await;
@@ -205,6 +206,17 @@ async fn a_stalled_peer_is_kept_as_stale_refused_clearly_and_picked_up_again() {
     assert!(down["lastSeen"].is_u64(), "{down}");
     let error = down["error"].as_str().unwrap_or_default();
     assert!(error.contains("stopped"), "the keepalive dropped it: {down}");
+    // Link failure is immediate; rows only become stale after the reconnect grace.
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let event = changes.recv().await.unwrap();
+            if event.remote.is_some_and(|row| row.summary["status"] == "unreachable") {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("a continuous outage must mark its rows stale");
     let kept = a.remote_sessions();
     assert_eq!(kept.len(), 1, "kept, not dropped: {kept:?}");
     assert_eq!(kept[0]["stale"], true);

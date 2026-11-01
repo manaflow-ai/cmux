@@ -1,9 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextFocusUI
-import CmuxNextTestSupport
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-23: "i click a workspace in one window, and it triggers it in the other
 /// window… sometimes i type in one window of cmux, but the text appears in another window".
@@ -14,7 +14,7 @@ import Testing
 /// - a workspace a person picks in window A's sidebar shows in window A;
 /// - a New Tab hold never takes the key window from another window;
 /// - keys the daemon gives back go only to a terminal of the window they were typed in.
-@MainActor @Suite(.serialized, .closesItsWindows) struct MultiWindowInputRoutingTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct MultiWindowInputRoutingTests {
     private struct Harness {
         let services: AppServices
         let a: WindowController

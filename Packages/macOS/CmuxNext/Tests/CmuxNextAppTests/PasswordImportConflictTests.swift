@@ -3,9 +3,9 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
-import CmuxNextTestSupport
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// A password CSV import's conflicts and the store's failures, at the
 /// boundary the app writes through (cx-dwg.6, #20029 review):
@@ -17,7 +17,7 @@ import Testing
 ///   Move to Trash offer for the plaintext file.
 /// - A second CSV import right after the first leaves the first file's
 ///   offer up beside its own (cx-dwg.8, #20029 review nit).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1)), .closesItsWindows)
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1)))
 struct PasswordImportConflictTests {
     private static let csv = "name,url,username,password\nexample,https://example.com/login,someone,throwaway-1\n"
 

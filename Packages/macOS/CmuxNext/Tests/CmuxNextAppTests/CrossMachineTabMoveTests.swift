@@ -108,6 +108,8 @@ struct CrossMachineTabMoveTests {
             let deadline = ContinuousClock.now + .seconds(20)
             // A move's reply can precede the store applying its rename. Read after the
             // daemon's barrier so the creation event alone cannot satisfy this lookup.
+            // The barrier and lookup share one deadline. Leaving the group cancels and
+            // joins the observation wait or deadline task, including on caller cancellation.
             let daemon = self.machine.daemon
             try await withThrowingTaskGroup(of: Void.self) { group in
                 defer { group.cancelAll() }
@@ -204,11 +206,11 @@ struct CrossMachineTabMoveTests {
         }
         // task-owner: joined teardown survives cancellation, stops both reconnect loops before
         // closing windows, and reaps each owner even when startup never exposed a connection.
-        await Task { @MainActor in
+        reaped = await Task { @MainActor in
             await machine.daemon.shutdownConnectionAndWait()
-        let macReaped = await macOwner.stop(services)
-        let vmReaped = await vmOwner.reap()
-        reaped = macReaped && vmReaped
+            let macReaped = await macOwner.stop(services)
+            let vmReaped = await vmOwner.reap()
+            return macReaped && vmReaped
         }.value
         try result.get()
     }

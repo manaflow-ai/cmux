@@ -56,6 +56,8 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-composer-prompt").waitFor();
+    // Reordering is a feature of the attachment strip (the non-inline view), so the strip is on.
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
     return page;
   }
 
@@ -73,23 +75,25 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
         const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
         data.items.add(new File([blob], `Shot ${width}.png`, { type: "image/png" }));
       }
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
 
   /// The staged images' widths, in the strip's order (each chip is named for its width).
   const order = (page: Page) =>
     page.evaluate(() =>
-      [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")].map(
+      [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img")].map(
         (img) => /Shot (\d+)/.exec(img.alt)?.[1] ?? img.alt,
       ),
     );
 
   async function staged(page: Page) {
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await pasteThree(page);
     await page.waitForFunction(() => {
-      const images = [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")];
+      const images = [
+        ...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img"),
+      ];
       return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
     });
     expect(await order(page)).toEqual(["300", "400", "500"]);
@@ -100,7 +104,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
   test("dragging a chip past another moves it, and the drag opens nothing", async () => {
     const page = await newChat();
     await staged(page);
-    const chips = page.locator(".acpmux-attachment-image");
+    const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     const first = (await chips.nth(0).boundingBox())!;
     const last = (await chips.nth(2).boundingBox())!;
     await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
@@ -110,12 +114,12 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     // The chip being dragged lifts.
     expect(
       await page
-        .locator(".acpmux-attachment-slot[data-dragging] .acpmux-attachment")
+        .locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging] .acpmux-attachment")
         .evaluate((chip) => getComputedStyle(chip).transform),
     ).not.toBe("none");
     await page.mouse.up();
     expect(await order(page)).toEqual(["400", "500", "300"]);
-    expect(await page.locator(".acpmux-attachment-slot[data-dragging]").count()).toBe(0);
+    expect(await page.locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging]").count()).toBe(0);
     // Assistive technology hears where it went, while the announcement stays out of the
     // visual strip. Leo, 2026-10-26: the movement hint and status must not be visible UI.
     const announcement = page.locator(".acpmux-attachments output[aria-live]");
@@ -135,7 +139,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
   test("Option-Left and Option-Right move the focused chip", async () => {
     const page = await newChat();
     await staged(page);
-    await page.locator(".acpmux-attachment-image .acpmux-attachment-open").nth(0).focus();
+    await page.locator(".acpmux-attachments .acpmux-attachment-image .acpmux-attachment-open").nth(0).focus();
     await page.keyboard.press("Alt+ArrowRight");
     expect(await order(page)).toEqual(["400", "300", "500"]);
     await page.keyboard.press("Alt+ArrowRight");
@@ -149,7 +153,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     const page = await newChat();
     await page.evaluate(() => document.documentElement.setAttribute("dir", "rtl"));
     await staged(page);
-    await page.locator(".acpmux-attachment-image .acpmux-attachment-open").nth(0).focus();
+    await page.locator(".acpmux-attachments .acpmux-attachment-image .acpmux-attachment-open").nth(0).focus();
     await page.keyboard.press("Alt+ArrowLeft");
     expect(await order(page)).toEqual(["400", "300", "500"]);
     await page.keyboard.press("Alt+ArrowRight");
@@ -169,7 +173,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
   test("a plain click on a chip still opens it", async () => {
     const page = await newChat();
     await staged(page);
-    await page.locator(".acpmux-attachment-image .acpmux-attachment-open").nth(1).click();
+    await page.locator(".acpmux-attachments .acpmux-attachment-image .acpmux-attachment-open").nth(1).click();
     await page.locator("[role=dialog]").first().waitFor();
     expect(await order(page)).toEqual(["300", "400", "500"]);
     await page.close();

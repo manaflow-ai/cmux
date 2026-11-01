@@ -156,11 +156,20 @@ on feat-cmux-next pull requests and pushes) fails when:
   or `vars.CI_LIGHT_LANE_RUNNER`, with no placement output in its `runs-on:`,
   so it bypasses placement (`scripts/ci/side_lane_placement.py` spills a
   starved pool to an idle compatible one; a variable never does);
+- no picker output can be its `runs-on:` value (`needs.<job>.outputs.<x>`
+  other than the capability map, or a caller's `inputs.*`), so it always
+  waits on one fixed label: a Blacksmith macOS literal, a runner variable or a
+  capability-map key. A picker job offers an idle owned Mac first and
+  Blacksmith macOS last, with stall-aware failover; a fixed label does not.
+  Only a value position counts: the last `&&` operand of each `||`
+  alternative, read through groups and `fromJSON(...)`, and for
+  `matrix.<key>` only that key's values. An output used only in a condition
+  picks nothing;
 - an entry names a job that is gone or no longer on macOS.
 
-`linux_followup` and `placement_followup` mark existing jobs that should move
-and have not yet. A new job never gets one, and a followup that no longer
-applies fails, so both lists only shrink. `python3
+`linux_followup`, `placement_followup` and `picker_followup` mark existing jobs
+that should move and have not yet. A new job never gets one, and a followup
+that no longer applies fails, so the lists only shrink. `python3
 scripts/ci/runner_routing_table.py check` prints them.
 
 A job that is not plainly on a Linux or Windows runner counts as macOS, so an

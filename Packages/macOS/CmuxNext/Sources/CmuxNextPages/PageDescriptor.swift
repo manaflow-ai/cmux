@@ -45,11 +45,17 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
     /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
+    /// The page shows saved documents in passive (sandboxed, scriptless) srcdoc frames, as the agent
+    /// pane does: a frame's `about:srcdoc` load from the page's own document is allowed, and any
+    /// navigation such a frame starts, or that would replace its document, is cancelled
+    /// (``PageNavigation``). Off by default: other pages' frames keep their navigation hook.
+    public let passiveFrames: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
+                passiveFrames: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -65,6 +71,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.passiveFrames = passiveFrames
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -175,7 +182,7 @@ public extension PageDescriptor {
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
+        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
@@ -208,7 +215,7 @@ public extension PageDescriptor {
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
-        csp: PageCSP(media: [changelogReelSource]))
+        csp: PageCSP(media: ["data:", changelogReelSource]))
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

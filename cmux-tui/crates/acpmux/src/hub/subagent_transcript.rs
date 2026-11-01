@@ -174,6 +174,13 @@ async fn readable_claude_sessions(
     allowed
 }
 
+/// The Claude store a chat's agent runs with (its profile's env as the spawn builds it); none
+/// for a chat that is not a Claude Code one. `hub/native_history.rs` reads a chat's own
+/// transcript from it.
+pub(super) async fn claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> Option<PathBuf> {
+    ancestor_claude_home(hub, meta).await
+}
+
 async fn ancestor_claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> Option<PathBuf> {
     let (profile, defaults) = {
         let cfg = hub.config.read().await;
@@ -190,7 +197,7 @@ async fn ancestor_claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> Op
 }
 
 /// An id that names one folder or file and nothing else: ASCII letters, digits, `-` and `_`.
-fn plain_id(id: &str) -> bool {
+pub(super) fn plain_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')

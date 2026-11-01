@@ -91,15 +91,25 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
         }
+        // A Cloud hand-off labels the same prompt `handoff-<turn>-<id>` on the wire. Keep the
+        // ticket bound to the prompt's own id so its early reservation still redeems after that
+        // label is assigned, while a doubly labelled id remains distinct.
+        if method == "session/prompt", case .string(let id)? = params["promptId"] {
+            params["promptId"] = .string(AgentPaneHandoffPrompt(id: id).ownID)
+        }
         self.method = method
         self.params = params
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    /// config option, and one per prompt id. A rapid later Enter must not revoke an earlier
+    /// prompt's proof before its frame reaches the relay.
     public var slot: String {
-        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
-        return method + "#" + config
+        switch (method, params["configId"], params["promptId"]) {
+        case ("session/set_config_option", .string(let config)?, _): return method + "#" + config
+        case ("session/prompt", _, .string(let promptId)?): return method + "#" + promptId
+        default: return method
+        }
     }
 
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
@@ -111,7 +121,48 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// Whether a frame's pick (taken off the main thread) is this intent's exact pick.
     public func matches(_ pick: AgentPaneGesturePick?) -> Bool {
         guard let pick, pick.method == method else { return false }
+        if method == "session/set_config_option",
+           let expected = params["configId"], let actual = pick.params?["configId"],
+           configOptionIDsEquivalent(expected, actual) {
+            var expectedParams = params
+            var actualParams = pick.params ?? [:]
+            expectedParams.removeValue(forKey: "configId")
+            actualParams.removeValue(forKey: "configId")
+            if let expectedValue = expectedParams["value"], let actualValue = actualParams["value"],
+               configOptionValuesEquivalent(expected, expectedValue, actualValue) {
+                actualParams["value"] = expectedValue
+            }
+            return expectedParams == actualParams
+        }
         return pick.params == params
+    }
+
+    /// New chats hold effort and Fast picks before the harness tells us the option's id. Those
+    /// ids are aliases for the same user-facing option, so a ticket taken for the held spelling
+    /// must redeem when the opened session reports its spelling.
+    private func configOptionIDsEquivalent(_ lhs: AgentPaneJSONScalar, _ rhs: AgentPaneJSONScalar) -> Bool {
+        guard case .string(let left) = lhs, case .string(let right) = rhs else { return false }
+        if left == right { return true }
+        let effort = Set(["effort", "reasoning_effort"])
+        if effort.contains(left), effort.contains(right) { return true }
+        let fast = Set(["fast", "fast_mode", "fast-mode"])
+        return fast.contains(left) && fast.contains(right)
+    }
+
+    /// Fast-mode adapters use different spellings for enabled. Treat those spellings as the same
+    /// user-facing pick when the option id is one of Fast's aliases.
+    private func configOptionValuesEquivalent(
+        _ configID: AgentPaneJSONScalar,
+        _ lhs: AgentPaneJSONScalar,
+        _ rhs: AgentPaneJSONScalar
+    ) -> Bool {
+        guard case .string(let id) = configID,
+              ["fast", "fast_mode", "fast-mode"].contains(id),
+              case .string(let left) = lhs,
+              case .string(let right) = rhs
+        else { return false }
+        let enabled = Set(["on", "true", "fast", "enabled"])
+        return enabled.contains(left) && enabled.contains(right)
     }
 }
 
@@ -126,7 +177,9 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         self.method = method
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            self.params = (acpmux?["promptId"] as? String).map {
+                ["promptId": .string(AgentPaneHandoffPrompt(id: $0).ownID)]
+            }
             return
         }
         // A permission answer's pick names its session too (the ticket binds the prompt), and a

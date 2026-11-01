@@ -8,13 +8,13 @@ import Testing
 struct AppTestDaemonOwnerTests {
     private struct HandshakeFailed: Error {}
 
-    private func withChild(_ body: (DaemonEndpoint, AcpmuxUnresponsiveWatch.Daemon) async throws -> Void) async throws {
+    private func withChild(_ body: (DaemonEndpoint, AcpmuxDaemonStop.Daemon) async throws -> Void) async throws {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/sleep")
         child.arguments = ["3600"]
         child.standardInput = FileHandle.nullDevice
         try child.run()
-        guard let identity = AcpmuxUnresponsiveWatch.kernelProcess(pid: child.processIdentifier) else {
+        guard let identity = AcpmuxDaemonStop.kernelProcess(pid: child.processIdentifier) else {
             child.terminate()
             _ = await ProcessExit.exitEvent(pid: child.processIdentifier, within: .seconds(5), clock: ContinuousClock())
             Issue.record("could not read this test child's kernel identity")
@@ -26,7 +26,7 @@ struct AppTestDaemonOwnerTests {
         catch { result = .failure(error) }
         // task-owner: joined child cleanup survives cancellation of the test task.
         let exited = await Task {
-            await AcpmuxUnresponsiveWatch(clock: ContinuousClock()).stop(identity, grace: .seconds(1))
+            await AppTestDaemonOwner.stop(identity, grace: .seconds(1))
         }.value
         #expect(exited)
         try result.get()
@@ -43,9 +43,12 @@ struct AppTestDaemonOwnerTests {
 
     @Test func anUnverifiedLiveProcessIsLeftAloneAndCleanupRemainsIncomplete() async throws {
         try await withChild { endpoint, identity in
-            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) { true }
+            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) {
+                Issue.record("unverified endpoint must not receive a graceful shutdown")
+                return true
+            }
             #expect(!exited)
-            #expect(AcpmuxUnresponsiveWatch.kernelProcess(pid: identity.pid) == identity)
+            #expect(AcpmuxDaemonStop.kernelProcess(pid: identity.pid) == identity)
         }
     }
 
@@ -64,7 +67,7 @@ struct AppTestDaemonOwnerTests {
             previous.token.val.7 &+= 1
             let exited = await AppTestDaemonOwner.reap(endpoint, process: previous) { throw HandshakeFailed() }
             #expect(exited, "the recorded process is gone")
-            #expect(AcpmuxUnresponsiveWatch.kernelProcess(pid: identity.pid) == identity,
+            #expect(AcpmuxDaemonStop.kernelProcess(pid: identity.pid) == identity,
                     "the replacement process must stay alive")
         }
     }

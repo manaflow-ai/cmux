@@ -5,7 +5,7 @@ import Foundation
 /// rewrite"; Lawrence 2026-10-23: "rethink from first principles").
 ///
 /// At lift the list without the dragged group is laid out once: the *base*. Its top-level blocks (a group with
-/// its members, subgroups and their rows; a loose workspace with its tab rows; a listed item; a section header)
+/// its members, subgroups and their rows; a loose workspace; a listed item; a section header)
 /// are y ranges in that base. Nothing during the drag reads a drawn or animating frame.
 ///
 /// - The card is the group cut to its header and three rows (``cardHeight(rows:top:full:maxRows:)``); the gap it
@@ -143,17 +143,17 @@ nonisolated struct SidebarGroupDragPlan: Sendable, Equatable {
     /// The top-level blocks of `rows` (a laid-out list), top to bottom.
     ///
     /// A block opens at a top-level row and takes the rows that belong to it. A group's block holds its header,
-    /// its members and their tab rows, its "Done" and "Show more" rows and every subgroup under it (rows deeper
-    /// than the top level), so a parent and its subgroups are one block. A loose workspace's block holds its tab
-    /// rows.
+    /// its members, its "Done" and "Show more" rows and every subgroup under it (rows deeper than the top level),
+    /// so a parent and its subgroups are one block. A loose workspace's block is its row.
     static func blocks(of rows: [SidebarRow]) -> [Block] {
         var blocks: [Block] = []
-        var open: (group: GroupID?, workspace: WorkspaceID?)?
-        for row in rows where row.height > 0 {
-            let inOpenGroup = open?.group != nil && (row.group == open?.group || row.depth > 0)
+        var openGroup: GroupID?
+        for case var row in rows where row.height > 0 {
+            // A group's one row starts its group's block, as its header did (`SidebarLayout+SoleMember`).
+            if let header = row.standingHeader { row = header }
+            let inOpenGroup = openGroup != nil && (row.group == openGroup || row.depth > 0)
             let joins: Bool = switch row.key {
             case .workspace, .item, .group, .doneFold, .showMore: inOpenGroup
-            case let .tab(owner, _): owner == open?.workspace || inOpenGroup
             default: false
             }
             if joins, let last = blocks.last {
@@ -162,11 +162,7 @@ nonisolated struct SidebarGroupDragPlan: Sendable, Equatable {
                 continue
             }
             blocks.append(Block(range: row.y...row.maxY, head: row, nextIndex: row.siblingIndex + 1))
-            open = switch row.key {
-            case let .group(id): (id, nil)
-            case let .workspace(id): (nil, id)
-            default: nil
-            }
+            openGroup = if case let .group(id) = row.key { id } else { nil }
         }
         return blocks
     }

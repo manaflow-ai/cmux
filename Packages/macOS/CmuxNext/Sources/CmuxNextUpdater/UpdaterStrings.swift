@@ -29,6 +29,27 @@ nonisolated enum UpdaterStrings {
     static var preflightSpace: String {
         text("updater.preflight.space", "There isn't enough free disk space to install the update. Free some space, or download the update manually.")
     }
+    // An install that left the old build running (``UpdateInstallFailure``)
+    static var installFailedTitle: String { text("updater.installFailed.title", "Update Didn't Install") }
+    static var tryAgain: String { text("updater.card.tryAgain", "Try Again") }
+    static var installFailedTranslocatedShort: String {
+        text("updater.installFailed.translocated.short", "cmux runs from a read-only copy")
+    }
+    static var installFailedTranslocated: String {
+        text("updater.installFailed.translocated", "macOS runs this cmux from a read-only copy, so the installer couldn't replace it. Move cmux to Applications and open it from there, or download the update manually.")
+    }
+    static var installFailedFolderShort: String { text("updater.installFailed.folder.short", "cmux can't replace itself here") }
+    static func installFailedFolder(_ folder: String) -> String {
+        format("updater.installFailed.folder", "The installer couldn't replace cmux in %@. Move cmux to Applications, or download the update manually.", folder)
+    }
+    static var installFailedSpaceShort: String { text("updater.installFailed.space.short", "Not enough free disk space") }
+    static var installFailedSpace: String {
+        text("updater.installFailed.space", "There wasn't enough free disk space to install the update. Free some space and try again, or download the update manually.")
+    }
+    static var installFailedUnknownShort: String { text("updater.installFailed.unknown.short", "The installer kept this version") }
+    static var installFailedUnknown: String {
+        text("updater.installFailed.unknown", "The installer kept this version of cmux and gave no reason. Try again, or download the update manually.")
+    }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
     static func managedChannel(_ channel: String) -> String {
         format("updater.managed.channel", "Your organization keeps this Mac on the %@ channel.", channel)
@@ -145,16 +166,11 @@ nonisolated enum UpdaterStrings {
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.
     static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
-    // The pulled-build banner (PulledBuildWatch)
-    static var pulledTitle: String { text("updater.pulled.title", "This Nightly Was Pulled") }
-    static var pulledWait: String { text("updater.pulled.wait", "Wait for the Fix") }
-    static var pulledRollBack: String { text("updater.pulled.rollBack", "Roll Back") }
-    static func pulledKept(_ version: String) -> String {
-        format("updater.pulled.kept", "Roll back to %@, the build this Mac kept, or keep this one until the fixed build installs by itself.", version)
-    }
-    static var pulledNothingKept: String {
-        text("updater.pulled.nothingKept", "The fixed build installs by itself as soon as it is published.")
-    }
+    // The newest build replaces a stale or pulled one (UpdateCard.gettingNewest)
+    static var gettingNewest: String { text("updater.notice.gettingNewest", "Getting the Newest Build…") }
+    static var runningBuildPulled: String { text("updater.notice.runningBuildPulled", "This build was pulled.") }
+    /// The rollback confirmation's button (``UpdateDropBack/confirmation``).
+    static var rollBackButton: String { text("updater.pulled.rollBack", "Roll Back") }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
     // The update changelog (cx-lntk)
@@ -183,7 +199,8 @@ nonisolated enum UpdaterStrings {
     static func channel(_ track: UpdateTrack) -> String {
         switch track {
         case .stable: text("updater.channel.stable", "stable")
-        case .nightly: text("updater.channel.nightly", "nightly")
+        // cmux NEXT's own app name says NEXT; its ring reads as nightly.
+        case .nightly, .nightlyNext: text("updater.channel.nightly", "nightly")
         case .rc: text("updater.channel.rc", "release candidate")
         case .development: text("updater.channel.development", "development")
         }

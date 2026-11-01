@@ -4,7 +4,7 @@
 # (scripts/cmux-next/shell-integration-bench.py) on one Mac with every shell they need, strict. On
 # macOS both count the shell's own forks through the kernel (kqueue NOTE_FORK), so other processes
 # on the host do not change the fork counts: the guard alone runs in any isolated step
-# (cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --arg test
+# (cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --os macos --arg test
 # --arg shell_integration:: --ref SHA). This step adds what that one cannot: the bench's
 # first-prompt times (a timing, so alone on an idle worker), bash 5.2, and the strict shell list.
 #   cmux-ci run --class exclusive --measurement --label measure \

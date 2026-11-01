@@ -55,6 +55,8 @@ export interface WhatsNewEntry {
   summary: LocalizedText;
   media?: { kind: string; light: string; dark: string; alt: LocalizedText };
   tryIt?: { action?: string; deeplink?: string };
+  /** Optional GitHub pull request URL shown as the shared colored PR chip. */
+  pr?: string;
   docs?: string;
 }
 
@@ -100,10 +102,15 @@ export interface ReelResult {
   url: string | null;
 }
 
-/** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
-    (u5099, design/changelog-variations-gallery #01). */
-export type ChangelogDesign = "ledger" | "journal" | "rail" | "digest";
+/** The page design (Debug Settings `whatsNew.design`, route `design=`): the What's New sheet is the
+    default (2026-10-31, msg 19251, cmux-shots/whatsnew-variations); the Ledger (u5099) before it. */
+export type ChangelogDesign = "sheet" | "ledger" | "journal" | "rail" | "digest";
 /** How the update's news shows its clips (SpanNews.tsx; the route's `news=`, for the gallery): each
     clip beside its words, alternating sides (default); one under another; two-up cards; or the
     lead row the clips replaced. */
 export type NewsLayout = "alternate" | "stack" | "grid" | "lead";
+/** How the What's New sheet sets its rows (SheetPage.tsx; the route's `sheet=`, for the gallery),
+    all across the pane's width (Leo 2026-11-01: "this is way too narrow and not info dense
+    enough"): a row's title and its muted line on one line where they fit (default); the line
+    tight under the title; or two columns of rows on a wide pane. */
+export type SheetLayout = "inline" | "stack" | "grid";

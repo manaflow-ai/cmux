@@ -3,8 +3,8 @@
    one 16px glyph size (HEADER_GLYPH), nothing on press (composer-no-hover-highlight). In the chat header's row they are
    plain glyphs with no fill, border or shadow of their own at rest or on hover (Leo 2026-10-25: "why do the icons have
    their own background border situation instead of just being, you know, good"): muted at rest, the text's ink on
-   hover, while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The "..." menu
-   (src/ui Menu) sits on the menu surface. */
+   hover and while a menu is open, the lit ink while a toggle's panel is open; the 24px square stays the hit target.
+   The "..." menu (src/ui Menu) sits on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
 .acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
@@ -14,23 +14,24 @@
 .acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
-/* On: a toggle whose panel is open reads as on the way the App's toolbar toggles do (PaneToolbarView: the selection
-   fill on the button's own 24px square, never the group's) with the text's ink, and HeaderIcon's accent glyph. Leo
-   2026-10-29: "i literally meant the ui depicting it as toggled or not": ink alone matched hover under the default
-   accent, so an open panel's toggle looked off. */
-.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text);background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent))}
-/* Floating chat uses the same plain glyph treatment: no plates at rest or on hover. An open panel's toggle takes the
-   selection fill on its own square, as above; the group never gains a backdrop. */
+/* On: a toggle whose panel is open reads as on by its lit ink alone, the way the App's pane toolbar toggles do
+   (PaneToolbarView: Palette.litGlyph, the accent, never fainter than at rest), with no plate, pill or fill behind it,
+   hovered or not. Leo 2026-10-29: "i literally meant the ui depicting it as toggled or not" (the lit ink differs from
+   hover's text ink); Leo 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE BUTTONS STILL ISN'T
+   FUCKING REMOVESD" (#27546's selection fill on the pressed square was the background). */
+.acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
+/* Floating chat uses the same plain glyph treatment: no plates at rest, on hover, with its menu open or pressed; the
+   group never gains a backdrop. */
 .acpmux-floating-header .acpmux-header-tool,.acpmux-floating-bar .acpmux-header-tool{background:none;color:var(--agent-muted)}
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:none;color:var(--agent-text)}
-/* Pressed, hovered or not: the hover rule above must not take the fill back while the pointer is on it. */
-.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+/* Pressed, hovered or not: the hover rule above must not take the lit ink back while the pointer is on it. */
+.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:none;color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 .acpmux-floating-header .acpmux-header-tool:disabled,.acpmux-floating-bar .acpmux-header-tool:disabled{background:none;color:var(--agent-soft)}
 /* Shared pane styles may give focused buttons a gradient and suppress the ring. Header tools keep
    their own control-sized focus ring, with no plate, in the embedded and floating headers. */
 .acpmux-floating-header .acpmux-header-tool:focus-visible,.acpmux-floating-bar .acpmux-header-tool:focus-visible,.acpmux-header-tools .acpmux-header-tool:focus-visible{background:none !important;outline:1.5px solid var(--agent-text) !important;outline-offset:1px}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none;letter-spacing:var(--text-control--letter-spacing)}
-.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
@@ -43,16 +44,26 @@
 .ui-positioner{z-index:var(--layer-dropdown);outline:none}
 .acpmux-chat-menu-popover .ui-submenu-chevron{flex:none;margin-inline-start:auto;width:6px;height:6px;border-block-start:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg);opacity:.6}
 .acpmux-chat-menu-popover .ui-submenu-chevron:dir(rtl){transform:rotate(-45deg)}
-/* Changes beside the transcript once the pane is wide enough for both, as in the Codex app; narrower, it covers the transcript. */
+/* Changes open on the right, beside the transcript, at every width: never over the chat (Leo, 2026-10-31: "why does it
+   still not open to the right"). The chat keeps 44% of the pane, and at least 320px while the pane has 640px.
+   test/agent-pane-changes-placement.test.ts keeps it so. */
 .acpmux-stage{container-type:inline-size}
-@container (min-width:1160px){
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
-  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
-}
+.acpmux-reviewing{--acpmux-review-chat:max(44%,min(320px,50%))}
+.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:calc(100% - var(--acpmux-review-chat))}
+.acpmux-reviewing>.acpmux-diff-panel{left:var(--acpmux-review-chat);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
-.acpmux-header-status-slot{position:relative;flex:1 1 0;min-width:0;height:26px}
+.acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}
+.acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
+/* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
+.acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+.acpmux-header[data-tab-row] .acpmux-thread-title{max-width:min(24vw,230px);font-size:var(--text-detail)}
+.acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
+.acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
+.acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+.acpmux-delete-dialog-confirm{background:var(--agent-status-failure);color:var(--agent-on-accent,var(--acpmux-base))}
+.acpmux-header-status-content>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;min-width:0;max-width:min(42vw,360px);height:var(--acpmux-header-control-height)}
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -106,7 +117,9 @@
 .acpmux-pr-check[data-state=failed][data-on-base]::before{background:var(--agent-status-warning)}
 .acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
+/* A check's link fills the row's free width, and the row lights only while the pointer is on it: anywhere the row is lit, a click opens the check (the highlight covers only its control). */
+.acpmux-pr-check>a{flex:1 1 auto;align-self:stretch;line-height:26px}
+.acpmux-pr-check:has(>a:hover){background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */
@@ -130,3 +143,5 @@
 .acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:none}
+
+.acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}

@@ -16,6 +16,11 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
+    /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
+    let machinePath: String, sendsStackSession: Bool
+    /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
+    /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
+    var machineIO: CloudMachineIO?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -34,7 +39,9 @@ public struct CloudAPIClient: Sendable {
 
     /// This client with its team fixed to `team`: every request of a create and its retries
     /// goes to the same team whatever the app switches to meanwhile.
+    /// A Worker machines client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudAPIClient {
+        guard sendsStackSession else { return self }
         var copy = self
         copy.teamID = { team }
         return copy
@@ -48,6 +55,20 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
+        machinePath = "/api/vm"
+        sendsStackSession = true
+    }
+
+    /// A Worker machines client (CloudAPIClient+MachineRoutes.swift).
+    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
+        self.baseURL = baseURL
+        backendIsLocalOnly = false
+        self.tokens = tokens
+        self.teamID = teamID
+        self.session = session
+        self.appVersion = appVersion
+        machinePath = "/v1/cloud/machines"
+        sendsStackSession = false
     }
 
     // MARK: Machines
@@ -130,9 +151,14 @@ public struct CloudAPIClient: Sendable {
         try await send("GET", "/api/vm/\(id)/stats", as: CloudMachineStats.self)
     }
 
-    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB.
-    public func resize(_ id: String, cpu: Int, memoryMb: Int) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/resize", body: ["cpu": cpu, "memoryMb": memoryMb], timeout: .seconds(120), as: Ignored.self)
+    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
+    /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
+    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
+        var body: [String: any Sendable] = [:]
+        if let cpu { body["cpu"] = cpu }
+        if let memoryMb { body["memoryMb"] = memoryMb }
+        if let storageMb { body["storageMb"] = storageMb }
+        _ = try await send("POST", "/api/vm/\(id)/resize", body: body, timeout: .seconds(120), as: Ignored.self)
     }
 
     public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
@@ -166,13 +192,6 @@ public struct CloudAPIClient: Sendable {
 
     public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
         try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
-    /// `POST /api/vm/{id}/exec`: runs `command` in the machine's shell. The
-    /// route caps `timeoutMs` at 15 minutes.
-    public func exec(_ id: String, command: String, timeoutMs: Int = 30_000) async throws -> CloudExecResult {
-        try await send("POST", "/api/vm/\(id)/exec", body: ["command": command, "timeoutMs": timeoutMs],
-                       timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
     }
 
     // MARK: Remote approvals (cx-psxg)
@@ -225,37 +244,6 @@ public struct CloudAPIClient: Sendable {
         }
         return endpoint
     }
-
-    /// Lists a guest directory through the authenticated backend wrapper.
-    public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
-        struct List: Decodable { var entries: [CloudFileEntry] }
-        return try await send("GET", "/api/vm/\(id)/fs/dir?path=\(query(path))", as: List.self).entries
-    }
-
-    /// Reads a guest file. The backend encodes bytes as base64 for this JSON API.
-    public func readFile(_ id: String, path: String) async throws -> CloudFileContents {
-        try await send("GET", "/api/vm/\(id)/fs/read?path=\(query(path))", timeout: .seconds(120), as: CloudFileContents.self)
-    }
-
-    /// Writes a guest file atomically through the backend wrapper.
-    public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
-        var body: [String: any Sendable] = ["path": path, "dataBase64": data.base64EncodedString()]
-        if let mode { body["mode"] = mode }
-        _ = try await send("POST", "/api/vm/\(id)/fs/write", body: body, timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func makeDirectory(_ id: String, path: String) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/fs/mkdir", body: ["path": path], as: Ignored.self)
-    }
-
-    public func removeFile(_ id: String, path: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)/fs/remove?path=\(query(path))", timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func statFile(_ id: String, path: String) async throws -> CloudFileStat {
-        try await send("GET", "/api/vm/\(id)/fs/stat?path=\(query(path))", as: CloudFileStat.self)
-    }
-
 
     // MARK: Tunnel
 
@@ -337,7 +325,29 @@ public struct CloudAPIClient: Sendable {
         return try await send("GET", "/api/vm/publications", as: List.self).publications
     }
 
-    private func query(_ value: String) -> String {
+    /// `POST /api/vm/apis`: publishes `port` of the machine behind cmux sign-in and mints an
+    /// API key for it in one call. Calling it again for the same port reuses the publication
+    /// and mints another key.
+    public func provisionAPI(machineID: String, port: Int, accessMode: String? = nil, keyName: String? = nil) async throws -> CloudProvisionedAPI {
+        var body: [String: any Sendable] = ["vmId": machineID, "port": port]
+        if let accessMode { body["accessMode"] = accessMode }
+        if let keyName { body["name"] = keyName }
+        return try await send("POST", "/api/vm/apis", body: body, timeout: .seconds(120), as: CloudProvisionedAPI.self)
+    }
+
+    /// The live API keys of a publication, named by its id or hostname.
+    public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
+        struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
+        return try await send("GET", "/api/vm/publications/\(queryComponent(publication))/api-keys", as: List.self).apiKeys
+    }
+
+    /// Revokes one key; its next request is refused at the edge.
+    public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
+        struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
+        return try await send("DELETE", "/api/vm/publications/\(queryComponent(publication))/api-keys/\(queryComponent(keyID))", as: Revoked.self).apiKey
+    }
+
+    func query(_ value: String) -> String {
         // Keep guest path separators readable, but never let a path inject a
         // second query item or fragment into the request URL.
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
@@ -464,10 +474,14 @@ public struct CloudAPIClient: Sendable {
         var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = method
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
         request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
-        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
+        if sendsStackSession {
+            request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
+        } else if let team = await teamID() {
+            request.setValue(team, forHTTPHeaderField: "x-cmux-team")
+        }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

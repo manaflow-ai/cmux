@@ -135,12 +135,14 @@ public final class TerminalSurfaceView: NSView {
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
             TerminalSecureInput.release(self)
-            if let surface {
-                lane?.close()
-                ghostty_surface_free(surface)
+            guard let surface else {
+                bridge.release()
+                return
             }
-            // Released after free: free joins the IO thread that reads the bridge.
-            bridge.release()
+            // The lane frees the surface after its chunk in flight; this never waits for it
+            // (``TerminalOutputLane/close(then:)``).
+            let teardown = TerminalSurfaceTeardown(surface: surface, bridge: bridge)
+            if let lane { lane.close(then: teardown) } else { teardown.run() }
         }
     }
 
@@ -427,6 +429,15 @@ public final class TerminalSurfaceView: NSView {
         let pixels = UInt64(size.width_px) * UInt64(size.height_px)
         let cells = UInt64(size.columns) * UInt64(size.rows)
         return pixels * 4 * 3 + cells * 64
+    }
+
+    /// Whether the terminal is currently using Ghostty's alternate screen.
+    /// Full-screen programs such as vim, less and tmux use this screen; the
+    /// key router reads it when evaluating `shortcuts.when` predicates.
+    public var isAlternateScreen: Bool {
+        guard let surface else { return false }
+        var metrics = ghostty_surface_grid_metrics_s()
+        return ghostty_surface_grid_metrics(surface, &metrics) && metrics.alternate_screen
     }
 
     /// The grid the surface renders now: the locked grid, or what fits the

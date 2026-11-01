@@ -47,6 +47,57 @@ struct WorkspaceLinkTests {
         }
     }
 
+    /// #27934: the links Chief writes in its Home chat are the plain `cmux` scheme, whatever the build,
+    /// and a click goes through ``CmuxAppLinks/open(_:services:)``. A `cmux://workspace/<ws_…>` click
+    /// shows that workspace; a `cmux://tab/<tab_…>` click shows its workspace with that tab selected;
+    /// a `file://` path is opened by this app, never handed to the system or dropped.
+    @Test func chiefsWorkspaceTabAndFileLinksOpenWhenClicked() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let name = "chief-link-ws-\(UUID().uuidString.prefix(6).lowercased())"
+            let id = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false).workspaceID
+            try await PinnedPageTests.until({ Self.workspace(id, store)?.screens.first?.panes.first?.tabs.first?.snapshot.tabResourceID != nil },
+                                            within: .seconds(30), report: { "\(name) never showed with a tab" })
+            let workspace = try #require(Self.workspace(id, store))
+            let pane = try #require(workspace.screens.first?.panes.first)
+            let tab = try #require(pane.tabs.first)
+            @MainActor func owner() -> WindowController? {
+                services.windows.registry.value.owner(of: workspace.id).flatMap { owner in services.windows.controllers.first { $0.state.id == owner } }
+            }
+            try await PinnedPageTests.until({ owner() != nil }, report: { "\(name) is in no window" })
+            let window = try #require(owner())
+            let other = try #require(store.workspaces.first { $0.id != workspace.id && $0.key != nil })
+            @MainActor func showOther() async throws {
+                services.windows.reveal(workspaceID: other.id)
+                try await PinnedPageTests.until({ window.state.workspaceID == other.id }, report: { "the other workspace never showed" })
+            }
+            /// The link in the Chief's own scheme (`cmux://`), as Home renders it.
+            func chiefs(_ link: String) throws -> URL {
+                let path = try #require(link.range(of: "://")).upperBound
+                return try #require(URL(string: "cmux://" + link[path...]))
+            }
+
+            try await showOther()
+            #expect(CmuxAppLinks.open(try chiefs(try services.link(workspace: workspace)), services: services))
+            try await PinnedPageTests.until({ window.state.workspaceID == workspace.id },
+                                            report: { "the workspace link left \(window.state.workspaceID) shown" })
+
+            try await showOther()
+            let tabLink = try chiefs(try services.link(tab: tab))
+            #expect(tabLink.absoluteString.hasPrefix("cmux://tab/tab_"))
+            #expect(CmuxAppLinks.open(tabLink, services: services))
+            try await PinnedPageTests.until({ window.state.workspaceID == workspace.id && window.state.selection.selection(in: pane.id) == tab.id },
+                                            report: { "the tab link left \(window.state.workspaceID) shown, tab \(window.state.selection.selection(in: pane.id) ?? "none")" })
+
+            // A path link is this app's to open (LinkOpener), never the system's.
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("chief-link-\(UUID().uuidString.prefix(6)).md")
+            try Data("# link\n".utf8).write(to: file)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(CmuxAppLinks.open(URL(fileURLWithPath: file.path), services: services))
+            #expect(!CmuxAppLinks.open(try #require(URL(string: "file:relative.md")), services: services))
+        }
+    }
+
     /// A workspace link whose workspace is gone refuses with a reason, never a silent success.
     @Test func aLinkToAGoneWorkspaceRefuses() async throws {
         try await PinnedPageTests.withApp { services, _ in

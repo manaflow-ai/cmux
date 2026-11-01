@@ -274,7 +274,7 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {
@@ -618,19 +618,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) across the row,
-   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays about as tall as one of the person's. */
-.acpmux-queued .cv-received {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: -3px 0;
+/* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
+   before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
+   and unrendered"). Opened, the error follows on its own line. */
+.acpmux-queued-kind[data-kind="retry"] {
+  vertical-align: top;
+  margin-right: 6px;
 }
-.acpmux-queued .cv-received__line {
-  padding-right: 0;
-}
-.acpmux-queued .cv-received__line > .acpmux-queued-actions {
-  margin: 0 0 0 auto;
+.acpmux-queued-detail {
+  display: block;
+  color: var(--acpmux-composer-dim);
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -651,9 +648,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
    still apply it at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue[data-fit-ready] {
+  .acpmux-composer-queue[data-fit-ready]:not([data-held]) {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
+}
+/* A row the pointer opens or closes: its actions sit on its last line, and the list grows or shrinks
+   at its top by exactly the row's change, at once (ComposerQueue.tsx `resized`), so nothing under
+   the pointer moves (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
+   layout"). A one-line row is unchanged. */
+.acpmux-queued > .acpmux-queued-actions,
+.acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
+  align-self: end;
 }
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {

@@ -6,7 +6,7 @@ import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
-import { journalNotes } from "./whatsNewFixtures";
+import { dayOfNightlies, journalNotes } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
 const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
@@ -30,9 +30,6 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   changes: realChanges.slice(start(index), start(index) + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
 
-/** A real published reel (scripts/cmux-next/media/reel.py), so the gallery shows the card as it plays. */
-const nightlyReel = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193688601/reel.mp4";
-
 export default changelogPageEntry({
   id: "pages.changelog",
   title: "Changelog",
@@ -43,6 +40,7 @@ export default changelogPageEntry({
     "page:cmux.changelog",
     "pages/changelog/ChangelogPage.tsx",
     "pages/changelog/JournalPage.tsx",
+    "pages/changelog/SheetPage.tsx",
     "pages/changelog/RailPage.tsx",
     "pages/changelog/DigestPage.tsx",
     "pages/changelog/ReleaseParts.tsx",
@@ -69,39 +67,72 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
-    ledger: {
-      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
+    sheet: {
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), picked layout A Inline (Leo 2026-11-01 found it too narrow and not info dense enough): up to 920px wide, each change an accent glyph, its bold title and its muted line on one line where they fit.",
       notes: journalNotes,
+    },
+    "sheet-stack": {
+      note: "Sheet layout B Stack (sheet=stack): the same width, the muted line one step smaller and tight under its title.",
+      notes: journalNotes,
+      route: "#/?sheet=stack",
+    },
+    "sheet-grid": {
+      note: "Sheet layout C Grid (sheet=grid): stacked rows in two columns once each column can be 360px wide.",
+      notes: journalNotes,
+      route: "#/?sheet=grid",
+    },
+    "sheet-day-of-nightlies": {
+      note: "A day of nightlies whose digests all name their entries summary-0, summary-1, …: each change once (Leo 2026-11-01 saw rows twice).",
+      notes: dayOfNightlies,
+    },
+    "sheet-real-nightlies": {
+      note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",
+      notes: realNightlies,
+    },
+    ledger: {
+      route: "#/?design=ledger",
+      note: "Ledger (default u5099 to 2026-10-31): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
+      notes: journalNotes,
+    },
+    "ledger-wide": {
+      note: "Layout variant: full-pane Ledger with 24–32px margins, compact version/date rail, and descriptions that use the available width.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-two-up": {
+      note: "Layout variant: wide Ledger rows place the full description beside its media in a responsive two-column grid, stacking on narrow panes.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
+    },
+    "ledger-glass": {
+      note: "Layout variant: the same full-width Ledger with shared glass tokens and material on media frames and item surfaces.",
+      notes: journalNotes,
+      route: "#/?design=ledger",
     },
     "clips-alternate": {
       note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
       notes: clipNotes,
-      route: `#/?news=alternate&${clipRoute}`,
+      route: `#/?design=ledger&news=alternate&${clipRoute}`,
     },
     "clips-stack": {
       note: "The same update, Stack: one change after another, the clip on top and its caption under it.",
       notes: clipNotes,
-      route: `#/?news=stack&${clipRoute}`,
+      route: `#/?design=ledger&news=stack&${clipRoute}`,
     },
     "clips-grid": {
       note: "The same update, Grid (default): two-up glass cards, the clip on top.",
       notes: clipNotes,
-      route: `#/?${clipRoute}`,
+      route: `#/?design=ledger&${clipRoute}`,
     },
     "clips-lead": {
       note: "The same update in the lead row the clips replaced (before): up to three changes side by side, each clip boxed to 16:10 and cut.",
       notes: clipNotes,
-      route: `#/?news=lead&${clipRoute}`,
+      route: `#/?design=ledger&news=lead&${clipRoute}`,
     },
     "ledger-update-span": {
       note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
-    },
-    "ledger-update-reel": {
-      note: "The same update with a nightly reel: one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
-      notes: journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n)),
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=ledger&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     journal: {
       note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",

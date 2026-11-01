@@ -32,6 +32,15 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installing
         case installFailed(String)
         case failed(String)
+
+        /// A first connection needs a visible recovery action, even while the
+        /// underlying link remains eligible for automatic network retries.
+        public var needsRecovery: Bool {
+            switch self {
+            case .unreachable, .failed, .authFailed, .hostKeyUntrusted, .installFailed: true
+            default: false
+            }
+        }
     }
 
     /// Events that may let a blocked attempt succeed.
@@ -72,6 +81,10 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public init() {}
 
+    /// Only Reconnect may open the gate now: the machine's session is in use by another cmux
+    /// daemon. Nothing automatic (reconnect on use included) may take it over (HQ #4877 G5).
+    public var waitsForUser: Bool { blocked && onlyUserUnblocks }
+
     /// Whether the link may probe and dial now.
     public var mayAttempt: Bool {
         switch status {
@@ -82,7 +95,12 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public mutating func handle(_ event: Event) {
         if status == .offline, event != .connect { return }
-        if case .wake = event {} else { onlyUserUnblocks = false }
+        // A wake, or an automatic attempt the closed gate turns away, keeps an in-use session's
+        // user-only gate (HQ #4877 G5): `.attemptStarted` only ever reopens a gate that was open.
+        switch event {
+        case .wake, .attemptStarted: break
+        default: onlyUserUnblocks = false
+        }
         switch event {
         case .connect:
             status = .connecting
@@ -91,7 +109,11 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             status = .offline
             blocked = true
         case .attemptStarted:
-            if status == .connected || status == .reconnecting { status = .connecting }
+            // An automatic transport attempt may reopen only failures whose gate is
+            // still eligible. Auth, host-key, install and in-use states stay blocked
+            // until their authorized wake arrives.
+            guard mayAttempt else { return }
+            status = .connecting
         case .probed(let need):
             guard need != .none else { return }
             status = .needsInstall(need)
@@ -124,7 +146,13 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             if status == .connected || status == .reconnecting { status = .connecting }
         case .wake(let wake):
             guard blocked, !onlyUserUnblocks || wake == .user else { return }
-            if Self.unblocks(status, wake) { blocked = false }
+            if Self.unblocks(status, wake) {
+                blocked = false
+                // A user retry starts a fresh attempt immediately. Clearing the
+                // old failure state prevents recovery UI from replaying it while
+                // the transport opens the new connection.
+                if status.needsRecovery { status = .connecting }
+            }
         case .installStarted:
             status = .installing
             blocked = true

@@ -484,13 +484,14 @@ import Testing
             markAskShown: base.markAskShown))
         let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
                                    ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
+        var fixture = false
+        model.fixtureActive = { fixture }
         #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
-        defer { DebugJoinConsent.status = nil }
         // A fixture set while the ticket's read runs.
         held = true
         let pending = Task { await model.macScreenGate(ticket) }
         for _ in 0..<1000 where reads < 2 { await Task.yield() }
-        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
+        fixture = true
         read.open()
         #expect(!(await pending.value))
         // And one set before.
@@ -641,12 +642,12 @@ import Testing
         #expect(image.size.width >= 300 && image.size.height >= 80)
     }
 
-    /// Allow answers only the person's own click on Allow itself: the sheet dispatching the person's
-    /// mouse-down on Allow, with the person's mouse-up on Allow current, each click once. Not an
-    /// Accessibility press or a programmatic click (outside any dispatch, or inside the dispatch of the
-    /// person's click on something else, or while Allow is still held), not a click the strict check
-    /// refuses (another process's, or DEBUG automation's), not a nested event the check refuses, and not
-    /// the same click twice.
+    /// Allow answers only the person's own click on Allow itself, read from the click's events: the
+    /// person's mouse-down on Allow, then the person's mouse-up on Allow, each click once. Never Allow's
+    /// action: not an Accessibility press or a programmatic click (outside any dispatch, or inside the
+    /// dispatch of the person's click on something else, or while Allow is still held), not a click the
+    /// strict check refuses (another process's, or DEBUG automation's), not a nested event the check
+    /// refuses, and not the same click twice.
     @Test func allowAnswersOnlyThePersonsOwnClickOnAllow() async throws {
         _ = NSApplication.shared
         let fake = Fake()
@@ -697,12 +698,85 @@ import Testing
         await settle()
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true) {
-            #expect(panel.takePersonClick(on: allow))
-            #expect(!panel.takePersonClick(on: allow), "the same click twice")
+            guard let up = current else {
+                Issue.record("no mouse-up current")
+                return
+            }
+            #expect(panel.takePersonClick(on: allow, up: up))
+            #expect(!panel.takePersonClick(on: allow, up: up), "the same click twice")
         }
-        #expect(!panel.takePersonClick(on: allow), "after the click's dispatch, its mouse-up still current")
+        if let up = current { #expect(!panel.takePersonClick(on: allow, up: up), "after the click ended, its mouse-up again") }
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true) { allow.performClick(nil) }
+        for _ in 0..<1000 where model.ask != nil { await Task.yield() }
+        #expect(fake.writes == ["screen true"] && model.ask == nil)
+    }
+
+    /// On the displayed sheet AppKit dispatches a click's mouse-up as an event of its own, after the
+    /// mouse-down's dispatch or inside it, and Allow's action runs in the mouse-up's dispatch (HQ#5121: a
+    /// click on the displayed Allow on a GUI fleet Mac found no mouse-down held). The person's click on Allow
+    /// grants there, once, with a drag while held and however often Allow's action is pressed inside it. A
+    /// mouse-up the check refuses, one on Deny, another event between the two halves of the click, a click
+    /// begun while Allow was disabled and a press after the click grant nothing.
+    @Test(arguments: [false, true]) func thePersonsClickOnAllowGrantsWhenItsMouseUpIsDispatchedOnItsOwn(nested: Bool) async throws {
+        _ = NSApplication.shared
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        let panel = JoinConsentAskPanel(model: model)
+        panel.content.rebuild()
+        panel.setContentSize(panel.content.fittingSize)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
+        let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
+        var number = 0
+        let event = { (type: NSEvent.EventType, at: NSPoint) throws -> NSEvent in
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: TimeInterval(number),
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 0))
+        }
+        var genuine: Set<Int> = []
+        panel.isPersonEvent = { genuine.contains($0.eventNumber) }
+        var current: NSEvent?
+        panel.eventInHand = { current }
+        /// The person's mouse-down dispatched on `down`'s view, then `between`, then the mouse-up on `up`'s view
+        /// (the person's when `person`) dispatched with `inside` in it: nested in the mouse-down's dispatch or after it.
+        let click = { (down: NSView, up: NSView, person: Bool, between: () -> Void, inside: () -> Void) throws in
+            let pressed = try event(.leftMouseDown, center(down)), released = try event(.leftMouseUp, center(up))
+            genuine.insert(pressed.eventNumber)
+            if person { genuine.insert(released.eventNumber) }
+            current = pressed
+            panel.dispatch(pressed) {
+                guard nested else { return }
+                between()
+                current = released
+                panel.dispatch(released, inside)
+            }
+            guard !nested else { return }
+            between()
+            current = released
+            panel.dispatch(released, inside)
+        }
+        let other = { (type: NSEvent.EventType) in
+            guard let made = try? event(type, center(allow)) else { return }
+            genuine.insert(made.eventNumber)
+            current = made
+            panel.dispatch(made) { _ = allow.accessibilityPerformPress() }
+        }
+        try click(allow, allow, false, {}) { allow.performClick(nil) } // the check refuses the mouse-up
+        try click(allow, deny, true, {}) { allow.performClick(nil) } // pressed on Allow, released on Deny
+        _ = allow.accessibilityPerformPress() // after the click, its mouse-up still current
+        try click(allow, allow, true, { other(.rightMouseDown) }) { allow.performClick(nil) } // another event between
+        allow.isEnabled = false // begun while Allow is disabled (a write in flight), released once it is enabled again
+        try click(allow, allow, true, { allow.isEnabled = true }) { allow.performClick(nil) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(fake.writes.isEmpty && model.ask != nil)
+        try click(allow, allow, true, { other(.leftMouseDragged) }) { // pressed while held, then on the mouse-up
+            allow.performClick(nil)
+            _ = allow.accessibilityPerformPress()
+        }
         for _ in 0..<1000 where model.ask != nil { await Task.yield() }
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
@@ -717,7 +791,7 @@ import Testing
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(state.rawValue))
             return try #require(NSEvent(cgEvent: cgEvent))
         }
-        let check = PersonInputCheck()
+        let check = PersonInputCheck(sources: EventSourceProcesses())
         #expect(check.isPerson(try event(0, .hidSystemState)), "the HID system's")
         #expect(!check.isPerson(try event(0, .privateState)), "a private source, pid 0")
         #expect(!check.isPerson(try event(0, .combinedSessionState)), "a combined-session source, pid 0")
@@ -1023,7 +1097,7 @@ import Testing
         let page = SettingsPageProvider(settings: settings)
         let sets = Recorder()
         page.setJoinConsent = { surface, on in sets.values.append("\(surface) \(on)"); return nil }
-        let ledger = PersonInputLedger()
+        let ledger = PersonInputLedger(sources: EventSourceProcesses())
         page.personBacksGesture = { ledger.backs($0) }
         let poster = Process()
         poster.executableURL = URL(fileURLWithPath: "/bin/sleep")

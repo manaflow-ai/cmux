@@ -5,9 +5,11 @@
 //! control and the `cmux-tui`-only scopes are excluded with a reason
 //! (`exclusions`); the parity test pins both lists to the CLI.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use cmux_tui_core::resource::ResourceOperation;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, WireOperation};
@@ -16,7 +18,7 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-const CATALOG_JSON: &str =
+pub(super) const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
 
 /// A read with an array result and no `limit` of its own answers one page:
@@ -95,6 +97,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.continue", CHIEF_REASON),
+    ("chief.retry", CHIEF_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
     ("chief.profile.get", CHIEF_REGISTRY_REASON),
     ("chief.profile.create", CHIEF_REGISTRY_REASON),
@@ -263,9 +267,37 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-pub(super) fn catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog"))
+/// The v2 catalog as an index of raw JSON slices of [`CATALOG_JSON`], which is
+/// embedded in the binary: parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// held by every agent's `cmux mcp serve` for its whole life. An operation's
+/// descriptor or a type definition is parsed only while a tool is listed or
+/// called, and dropped after.
+pub(super) struct Catalog {
+    pub types: schema::RawTypes,
+    pub operations: BTreeMap<&'static str, &'static RawValue>,
+}
+
+pub(super) fn catalog() -> &'static Catalog {
+    #[derive(serde::Deserialize)]
+    struct Index<'a> {
+        #[serde(borrow)]
+        types: BTreeMap<&'a str, &'a RawValue>,
+        #[serde(borrow)]
+        operations: BTreeMap<&'a str, &'a RawValue>,
+    }
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let index: Index<'static> =
+            serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog");
+        Catalog { types: index.types, operations: index.operations }
+    })
+}
+
+/// The parsed descriptor of an operation. The index already checked that the
+/// slice is valid JSON, so this fails only past serde_json's nesting limit:
+/// `build` then offers no tool for it and `exclusions` lists it.
+fn parse(raw: &RawValue) -> Result<Value, serde_json::Error> {
+    serde_json::from_str(raw.get())
 }
 
 pub(super) struct V2Tool {
@@ -274,7 +306,8 @@ pub(super) struct V2Tool {
     pub wire: &'static str,
     pub mutation: bool,
     pub paginated: bool,
-    descriptor: &'static Value,
+    needs_terminal: bool,
+    raw: &'static RawValue,
 }
 
 /// One page of an array result.
@@ -305,13 +338,18 @@ pub(super) fn find(name: &str) -> Option<&'static V2Tool> {
 
 fn build() -> Vec<V2Tool> {
     let mut tools = Vec::new();
-    for (wire, descriptor) in catalog()["operations"].as_object().into_iter().flatten() {
-        let class = descriptor["class"].as_str().unwrap_or_default();
-        if !matches!(class, "read" | "mutation") || excluded_reason(wire).is_some() {
+    for (&wire, &raw) in &catalog().operations {
+        if excluded_reason(wire).is_some() {
             continue;
         }
-        let Ok(operation) =
-            serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+        let Ok(descriptor) = parse(raw) else {
+            continue;
+        };
+        let class = descriptor.get("class").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(class, "read" | "mutation") {
+            continue;
+        }
+        let Ok(operation) = serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
         else {
             continue;
         };
@@ -319,12 +357,16 @@ fn build() -> Vec<V2Tool> {
         tools.push(V2Tool {
             name: tool_name(wire),
             operation,
-            wire: wire.as_str(),
+            wire,
             mutation: class == "mutation",
             paginated: class == "read"
                 && descriptor["result"]["kind"] == "array"
                 && fields.get("limit").is_none(),
-            descriptor,
+            needs_terminal: descriptor
+                .pointer("/params/selectors/terminal")
+                .and_then(Value::as_str)
+                == Some("required"),
+            raw,
         });
     }
     tools
@@ -341,11 +383,19 @@ fn excluded_reason(wire: &str) -> Option<&'static str> {
 /// Every catalog operation that is not a tool, with the reason.
 pub(super) fn exclusions() -> Vec<Exclusion> {
     let mut excluded = Vec::new();
-    for (wire, descriptor) in catalog()["operations"].as_object().into_iter().flatten() {
-        let reason = match descriptor["class"].as_str().unwrap_or_default() {
+    for (&wire, &raw) in &catalog().operations {
+        let Ok(descriptor) = parse(raw) else {
+            excluded.push(Exclusion {
+                kind: "operation",
+                name: wire.to_owned(),
+                reason: "Its catalog descriptor does not parse.".to_owned(),
+            });
+            continue;
+        };
+        let reason = match descriptor.get("class").and_then(Value::as_str).unwrap_or_default() {
             "stream_open" => Some(STREAM_REASON),
             "connection_control" => Some(CONNECTION_REASON),
-            _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+            _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
                 .is_err() =>
             {
                 Some("This binary does not know the operation.")
@@ -355,7 +405,7 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
         if let Some(reason) = reason {
             excluded.push(Exclusion {
                 kind: "operation",
-                name: wire.clone(),
+                name: wire.to_owned(),
                 reason: reason.to_owned(),
             });
         }
@@ -364,7 +414,14 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
 }
 
 impl V2Tool {
+    /// The tool's parsed descriptor. `build` made this tool only after the same
+    /// immutable slice parsed, so the `Null` fallback is never taken.
+    fn descriptor(&self) -> Value {
+        parse(self.raw).unwrap_or_default()
+    }
+
     pub(super) fn descriptor_json(&self) -> Value {
+        let descriptor = self.descriptor();
         let verb = self.wire.rsplit('.').next().unwrap_or_default();
         let destructive = self.mutation
             // `layout.bulk` closes tabs, panes, screens or workspaces.
@@ -372,28 +429,20 @@ impl V2Tool {
                 || verb.starts_with("remove"));
         json!({
             "name": self.name,
-            "description": self.description(),
-            "inputSchema": self.input_schema(),
+            "description": self.description(&descriptor),
+            "inputSchema": self.schema(&descriptor),
             "annotations": {
                 "readOnlyHint": !self.mutation,
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
                 // The catalog marks operations that change state elsewhere.
-                "openWorldHint": self.descriptor["risk"] == "send-external",
+                "openWorldHint": descriptor.get("risk").and_then(Value::as_str) == Some("send-external"),
             },
         })
     }
 
-    fn selectors(&self) -> impl Iterator<Item = (&'static String, &'static Value)> {
-        self.descriptor["params"]["selectors"].as_object().into_iter().flatten()
-    }
-
-    fn fields(&self) -> &'static Value {
-        &self.descriptor["params"]["fields"]
-    }
-
-    fn description(&self) -> String {
-        let target = self.descriptor["target"].as_str().unwrap_or("resource").replace('_', " ");
+    fn description(&self, descriptor: &Value) -> String {
+        let target = descriptor["target"].as_str().unwrap_or("resource").replace('_', " ");
         let mut text = format!(
             "{} (cmux.protocol/2 `{}`). {}",
             summary(self.wire, &target),
@@ -410,7 +459,7 @@ impl V2Tool {
         {
             text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
-        if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
+        if let Some(constraints) = schema::joined(&descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
         }
@@ -428,8 +477,14 @@ impl V2Tool {
         text
     }
 
+    /// The input schema alone (tests); `descriptor_json` parses the descriptor once for both.
+    #[cfg(test)]
     pub(super) fn input_schema(&self) -> Value {
-        let generator = Generator::new(catalog());
+        self.schema(&self.descriptor())
+    }
+
+    fn schema(&self, descriptor: &Value) -> Value {
+        let generator = Generator::raw(&catalog().types);
         let mut properties = Map::new();
         let mut required = Vec::new();
         properties.insert(
@@ -441,7 +496,9 @@ impl V2Tool {
                     Default: the session the cmux CLI uses here.",
             }),
         );
-        for (selector, requiredness) in self.selectors() {
+        for (selector, requiredness) in
+            descriptor["params"]["selectors"].as_object().into_iter().flatten()
+        {
             if !self.selector_argument(selector) {
                 continue;
             }
@@ -450,9 +507,15 @@ impl V2Tool {
                 required.push(Value::String(selector.clone()));
             }
         }
-        for (name, field) in self.fields().as_object().into_iter().flatten() {
-            properties.insert(name.clone(), generator.field(field));
-            if field["required"] == Value::Bool(true) {
+        for (name, field) in descriptor["params"]["fields"].as_object().into_iter().flatten() {
+            let mut property = generator.field(field);
+            if let (Some(default), Some(property)) =
+                (self.default_of(name), property.as_object_mut())
+            {
+                property.insert("default".into(), default);
+            }
+            properties.insert(name.clone(), property);
+            if field["required"] == Value::Bool(true) && self.default_of(name).is_none() {
                 required.push(Value::String(name.clone()));
             }
         }
@@ -498,8 +561,9 @@ impl V2Tool {
         if self.operation == ResourceOperation::MachineGet {
             text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
         }
-        let selectors = self.descriptor["params"]["selectors"].as_object();
-        let fields = self.fields().as_object();
+        let descriptor = self.descriptor();
+        let selectors = descriptor.pointer("/params/selectors").and_then(Value::as_object);
+        let fields = descriptor.pointer("/params/fields").and_then(Value::as_object);
         let mut params = Map::new();
         for scope in ["machine", "session"] {
             if selectors.is_some_and(|selectors| selectors.contains_key(scope)) {
@@ -514,6 +578,20 @@ impl V2Tool {
             let selector = selectors.is_some_and(|selectors| selectors.contains_key(name))
                 && self.selector_argument(name);
             let field = fields.and_then(|fields| fields.get(name));
+            // A record a tool returned, passed where its id goes (`tab_list({pane: n.pane})`
+            // after `pane_neighbor_get` answered `{pane: {id, ...}}`): its `id` is the
+            // argument (tests/tool-evals: 22 such calls from two models). Only where an id
+            // goes: a selector or a resource-id field. A json field (`settings_set {value}`,
+            // `keybindings_set {args}`) keeps its object.
+            let takes_id = selector
+                || field.is_some_and(|field| {
+                    field.pointer("/type/kind").and_then(Value::as_str) == Some("resource_id")
+                });
+            let record_id = value
+                .as_object()
+                .and_then(|record| record.get("id"))
+                .filter(|id| takes_id && id.is_string());
+            let value = record_id.unwrap_or(value);
             match name.as_str() {
                 "session" => set_session(&mut session, text(name, value)?)?,
                 "idempotency_key" if self.mutation => {
@@ -537,6 +615,9 @@ impl V2Tool {
                             .then(|| field["type"]["resource"].as_str())
                             .flatten()
                     });
+                    let decimal = field.is_some_and(|field| {
+                        field.pointer("/type/name").and_then(Value::as_str) == Some("decimal")
+                    });
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
@@ -545,12 +626,77 @@ impl V2Tool {
                             }
                             Value::String(id.0)
                         }
+                        // The wire's decimal string from a JSON number.
+                        _ if decimal && value.is_u64() => Value::String(value.to_string()),
+                        _ if decimal
+                            && value
+                                .as_f64()
+                                .is_some_and(|n| n >= 0.0 && n.fract() == 0.0 && n < 1e19) =>
+                        {
+                            Value::String(format!("{}", value.as_f64().unwrap_or_default() as u64))
+                        }
                         _ => value.clone(),
                     };
                     params.insert(name.clone(), value);
                 }
                 _ => return Err(invalid(format!("{} has no argument {name:?}", self.name))),
             }
+        }
+        // A missing required selector names the fix, where the daemon's
+        // answer ("required selector is missing") did not (tests/tool-evals:
+        // `workspace_get({})`, `terminal_input_write({terminal_id})`).
+        for (name, requiredness) in selectors.into_iter().flatten() {
+            // A terminal named by its tab: the server puts the tab's terminal in its
+            // place before sending (mcp.rs `terminal_of_tab`).
+            if name == "terminal" && !arguments.contains_key(name) && arguments.contains_key("tab")
+            {
+                continue;
+            }
+            if requiredness.as_str() == Some("required")
+                && self.selector_argument(name)
+                && !arguments.contains_key(name)
+            {
+                let current = if matches!(name.as_str(), "workspace" | "screen" | "pane" | "tab") {
+                    ", or `current` for this chat's own"
+                } else {
+                    ""
+                };
+                let also = if name == "terminal" {
+                    " (a create call answers it as value.terminal_id, a terminal_list item as its \
+                     id, a tab_list item as its content_id)"
+                } else {
+                    ""
+                };
+                return Err(invalid(format!(
+                    "{} needs {name}: an id{also}, a unique prefix or an exact name{current}",
+                    self.name
+                )));
+            }
+        }
+        let mut missing = Vec::new();
+        for (name, field) in fields.into_iter().flatten() {
+            if params.contains_key(name) {
+                continue;
+            }
+            if let Some(default) = self.default_of(name) {
+                params.insert(name.clone(), default);
+            } else if field["required"] == Value::Bool(true) {
+                let schema = Generator::raw(&catalog().types).field(field);
+                let values = schema
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        let names: Vec<&str> = values.iter().filter_map(Value::as_str).collect();
+                        format!(" (one of {})", names.join(", "))
+                    })
+                    .unwrap_or_default();
+                missing.push(format!("{name}{values}"));
+            }
+        }
+        // The owner's answer ("required parameter is missing") named no field
+        // (tests/tool-evals r3m: `pane_neighbor_get({pane: "current"})`); all of them at once.
+        if !missing.is_empty() {
+            return Err(invalid(format!("{} needs {}", self.name, missing.join(", "))));
         }
         if self.waits() {
             let timeout = match params.get("timeout_ms") {
@@ -584,10 +730,23 @@ impl V2Tool {
         })
     }
 
+    /// A required wire field an MCP call may leave out, and the value it then takes: a new
+    /// workspace holds a terminal, as `cmux workspace create` makes it (tests/tool-evals
+    /// m1: `workspace_create({name})` failed with "required parameter is missing").
+    fn default_of(&self, field: &str) -> Option<Value> {
+        (self.wire == "workspace.create" && field == "initial_content").then(|| json!("terminal"))
+    }
+
     /// Machine selection is a metadata lookup only on machine.get; other tools keep their owner scope.
     fn selector_argument(&self, selector: &str) -> bool {
         (selector == "machine" && self.operation == ResourceOperation::MachineGet)
             || !matches!(selector, "machine" | "session")
+    }
+
+    /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
+    /// one, through its optional `tab`).
+    pub(super) fn needs_terminal(&self) -> bool {
+        self.needs_terminal
     }
 
     fn waits(&self) -> bool {

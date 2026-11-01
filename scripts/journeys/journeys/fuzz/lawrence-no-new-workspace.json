@@ -1,0 +1,70 @@
+{
+ "id": "lawrence-no-new-workspace",
+ "priority": "P1",
+ "title": "fuzz corpus: Lawrence's report as a fixed sequence (new_workspace new_workspace new_workspace new_terminal type_line), every fuzz oracle after each burst",
+ "why": "Lawrence 2026-10-30 (handoff v2210-lawrence-noworkspace-2026-10-30): Cmd-N made no new workspace (\"closed by client\").",
+ "source": "ext_fuzz.CORPUS (scripts/journeys/fuzz.py --corpus plays the same sequences)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "now"
+    },
+    {
+     "a": "new_workspace",
+     "t": "now"
+    },
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    },
+    {
+     "a": "new_terminal",
+     "t": "slow"
+    },
+    {
+     "a": "type_line",
+     "t": "slow"
+    }
+   ],
+   "shrink": false,
+   "budget_s": 190
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}

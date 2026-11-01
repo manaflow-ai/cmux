@@ -35,7 +35,9 @@ pub(crate) use host_hold::hold;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{
+    CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
+};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -72,7 +74,18 @@ pub(crate) trait Remote {
     /// its stdin, stdout and stderr piped: [`lock_updates`] holds the host's
     /// update lock with it.
     fn spawn(&self, script: &str) -> Result<Child>;
+    /// Whether the host answers at all, within a bound: `host update` asks
+    /// before it takes the host's lock, so a host that is down or behind a
+    /// stalled hop fails in seconds as `unreachable`. Ok for a fake (tests).
+    fn reachable(&self) -> Result<()> {
+        Ok(())
+    }
 }
+
+/// How long [`SshRemote::reachable`] waits for `ssh HOST true`: the connect
+/// and banner bound (`ConnectTimeout`), plus the key exchange and login,
+/// which no ssh option bounds.
+const REACH_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub(crate) struct SshRemote<'a>(pub &'a str);
 
@@ -110,18 +123,97 @@ impl Remote for SshRemote<'_> {
             .with_context(|| format!("ssh {}", self.0))
     }
 
+    fn reachable(&self) -> Result<()> {
+        let mut ssh = Command::new("ssh");
+        ssh.args(ssh_argv(self.0, "true")?);
+        bounded_ok(&mut ssh, REACH_BOUND)
+            .map_err(|why| anyhow!("{} is unreachable over ssh: {why}", self.0))
+    }
+
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // scp takes a path without `~/` as one under the remote home.
         let remote = remote.strip_prefix("~/").unwrap_or(remote);
-        let status = Command::new("scp")
+        let out = Command::new("scp")
             .args(scp_push_argv(self.0, &local.to_string_lossy(), remote)?)
-            .status()
+            .stdin(Stdio::null())
+            .output()
             .context("scp")?;
-        if !status.success() {
-            return Err(anyhow!("scp to {} failed", self.0));
+        if !out.status.success() {
+            return Err(scp_failed(self.0, &String::from_utf8_lossy(&out.stderr)));
         }
         Ok(())
     }
+}
+
+/// A failed push, with scp's own words (ssh's, when the connection failed or dropped): the
+/// app reads them to tell an offline peer from a broken one (`AcpmuxPeerUpdateReply`).
+fn scp_failed(host: &str, stderr: &str) -> anyhow::Error {
+    let why = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    if why.is_empty() {
+        anyhow!("scp to {host} failed")
+    } else {
+        anyhow!("scp to {host} failed: {why}")
+    }
+}
+
+/// Runs `cmd` with no stdin and its stdout dropped: Ok when it exits 0
+/// within `bound`, else why not, its last stderr line or that it gave no
+/// answer in time. It runs in a process group of its own, which is killed
+/// whole when it ends (so a ProxyCommand ssh started dies with it, at the
+/// bound or after an exit), and its stderr reader is joined before this
+/// returns: nothing it started outlives the call.
+pub(crate) fn bounded_ok(
+    cmd: &mut Command,
+    bound: std::time::Duration,
+) -> std::result::Result<(), String> {
+    use std::io::Read;
+    use wait_timeout::ChildExt;
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(cmd, 0);
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let reader = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            text
+        })
+    });
+    let status = child.wait_timeout(bound);
+    // The group goes whatever happened: a timed-out ssh and its ProxyCommand,
+    // or a ProxyCommand left holding the stderr pipe after ssh exited. With
+    // every writer gone, the reader ends and is joined.
+    end_group(&mut child);
+    let said = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+    let status = match status {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => return Err(format!("no answer within {} s", bound.as_secs())),
+    };
+    if status.success() {
+        return Ok(());
+    }
+    Err(said
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| l.trim().to_owned())
+        .unwrap_or_else(|| format!("it exited with {status}")))
+}
+
+/// Ends `child` (already reaped or not) and everything in its process group.
+fn end_group(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: signals the group `bounded_ok` made for the child; its id
+        // stays reserved for the group while any member lives.
+        unsafe { libc::killpg(pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A plain absolute or home path: safe in a remote shell script unquoted
@@ -147,10 +239,22 @@ pub(crate) fn checked_host(host: &str) -> Result<&str> {
 pub(crate) fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
     let command = posix_command(script);
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, command.as_str()]
-        .iter()
-        .map(|s| s.to_string())
-        .collect())
+    let mut argv = ssh_options();
+    argv.extend(["-o", "ConnectTimeout=15", "--", host, command.as_str()].map(str::to_owned));
+    Ok(argv)
+}
+
+/// The options of every `host` ssh and scp: no prompt, and a link that goes
+/// quiet after it connected (a hop that stalls, a tailnet path that drops)
+/// ends within 30 s (3 keepalives 10 s apart) instead of waiting out the TCP
+/// retransmit timeout. A `host update` of a peer behind a stalled hop sat
+/// silent until the app's 900 s deadline stopped it (2026-10-29). The
+/// keepalives are answered by the remote sshd, so a script that prints
+/// nothing for a while (waiting for its daemon) is not cut short.
+fn ssh_options() -> Vec<String> {
+    ["-o", "BatchMode=yes", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 /// What ssh hands the remote login shell: `script` run by `/bin/sh`, so it means the same
@@ -168,20 +272,17 @@ pub(crate) fn script_of(command: &str) -> Option<String> {
     Some(quoted.replace("'\\''", "'"))
 }
 
-/// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.
+/// `scp -q [ssh_options] -o ConnectTimeout=15 -- LOCAL HOST:REMOTE`.
 fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
-    Ok(vec![
-        "-q".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "--".into(),
-        local.to_owned(),
-        format!("{host}:{remote}"),
-    ])
+    let mut argv = vec!["-q".to_owned()];
+    argv.extend(ssh_options());
+    argv.extend(["-o".to_owned(), "ConnectTimeout=15".to_owned(), "--".to_owned()]);
+    argv.extend([local.to_owned(), format!("{host}:{remote}")]);
+    Ok(argv)
 }
 
-/// `scp -rq -o BatchMode=yes -- HOST:REMOTE LOCAL` for a bundle an ssh peer
+/// `scp -rq [ssh_options] -o ConnectTimeout=15 -- HOST:REMOTE LOCAL` for a bundle an ssh peer
 /// made. `remote` comes from the peer's reply: only a plain absolute or
 /// home path is accepted (a remote scp may hand it to a shell).
 pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
@@ -190,14 +291,11 @@ pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Resul
     if !plain_path(remote) {
         return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
     }
-    Ok(vec![
-        "-rq".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "--".into(),
-        format!("{}:{remote}", t.destination),
-        local.to_owned(),
-    ])
+    let mut argv = vec!["-rq".to_owned()];
+    argv.extend(ssh_options());
+    argv.extend(["-o".to_owned(), "ConnectTimeout=15".to_owned(), "--".to_owned()]);
+    argv.extend([format!("{}:{remote}", t.destination), local.to_owned()]);
+    Ok(argv)
 }
 
 /// Run `script` on the host; its trimmed output, or an error with its stderr.
@@ -834,6 +932,17 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_push_carries_scps_words_on_one_line() {
+        // The app tells an offline peer from a broken one by them (`AcpmuxPeerUpdateReply`).
+        let e = scp_failed("h", "client_loop: send disconnect: Broken pipe\r\nlost connection\n");
+        assert_eq!(
+            e.to_string(),
+            "scp to h failed: client_loop: send disconnect: Broken pipe lost connection"
+        );
+        assert_eq!(scp_failed("h", " \n").to_string(), "scp to h failed");
+    }
+
+    #[test]
     fn a_remote_script_runs_the_same_under_zsh_bash_and_sh_login_shells() {
         // macOS logs in with zsh, where an unmatched glob aborts the whole command
         // ("no matches found"): enroll's probe saw no daemon and no config on a Mac
@@ -841,8 +950,19 @@ mod tests {
         let script = "for f in /nonexistent-cmux*.app/x; do [ -e \"$f\" ] && echo hit; done; printf 'after %s\\n' \"it's\"";
         let argv = ssh_argv("leo@huge-blue", script).unwrap();
         assert_eq!(
-            &argv[..6],
-            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", "leo@huge-blue"]
+            &argv[..10],
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ServerAliveInterval=10",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-o",
+                "ConnectTimeout=15",
+                "--",
+                "leo@huge-blue"
+            ]
         );
         for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
             if !std::path::Path::new(shell).exists() {
@@ -850,7 +970,93 @@ mod tests {
             }
             assert_eq!(as_login_shell(shell, &argv).as_deref(), Some("after it's\n"), "{shell}");
         }
-        assert_eq!(script_of(&argv[6]).as_deref(), Some(script));
+        assert_eq!(script_of(&argv[10]).as_deref(), Some(script));
+    }
+
+    #[test]
+    fn a_command_that_does_not_answer_in_time_is_stopped_and_named() {
+        let started = std::time::Instant::now();
+        let mut slow = Command::new("/bin/sh");
+        slow.args(["-c", "sleep 30"]);
+        let why = bounded_ok(&mut slow, std::time::Duration::from_secs(1)).unwrap_err();
+        assert_eq!(why, "no answer within 1 s");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    /// Review of #27696: the timeout ends what the command started too (a
+    /// ProxyCommand), not only the command, and nothing holds the call after.
+    #[test]
+    #[cfg(unix)]
+    fn a_timeout_leaves_nothing_the_command_started_running() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        // The command and its child hold the write end of a pipe as fd 3; the test holds the
+        // read end. It reads end of file only once every holder has exited. A process that has
+        // exited and not yet been reaped by its new parent (a zombie, which `kill(pid, 0)` still
+        // finds) holds no file, so this checks that they ended, not when they were reaped: on a
+        // loaded host init reaps the orphaned `sleep` later (full suites, 2026-11-01).
+        // `std::io::pipe` makes both ends close-on-exec at once, so a process another test
+        // starts at the same moment never holds the write end (`tests/person_auto_start.rs`).
+        let (reader, writer) = std::io::pipe().unwrap();
+        let write_end = writer.as_raw_fd();
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "sleep 60 >&2 & wait"]);
+        // SAFETY: only dup2 and fcntl between fork and exec (async-signal-safe).
+        unsafe {
+            cmd.pre_exec(move || {
+                if write_end == 3 {
+                    // dup2 onto itself keeps close-on-exec: clear it.
+                    if libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                } else if libc::dup2(write_end, 3) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let started = std::time::Instant::now();
+        let why = bounded_ok(&mut cmd, std::time::Duration::from_secs(1)).unwrap_err();
+        assert_eq!(why, "no answer within 1 s");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        drop(writer);
+        // The killed processes close their files as they exit; wait for that (bounded), then
+        // read: end of file, or a holder still runs.
+        let mut ready = libc::pollfd { fd: reader.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the duration of the call.
+        let polled = unsafe { libc::poll(&raw mut ready, 1, 5_000) };
+        assert_eq!(polled, 1, "something the command started still runs after 5 s");
+        let mut byte = [0u8; 1];
+        let n = std::io::Read::read(&mut &reader, &mut byte).unwrap();
+        assert_eq!(n, 0, "something the command started wrote to the pipe");
+    }
+
+    /// A command that exits while something it started still holds its
+    /// stderr returns at once, and that something is ended.
+    #[test]
+    #[cfg(unix)]
+    fn an_exit_ends_what_still_holds_the_output() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "sleep 60 >&2 & echo 'ssh: gone' >&2; exit 255"]);
+        let started = std::time::Instant::now();
+        let why = bounded_ok(&mut cmd, std::time::Duration::from_secs(30)).unwrap_err();
+        assert_eq!(why, "ssh: gone");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_command_that_fails_is_named_by_its_last_stderr_line() {
+        let mut fails = Command::new("/bin/sh");
+        fails.args(["-c", "echo first >&2; echo 'ssh: connect to host x port 22: Operation timed out' >&2; exit 255"]);
+        let why = bounded_ok(&mut fails, std::time::Duration::from_secs(10)).unwrap_err();
+        assert_eq!(why, "ssh: connect to host x port 22: Operation timed out");
+        let mut quiet = Command::new("/bin/sh");
+        quiet.args(["-c", "exit 3"]);
+        let why = bounded_ok(&mut quiet, std::time::Duration::from_secs(10)).unwrap_err();
+        assert!(why.starts_with("it exited with "), "{why}");
+        let mut ok = Command::new("/bin/sh");
+        ok.args(["-c", "true"]);
+        assert_eq!(bounded_ok(&mut ok, std::time::Duration::from_secs(10)), Ok(()));
     }
 
     /// Records each script and its stdin; answers ok with `stdout`.

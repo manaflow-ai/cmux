@@ -46,9 +46,9 @@ and render-server field animation, blurred header and native scrolling.
   - Host hooks B (a293970, asks 1-4, 6, 7): `Vendor/catalyst/ThreadHost.swift`
     is vendored. Home runs the `.tree` thread mode (cx-och3h): `parent` is
     mapped, `replyCount` stays nil, and `demo.hostControl(at:)` is the first
-    stop of the thread click path. The thread header hooks show the daemon's thread
-    object (HomeProjection+ThreadHeader.swift: resolve, rename, assign through
-    `thread.update`). Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
+    stop of the thread click path. Home sets no thread header hook: as in Messages,
+    the thread view starts at its root bubble (cmux#26686); the daemon's thread
+    object stays in Channels. Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
     must check it in the Esc and click paths (host-hooks-b-api.md).
   - Not ported from Host.swift: the live-resize bitmap keep (780934c,
     `MessagesWindowView.setLiveResizing`, `RowCell.liveResizing`). Home never

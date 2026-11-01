@@ -1,13 +1,13 @@
 import AppKit
 @testable import CmuxNextTabs
-import CmuxNextTestSupport
 import Testing
+import CmuxNextTestSupport
 
 /// A strip out of sight (a parked workspace's strip stays in its window, hidden) does no layout
 /// for model changes: a script that adds, renames or reorders tabs in background workspaces costs
 /// it nothing until it shows, and then it lands at the final state in one sync, with no motion
 /// (CLAUDE.md "Go past Chrome where cmux is scripted").
-@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripHiddenSyncTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct TabStripHiddenSyncTests {
     @Test func aHiddenStripSyncsOnceWhenItShows() async {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
         let strip = TabStripView(model: model)
@@ -15,8 +15,7 @@ import Testing
         strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
         parked.addSubview(strip)
         let window = NSWindow(contentRect: parked.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         window.contentView = parked
         strip.layoutSubtreeIfNeeded()
         #expect(strip.cells.count == 3)

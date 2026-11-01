@@ -9,6 +9,7 @@
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
+import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
@@ -31,6 +32,7 @@ import {
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type IntegrationsRun,
@@ -64,6 +66,8 @@ export type MockOptions = {
   connected?: boolean;
   /** Ops that fail with this code, to test read failures. */
   failing?: Partial<Record<string, string>>;
+  /** Whether the native action registry accepts an invocation. */
+  actionRan?: boolean;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
@@ -174,6 +178,7 @@ export class MockSettingsProvider {
   importable: GhosttyTheme | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
+  private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -198,6 +203,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
@@ -303,12 +309,36 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.switch_build": (params) => {
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+        this.switchedTo = params.build as string;
+        return {};
+      },
       "cmux.settings.channels.update_machine": (params) => {
         this.updatedMachines.push(params.id as string);
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.context_menus.set": (params) => {
+        const menus = this.host.context_menus;
+        if (menus)
+          this.setHost({
+            ...this.host,
+            context_menus: setMockMenuLayout(
+              menus,
+              params.menu as string,
+              (params.layout as MenuLayout | null) ?? null,
+            ),
+          });
+        return {};
+      },
+      "cmux.settings.context_menus.show_item": (params) => {
+        const menus = this.host.context_menus;
+        if (menus)
+          this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        return {};
+      },
       "cmux.settings.voice_input.set": (params) => {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
@@ -441,6 +471,7 @@ export class MockSettingsProvider {
         folder: "/Users/me/Library/Application Support/cmux/Backgrounds",
       }),
       "cmux.settings.backdrop.image.folder": () => ({ id: null }),
+      "cmux.settings.backdrop.image.screen_saver": () => ({ id: this.screenSaver, pending: false }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -523,12 +554,13 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,
           (params.args ?? {}) as Params,
           params.target as string | undefined,
         );
-        return {};
+        return { ran: true };
       },
     };
     const native = new Set([
@@ -545,6 +577,7 @@ export class MockSettingsProvider {
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
+      "cmux.settings.channels.switch_build",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -574,6 +607,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
       "cmux.settings.backdrop.image.folder",
+      "cmux.settings.backdrop.image.screen_saver",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",
@@ -801,6 +835,10 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The build the card's last Switch asked for. */
+  switchedTo: string | null = null;
+  /** The host's refusal of every Switch; null: Switch runs. */
+  switchRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
@@ -975,6 +1013,7 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
@@ -1007,6 +1046,8 @@ export class MockSettingsProvider {
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** The macOS screen saver as a background id (Use My Screen Saver); null: not an aerial. */
+  screenSaver: string | null = null;
   /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
   readonly agents = new MockAgents();
 
@@ -1198,6 +1239,10 @@ export class MockSettingsProvider {
   }
 
   /** Simulates the daemon going away or coming back. */
+  setActionRan(actionRan: boolean): void {
+    this.actionRan = actionRan;
+  }
+
   setConnected(connected: boolean): void {
     this.connected = connected;
     for (const ctx of this.connection) ctx.emit({ connected });

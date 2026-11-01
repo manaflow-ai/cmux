@@ -1,8 +1,8 @@
 //! Machine spend readout for cmux Cloud VMs.
 //!
 //! A Cloud VM daemon learns its coderouter identity from the model-plane env
-//! (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`, in the process environment or in
-//! `$HOME/.config/cmux/model-plane.env`) and polls
+//! (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`; see [`machine_source`] for where
+//! each comes from) and polls
 //! `GET {url}/api/coderouter/vm-usage/self` at a low cadence. The Freestyle
 //! edge injects the real credential; the guest only sends a public
 //! placeholder bearer. The latest totals land in the mux as
@@ -27,6 +27,15 @@ use tokio::sync::Notify;
 pub(crate) const CODEROUTER_URL_VAR: &str = "CMUX_CODEROUTER_URL";
 pub(crate) const VM_ID_VAR: &str = "CMUX_VM_ID";
 const ENV_FILE_RELATIVE_PATH: &str = ".config/cmux/model-plane.env";
+/// The model-plane env every Cloud image bakes (`/etc/cmux/model-plane.env`,
+/// web/services/coderouter/vmGuestEnv.ts): the same bytes on every machine,
+/// so it carries the coderouter origin but no `CMUX_VM_ID`.
+const IMAGE_ENV_FILE: &str = "model-plane.env";
+/// The instance id the bind agent wrote for this machine before it started
+/// the daemon (`/etc/cmux/daemon-instance-id`, cmux-host `BOUND_INSTANCE_FILE`).
+const BOUND_INSTANCE_FILE: &str = "daemon-instance-id";
+/// Longest instance id read.
+const MAX_INSTANCE_ID_BYTES: usize = 128;
 const USAGE_PATH: &str = "/api/coderouter/vm-usage/self";
 /// The guest never holds a credential; the edge replaces this bearer.
 const PLACEHOLDER_BEARER: &str = "cmux-vm-edge-placeholder";
@@ -117,28 +126,75 @@ fn parse_shell_value(raw: &str) -> Option<String> {
 /// Resolve the usage source from the process environment first, then from
 /// the env file. Each key resolves independently so a daemon started with
 /// only one of the two in its environment still finds the other in the file.
+#[cfg(test)]
 pub(crate) fn resolve_source(
     env: impl Fn(&str) -> Option<String>,
     env_file: Option<&str>,
 ) -> Option<UsageSource> {
-    let file_values = env_file.map(parse_env_exports).unwrap_or_default();
+    resolve_layered_source(env, &[env_file], None)
+}
+
+/// [`resolve_source`] over several env files, earlier ones first, each key
+/// on its own. `bound_instance_id` is the last place `CMUX_VM_ID` comes
+/// from: a fresh Cloud VM's shells never export it (the baked env has none),
+/// but the bind agent has written the machine's id.
+pub(crate) fn resolve_layered_source(
+    env: impl Fn(&str) -> Option<String>,
+    env_files: &[Option<&str>],
+    bound_instance_id: Option<&str>,
+) -> Option<UsageSource> {
+    let file_values: Vec<_> =
+        env_files.iter().flatten().map(|file| parse_env_exports(file)).collect();
     let lookup = |key: &str| {
         env(key)
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| file_values.get(key).cloned())
+            .into_iter()
+            .chain(file_values.iter().filter_map(|values| values.get(key).cloned()))
             .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+            .find(|value| !value.is_empty())
     };
     let coderouter_url = lookup(CODEROUTER_URL_VAR)?;
-    let vm_id = lookup(VM_ID_VAR)?;
+    let vm_id = lookup(VM_ID_VAR).or_else(|| bound_instance_id.and_then(instance_id))?;
     if !(coderouter_url.starts_with("https://") || coderouter_url.starts_with("http://")) {
         return None;
     }
     Some(UsageSource { coderouter_url, vm_id })
 }
 
+/// A bound instance id file's text as an id: one token of printable ASCII,
+/// at most [`MAX_INSTANCE_ID_BYTES`]; `None` otherwise.
+fn instance_id(text: &str) -> Option<String> {
+    let id = text.trim();
+    (!id.is_empty()
+        && id.len() <= MAX_INSTANCE_ID_BYTES
+        && id.bytes().all(|byte| byte.is_ascii_graphic()))
+    .then(|| id.to_string())
+}
+
 pub(crate) fn default_env_file_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(ENV_FILE_RELATIVE_PATH))
+}
+
+/// This machine's usage source, each key from the first place that has it:
+/// the process environment, `$HOME/.config/cmux/model-plane.env` (what a
+/// shell persisted from a boot env), the image's `/etc/cmux/model-plane.env`,
+/// and for `CMUX_VM_ID` last the bound `/etc/cmux/daemon-instance-id`.
+///
+/// The daemon's unit carries none of these, and a fresh VM's shells only
+/// source the image file without writing a per-home one, so without the two
+/// `/etc/cmux` files a fresh VM never learned its identity and served no
+/// `fs-v1`. The `/etc/cmux` folder follows the debug-only test seam
+/// ([`crate::agent_start_host::cloud_etc`]).
+pub(crate) fn machine_source() -> Option<UsageSource> {
+    let home_env = read_env_file(default_env_file_path().as_deref());
+    let etc = crate::agent_start_host::cloud_etc();
+    let image_env = read_env_file(Some(&etc.file(IMAGE_ENV_FILE)));
+    let bound_id = read_env_file(Some(&etc.file(BOUND_INSTANCE_FILE)));
+    resolve_layered_source(
+        |key| std::env::var(key).ok(),
+        &[home_env.as_deref(), image_env.as_deref()],
+        bound_id.as_deref(),
+    )
 }
 
 fn read_env_file(path: Option<&Path>) -> Option<String> {
@@ -278,9 +334,7 @@ impl Drop for UsagePoller {
 
 /// Start polling when the process resolves a usage source; otherwise `None`.
 pub(crate) fn start_poller(mux: Weak<Mux>) -> Option<UsagePoller> {
-    let env_file = default_env_file_path();
-    let contents = read_env_file(env_file.as_deref());
-    let source = resolve_source(|key| std::env::var(key).ok(), contents.as_deref())?;
+    let source = machine_source()?;
     start_poller_with_source(mux, source, STARTUP_DELAY, POLL_INTERVAL)
 }
 
@@ -464,6 +518,57 @@ mod tests {
             None,
             "an origin without a scheme is not polled"
         );
+    }
+
+    /// A fresh devbox VM: no identity in the unit's env, no per-home file,
+    /// the image's baked env without `CMUX_VM_ID`, and the bound id.
+    #[test]
+    fn fresh_vm_resolves_from_the_image_env_and_the_bound_id() {
+        let image = "# generated by cmux; the same for every machine; managed, do not edit\n\
+            export OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+            export OPENAI_API_KEY='cmux-vm-edge-placeholder'\n\
+            export CMUX_CODEROUTER_URL='https://coderouter.cmux.internal'\n";
+        assert_eq!(
+            resolve_layered_source(|_| None, &[None, Some(image)], Some("vm-bound\n")),
+            Some(UsageSource {
+                coderouter_url: "https://coderouter.cmux.internal".to_string(),
+                vm_id: "vm-bound".to_string()
+            })
+        );
+        assert_eq!(
+            resolve_layered_source(|_| None, &[None, Some(image)], None),
+            None,
+            "the image env alone has no machine id"
+        );
+        assert_eq!(
+            resolve_layered_source(|_| None, &[None, None], Some("vm-bound")),
+            None,
+            "an id alone has no coderouter origin"
+        );
+    }
+
+    #[test]
+    fn earlier_layers_win_per_key_and_bad_bound_ids_are_ignored() {
+        let home = "export CMUX_VM_ID='home-vm'\n";
+        let image =
+            "export CMUX_CODEROUTER_URL='https://image.example'\nexport CMUX_VM_ID='image-vm'\n";
+        let source =
+            resolve_layered_source(|_| None, &[Some(home), Some(image)], Some("bound")).unwrap();
+        assert_eq!(source.coderouter_url, "https://image.example");
+        assert_eq!(source.vm_id, "home-vm", "a per-home value wins over the image's");
+        let env = |key: &str| (key == VM_ID_VAR).then(|| "env-vm".to_string());
+        assert_eq!(
+            resolve_layered_source(env, &[Some(image)], Some("bound")).unwrap().vm_id,
+            "env-vm"
+        );
+        let url_only = "export CMUX_CODEROUTER_URL='https://x'\n";
+        for bad in ["", "  \n", "two words", &"a".repeat(MAX_INSTANCE_ID_BYTES + 1)] {
+            assert_eq!(
+                resolve_layered_source(|_| None, &[Some(url_only)], Some(bad)),
+                None,
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

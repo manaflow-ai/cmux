@@ -6,15 +6,15 @@ import CmuxNextSettings
 @testable import CmuxNextUpdater
 import CmuxNextWakeups
 import Foundation
-import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
-@MainActor @Suite(.serialized, .closesItsWindows) struct UpdateReadyCardStyleTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         var contentHeight: CGFloat = 2000
@@ -49,10 +49,10 @@ import CmuxNextWakeupsTestSupport
     @Test func aClickPinsThePreviewOpenAndTallerUntilTheNextClick() async throws {
         let (card, window, _) = try await make()
         defer {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
-            // The sidebar's one hover card window, where the highlights showed.
-            card.hoverCards()?.cardWindow?.close()
             window.close()
+            popup?.closeAfterTest()
         }
         try #require(!card.isHidden, "the staged update shows no card")
         window.orderFront(nil)

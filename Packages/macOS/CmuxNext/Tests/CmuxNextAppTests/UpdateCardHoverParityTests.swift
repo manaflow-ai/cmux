@@ -3,9 +3,9 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
-import CmuxNextTestSupport
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19 (msg 2371): "The hover-on update ready card ... needs to have the same
 /// style, behavior, and styling ... like the hover-on workspace cards. Right now it has a
@@ -15,7 +15,7 @@ import Testing
 /// (the menu popup's scale-in, `openPopup`) and shrink back on close. Update and tab cards
 /// keep the hover-card entrance slide and fade. Leo's 2026-10-28 request makes a workspace
 /// card appear at rest after its dwell instead. Both kinds still fade out without moving.
-@MainActor @Suite(.serialized, .closesItsWindows) struct UpdateCardHoverParityTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateCardHoverParityTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 120))
@@ -33,10 +33,10 @@ import Testing
         var card: SidebarUpdateCardView { sidebar.updateCardView }
 
         func tearDown() {
+            // The card windows the test showed, closed (not only ordered out) once hidden.
+            let children = window.childWindows ?? []
             card.hideNotes()
-            for child in window.childWindows ?? [] { child.close() }
-            // The sidebar's one hover card window, where the highlights showed (no longer a child once faded out).
-            card.hoverCards()?.cardWindow?.close()
+            for child in children { child.close() }
             window.close()
         }
     }
@@ -153,6 +153,7 @@ import Testing
         h.card.highlights = Highlights()
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first, "no update hover card")
+        defer { popup.close() }
         popup.contentView?.layer?.removeAllAnimations()
         h.card.hideNotes()
         let exit = Played(popup)

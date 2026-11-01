@@ -6,7 +6,11 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
+// The edge-strip gutter (gutter.experiment.ts): the placement whose occluded state and strip these cover.
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+  "thread-minimap-layout": "compact",
+  "thread-minimap-gutter": "edge-strip",
+};
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -14,6 +18,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+// Reduce Motion is on unless a test turns it off: the occluded rail's leave grace is skipped under it.
+let reduceMotion = true;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -25,7 +31,7 @@ const replacements: Record<string, unknown> = {
   MutationObserver: dom.window.MutationObserver,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   // Reduce Motion: scrolls land at once, so a test reads where they land.
-  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
+  matchMedia: (query: string) => ({ matches: reduceMotion && query.includes("reduce"), media: query }),
   IntersectionObserver: class {
     observe() {}
     unobserve() {}
@@ -92,6 +98,7 @@ afterAll(() => {
 });
 afterEach(() => {
   paneWidth = 1040;
+  reduceMotion = true;
 });
 
 const document = dom.window.document;
@@ -216,6 +223,8 @@ test("keyboard focus on the close rail shows the full wave too", async () => {
 
 test("when text would overlap the rail, its edge strip reveals it and then hides it again", async () => {
   paneWidth = 760;
+  // The leave grace (HOVER_INTENT.cardGrace) runs only with motion on; Reduce Motion hides at once (below).
+  reduceMotion = false;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
@@ -242,9 +251,27 @@ test("when text would overlap the rail, its edge strip reveals it and then hides
   }
 });
 
+test("under Reduce Motion the strip's revealed rail hides as soon as the pointer leaves", async () => {
+  paneWidth = 760;
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+    await pointer("pointerover", strip, { relatedTarget: document.body });
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
+    await pointer("pointerout", strip, { relatedTarget: document.body });
+    await advance(0);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+  } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// Hovers row `index` until its preview card opens (Codex's 250 ms), then moves the pointer into the
+/// Hovers row `index` until its preview card opens (at once), then moves the pointer into the
 /// card, which keeps it open.
 async function holdCard(index: number) {
   await enter(index);
@@ -286,7 +313,7 @@ test("with the pointer on its card, a wide rail keeps its ticks at rest and the 
     await holdCard(5);
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
     expect(tick(5).getAttribute("data-tone")).toBe("active");
   } finally {
@@ -300,7 +327,7 @@ test("a wide pane keeps the rail close to the transcript: 36 px rows, 6 px ticks
   try {
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
   } finally {
     await view.unmount();
@@ -315,6 +342,21 @@ test("the rail has no narrow or tucked presentation", () => {
   expect(css).not.toMatch(/data-narrow/);
   expect(css).not.toMatch(/NARROW_TICK|NARROW_CLEAR|tucked|divider/);
   expect(css).not.toMatch(/acpmux-minimap[^{]*\{[^}]*animation[^}]*infinite/);
+});
+
+// Leo (2026-10-24): "for the narrow windows, i think we should just simply be able to show it. don't shove
+// the ui, but like... it should be fine. just hide it more". The occluded rail stays drawn, dimmed, over
+// the text; it is never invisible at rest and never takes clicks from the text.
+test("the occluded rail stays visible at rest, dimmed, and leaves the text its clicks", () => {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const occluded = /\.acpmux-minimap__rail\[data-occluded\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const opacity = Number(/opacity:\s*([\d.]+)/.exec(occluded)?.[1]);
+  expect(opacity).toBeGreaterThan(0);
+  expect(opacity).toBeLessThan(0.75);
+  expect(occluded).toMatch(/pointer-events:\s*none/);
 });
 
 test("the rail keeps a live strip at the smallest pane width", async () => {

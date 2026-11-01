@@ -16,6 +16,8 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
+use std::time::{Duration, Instant};
+use wait_timeout::ChildExt;
 
 /// A state folder whose config names a relay that records each call in `relayed` (its argv,
 /// `ACPMUX_FROM` and stdin, one line per call), prints a delivery id and exits 7 for the
@@ -149,4 +151,61 @@ fn a_target_nobody_here_resolves_goes_to_the_relay_and_a_session_here_never_does
     let current = cli(&dir, &["send", "--no-wait", "@", "x"]);
     assert_eq!(current.status.code(), Some(4), "{}", text(&current));
     assert_eq!(relayed(&dir).len(), count, "{:?}", relayed(&dir));
+}
+
+/// Dead, or a zombie its new parent has not reaped yet.
+fn gone(pid: &str) -> bool {
+    (0..50).any(|_| {
+        let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output();
+        let stat = String::from_utf8_lossy(&out.unwrap().stdout).trim().to_owned();
+        let dead = stat.is_empty() || stat.starts_with('Z');
+        if !dead {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        dead
+    })
+}
+
+/// The relay stalls, and a process it started holds the CLI's stdout and stderr open: the send
+/// still ends at its deadline, exits 3, and the relay's whole group is gone.
+#[test]
+fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
+    let dir = scratch("deadline");
+    let _shutdown = Shutdown(&dir);
+    let pids = dir.join("relay-pids");
+    let relay = dir.join("relay");
+    let script = format!("#!/bin/sh\nsleep 30 &\necho $$ $! > {}\nsleep 30\n", pids.display());
+    fs::write(&relay, script).unwrap();
+    fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {}, "sendRelay": {"argv": [relay.display().to_string()]}}).to_string(),
+    )
+    .unwrap();
+
+    let mut command = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+    command
+        .args(["send", "--timeout", "1", "far/coordinator", "hello"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .current_dir(dir.join("p"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let started = Instant::now();
+    let mut child = command.spawn().unwrap();
+    if child.wait_timeout(Duration::from_secs(5)).unwrap().is_none() {
+        let _ = child.kill();
+        panic!("a stalled relay was not bounded by --timeout");
+    }
+    // Its output ends too: nothing the relay started still holds the pipes.
+    let output = child.wait_with_output().unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(output.status.code(), Some(3), "{}", text(&output));
+    assert!(elapsed < Duration::from_secs(4), "the relay outlived the deadline: {elapsed:?}");
+
+    let pids = fs::read_to_string(&pids).unwrap();
+    for pid in pids.split_whitespace() {
+        assert!(gone(pid), "relay process {pid} survived the timeout ({pids})");
+    }
 }
