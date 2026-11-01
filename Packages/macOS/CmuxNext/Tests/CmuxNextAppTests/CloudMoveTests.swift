@@ -325,7 +325,9 @@ struct CloudMoveTests {
             let card = try #require(cards.first, "no card in the chat")
             #expect(move.calls().isEmpty, "the agent's run moved the chat: \(move.calls())")
             #expect(Self.text(card, "state") == "ask")
-            #expect(Self.actionIDs(card) == ["move", "notNow", "always"])
+            // A signed-out chat can approve one move, but has no Cloud identity for an "Always" grant.
+            let canRemember = move.services.cloud.auth.isSignedIn && move.services.cloud.auth.user != nil && move.services.cloud.auth.teamID != nil
+            #expect(Self.actionIDs(card) == (canRemember ? ["move", "notNow", "always"] : ["move", "notNow"]))
             let id = try #require(Self.text(card, "id"))
 
             // Page script can't answer for the person.

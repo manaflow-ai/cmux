@@ -92,6 +92,7 @@
     "cmux-next.yml:daemon-test": {"class": "pr-swift-test", "warm": ["spm-shared", "actions-cache"]},
     "cmux-next.yml:dev-landing-compile": {"class": "dev-release-compile", "warm": ["deriveddata-reuse", "dev-cas", "product-reuse"]},
     "cmux-next.yml:fast-tier": {"class": "pr-fast-tier", "warm": ["deriveddata-reuse", "spm-shared", "actions-cache", "product-reuse"]},
+    "cmux-next.yml:fast-tier-fleet": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next.yml:generated-files": {"class": "mac-test", "warm": ["spm-shared", "actions-cache", "product-reuse"]},
     "cmux-next.yml:release-compile": {"class": "pr-release-compile", "warm": ["deriveddata-reuse", "product-reuse"]},
     "cmux-next.yml:release-compile-fast": {"class": "pr-release-compile", "warm": ["linux-pool-warm"]},
