@@ -11,8 +11,9 @@ import AppKit
 /// - the row or tile goes back to the pool (scrolled away, the conversation gone): ``stop(_:)``;
 /// - Reduce Motion, calm mode, `ui.animationSpeed` off or Home's motion switch off
 ///   (``CmuxSidebarView/avatarLoopGate``, the host's `Motion.home.animatesLoops`);
-/// - the app is not active, or the list's window is hidden, minimized or covered (its occlusion
-///   state): ``CmuxSidebarView`` re-applies every avatar when either changes.
+/// - the list's window is not key (the app went inactive, or another window took the keyboard), or
+///   it is hidden, minimized or covered: the list's own key tracking (`setWindowActive`) re-applies
+///   every avatar, so no observer of its own is added.
 ///
 /// The list's controller holds one (its host's gate and style); each row layer holds what its avatar
 /// was asked to show (``Shown``), so a gate, app or window change re-applies it.
@@ -43,16 +44,17 @@ struct SidebarAvatarMotion {
     var gate: (@MainActor () -> Bool)?
     /// How avatars move (the host's Debug setting).
     var style = CmuxSidebarAvatarMotionStyle.float
-    /// Tests' pin for "the app is active and the window is on screen" (an offscreen test window never is).
+    /// The list's window is key (the vendored list's key tracking sets it).
+    var windowKey = true
+    /// Tests' pin for "the window is on screen" (an offscreen test window never is).
     var onScreenPin: Bool?
 
-    /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the app is
-    /// active and the window is on screen.
+    /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the window
+    /// is key (so the app is active) and on screen.
     @MainActor func mayRun(in window: NSWindow?) -> Bool {
-        guard !CmuxSidebarView.reducesMotion, gate?() ?? true else { return false }
+        guard !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
         if let onScreenPin { return onScreenPin }
-        guard NSApp?.isActive ?? false, let window, window.isVisible, !window.isMiniaturized,
-              window.occlusionState.contains(.visible) else { return false }
+        guard let window, window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible) else { return false }
         return true
     }
 
@@ -139,5 +141,12 @@ public enum CmuxSidebarAvatarMotionStyle: String, Sendable, CaseIterable {
         case .still:
             return Shape(keyPath: "transform.scale", rest: 1, depth: 0, period: 1, wave: { _ in 0 })
         }
+    }
+}
+
+extension SidebarController {
+    /// cmux: re-applies every row's and tile's avatar motion (the window's key state changed).
+    func refreshAvatarMotion() {
+        for l in rowLayers.values + tileLayers { avatarMotion.refresh(l, window: document.window) }
     }
 }

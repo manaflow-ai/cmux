@@ -31,6 +31,7 @@ struct ChiefAvatarMotionTests {
             ]
             window.contentView = view
             controller.avatarMotion.onScreenPin = true
+            controller.setWindowActive(true)  // the host's window is key
             show()
             view.layoutSubtreeIfNeeded()
             controller.view.layoutSubtreeIfNeeded()
@@ -110,16 +111,17 @@ struct ChiefAvatarMotionTests {
         defer { reset() }
         let f = Fixture()
         #expect(f.loop("scout") != nil)
-        f.controller.avatarMotion.onScreenPin = false
-        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: nil)
+        // The window resigns key: the app went inactive, another window took the keyboard, or it
+        // was minimized or hidden. The list's own key tracking stops every loop.
+        f.controller.setWindowActive(false)
         #expect(f.loop("scout") == nil && f.loop("chief") == nil)
-        f.controller.avatarMotion.onScreenPin = true
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: f.window)
-        #expect(f.loop("scout") != nil)
+        f.controller.setWindowActive(true)
+        #expect(f.loop("scout") != nil, "and they start again when it is key")
 
         // Unpinned, the real check: this offscreen test window is not on screen, so nothing loops.
         f.controller.avatarMotion.onScreenPin = nil
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: f.window)
+        f.controller.setWindowActive(false)
+        f.controller.setWindowActive(true)
         #expect(f.loop("scout") == nil, "a window that is not on screen never loops")
     }
 

@@ -62,16 +62,10 @@ extension CmuxSidebarView {
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.applyReduceMotion() } }
             }
         }
-        // An avatar's loop also stops while the app is inactive and while a window is covered or
-        // hidden, and starts again when it shows (SidebarAvatarMotion's stop conditions).
-        let center = NotificationCenter.default
         return [
             NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil, using: apply),
-            center.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
-            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil, using: apply),
-            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: nil, using: apply),
-            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: nil, using: apply),
+            NotificationCenter.default.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
         ]
     }
 

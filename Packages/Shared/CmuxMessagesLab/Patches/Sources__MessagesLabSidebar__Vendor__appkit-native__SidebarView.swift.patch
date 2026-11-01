@@ -38,7 +38,7 @@
      /// v1.2: the list's clock for the row times (default: the system clock; tests and still
      /// scenes give a fixed date). Changing it takes effect on the next reloadData().
      var now: () -> Date = { Date() }
-@@ -82,13 +104,15 @@
+@@ -82,21 +104,26 @@
      /// width it is designed for (to verify against Messages' default).
      var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
      var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
@@ -56,9 +56,10 @@
      private let textCache = SidebarTextCache()
      private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
      private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
-@@ -96,7 +120,10 @@
+     private var windowActive = true
      private var pending: Set<SidebarBitmapKey> = []
-     private var rowLayers: [Int: SidebarRowLayer] = [:]
+-    private var rowLayers: [Int: SidebarRowLayer] = [:]
++    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (Cmux/SidebarAvatarMotion.swift)
      private var pool: [SidebarRowLayer] = []
 -    private var tileLayers: [SidebarRowLayer] = []
 +    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
@@ -268,7 +269,7 @@
          invalidateAll()
      }
      private func colorsChanged() {  // no selector
-@@ -1541,10 +1616,24 @@
+@@ -1541,10 +1616,25 @@
          invalidateAll()
      }
      private func resolvePalette() -> SidebarPalette {
@@ -290,11 +291,12 @@
      func scaleChanged() { avatars.removeAll(); invalidateAll() }
      func setWindowActive(_ active: Bool) {
 +        requestedWindowActive = active // cmux
++        if avatarMotion.windowKey != active { avatarMotion.windowKey = active; refreshAvatarMotion() } // cmux: avatars move only in the key window
 +        let active = active || neutralSelection // cmux: neutral selection looks the same in every window state
          guard active != windowActive else { return }
          windowActive = active
          CATransaction.begin(); CATransaction.setDisableActions(true)
-@@ -1634,7 +1723,7 @@
+@@ -1634,7 +1724,7 @@
      weak var controller: SidebarController?
      let id: ConversationID
      init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
@@ -303,7 +305,7 @@
      override func isAccessibilityElement() -> Bool { true }
      /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
      /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
-@@ -1650,11 +1739,15 @@
+@@ -1650,11 +1740,15 @@
      let content = CALayer()
      let time = CALayer()
      let separator = CALayer()
@@ -319,7 +321,7 @@
      var shownKey: SidebarBitmapKey?
      /// The line breaks and truncation of the text bitmap on screen (nil: not known, e.g. from the cache).
      var shownLayout: SidebarDraw.RowTextLayout?
-@@ -1667,7 +1760,8 @@
+@@ -1667,7 +1761,8 @@
          let none: [String: CAAction] = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull(),
                                          "backgroundColor": NSNull(), "frame": NSNull(), "cornerRadius": NSNull()]
          actions = none
@@ -329,7 +331,7 @@
          content.contentsGravity = .topLeft
          time.contentsGravity = .topLeft
          avatar.contentsGravity = .resize
-@@ -1685,7 +1779,7 @@
+@@ -1685,7 +1780,7 @@
      }
      func contentsScaleAll(_ s: CGFloat) {
          guard content.contentsScale != s else { return }
@@ -338,7 +340,7 @@
      }
  }
  
-@@ -1734,7 +1828,13 @@
+@@ -1734,7 +1829,13 @@
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
@@ -353,7 +355,7 @@
      }
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-@@ -1746,6 +1846,9 @@
+@@ -1746,6 +1847,9 @@
          default: interpretKeyEvents([event])
          }
      }

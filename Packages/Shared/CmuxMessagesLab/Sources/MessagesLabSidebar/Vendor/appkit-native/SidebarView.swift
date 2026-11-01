@@ -118,7 +118,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
     private var windowActive = true
     private var pending: Set<SidebarBitmapKey> = []
-    private var rowLayers: [Int: SidebarRowLayer] = [:]
+    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (Cmux/SidebarAvatarMotion.swift)
     private var pool: [SidebarRowLayer] = []
     // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
     private(set) var tileLayers: [SidebarRowLayer] = []
@@ -1633,6 +1633,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func scaleChanged() { avatars.removeAll(); invalidateAll() }
     func setWindowActive(_ active: Bool) {
         requestedWindowActive = active // cmux
+        if avatarMotion.windowKey != active { avatarMotion.windowKey = active; refreshAvatarMotion() } // cmux: avatars move only in the key window
         let active = active || neutralSelection // cmux: neutral selection looks the same in every window state
         guard active != windowActive else { return }
         windowActive = active
