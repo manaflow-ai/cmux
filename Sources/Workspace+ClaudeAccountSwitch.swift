@@ -236,7 +236,8 @@ extension Workspace {
             return preflight == .alreadyCurrent ? resync : preflight
         } catch {
 #if DEBUG
-            cmuxDebugLog("claudeAccount.switch resync.failed session=\(request.sessionID.prefix(8)) error=\(error)")
+            // The error's type only: its description can carry transcript paths.
+            cmuxDebugLog("claudeAccount.switch resync.failed errorType=\(type(of: error))")
 #endif
             return preflight
         }
