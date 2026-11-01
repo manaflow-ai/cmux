@@ -151,6 +151,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   caller's cancel),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+- Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
+  each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
+  serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
+  a system call; one item per new posting process, so no back-pressure)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,

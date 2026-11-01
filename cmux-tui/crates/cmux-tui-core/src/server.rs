@@ -201,6 +201,8 @@ mod personal;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
+#[cfg(unix)]
+mod native_owner;
 mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
@@ -1832,8 +1834,6 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
-    /// The cloud environment editor; the signed-in person only.
-    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),

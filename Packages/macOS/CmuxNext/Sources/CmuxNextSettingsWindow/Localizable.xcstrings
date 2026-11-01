@@ -68291,43 +68291,43 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključuje Computer Use i vodi vas kroz macOS dozvole koje su mu potrebne."
+            "value": "Uključuje Computer Use i vodi kroz potrebne macOS dozvole."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slår Computer Use til og guider dig gennem de macOS-tilladelser, den kræver."
+            "value": "Slår Computer Use til og guider dig gennem tilladelserne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schaltet Computer Use ein und führt dich durch die nötigen macOS-Berechtigungen."
+            "value": "Schaltet Computer Use ein, führt durch die Berechtigungen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turns on Computer Use and walks you through the macOS permissions it needs."
+            "value": "Turns on Computer Use and walks you through its permissions."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activa Computer Use y te guía por los permisos de macOS que necesita."
+            "value": "Activa Computer Use y te guía por los permisos de macOS."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Active Computer Use et vous guide dans les autorisations macOS nécessaires."
+            "value": "Active Computer Use et vous guide dans les autorisations."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva Computer Use e ti guida tra i permessi di macOS necessari."
+            "value": "Attiva Computer Use e ti guida tra i permessi di macOS."
           }
         },
         "ja": {
@@ -68351,25 +68351,25 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slår på Computer Use og leder deg gjennom macOS-tillatelsene den trenger."
+            "value": "Slår på Computer Use og leder deg gjennom tillatelsene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Włącza Computer Use i prowadzi przez potrzebne uprawnienia macOS."
+            "value": "Włącza Computer Use i prowadzi przez uprawnienia macOS."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativa o Computer Use e orienta você pelas permissões do macOS necessárias."
+            "value": "Ativa o Computer Use e guia você pelas permissões do macOS."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Включает Computer Use и проводит через нужные разрешения macOS."
+            "value": "Включает Computer Use и проводит через разрешения macOS."
           }
         },
         "th": {
@@ -68381,19 +68381,19 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use'u açar ve gereken macOS izinlerinde size yol gösterir."
+            "value": "Computer Use'u açar ve macOS izinlerinde yol gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вмикає Computer Use і проводить через потрібні дозволи macOS."
+            "value": "Вмикає Computer Use і проводить через дозволи macOS."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật Computer Use và hướng dẫn bạn qua các quyền macOS cần thiết."
+            "value": "Bật Computer Use và hướng dẫn qua các quyền macOS cần thiết."
           }
         },
         "zh-Hans": {
