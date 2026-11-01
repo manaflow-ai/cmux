@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
-        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+        services.daemonUpdates.board.openDetails = { [weak services] in
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
         }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
@@ -319,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
-        services.mobile.follow(settings, launch: services.environment.launch)
+        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }

@@ -307,6 +307,12 @@ jobs:
     # that warm-up and ran their dev-server files two at a time: 12 shards on
     # 8 vCPU took 14.3 min (run 39347314726), barely under 2 shards' 15.5.
     # Fewer, wider shards share each warm cache across more files.
+    # On 16 vCPU a shard runs its dev-server files 4 at a time, and they are
+    # most of its wall time: 4 shards took 18-26 min of "Test webviews" each
+    # (run 41236343549), the long pole from ask to merge for a webview fix.
+    # 8 shards halve each shard's dev-server files for about 2 min more setup
+    # and Vite warm-up per added shard (Leo, 2026-10-31: a straightforward fix
+    # lands within the hour).
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -314,13 +320,21 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 4
+            shard_count: 8
           - shard: 2
-            shard_count: 4
+            shard_count: 8
           - shard: 3
-            shard_count: 4
+            shard_count: 8
           - shard: 4
-            shard_count: 4
+            shard_count: 8
+          - shard: 5
+            shard_count: 8
+          - shard: 6
+            shard_count: 8
+          - shard: 7
+            shard_count: 8
+          - shard: 8
+            shard_count: 8
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -440,7 +454,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches check:attachment-caps; do
+          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:layout-grid check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -628,6 +642,10 @@ jobs:
           - shard: 2
           - shard: 3
           - shard: 4
+          - shard: 5
+          - shard: 6
+          - shard: 7
+          - shard: 8
     steps:
       # The base is the merge commit's first parent, the commit the head shards
       # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha

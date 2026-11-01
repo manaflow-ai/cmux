@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act, StrictMode } from "react";
+import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
+import type { SavedEnvironment } from "../environments";
+import type { RunMode } from "../sandboxRun";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -225,6 +227,32 @@ test("cancelling a saved environment browse keeps the New Tab project", async ()
   expect(container.querySelector(".nt-location")?.textContent).toBe(before);
 });
 
+// Leo, 2026-10-31: "who the f*** put worktree on there". The bar above the composer holds
+// the folder and the machine only; New Worktree is an action in the folder menu.
+test("the location bar has no New Worktree control; the folder menu still offers it", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        onNewWorktree={async () => undefined}
+      />,
+    );
+  });
+  const strip = container.querySelector(".acpmux-composer-context")!;
+  expect(strip).toBeTruthy();
+  const buttons = [...strip.querySelectorAll("button")].map((button) => button.textContent?.trim());
+  expect(buttons.some((text) => text?.includes("New Worktree"))).toBe(false);
+  const folder = strip.querySelector<HTMLButtonElement>('[aria-label="Folder"]');
+  expect(folder?.textContent).toContain("cmux");
+  await act(async () => folder!.click());
+  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
+  expect(options).toContain("New Worktree");
+});
+
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
   let browsed = 0;
   await act(async () => {
@@ -392,6 +420,172 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
   expect(asks).toEqual([]);
   expect(sandboxed.length).toBe(1);
   expect((sandboxed[0] as unknown[])[2]).toEqual([expect.objectContaining({ path: "/tmp/notes.txt" })]);
+});
+
+test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat; a refusal is said over the box", async () => {
+  const asks: unknown[][] = [];
+  const clouded: unknown[][] = [];
+  let answer: boolean | string = false;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), answer)}
+      />,
+    );
+  });
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "fix the flaky test");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  answer = "A Cloud chat takes text only for now.";
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks).toEqual([]);
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe("A Cloud chat takes text only for now.");
+  // A refused send (attachments, or Cloud no longer offered) keeps the prompt to send again.
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+});
+
+test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/repo/A"
+        startCwd="/repo/A"
+        pageWidgets={new Set(["projects"])}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+  const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("Do not work in a project"),
+  );
+  expect(noProject).toBeTruthy();
+  await act(async () => noProject!.click());
+  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "fix the flaky test");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  // The App sends it as a start with nothing copied (cloudRun.ts cloudStartFolder: `home`).
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
+  expect((clouded[0] as unknown[])[2]).toBeUndefined();
+});
+
+test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
+  const page = (cloudStarting: boolean) => (
+    <NewTabScreen
+      snapshot={noChat()}
+      onAsk={() => {}}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+      environments
+      runMode={{ mode: "cloud", onMode: () => {} }}
+      onCloud={() => false}
+      cloudStarting={cloudStarting}
+    />
+  );
+  // The tab closes once the chat opens on the machine: an edit made meanwhile would go with it.
+  const typeOnPage = (key: string) =>
+    act(async () => {
+      container.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    });
+  const field = () => container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => root!.render(page(true)));
+  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
+  // Typing on the page (outside the field) goes nowhere while the start is out.
+  await typeOnPage("x");
+  expect(field().value).toBe("");
+  // A failed start keeps the prompt here to edit and send again.
+  await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
+  await typeOnPage("x");
+  expect(field().value).toBe("x");
+});
+
+test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
+  const clouded: unknown[][] = [];
+  const repoB: SavedEnvironment = { id: "b", name: "Repo B", kind: "local", folder: "/repo/B", updatedAt: 1 };
+  function Page() {
+    const [mode, setMode] = useState<RunMode>("persistent");
+    return (
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/me"
+        startCwd="/repo/A"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        savedEnvironments={{ list: async () => [repoB], save: async () => repoB, remove: async () => {} }}
+        runMode={{ mode, onMode: setMode }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />
+    );
+  }
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const computer = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (selector: string) => {
+    await act(async () => computer().click());
+    await settle();
+    const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
+    await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    await settle();
+  };
+  await act(async () => root!.render(<Page />));
+  await settle();
+  await choose(".acpmux-env-saved");
+  expect(computer().getAttribute("aria-label")).toContain("Repo B");
+  await choose('[data-mode="cloud"]');
+  expect(computer().getAttribute("aria-label")).not.toContain("Repo B");
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "fix the flaky test");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
 });
 
 test.each(
@@ -566,4 +760,26 @@ test("a closed agent chat uses the semantic agent glyph and preserves its title"
 
   expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
   expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
+});
+
+test("a project picked on the page is reported on its click (onProjectPicked), so Cloud can copy it", async () => {
+  const picked: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you"
+        environments
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onProjectPicked={(cwd) => picked.push(cwd)}
+      />,
+    );
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.textContent?.includes("cmux") && !row.hasAttribute("data-choose"),
+  );
+  expect(option).toBeTruthy();
+  await act(async () => option!.click());
+  expect(picked).toEqual(["/Users/you/src/cmux"]);
 });

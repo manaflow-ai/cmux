@@ -46,6 +46,16 @@ export const OUTPUT_MAX_BYTES = 1024 * 1024
 const PATH_MAX_BYTES = 4096
 /** One file read or write (classic allows 16 MiB; this one crosses the provider's exec as stdin or stdout). */
 export const FILE_MAX_BYTES = 8 * 1024 * 1024
+/** A directory listing's entries (classic's limit). */
+export const DIR_MAX_ENTRIES = 10_000
+/**
+ * A directory listing's JSON, as the file program writes it. json.dumps escapes every control and
+ * non-ASCII character, so that JSON is printable ASCII; the provider's JSON around it escapes each such
+ * byte as at most 6 (\u003c at worst), so a listing of at most DIR_MAX_BYTES stays within 12 MiB of the
+ * provider's answer, under EXEC_RESPONSE_MAX_BYTES (providers/freestyle/exec.ts). Without it, 10,000
+ * names of 255 control characters would be about 18.6 MiB there. freestyle-exec-errors.test.ts checks it.
+ */
+export const DIR_MAX_BYTES = 2 * 1024 * 1024
 const FS_TIMEOUT_MS = 60_000
 /** A write's JSON body: the base64 of the largest file plus its path and mode. */
 const BODY_MAX = Math.ceil(FILE_MAX_BYTES / 3) * 4 + 16 * 1024
@@ -73,16 +83,20 @@ const ROOT = 47
 export const FS_PROGRAM = `import base64,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
 M=${FILE_MAX_BYTES}
+DN,DB=${DIR_MAX_ENTRIES},${DIR_MAX_BYTES}
 def k(m):return "directory" if stat.S_ISDIR(m) else "symlink" if stat.S_ISLNK(m) else "file"
 def i(s):return {"kind":k(s.st_mode),"size":s.st_size,"mode":stat.S_IMODE(s.st_mode),"modifiedAt":int(s.st_mtime*1000)}
 try:
  if op=="stat":o={"path":p,**i(os.lstat(p))}
  elif op=="dir":
-  e=[]
+  e=[];n=16
   with os.scandir(p) as d:
    for x in d:
-    if len(e)>=10000:sys.exit(${TOO_LARGE})
-    e.append({"name":x.name,**i(x.stat(follow_symlinks=False))})
+    if len(e)>=DN:sys.exit(${TOO_LARGE})
+    y={"name":x.name,**i(x.stat(follow_symlinks=False))}
+    n+=len(json.dumps(y))+2
+    if n>DB:sys.exit(${TOO_LARGE})
+    e.append(y)
   o={"entries":e}
  elif op=="read":
   s=os.stat(p)
@@ -193,7 +207,8 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   not_found: [404, "vm_not_found", "no such machine in this team"],
   forbidden: [403, "vm_forbidden", "this user may not use the team's machines"],
   not_running: [409, "vm_not_running", "the machine is not running; start it first"],
-  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"]
+  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"],
+  output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
 /** A JSON object body of at most BODY_MAX bytes, or the refusal. */
@@ -261,7 +276,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
   if (r.exitCode === NOT_FOUND) return refuse(404, "vm_file_not_found", `no such file: ${path}`)
   if (fsOp === "remove" && r.exitCode === ROOT) return refuse(400, "vm_invalid_path", "the path is the machine's root")
   if (r.exitCode === WRONG_KIND) return refuse(400, "vm_invalid_path", fsOp === "dir" ? "not a directory" : "the path is a directory, or a part of it is a file")
-  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? "the directory has over 10000 entries" : `the file is over ${FILE_MAX_BYTES} bytes`)
+  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? `the directory has over ${DIR_MAX_ENTRIES} entries, or its listing is over ${DIR_MAX_BYTES} bytes` : `the file is over ${FILE_MAX_BYTES} bytes`)
   let value: unknown = null
   try {
     value = r.exitCode === 0 ? JSON.parse(r.stdout) : null

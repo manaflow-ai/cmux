@@ -184,6 +184,15 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
             env.push(((*key).to_owned(), value));
         }
     }
+    // Threads at the daemon's worker stack (`cli/entry.rs`), not std's 2 MiB: a hub this process
+    // runs polls the same request futures the daemon polls on its workers, and they need more than
+    // 2 MiB in places (a `/btw` side session's start, 2.0-2.3 MiB on Linux CI, 2026-10-31). A test
+    // on a smaller thread than the daemon's would fail on a stack the daemon never has, and one on
+    // a larger thread would pass where the daemon aborts. A host's own RUST_MIN_STACK, kept above,
+    // wins.
+    if !env.iter().any(|(key, _)| key == "RUST_MIN_STACK") {
+        env.push(("RUST_MIN_STACK".into(), acpmux::cli::entry::WORKER_STACK_BYTES.to_string()));
+    }
     for (key, value) in process.inject {
         env.retain(|(k, _)| k != key);
         env.push(((*key).to_owned(), (*value).to_owned()));
