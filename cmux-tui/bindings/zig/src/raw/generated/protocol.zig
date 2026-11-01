@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8";
+pub const ir_sha256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4427,28 +4427,6 @@ pub fn cloudConversationUnsubscribe(client: anytype, request: CloudConversationU
             .authority = "local-admin",
             .since = 12,
             .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudEnvironmentRequest = struct {
-    access_token: []const u8,
-    action: []const u8,
-    params: wire.Nullable(JsonValue),
-    platform_origin: []const u8,
-};
-
-pub const CloudEnvironmentResult = JsonValue;
-
-pub fn cloudEnvironment(client: anytype, request: CloudEnvironmentRequest) !wire.Decoded(CloudEnvironmentResult) {
-    return client.callTyped(
-        CloudEnvironmentResult,
-        .{
-            .name = "cloud-environment",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-environments-v1",
         },
         request,
     );
@@ -11659,7 +11637,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 287;
+pub const command_count: usize = 286;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11708,7 +11686,6 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-environment", .authority = "local-admin", .since = 12, .capability = "cloud-environments-v1", .stream = null },
     .{ .name = "cloud-host-replica-clear", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-set", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-status", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },

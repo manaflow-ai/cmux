@@ -12,14 +12,7 @@ import { pickFolder } from "./startFolder";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
-export type CloudStart = {
-  task: string;
-  cwd?: string;
-  home?: boolean;
-  harness?: string;
-  model?: string;
-  environment?: string;
-};
+export type CloudStart = { task: string; cwd?: string; home?: boolean; harness?: string; model?: string };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
 /// it has one; else the machine's home folder, with nothing copied (a chat in no project, or one
@@ -80,7 +73,6 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
-  if (start.environment) params.environment = start.environment;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

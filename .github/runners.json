@@ -247,6 +247,7 @@
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",
     "cmux-next.yml#fast-tier": "apple-app-build",
+    "cmux-next.yml#fast-tier-fleet": "apple-swift-tests",
     "cmux-next.yml#generated-files": "apple-app-build",
     "cmux-next.yml#release-compile": "apple-app-build",
     "cmux-next.yml#release-compile-fast": "apple-app-build",
