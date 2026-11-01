@@ -242,3 +242,46 @@ async fn an_end_whose_output_the_buffer_cap_holds_back_still_ends() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A daemon that connects while the host ends a harness whose last output is more than the
+/// buffer cap holds is answered: it drains that output, so the exit entry can come, and it reads
+/// every line up to the exit (review of #30897: a hold until the exit entry alone would wait for
+/// an exit that waits for this daemon).
+#[tokio::test]
+async fn a_daemon_connecting_during_a_capped_end_reads_every_line_and_the_exit() {
+    let dir = scratch("orph-cap-late");
+    let term = dir.join("term");
+    let agent = dir.join("agent");
+    write_executable(
+        &agent,
+        "#!/usr/bin/env python3\nimport os, signal, sys\n\
+         def last(*_):\n    \
+         open(os.environ['TERM_NOTE'], 'w').close()\n    \
+         for i in range(400):\n        \
+         print('{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"n\":%d,\"text\":\"%s\"}}' % (i, 'x' * 64), flush=True)\n    \
+         sys.exit(0)\n\
+         signal.signal(signal.SIGTERM, last)\n\
+         while True: signal.pause()\n",
+    );
+    let mut launch = orphan_spec(&dir, "s-orph-cap-late");
+    launch.program = agent.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.buffer_cap = 4096;
+    launch.env.push(("TERM_NOTE".into(), term.to_string_lossy().into_owned()));
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while !term.exists() {
+        assert!(std::time::Instant::now() < deadline, "the idle host never ended its harness");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (late, _) = tokio::time::timeout(Duration::from_secs(20), connected(&record, 0))
+        .await
+        .expect("a daemon that connected during the end was never answered");
+    let mut logged = 0;
+    let read = read_until(&late, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    let notes = read.iter().filter(|(_, e)| format!("{e:?}").contains("\"note\"")).count();
+    assert_eq!(notes, 400, "every line the harness wrote as it ended comes before the exit");
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

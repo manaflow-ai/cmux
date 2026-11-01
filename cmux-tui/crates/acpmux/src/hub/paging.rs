@@ -42,6 +42,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "turn_silent",
     "turn_heard",
     "turn_result",
+    // A turn the person did not start, around its rows (`background_turn.rs`).
+    "background_turn",
     "permission_request",
     "permission_auto",
     "permission_decision",
@@ -52,6 +54,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
+    // A line from outside any chat, such as cmux Cloud's after it resized the machine
+    // (`server/host_notice.rs`).
+    "host_notice",
     "forked",
     "imported",
     "session_offer",

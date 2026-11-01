@@ -1217,11 +1217,21 @@ NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROP
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
-default empty), or (for local launches only, never a remote-origin one) it is a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
-(`cmux cloud deliver-secrets`; its value is never cached). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
+(`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
+private, owned `~/.config/cmux/machine.env` declarations directly: only literal
+`export NAME='value'` entries (including quoted newlines and escaped single quotes), with no shell
+execution. Process-loader and cmux bootstrap names are refused. These declarations override the
+login/daemon values, while explicit profile, preset and session env still win. Values are read again
+for each local launch, so replacement and deletion rotate/revoke them. Only names declared during this
+daemon's lifetime are remembered, so a revoked value it inherited is also removed from local children.
+A value revoked before this daemon first reads the file cannot be identified as machine-owned. Values never enter the login
+cache, nested-session restoration, remote-origin launches or `${env:VAR}` references. A missing,
+non-private, linked, oversized or malformed file contributes no declarations. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
 `ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
-same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
-then the login shell's.
+same allow-list. Precedence: profile, preset and session env, then current machine.env declarations,
+then the daemon's own environment, then the login shell's. Machine file edits trigger a login-shell
+refresh before a local spawn; a failed refresh refuses that spawn to avoid stale delivered secrets.
 `<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
 files: non-secret values and the names of secret ones (their values stay in memory), so a start
 with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the

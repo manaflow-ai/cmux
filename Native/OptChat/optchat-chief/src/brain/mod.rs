@@ -45,10 +45,12 @@ mod screen;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
+mod session_tell;
 mod side;
 mod spawns;
 mod steer;
 mod transcript;
+mod turn_actions;
 mod turns;
 mod wakes;
 mod watches;
@@ -216,6 +218,13 @@ pub enum Input {
     /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
     AgentKeyRevokeFailed {
         id: String,
+    },
+    /// The answer of acpmux session `name` to the Chief's `tell(id:
+    /// "session:NAME")` (session_tell.rs): another agent's words, queued as
+    /// its report under the ask floor.
+    SessionReply {
+        name: String,
+        text: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -447,6 +456,14 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
@@ -657,14 +674,26 @@ impl Queued {
             Source::Message {
                 requires_approval: true,
                 ..
+            } | Source::OwnerAction {
+                requires_approval: true
             } | Source::Resume {
                 requires_approval: true,
                 ..
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            })
+            }) | Source::Agent { .. }
         )
+    }
+
+    /// The acpmux session that wrote it: a message another agent sent
+    /// through the CLI, or a session's answer to the Chief's tell.
+    fn agent(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message { agent, .. } => agent.as_deref(),
+            Source::Agent { from } => Some(from),
+            _ => None,
+        }
     }
 }
 
@@ -680,11 +709,19 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
+        /// The acpmux session that sent it through the CLI
+        /// (`cmux_conversation::agent_sender`), None for a person's.
+        agent: Option<String>,
     },
+    /// The answer of acpmux session `from` to the Chief's tell
+    /// (session_tell.rs): another agent's words, so its turn asks.
+    Agent { from: String },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
@@ -863,6 +900,9 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The acpmux sessions whose messages the running turn carries
+    /// (`Queued::agent`): an ask turn may `tell` them back, no other session.
+    turn_agents: std::collections::BTreeSet<String>,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -1011,6 +1051,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_agents: std::collections::BTreeSet::new(),
             last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
@@ -1424,6 +1465,7 @@ impl Brain {
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
             Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::SessionReply { name, text } => self.session_reply(&name, &text),
             Input::AutoResume {
                 id,
                 attempt,
@@ -1556,6 +1598,12 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(self.owner_continue());
+            }
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));

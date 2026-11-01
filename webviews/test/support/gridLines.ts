@@ -11,7 +11,9 @@ export type GridMetric =
   | "text"
   | "optical"
   | "radius"
-  | "padding";
+  | "padding"
+  | "padding-top"
+  | "padding-bottom";
 export type GridPoint = {
   selector: string;
   metric: GridMetric;
@@ -117,6 +119,10 @@ export function measureGridLines(scene: GridScene): GridResult[] {
       if (kind === "cy") return rect.top + rect.height / 2;
       if (kind === "radius") return parseFloat(getComputedStyle(el).borderTopLeftRadius);
       if (kind === "padding") return parseFloat(getComputedStyle(el).paddingLeft);
+      // A card's block padding, read from style: its 1 px edge may come from a theme colour some
+      // galleries leave out, so the inset from the border box is not a stable line.
+      if (kind === "padding-top") return parseFloat(getComputedStyle(el).paddingTop);
+      if (kind === "padding-bottom") return parseFloat(getComputedStyle(el).paddingBottom);
       if (kind !== "text" && kind !== "optical") return rect[kind];
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let node: Node | null;

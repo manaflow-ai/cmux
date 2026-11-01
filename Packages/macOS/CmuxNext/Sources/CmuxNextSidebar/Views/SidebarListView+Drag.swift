@@ -496,7 +496,7 @@ extension SidebarListViewComponents {
             case let (.workspace(id), rowView as WorkspaceRowView):
                 rowView.isDropTarget = drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             case let (.group(id), header as GroupHeaderRowView):
-                header.isDropTarget = drag?.target == .intoGroup(id)
+                header.isDropTarget = highlightsDropGroup(id)
             default:
                 break
             }

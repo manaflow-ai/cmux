@@ -95,7 +95,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         // ticket bound to the prompt's own id so its early reservation still redeems after that
         // label is assigned, while a doubly labelled id remains distinct.
         if method == "session/prompt", case .string(let id)? = params["promptId"] {
-            params["promptId"] = .string(AgentPaneHandoffPrompt.ownID(id))
+            params["promptId"] = .string(AgentPaneHandoffPrompt(id: id).ownID)
         }
         self.method = method
         self.params = params
@@ -137,7 +137,7 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             self.params = (acpmux?["promptId"] as? String).map {
-                ["promptId": .string(AgentPaneHandoffPrompt.ownID($0))]
+                ["promptId": .string(AgentPaneHandoffPrompt(id: $0).ownID)]
             }
             return
         }

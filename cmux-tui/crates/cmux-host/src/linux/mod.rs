@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::agent::{Exit, Platform, Wake};
@@ -41,6 +42,7 @@ const T_STOP: u64 = 7;
 const T_DAEMON: u64 = 8;
 const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
+const T_IDENTITY: u64 = 11;
 
 struct Daemon {
     pid: u32,
@@ -48,7 +50,7 @@ struct Daemon {
     /// still reaps the child and signals go by pid (not yet reaped).
     pidfd: Option<PidFd>,
     /// `None` when adopted from a previous agent run (not our child).
-    child: Option<Child>,
+    child: Option<Arc<cmux_link::caller::RootOwnedDaemon>>,
     started: Instant,
 }
 
@@ -83,8 +85,11 @@ pub struct LinuxPlatform {
     /// The global addresses last seen (netlink filter).
     addresses: BTreeSet<(String, IpAddr)>,
     metadata: Box<dyn InstanceIdSource>,
+    identity: Option<crate::identity::Listener>,
+    observed_instance: Option<String>,
     layout: Option<DaemonLayout>,
     daemon: Option<Daemon>,
+    bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
     jobs: Vec<Job>,
 }
 
@@ -116,6 +121,15 @@ impl LinuxPlatform {
                 None => None,
             };
         let metadata = Box::new(Mmds { addr: cfg.metadata_addr, timeout: cfg.metadata_timeout });
+        // Never advertise system authority from a user-mode host or a test root.
+        // SAFETY: geteuid has no preconditions.
+        let identity = if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+            ensure_agent_dir(&cfg.paths)?;
+            let gid = spawn::lookup_user(crate::daemon_spec::WORK_USER).map(|u| u.gid);
+            Some(crate::identity::Listener::bind(&cfg.paths.at(crate::identity::SOCKET), gid)?)
+        } else {
+            None
+        };
         let platform = Self {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
@@ -133,8 +147,11 @@ impl LinuxPlatform {
             announce_timer: TimerFd::new(Clock::Monotonic)?,
             addresses: global_address_set(interface_addresses()),
             metadata,
+            identity,
+            observed_instance: None,
             layout: None,
             daemon: None,
+            bootstrap: None,
             jobs: Vec::new(),
             cfg,
         };
@@ -148,9 +165,20 @@ impl LinuxPlatform {
         e.add(platform.stop_deadline.raw(), T_STOP)?;
         e.add(platform.retry.raw(), T_RETRY)?;
         e.add(platform.announce_timer.raw(), T_ANNOUNCE)?;
+        if let Some(identity) = &platform.identity {
+            e.add(identity.raw(), T_IDENTITY)?;
+        }
         let mut platform = platform;
         platform.arm_clock();
         Ok(platform)
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = bootstrap;
+        self
     }
 
     /// Re-arms the clock-set timer with the bounded `ECANCELED` retry. On
@@ -224,7 +252,7 @@ impl LinuxPlatform {
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
         ensure_run_dir(&paths, &layout);
-        let child = spawn::spawn_daemon(&spec)?;
+        let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
@@ -379,6 +407,9 @@ impl LinuxPlatform {
 
     fn daemon_gone(&mut self) -> Option<Exit> {
         let daemon = self.daemon.take()?;
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.daemon_exited();
+        }
         if let Some(fd) = &daemon.pidfd {
             self.epoll.remove(fd.raw());
         }
@@ -460,12 +491,24 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
 }
 
 impl Platform for LinuxPlatform {
+    fn invalidate_remote_authority(&self) {
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.invalidate();
+        }
+    }
+
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         loop {
             let tokens = self.epoll.wait()?;
             let mut wakes = Vec::new();
             for token in tokens {
                 match token {
+                    T_IDENTITY => {
+                        if let Some(identity) = &mut self.identity {
+                            identity.accept();
+                        }
+                        wakes.push(Wake::Identity);
+                    }
                     T_CLOCK => {
                         self.clock.drain();
                         self.arm_clock();
@@ -549,6 +592,7 @@ impl Platform for LinuxPlatform {
 
     fn observe(&mut self) -> Observation {
         let read = read_instance_id(self.metadata.as_mut(), self.cfg.metadata_attempts);
+        self.observed_instance = read.instance_id.clone();
         if read.instance_id.is_none() {
             eprintln!("cmux-host: no instance id after {} metadata attempts", read.attempts);
         }
@@ -557,6 +601,24 @@ impl Platform for LinuxPlatform {
             bake_id: read_trimmed(self.cfg.paths.at(BAKE_INSTANCE_FILE)),
             bound_id: read_trimmed(self.cfg.paths.at(BOUND_INSTANCE_FILE)),
             clone_signal: false,
+        }
+    }
+
+    fn reply_identity(&mut self, settled_instance: Option<&str>) {
+        if !self.identity.as_ref().is_some_and(crate::identity::Listener::has_pending) {
+            return;
+        }
+        let identity = settled_instance
+            .filter(|id| self.observed_instance.as_deref() == Some(*id))
+            .and_then(|id| {
+                crate::identity::enrolled(
+                    &crate::cloud::role::FileStore::new(self.cfg.paths.clone()),
+                    id,
+                )
+                .ok()
+            });
+        if let Some(listener) = &mut self.identity {
+            listener.reply(identity.as_ref());
         }
     }
 

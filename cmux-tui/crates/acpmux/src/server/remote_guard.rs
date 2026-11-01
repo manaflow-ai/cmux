@@ -396,7 +396,9 @@ async fn check_inner(
                 return Err(outside_roots("cwd"));
             }
             if deferred.is_none() {
-                let scratch = peer_scratch(params).await?;
+                let cloud_peer =
+                    crate::hub::vm_boundary::asked(auth, control_of(origin, auth, params), params);
+                let scratch = peer_scratch(params, cloud_peer).await?;
                 params.set("cwd", Value::String(scratch));
             }
         }
@@ -967,12 +969,10 @@ fn folder_refused(field: &str) -> RpcError {
     .with_data(serde_json::json!({"reason": CWD_MISSING, "field": field}))
 }
 
-/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
-/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
-/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
-/// Seatbelt rejects hidden children of the home directory as settings or
-/// programs, even though the peer is trusted.
-async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+/// The folder a proven peer's `session/new` with no `cwd` runs in. Cloud peers
+/// get the same durable per-chat location as the daemon start path,
+/// `~/chats/<id>`; other peers retain the owner-only temporary scratch root.
+async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcError> {
     let name = params
         .pointer("/_meta/acpmux/name")
         .or_else(|| params.get("name"))
@@ -980,24 +980,83 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = peer_scratch_root()?.join(name);
-    let made = {
+    let dir = if cloud_peer {
+        // Daemon starts use numeric surface ids. Keep a peer's numeric session
+        // name in its own namespace so the two paths cannot share a chat.
+        let folder_name = name
+            .parse::<u64>()
+            .ok()
+            .map(|_| format!("peer-{name}"))
+            .unwrap_or_else(|| name.clone());
+        cloud_chat_folder(&folder_name).await?
+    } else {
+        peer_scratch_root()?.join(name)
+    };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
+    // `cloud_chat_folder` creates the stable directory itself and retries
+    // must reuse it. The legacy peer scratch path remains fresh per name.
+    if !cloud_peer {
         let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
+        let made = tokio::task::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
             builder.create(&dir)
         })
-        .await
-    };
-    let failed = |why: String| {
-        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
-    };
-    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+        .await;
+        made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    }
     crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| RpcError::invalid_params("the Cloud machine has no home folder"))?;
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || cloud_chat_folder_under(&home, &name)).await.map_err(
+        |error| {
+            RpcError::invalid_params(format!("the Cloud chat folder could not be made: {error}"))
+        },
+    )?
+}
+
+fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+    let chats = home.join("chats");
+    let dir = chats.join(name);
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
+    };
+    let safe_dir = |metadata: &std::fs::Metadata| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            metadata.is_dir()
+                && metadata.uid() == unsafe { libc::geteuid() }
+                && metadata.mode() & 0o022 == 0
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.is_dir()
+        }
+    };
+    for path in [&chats, &dir] {
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) if safe_dir(&metadata) => {}
+            Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let mut builder = std::fs::DirBuilder::new();
+                #[cfg(unix)]
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                builder.create(path).map_err(|e| failed(e.to_string()))?;
+            }
+            Err(error) => return Err(failed(error.to_string())),
+        }
+    }
+    Ok(dir)
 }
 
 fn peer_scratch_root() -> Result<PathBuf, RpcError> {
@@ -1105,4 +1164,28 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .ok()?
         .is_dir()
         .then(|| canonical.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod cloud_chat_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_peer_uses_a_durable_chat_folder() {
+        let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
+        assert_eq!(dir, home.join("chats/chat-1"));
+        assert!(dir.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let _ = std::fs::remove_dir_all(home);
+    }
 }

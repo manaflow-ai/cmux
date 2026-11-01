@@ -5,10 +5,17 @@ name: Nightly macOS build
 # and attempt it resumes, so main's feed watch counts its resumes of each failed
 # run (scripts/ci/nightly_next_unsigned_resume.py on main dispatches nothing
 # until this title is here). Every other run keeps the default title.
+# The exact run/SHA marker opts ordinary NEXT builds into controller demand.
+# Dedicated runs retain the marker across reruns; the controller vetoes their
+# actual current-attempt decide runner. Unsigned-resume titles stay anchored.
 run-name: >-
   ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)
       || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)
       || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
+      || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
+        && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name)
+        && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == ''
+        && format('NEXT Linux admission v1: {0}/{1} | {2}', github.run_id, github.sha, github.workflow)
       || '' }}
 
 # Publish channels, resolved once in `decide`: `main` publishes cmux NIGHTLY, `rc/**` cmux RC,
@@ -188,11 +195,13 @@ jobs:
     environment: ci-routing-agent
     permissions:
       actions: read
+      checks: read # Read authenticated controller receipts; no App or secret expansion.
       contents: read
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # Explicit nightly-only reservation; unset keeps the existing bootstrap and retry routes.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
+      early_admission_ready: ${{ steps.place-early.outputs.admission_ready }}
       early_build_nightly_inputs_runner: ${{ steps.place-early.outputs.build_nightly_inputs_runner }}
       early_find_nightly_next_recovery_runner: ${{ steps.place-early.outputs.find_nightly_next_recovery_runner }}
       early_resolve_nightly_tui_client_runner: ${{ steps.place-early.outputs.resolve_nightly_tui_client_runner }}
@@ -264,6 +273,7 @@ jobs:
             /scripts/ci/nightly-publication-marker.py
             /scripts/ci/portable_job_placement.py
             /scripts/ci/nightly_linux_admission.py
+            /scripts/ci/nightly_admission_receipt.py
             /scripts/ci/fleet_admission_transport.py
             /scripts/ci/pr_runner_pool.py
             /scripts/ci/side_lane_placement.py
@@ -817,13 +827,15 @@ jobs:
         run: python3 scripts/ci/portable_job_placement.py
 
       # The controller reserves unconsumed JIT runners before placement.
-      # Give admission 180 seconds; declared light jobs try hosted Linux before paid retries.
+      # Opted-in builds require the controller App receipt before choosing any runner.
+      # Disabled builds retain the existing private-controller/declared-light fallback.
       - name: Admit early controls on reserved fleet Linux
         id: place-early
         if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && !(github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
-        continue-on-error: true
+        continue-on-error: ${{ !(github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '') }}
         timeout-minutes: 5
         env:
+          CHECK_RECEIPTS: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '' && '1' || '' }}
           JOBS: resolve-nightly-cmux-tui-client resolve-nightly-ghostty-cli-helper build-nightly-inputs find-nightly-next-recovery
           NIGHTLY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
@@ -869,7 +881,8 @@ jobs:
       dry_run: ${{ steps.decide.outputs.dry_run }}
       scan_failed: ${{ steps.decide.outputs.scan_failed }}
     steps:
-      - name: Checkout the promote guard from main
+      - &legacy-route-shared-4
+        name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
@@ -995,17 +1008,7 @@ jobs:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
     steps:
-      - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/promote-nightly-next.mjs
-            scripts/ci/nightly_next_train.py
-            .github/release-surface.txt
-          sparse-checkout-cone-mode: false
-
+      - *legacy-route-shared-4
       - name: Decide again and check the approver
         id: ack
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -1121,7 +1124,8 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Select Xcode
+      - &select-xcode
+        name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
       - name: Compute Xcode compilation cache key
@@ -1151,11 +1155,7 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
-        run: |
-          set -euo pipefail
-          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
-          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
-          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/refresh-build-in-tree-acpmux.sh
 
       - name: Cache Swift packages
         id: swift-packages-restore
@@ -1173,74 +1173,21 @@ jobs:
 
       - name: Refresh universal nightly compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          # The warmer only fills the Swift compilation cache; the Chromium
-          # engine is a prebuilt artifact the shipped build embeds itself.
-          # Bundle cmux-tui bundles none (deferred): this build only fills the cache.
-          fleet_cache_settings=()
-          while IFS= read -r setting; do
-            fleet_cache_settings+=("$setting")
-          done < <(bash scripts/ci/fleet-compilation-cache.sh)
-          CMUX_NEXT_TUI_MODE=deferred CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
-            -destination 'generic/platform=macOS' \
-            -clonedSourcePackagesDirPath .spm-cache \
-            -packageCachePath "$PWD/.spm-cache/.package-cache" \
-            -showBuildTimingSummary \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
-            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
-            "${fleet_cache_settings[@]}" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+        run: bash scripts/ci/nightly-steps/refresh-universal-compilation-cache.sh
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((5 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
-            # Xcode's CAS chains v1.N generations: the newest is the primary,
-            # the one before it is the upstream it faults objects in from, and
-            # anything older is dead until the CAS's next garbage collection.
-            # The CAS rotates a new primary whenever the current one ends a
-            # build above half of COMPILATION_CACHE_LIMIT_SIZE (1.5 GiB here,
-            # below one build's 3.3 GB working set), so every warm build leaves
-            # a dead generation behind, the directory measures two full builds
-            # (6.6 GB on main), and this bound used to drop every warm cache.
-            # Prune the dead generations first, exactly as the CAS would.
-            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
-              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
-            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
-          else
-            cache_kib=0
-          fi
-          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
-          save=false
-          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            # Nothing is saved, so the next build restores the same older entry
-            # and lands here again: the cache freezes at its last saved entry
-            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
-            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
-            rm -rf "$cache_path"
-          elif [ "$cache_kib" -gt 0 ]; then
-            save=true
-          else
-            echo "Xcode compilation cache is empty; skipping cache save"
-          fi
-          echo "save=${save}" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/refresh-bound-compilation-cache.sh
 
       - name: Save Xcode compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: &cache-r2-key-id ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: &cache-r2-secret ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: &cache-r2-endpoint ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1252,9 +1199,9 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: *cache-r2-key-id
+          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
+          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1311,29 +1258,13 @@ jobs:
           submodules: recursive
 
       - name: Prepare admission build paths
-        run: |
-          set -euo pipefail
-          # The same paths as ci.yml `macos-compile-admission`: they are part of
-          # every cache entry this job writes.
-          # A self-hosted Mac can have several runners. Derive one root per
-          # RUNNER_NAME before cleanup so one seed build cannot remove another
-          # runner's source tree, DerivedData, or compilation CAS.
-          root="$(scripts/ci/canonical-build-root.sh --print-root)"
-          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
-          {
-            echo "CMUX_CI_CANONICAL_ROOT=$root"
-            echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission"
-            echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
-          } >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/refresh-test-admission-paths.sh
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/refresh-test-seed-fingerprint.sh
 
       - name: Install compilation dependencies
         run: |
@@ -1353,10 +1284,7 @@ jobs:
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+        run: bash scripts/ci/nightly-steps/refresh-test-resolve-swift-packages.sh
 
       # ci-macos.yml compile admission adopts this build's DerivedData for pull
       # requests. The recorded content and times are how it tells which inputs
@@ -1367,12 +1295,7 @@ jobs:
         run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Build the app-host test product
-        run: |
-          set -euo pipefail
-          scripts/ci/compile-app-host-test-product.sh canonical-build \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$PWD/.ci-source-packages" \
-            "$CMUX_COMPILE_ADMISSION_CAS"
+        run: bash scripts/ci/nightly-steps/refresh-test-build-app-host-product.sh
 
       # canonical-resolve copies the workspace to the canonical root and
       # resolves there, so the workspace copy is still exactly what was
@@ -1380,20 +1303,16 @@ jobs:
       # older layout is saved again under the current key.
       - name: Collect resolved Swift packages
         if: steps.swift-packages-restore.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
-          test -d "$resolved/.package-cache"
-          rsync -a --delete "$resolved/" .ci-source-packages/
+        run: bash scripts/ci/nightly-steps/refresh-test-collect-swift-packages.sh
 
       - name: Save Swift packages
         if: steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: *cache-r2-key-id
+          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
+          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1424,9 +1343,9 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: *cache-r2-key-id
+          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
+          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: r2
@@ -1439,7 +1358,7 @@ jobs:
   # Any lookup failure is a miss. scripts/ci/nightly_ghostty_helper_reuse.py.
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_ghostty_cli_helper_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -1492,7 +1411,7 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, pick-nightly-build-runner]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
     # The helper builds with the Zig the Ghostty submodule pins (0.16.0) and
     # links against the macOS 26 SDK: the universal build and its lipo check
     # pass on an owned macOS 26 mini (Xcode 26.6, SDK 26.5). The old Zig 0.15.2
@@ -1561,25 +1480,7 @@ jobs:
       - name: Key the Ghostty CLI helper cache
         id: helper-cache-key
         if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          {
-            echo "ghostty=$(git -C ghostty rev-parse HEAD)"
-            shasum -a 256 scripts/build-ghostty-cli-helper.sh scripts/ghostty-zig-version.sh
-            path_zig="$(command -v zig)" || path_zig=""
-            for zig in /opt/homebrew/bin/zig "$path_zig" /usr/local/bin/zig; do
-              if [[ -x "$zig" ]]; then
-                zig_version="$("$zig" version)"
-                zig_sha="$(shasum -a 256 "$zig" | cut -d' ' -f1)"
-                echo "zig $zig_version $zig_sha"
-              fi
-            done | sort -u
-            echo "sdk=$(xcrun --sdk macosx --show-sdk-version)"
-            echo "macos=$(sw_vers -productVersion) $(uname -m)"
-            echo "archs=$NIGHTLY_COMPILE_ARCHS"
-          } > "$RUNNER_TEMP/ghostty-helper-inputs.txt"
-          cat "$RUNNER_TEMP/ghostty-helper-inputs.txt"
-          echo "key=ghostty-cli-helper-v1-$(shasum -a 256 < "$RUNNER_TEMP/ghostty-helper-inputs.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/helper-cache-key.sh
 
       - name: Cache the Ghostty CLI helper
         id: helper-cache
@@ -1593,19 +1494,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
-        run: |
-          set -euo pipefail
-          echo "Ghostty CLI helper cache: ${HELPER_CACHE_HIT:-false}" | tee -a "$GITHUB_STEP_SUMMARY"
-          mkdir -p nightly-helper
-          if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
-            ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64
-          else
-            ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64 x86_64
-          fi
-          # The provenance line resolve-nightly-ghostty-cli-helper reads later.
-          echo "ghostty-cli-helper-build=$(git rev-parse HEAD)"
+        run: bash scripts/ci/nightly-steps/helper-build.sh
 
       # The strip-release-bundle.sh pass that prepare-nightly-variant ran on
       # the injected helper (helpers keep their global symbols). That job is on
@@ -1643,13 +1532,7 @@ jobs:
         env:
           # The tarball only when this build may publish it; the license trees always.
           CMUX_NEXT_SOURCE_ARCHIVE_TARBALL: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && '1' || '0' }}
-        run: |
-          set -euo pipefail
-          if ! ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig" \
-            ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive"; then
-            echo "::error title=cmux-next source archive failed::If the log names a Ghostty package without a license file, review its upstream license and pin the text in cmux-tui/build-support/notices/ghostty/pinned-licenses/MANIFEST.json (update PINNED_MANIFEST_SHA256 in collect-ghostty-licenses.py). nightly-next does not ship without the Ghostty license tree."
-            exit 1
-          fi
+        run: bash scripts/ci/nightly-steps/helper-source-archive.sh
 
       # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
       # build.rs selects, at this commit's gitlink (no product override). Every
@@ -1657,13 +1540,7 @@ jobs:
       # nightly-next. tests/test_nightly_next_source_archive.py holds this.
       - name: libghostty-vt Zig packages are covered by the notices
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true')
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/source-archive"
-          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
-          manifests=(--license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json")
-          [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$out/$source-licenses/SOURCE-MANIFEST.json")
-          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
+        run: bash scripts/ci/nightly-steps/helper-zig-packages-notices.sh
 
       - name: Upload the cmux-next source archive
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true')
@@ -1706,7 +1583,7 @@ jobs:
   build-nightly-inputs:
     name: build nightly inputs
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_build_nightly_inputs_runner) || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -1728,7 +1605,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      - name: Give this job its own bun
+      - &legacy-route-shared-6
+        name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
 
       - name: Setup Node
@@ -1836,7 +1714,8 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
-      - name: Mint the routing token without the org permission
+      - &legacy-route-shared-1
+        name: Mint the routing token without the org permission
         id: route-token-repo
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
@@ -1944,7 +1823,7 @@ jobs:
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
       # Jobs publish-nightly needs that run beside this one; derived from the
       # needs graph by tests/test_nightly_stop_if_publish_doomed.py.
-      NIGHTLY_PUBLISH_PEERS: resolve-nightly-ghostty-cli-helper build-nightly-ghostty-cli-helper
+      NIGHTLY_PUBLISH_PEERS: resolve-nightly-ghostty-cli-helper build-nightly-ghostty-cli-helper build-nightly-remote-daemon
     steps:
       - name: Checkout trusted unsigned-resume controls
         if: inputs.nightly_next_unsigned_run != ''
@@ -2284,13 +2163,7 @@ jobs:
         env:
           CMUX_TUI_TREE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           CMUX_TUI_TREE_TARGET: aarch64-apple-darwin
-        run: |
-          set -euo pipefail
-          scripts/cmux-next/pin-cmux-tui.sh fetch-acpmux
-          acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
-          [[ -x "$acpmux_bin" ]] || { echo "error: fetched tree has no executable acpmux companion" >&2; exit 1; }
-          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
-          echo "Using attested same-tree acpmux companion: $acpmux_bin"
+        run: bash scripts/ci/nightly-steps/app-fetch-tree-companions.sh
 
       # Bundle acpmux only aliases bin/acpmux to bin/cmux; its input file is never copied.
       - name: Stand in for the acpmux companion while the tree publishes
@@ -2303,16 +2176,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true'
         env:
           CMUX_NEXT_ACPMUX_ARCHS: ${{ needs.decide.outputs.compile_archs }}
-        run: |
-          set -euo pipefail
-          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
-          if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$CMUX_NEXT_ACPMUX_BIN" ]]; then
-            acpmux_bin="$CMUX_NEXT_ACPMUX_BIN"
-            echo "Reusing the attested same-tree acpmux companion: $acpmux_bin"
-          else
-            scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
-          fi
-          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh
 
       # The Home Chief (cmux-next nightly only): see scripts/ci/nightly-steps/chief-build.sh.
       - name: Prepare the OptChat Chief cache key
@@ -2347,12 +2211,7 @@ jobs:
       # xcodebuild. An unsigned resume restores the app and builds neither.
       - name: Build the cmux-next iPhone host (cmux-mobile-host)
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
-          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" mobile-host -- \
-            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
-          echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/app-build-mobile-host.sh
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2459,15 +2318,7 @@ jobs:
 
       - name: Build the web bundles (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          if python3 scripts/ci/nightly_inputs.py install-web "$RUNNER_TEMP/nightly-inputs/web"; then
-            exit 0
-          else
-            status=$?
-          fi
-          [ "$status" = 3 ] || echo "::warning title=Web bundles hand-off::installing the handed-off web bundles failed (status $status); building them here"
-          scripts/cmux-next/build-web-bundles.sh --force
+        run: bash scripts/ci/nightly-steps/app-build-web-bundles.sh
 
       - name: Finish fetching the Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
@@ -2547,8 +2398,13 @@ jobs:
           # this tree's client (install-cmux-tui-client.sh).
           # Reuse the managed fleet CAS; unavailable nodes keep the local cache.
           fleet_cache_settings=()
+          local_cache_settings=()
           while IFS= read -r setting; do
             fleet_cache_settings+=("$setting")
+            case "$setting" in
+              COMPILATION_CACHE_CAS_PATH=*|COMPILATION_CACHE_ENABLE_PLUGIN=*|COMPILATION_CACHE_REMOTE_SERVICE_PATH=*) ;;
+              *) local_cache_settings+=("$setting") ;;
+            esac
           done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}" bash scripts/ci/fleet-compilation-cache.sh)
           # Keep retry classification identical to the other Release compile
           # paths: only compiler diagnostics that identify the CAS/cache as
@@ -2560,6 +2416,8 @@ jobs:
             local settings=()
             if [[ "$disable_fleet_cache" != 1 ]]; then
               settings=("${fleet_cache_settings[@]}")
+            else
+              settings=("${local_cache_settings[@]}")
             fi
             python3 scripts/ci/run-with-helper-prebuild.py \
               --derived-data build-universal --configuration Release --archs "$archs" \
@@ -2599,21 +2457,7 @@ jobs:
       # its checks and Resources/bin are what the phase made before.
       - name: Bundle the OptChat Chief and the iPhone host
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/nightly-helper-builds"
-          if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then archs="arm64"; else archs="arm64 x86_64"; fi
-          phase_env=(SRCROOT="$PWD" CONFIGURATION=Release ARCHS="$archs"
-            TARGET_BUILD_DIR="$PWD/build-universal/Build/Products/Release"
-            UNLOCALIZED_RESOURCES_FOLDER_PATH=cmux.app/Contents/Resources
-            TARGET_TEMP_DIR="$RUNNER_TEMP/nightly-helper-bundle")
-          [ -d "build-universal/Build/Products/Release/cmux.app/Contents/Resources" ] || { echo "no Release cmux.app to bundle into" >&2; exit 1; }
-          python3 scripts/ci/background_build.py join --state "$state" optchat-chief
-          env "${phase_env[@]}" CMUX_NEXT_OPTCHAT_CHIEF_BIN="${CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN:?}" \
-            CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 scripts/cmux-next/bundle-optchat-chief.sh
-          python3 scripts/ci/background_build.py join --state "$state" mobile-host
-          env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
-            CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+        run: bash scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh
 
       - name: Read whether the OptChat Chief was rebuilt
         id: chief-cache-result
@@ -2656,22 +2500,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-        run: |
-          set -euo pipefail
-          if python3 scripts/ci/nightly_inputs.py install-notices "$RUNNER_TEMP/nightly-inputs/notices"; then
-            status=0
-          else
-            status=$?
-          fi
-          if [ "$status" != 0 ]; then
-            [ "$status" = 3 ] || echo "::warning title=Notices hand-off::taking the handed-off notices failed (status $status); generating them here"
-            # A trusted NEXT worker keeps the crate sources between jobs
-            # (nightly_build_state.py); every other runner downloads them.
-            export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
-            ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
-              --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
-          fi
-          python3 scripts/ci/nightly_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app
+        run: bash scripts/ci/nightly-steps/app-third-party-notices.sh
 
       # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
       # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
@@ -2683,26 +2512,7 @@ jobs:
       # framework that exports code or that something loads.
       - name: Drop the empty Iroh.framework stub (nightly-next)
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          fw="$app/Contents/Frameworks/Iroh.framework"
-          [ -d "$fw" ] || { echo "no Iroh.framework in $app"; exit 0; }
-          bin="$fw/Versions/A/Iroh"
-          [ -f "$bin" ] || { echo "::error::no $bin; not the known stub layout"; exit 1; }
-          if [ -n "$(nm -gU "$bin" 2>/dev/null || true)" ]; then
-            echo "::error::Iroh.framework exports symbols; it is not the Release stub"
-            exit 1
-          fi
-          loaders="$(find "$app" -type f -perm +111 ! -path "$fw/*" -print0 \
-            | xargs -0 otool -L 2>/dev/null | grep -F "Iroh.framework" || true)"
-          if [ -n "$loaders" ]; then
-            echo "::error::a binary in the app loads Iroh.framework"
-            echo "$loaders"
-            exit 1
-          fi
-          echo "Removing the Iroh.framework stub (install name $(otool -D "$bin" | tail -n 1))"
-          rm -rf "$fw"
+        run: bash scripts/ci/nightly-steps/app-drop-iroh-stub.sh
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
@@ -2714,69 +2524,22 @@ jobs:
       - name: Bound Xcode compilation cache size
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         id: compilation-cache-bound
-        run: |
-          set -euo pipefail
-          cache_path="build-universal/CompilationCache.noindex"
-          # A trusted NEXT worker links it to the cache it keeps on disk
-          # (nightly_build_state.py); measure and bound the cache itself.
-          if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; fi
-          max_cache_kib=$((5 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
-            # Xcode's CAS chains v1.N generations: the newest is the primary,
-            # the one before it is the upstream it faults objects in from, and
-            # anything older is dead until the CAS's next garbage collection.
-            # The CAS rotates a new primary whenever the current one ends a
-            # build above half of COMPILATION_CACHE_LIMIT_SIZE (1.5 GiB here,
-            # below one build's 3.3 GB working set), so every warm build leaves
-            # a dead generation behind, the directory measures two full builds
-            # (6.6 GB on main), and this bound used to drop every warm cache.
-            # Prune the dead generations first, exactly as the CAS would.
-            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
-              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
-            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
-          else
-            cache_kib=0
-          fi
-          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
-          save=false
-          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            # Nothing is saved, so the next build restores the same older entry
-            # and lands here again: the cache freezes at its last saved entry
-            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
-            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
-            rm -rf "$cache_path"
-          elif [ "$cache_kib" -gt 0 ]; then
-            save=true
-          else
-            echo "Xcode compilation cache is empty; skipping cache save"
-          fi
-          echo "save=${save}" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/app-bound-compilation-cache.sh
 
       # The warm builder keeps the Rust target directories (above). Cargo
       # never deletes old artifacts, so start them over above 30 GiB.
       - name: Bound the kept Rust target directories (warm nightly-next builder)
         if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
-        run: |
-          set -euo pipefail
-          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cmux-next-ios/rust/target)
-          kib=0
-          for d in "${dirs[@]}"; do
-            [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
-          done
-          echo "kept Rust target directories: $((kib / 1024)) MiB"
-          if [ "$kib" -gt $((30 * 1024 * 1024)) ]; then
-            echo "above 30 GiB: removing them; the next build compiles the helpers again"
-            rm -rf "${dirs[@]}"
-          fi
+        run: bash scripts/ci/nightly-steps/app-bound-rust-targets.sh
 
       - name: Save Xcode compilation cache
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '') && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: *cache-r2-key-id
+          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
+          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -2788,9 +2551,9 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: *cache-r2-key-id
+          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
+          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -2803,16 +2566,7 @@ jobs:
       # compiles, so the history deepen (1.5 to 11 minutes) is off this path.
       - name: Bundle the fast cmux-tui client
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          local_client="$GITHUB_WORKSPACE/cmux-tui/target/aarch64-apple-darwin/release/cmux-tui"
-          test -x "$local_client"
-          CMUX_TUI_CLIENT_LOCAL="$local_client" \
-            ./scripts/install-cmux-tui-client.sh "$app" \
-            --require-capability wireguard-hub \
-            --require-acpmux
-          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
+        run: bash scripts/ci/nightly-steps/app-bundle-fast-cmux-tui-client.sh
 
       # The Computer Use helper that onboarding grants (cx-urd.6, D19). Only a
       # com.cmuxterm.cua app at Contents/Library with the team's Developer ID
@@ -2841,7 +2595,8 @@ jobs:
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
           base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
-          build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+          build="${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}"
+          [[ "$build" =~ ^[0-9]+$ ]]
           track="${{ needs.decide.outputs.track }}"
           version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
             --project-version "$base_version" --build "$build" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
@@ -2879,44 +2634,11 @@ jobs:
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
           TREE_PENDING: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_pending }}
           TREE_CANDIDATES: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_candidates }}
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
-          if [[ "$TREE_PENDING" == true ]]; then
-            read -r -a c <<<"$TREE_CANDIDATES"
-            cmux_tui_commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"
-          fi
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
-          ./scripts/install-cmux-tui-client.sh \
-            "$app" \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
-            --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub \
-            --require-acpmux
-          # The client and its SSH payloads arrive after the strip above, so
-          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
-          # bin/acpmux are symlinks to bin/cmux.
-          ./scripts/strip-release-bundle.sh "$app"
-          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
-          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
-          echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh
 
       - name: Report the embedded Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          # An app built for the fleet benches keeps the debug.* commands; it never ships.
-          ./scripts/cmux-next/check-no-bench-hooks.sh "$app"
-          framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
-          if [[ -d "$framework" ]]; then
-            echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
-            # Chromium's license notices must ship with the engine (not CEF's sample page).
-            ./scripts/cmux-next/check-cef-credits.sh "$app"
-          else
-            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
-          fi
+        run: bash scripts/ci/nightly-steps/app-report-chromium-engine.sh
 
       - name: Upload dSYMs to Sentry
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
@@ -2955,14 +2677,7 @@ jobs:
 
       - name: Archive unsigned nightly app
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        run: |
-          set -euo pipefail
-          products="build-universal/Build/Products/Release"
-          if [ ! -d "$products/cmux.app" ]; then
-            echo "Built app not found at $products/cmux.app" >&2
-            exit 1
-          fi
-          tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
+        run: bash scripts/ci/nightly-steps/app-archive-unsigned.sh
 
       # The run cannot publish once a job publish-nightly needs, running beside
       # this one, has failed (run 40460194731 compiled and uploaded for 65 min
@@ -3026,6 +2741,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 21
           compression-level: 6
+          # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
+          overwrite: true
 
       - name: Finish the dSYM upload to Sentry
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
@@ -3095,10 +2812,12 @@ jobs:
         id: place-light
         if: success() && steps.light-route-token.outputs.token != ''
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 5
         env:
-          JOBS: build-nightly-remote-daemon await-nightly-tree-marker
+          JOBS: prepare-nightly-variant-primary prepare-nightly-variant await-nightly-tree-marker
           NIGHTLY: "1"
+          REQUIRE_LIVE_CAPACITY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
           ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
@@ -3110,11 +2829,12 @@ jobs:
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   build-nightly-remote-daemon:
-    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder.
-    # Resume already retained these exact assets in build-nightly-app.
-    needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
-    if: needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' build-nightly-remote-daemon ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
+    # builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
+    # else Blacksmith Linux. Resume already retained these exact assets in build-nightly-app.
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -3143,14 +2863,10 @@ jobs:
       - name: Build immutable SSH daemon assets once for every app variant
         if: inputs.nightly_next_unsigned_run == ''
         env:
-          VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
-          BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          BUILD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}
+          TRACK: ${{ needs.decide.outputs.track }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$VERSION" --release-tag "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" --asset-suffix "$BUILD" --output-dir remote-daemon-assets
+        run: bash scripts/ci/nightly-steps/remote-daemon-build-assets.sh
 
       - name: Upload SSH daemon assets
         if: inputs.nightly_next_unsigned_run == ''
@@ -3160,6 +2876,8 @@ jobs:
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 14
+          # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
+          overwrite: true
 
   attest-nightly-remote-daemon:
     # Provenance is advisory, as it was inside the app job. No publishing job
@@ -3227,7 +2945,7 @@ jobs:
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
   resolve-nightly-cmux-tui-client:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_tui_client_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -3247,7 +2965,13 @@ jobs:
       chief_key: ${{ steps.chief-key.outputs.key }}
       already_published: ${{ steps.build.outputs.already_published }}
       superseded: ${{ steps.superseded.outputs.superseded }}
+      # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
+      daemon_build: ${{ steps.daemon-build.outputs.build }}
     steps:
+      - name: Fix this run's build number
+        id: daemon-build
+        run: echo "build=${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")" >> "$GITHUB_OUTPUT"
+
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3280,10 +3004,7 @@ jobs:
         id: resume_tree
         env:
           SOURCE_SHA: ${{ steps.resume_source.outputs.build_sha }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin "$SOURCE_SHA"
-          echo "key=$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$SOURCE_SHA")" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/resolve-original-tree.sh
 
       - name: Build the tip while its tree publishes
         id: pending
@@ -3306,16 +3027,7 @@ jobs:
           # older published revision and failed cargo build --locked.
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Prints commit=, key=, source_commit=, tip_key=, behind= and
-          # behind_hours= lines and writes them to the step summary.
-          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"
-          printf '%s\n' "$resolved"
-          grep -Eq '^commit=[0-9a-f]{40}$' <<<"$resolved"
-          grep -Eq '^source_commit=[0-9a-f]{40}$' <<<"$resolved"
-          grep -Eq '^key=[0-9a-f]{40}$' <<<"$resolved"
-          printf '%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh
 
       - name: Choose the build commit
         id: build
@@ -3327,28 +3039,7 @@ jobs:
           PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
           SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
           FORCE_BUILD: ${{ needs.decide.outputs.force }}
-        run: |
-          set -euo pipefail
-          build_sha="${SOURCE_COMMIT:-$TIP_SHA}"
-          [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no build commit" >&2; exit 1; }
-          {
-            echo "build_sha=$build_sha"
-            echo "build_short_sha=${build_sha:0:7}"
-            echo "behind=${BEHIND:-0}"
-            echo "behind_hours=${BEHIND_HOURS:-0}"
-          } >> "$GITHUB_OUTPUT"
-          already_published=false
-          if [[ "$SHOULD_PUBLISH" == true && "$FORCE_BUILD" != true && "$build_sha" == "$PUBLISHED_SHA" ]]; then
-            already_published=true
-            echo "::notice title=Nightly already published::the resolved build commit $build_sha is already published; nothing to build (force=true rebuilds it)"
-          fi
-          echo "already_published=$already_published" >> "$GITHUB_OUTPUT"
-          {
-            echo "### Nightly build commit"
-            echo "- build commit (app and cmux-tui daemon): \`$build_sha\`"
-            echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
-            echo "- already published: $already_published"
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/ci/nightly-steps/resolve-choose-build-commit.sh
       # The selected build source can differ from this workflow's control SHA.
       - name: Record pending tree dependency
         id: tree-source
@@ -3384,15 +3075,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
           REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          current="$(gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)"
-          if [[ "$current" =~ ^[0-9a-f]{40}$ && "$current" != "$TIP_SHA" ]]; then
-            echo "superseded=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Superseded::nightly-next moved from $TIP_SHA to $current; the newer push's run builds it"
-          else
-            echo "superseded=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/ci/nightly-steps/resolve-leave-build-slot.sh
 
   prepare-nightly-variant-primary:
     # No environment and no secrets. It runs no code from the bundle; the
@@ -3409,7 +3092,7 @@ jobs:
     # bytes); Mach-O checks run in verify-signed-nightly. Like every Linux
     # nightly job it takes a runner-set member (16 vCPU when LINUX_RUNNER
     # names it, else 32), never LINUX_RUNNER as-is.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3584,7 +3267,8 @@ jobs:
       # Blocking, like the step that builds it: a nightly-next app always
       # ships the Ghostty license tree. This is a small artifact containing
       # only the trees, rather than the complete source offer archive.
-      - name: Download the Ghostty dependency license trees (cmux-next)
+      - &download-nightly-ghostty-license-trees
+        name: Download the Ghostty dependency license trees (cmux-next)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         id: ghostty_licenses
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -3665,7 +3349,8 @@ jobs:
       # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
-      - name: Inject the Ghostty dependency licenses (cmux-next)
+      - &inject-nightly-ghostty-licenses
+        name: Inject the Ghostty dependency licenses (cmux-next)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         run: |
           set -euo pipefail
@@ -3857,7 +3542,7 @@ jobs:
       contents: read
       actions: read
     # A retry takes the other set size.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.prepare-nightly-variant-primary.result == 'success' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant ') && needs.build-nightly-app.outputs.light_mini_runner || needs.prepare-nightly-variant-primary.result == 'success' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3925,14 +3610,7 @@ jobs:
       # Blocking, like the step that builds it: a nightly-next app always
       # ships the Ghostty license tree. This is a small artifact containing
       # only the trees, rather than the complete source offer archive.
-      - name: Download the Ghostty dependency license trees (cmux-next)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
-        id: ghostty_licenses
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-next-license-trees
-          path: nightly-inputs/license-trees
-
+      - *download-nightly-ghostty-license-trees
 
       - *restore-unsigned-nightly-produ
 
@@ -3960,34 +3638,8 @@ jobs:
       # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
-      - name: Inject the Ghostty dependency licenses (cmux-next)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
-        run: |
-          set -euo pipefail
-          APP_DIR="build-universal/Build/Products/Release/cmux.app"
-          tree="nightly-inputs/license-trees/ghostty-licenses"
-          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
-          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
-          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
-          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
-          # selects, at this commit's gitlink (the resolved cmux-tui client
-          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
-          # Today: Contents/Resources/ghostty-next-licenses.
-          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
-          vt_name="${vt%% *}" vt_revision="${vt##* }"
-          if [[ "$vt_name" != ghostty ]]; then
-            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
-            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-              --root "$next_tree" --revision "$vt_revision"
-            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
-            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
-          fi
+      - *inject-nightly-ghostty-licenses
 
-
-      # build-nightly-app installed, stripped and probed the client (the one
-      # commit resolve-nightly-cmux-tui-client chose); an unsigned app saved
-      # before that move has none, and is refused here.
       - *require-the-cmux-tui-client-bu
 
 
@@ -4124,29 +3776,7 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
-      - name: Mint the routing token without the org permission
-        id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-
-      # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder, while one of
-      # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
-      # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
-      # and the verify jobs take `runner`.
-      # Only nightly-next push and dispatch runs, at any attempt, the scope ci-owned-pool-rescue.yml
-      # watches (owned_pool_rescue.py nightly_target, and its sweeper through the marker below): a
-      # stuck owned verify there is moved to Blacksmith. RC and main runs keep Blacksmith. Until
-      # 2026-10-28 only attempt 1 of a push got it: dispatch run 40594111618's attempt 3 had
-      # signer-dmg-image wait 51 min on blacksmith-6vcpu-macos-26 and signer-verify queue there too. Until 2026-10-27 this
-      # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
-      # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
+      - *legacy-route-shared-1
       - name: Pick an owned Mac for the verify jobs
         id: owned
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4301,7 +3931,8 @@ jobs:
           done
           echo "Unsigned resume signing controls: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Initialize cmux-next notices submodule
+      - &legacy-route-shared-5
+        name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         shell: bash
         run: bash scripts/ci/init-submodule.sh ghostty-next
@@ -4324,12 +3955,7 @@ jobs:
           fi
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # prepare-nightly-variant ran every check that executes bundle code on
-      # this exact app (cmux-tui install, theme picker, sidecar handshake) and
-      # thinned it; this job only signs, notarizes and packages it.
+      - *select-xcode
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -5152,13 +4778,8 @@ jobs:
       - *checkout-build-ref
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *legacy-route-shared-5
+      - *select-xcode
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5290,21 +4911,8 @@ jobs:
 
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The notarize step stapled the final DMG. Verify that exact DMG and
-      # record its digest without launching bundle code. A build still in Apple's
-      # queue has no final DMG yet: verify-recovered-nightly-next verifies it
-      # when a later run continues it.
-      # A pool-signed build reads signer-dmg's one-DMG artifact: the variant artifact holds the
-      # same DMG twice (the release and the immutable name), and this Mac reads it over the
-      # office uplink (199 s for 481 MB in run 40728513403).
+      - *legacy-route-shared-5
+      - *select-xcode
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5549,8 +5157,7 @@ jobs:
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         run: bash scripts/ci/init-submodule.sh ghostty-next
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -5634,7 +5241,6 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-      SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
       - *signer-checkout-tools
       - *signer-install
@@ -5686,20 +5292,18 @@ jobs:
 
   find-nightly-next-recovery:
     needs: [decide]
-    if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_find_nightly_next_recovery_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 70
     permissions:
       actions: read
       contents: read
-      issues: read # the visual gate's verdict per build (docs/ci/nightly-next-visual-gate.md)
+      issues: read
     outputs:
       sign_runner: ${{ steps.sign-runner.outputs.runner }}
       sign_alternate: ${{ steps.sign-runner.outputs.alternate }}
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
-      visual_gate_mode: ${{ steps.visual-gate.outputs.mode }}
-      visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}
     steps:
       - &checkout-default
         name: Checkout
@@ -5730,16 +5334,6 @@ jobs:
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
         run: bash scripts/ci/nightly-steps/recover-list-newer-pending.sh
-
-      - name: Read the visual gate's verdicts
-        id: visual-gate
-        if: steps.find.outputs.found == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NIGHTLY_NEXT_VISUAL_GATE: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE }}
-          NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER }}
-        run: bash scripts/ci/nightly-steps/visual-gate-read-verdicts.sh
 
   recover-nightly-next-notarization:
     environment: ${{ needs.decide.outputs.environment }}
@@ -5802,22 +5396,11 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
-      # trap (runs 39014131817, 39014922771). Parse every script this job can
-      # run before any signing or notarization.
+      - *legacy-route-shared-5
       - name: Parse signing and notarize scripts with /bin/bash 3.2
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The DMG around the stapled app is built with the same create-dmg as
-      # build-sign-notarize-nightly.
+      - *select-xcode
       - *set-up-node
 
       - name: Install create-dmg
@@ -5829,8 +5412,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATES: ${{ needs.find-nightly-next-recovery.outputs.candidates }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
-          VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}
-          VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -5891,13 +5472,8 @@ jobs:
       # from this workflow commit too.
       - *checkout-default
 
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *legacy-route-shared-5
+      - *select-xcode
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -6016,8 +5592,7 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -6027,9 +5602,7 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      - name: Give this job its own bun
-        run: scripts/cmux-next/private-bun.sh
-
+      - *legacy-route-shared-6
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -6094,7 +5667,8 @@ jobs:
         if: steps.verdict.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-enforce-verdict.sh
 
-  # publish-nightly waits on this Linux job, never the Mac gate: at most 10 min past the signed DMG.
+  # This Linux job records the visual verdict independently of publication. Visual coverage is
+  # advisory so a queued or slow display runner can never hold the nightly feed.
   visual-gate-nightly-verdict:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, verify-final-dmg-nightly]
     # A skipped signing path must not skip this job (implicit success()).
@@ -6128,7 +5702,7 @@ jobs:
           GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
         run: bash scripts/ci/nightly-steps/visual-gate-await.sh
 
-      - name: Fail with the gate when it holds the build
+      - name: Record failed advisory verdict
         if: steps.await.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
 
@@ -6149,21 +5723,14 @@ jobs:
           SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
           VERDICT: ${{ needs.visual-gate-nightly.outputs.verdict }}
-          # `true` when publish-nightly held the build; not when the gate
-          # started after its queue budget and publication had gone ahead.
-          HELD: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}
         with:
           script: |
             const title = 'nightly-next visual gate';
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let body = `cmux NEXT visual gate passed ${process.env.SHA}: ${run}`;
             if (process.env.VERDICT === 'fail') {
-              const action = process.env.MODE !== 'enforce'
-                ? `The gate is in \`${process.env.MODE}\` mode, so the build was published anyway.`
-                : process.env.HELD === 'true'
-                  ? 'The gate is in `enforce` mode, so this build is not published, by this run or by a later recovery.'
-                  : 'The gate is in `enforce` mode, but it finished after its queue budget or its timeout, so this run did not hold the build.';
-              body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} The stills and the findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
+              const action = `The gate is in \`${process.env.MODE}\` mode, but visual coverage is advisory and does not block publication.`;
+              body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} Publication still requires the signed, verified build checks. The stills and findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
             }
             const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
             let issue = open.find(i => i.title === title && !i.pull_request);
@@ -6212,7 +5779,7 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, signer-dmg, route-visual-gate-nightly, visual-gate-nightly-verdict, await-nightly-tree-marker, pick-nightly-sign-runner]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, signer-dmg, await-nightly-tree-marker, pick-nightly-sign-runner]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
@@ -6240,24 +5807,24 @@ jobs:
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
-    # The visual gate (visual-gate-nightly-verdict) holds this run's own build only: enforce with a
-    # failing verdict, or mode `invalid`. A recovered build was judged when it was continued.
-    if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    # Visual coverage is advisory: route, capture, and verdict jobs still report findings, but
+    # neither a display queue nor an enforce-mode verdict can hold publication.
+    if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
-    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
       # The appcasts this track publishes (decide): one on nightly-next, four on main.
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      NIGHTLY_FEEDS: &pub-feeds ${{ needs.decide.outputs.feeds }}
       NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
+      CHANNEL: &pub-channel ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_DMG_PREFIX: &pub-dmg ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: &pub-tag ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       # Publication tooling from this workflow's own commit (see the step below).
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: &pub-tooling ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       - name: Select the build to publish
         id: source
@@ -6268,9 +5835,6 @@ jobs:
           # one: signer-dmg needs it) and verify-final-dmg-nightly the final DMG.
           OWN_VERIFIED: ${{ needs.signer-dmg.result == 'success' && 'success' || needs.verify-signed-nightly.result }}
           OWN_DMG_VERIFIED: ${{ needs.verify-final-dmg-nightly.result }}
-          # The visual gate failed this run's build in enforce mode (visual-gate-nightly-verdict),
-          # or its mode could not be resolved (route-visual-gate-nightly, mode `invalid`).
-          OWN_GATE_BLOCKS: ${{ (needs.visual-gate-nightly-verdict.outputs.blocks == 'true' || needs.route-visual-gate-nightly.outputs.mode == 'invalid') && 'true' || 'false' }}
           # NIGHTLY_NEXT_TREE_AT_INSTALL: a build made before its tree published, or resumed, needs await-nightly-tree-marker.
           OWN_TREE: ${{ (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && inputs.nightly_next_unsigned_run == '' || needs.await-nightly-tree-marker.result == 'success') && 'ok' || 'unmarked' }}
           RECOVERED_VERIFIED: ${{ needs.verify-recovered-nightly-next.result }}
@@ -6288,7 +5852,7 @@ jobs:
           RECOVERED_BEHIND_HOURS: ${{ needs.recover-nightly-next-notarization.outputs.behind_hours }}
         run: |
           set -euo pipefail
-          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_GATE_BLOCKS" != true ] && [ "$OWN_TREE" = ok ]; then
+          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
             tested_pattern="cmux-nightly-tested-*"
@@ -6766,19 +6330,19 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
-    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: *pub-runner
     timeout-minutes: 150
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
       asset_names: ${{ steps.publish_assets.outputs.asset_names }}
       newest: ${{ steps.order.outputs.newest }}
     env:
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_FEEDS: *pub-feeds
+      CHANNEL: *pub-channel
+      CHANNEL_DMG_PREFIX: *pub-dmg
+      CHANNEL_RELEASE_TAG: *pub-tag
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: *pub-tooling
     steps:
       - name: Checkout publish ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6892,15 +6456,15 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
-    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: *pub-runner
     timeout-minutes: 90
     env:
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_FEEDS: *pub-feeds
+      CHANNEL: *pub-channel
+      CHANNEL_DMG_PREFIX: *pub-dmg
+      CHANNEL_RELEASE_TAG: *pub-tag
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: *pub-tooling
     steps:
       - *checkout-publication-tooling-a
 
@@ -7038,20 +6602,82 @@ jobs:
   # copies, if any: the newest build on the cmux NEXT feed when it is newer than
   # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
+  # Read live capacity after the build/publication prerequisites, immediately before
+  # the legacy control. This picker holds only the routing App key, never release keys.
+  pick-legacy-identity-runner:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
+    if: &legacy-identity-enabled "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    environment: ci-routing-agent
+    continue-on-error: true
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      runs_on: ${{ steps.place.outputs.linux_runner }}
+      overflow: ${{ steps.overflow.outputs.runner }}
+      alternate: ${{ steps.overflow.outputs.alternate }}
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout runner tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Mint routing token for legacy capacity
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+      - name: Place legacy identity target on live fleet Linux
+        id: place
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          JOBS: legacy-identity-target
+          LINUX_ONLY: legacy-identity-target
+          REQUIRE_LIVE_CAPACITY: "1"
+          NIGHTLY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
+          FLEET_LINUX: cmux-fleet-linux-x64
+          SIDE_LABEL: glaeda-side-light-xcode-26.6
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+      - name: Pick moving Linux overflow for legacy identity target
+        id: overflow
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLATFORM: linux
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/nightly_sign_runner.py
+
   legacy-identity-target:
     # The prepared NEXT artifact is a candidate before the main notarization.
     # The compatibility copy is deliberately post-publication: its independent
     # re-sign and notarization must never consume the signing cap or delay the
     # primary appcast. A pending continuation still uses the published feed path.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
-    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner, pick-legacy-identity-runner]
+    if: *legacy-identity-enabled
     # Only for the release App credentials (CMUX_RELEASE_APP_*), which live in this environment;
     # it runs only on nightly-next, the environment's one deployment branch.
     environment: release-next
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.linux_alternate || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Fresh fleet observation per attempt, then moving paid overflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.runs_on || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.overflow || needs.pick-legacy-identity-runner.outputs.alternate || github.run_attempt > 1 && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -7422,8 +7048,7 @@ jobs:
     steps:
       - *checkout-default
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Download the stapled cmux NIGHTLY DMG
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -7807,7 +7432,8 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
-      - name: Checkout build ref
+      - &legacy-route-shared-3
+        name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7840,9 +7466,7 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
+      - *select-xcode
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -7908,15 +7532,7 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
-      - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-
-      # The ring script, the guard, the publisher and the gh rate-limit wait come from the
-      # workflow commit on every track: the build ref can predate them (publish-nightly does
-      # the same), and an older publisher has no secondary-limit backoff or serial uploads.
+      - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
