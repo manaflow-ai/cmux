@@ -147,6 +147,7 @@ extension SidebarBuiltIn {
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
+        case .automations: "clock.badge.checkmark"
         }
     }
 
@@ -166,6 +167,7 @@ extension SidebarBuiltIn {
         case .customize: .theme
         case .searchChats: .search
         case .chief: .agentChief
+        case .automations: .automation
         }
     }
 
@@ -190,6 +192,7 @@ extension SidebarBuiltIn {
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
+        case .automations: SectionStrings.automations
         }
     }
 

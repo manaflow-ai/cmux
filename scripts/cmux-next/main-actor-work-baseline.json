@@ -8,6 +8,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentTurnStateFeed.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/ChatsFeed.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContextMenu.swift": {
   "line split of a whole input": 1
  },
@@ -25,9 +28,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/ChatsFeed.swift": {
-  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1

@@ -17,6 +17,21 @@ use tokio::sync::mpsc;
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
+/// The newest MCP protocol version our stdio servers speak.
+pub const NEWEST_PROTOCOL_VERSION: &str = "2025-06-18";
+/// The MCP protocol versions our stdio servers speak, newest first.
+pub const PROTOCOL_VERSIONS: &[&str] = &[NEWEST_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
+
+/// The version an MCP `initialize` answers: the client's when we speak it,
+/// else our newest (the client then decides whether to go on).
+pub fn protocol_version(params: &Value) -> &'static str {
+    let requested = params["protocolVersion"].as_str();
+    PROTOCOL_VERSIONS
+        .iter()
+        .copied()
+        .find(|v| Some(*v) == requested)
+        .unwrap_or(NEWEST_PROTOCOL_VERSION)
+}
 
 fn tools() -> Value {
     json!([
@@ -91,7 +106,7 @@ where
         let reply = match verb.as_str() {
             "initialize" => {
                 let mut reply = json!({
-                    "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "protocolVersion": protocol_version(&message["params"]),
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                 });
@@ -155,7 +170,13 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "secretRef": arguments["secretRef"], "env": arguments["env"], "argv": arguments["argv"],
             }),
         ),
-        other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
+        other => {
+            let name = other.unwrap_or_default();
+            return error_result(crate::mcp_hint::unknown_tool(
+                name,
+                crate::mcp_hint::names(&tools()),
+            ));
+        }
     };
     request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
@@ -170,5 +191,19 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             json!({"content": [{"type": "text", "text": text}], "structuredContent": result, "isError": false})
         }
         Err(e) => error_result(format!("{e:#}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_answers_a_version_we_speak() {
+        let version = |v: Value| protocol_version(&json!({"protocolVersion": v}));
+        assert_eq!(version(json!("2024-11-05")), "2024-11-05");
+        assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
+        assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
+        assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
     }
 }

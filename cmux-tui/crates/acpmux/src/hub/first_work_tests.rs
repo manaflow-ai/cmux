@@ -107,9 +107,9 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
 
-    // Two more agents' messages that queue: the one that comes while the first work holds the
-    // turn's lock waits on it, the next waits in the queue behind it and joins the first work's
-    // turn as a digest (`digest.rs` `take_joined`).
+    // Two more agents' messages that queue while the first work holds the turn's lock, its turn
+    // not shown yet: both wait in the queue behind it (`queue.rs` `turn_claimed`, fuzz g1) and
+    // join the first work's turn as a digest (`digest.rs` `take_joined`).
     let waits = send(&hub, &s, "s-other", "p-other", "and this", false);
     let waiting = async {
         while s.queued() == 0 {
@@ -132,7 +132,7 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
         let r = tokio::time::timeout(WAIT, other).await.unwrap().unwrap().unwrap();
         assert_eq!(r["stopReason"], "end_turn", "{r}");
     }
-    assert_eq!(s.meta().turn_count, 2, "the third message joined the first turn");
+    assert_eq!(s.meta().turn_count, 1, "the other messages joined the first turn");
     assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
 }
 

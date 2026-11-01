@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 (sidebar-footer.png): the account row and the Search button sat too high and off
@@ -9,7 +10,7 @@ import Testing
 /// taller control ends `SidebarStyle.bottomInset` (#22663's 8 pt) above the window's bottom edge,
 /// at every density. Leo 2026-10-21: the avatar is as big as its square allows and the Search
 /// button sits right after it, its lens on the avatar's center.
-@MainActor @Suite(.serialized) struct SidebarFooterAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFooterAlignmentTests {
     struct Harness {
         let sidebar: SidebarView
         let window: NSWindow
