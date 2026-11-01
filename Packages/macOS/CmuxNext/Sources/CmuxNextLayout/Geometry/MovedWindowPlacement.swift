@@ -41,17 +41,26 @@ public nonisolated struct MovedWindowPlacement: Sendable, Hashable {
     /// by the cascade step, as AppKit's `cascadeTopLeft(from:)` does, so two moves from one window open two windows
     /// that do not cover each other (v2.2.6-opt gate, mw-restart-three-windows).
     ///
-    /// - Parameter occupied: The frames of the windows open on that screen.
-    /// - Returns: The first free spot; after as many steps as there are open windows, the last one tried.
+    /// A step that would leave the screen goes back to the screen's top-left, unless a window already takes that
+    /// spot: then it steps on, partly off screen (a zoomed or near-full source has no free spot on its screen, and a
+    /// window partly off screen is better than one hidden under another).
+    ///
+    /// - Parameter occupied: The frames of the open windows, in screen coordinates (any screen).
+    /// - Returns: A spot no window in `occupied` takes (the same top-left counts as taken).
     public func frame(beside source: CGRect, on screen: CGRect, avoiding occupied: [CGRect]) -> CGRect {
+        func taken(_ frame: CGRect) -> Bool {
+            occupied.contains { abs($0.minX - frame.minX) < 1 && abs($0.maxY - frame.maxY) < 1 }
+        }
         var candidate = frame(beside: source, on: screen)
         let step = Self.cascadeStep
+        // Each turn checks one new spot: a step moves down and right (AppKit's y grows up), and a jump to the
+        // top-left is taken only when free, so the spots never repeat and `occupied.count` turns reach a free one.
         for _ in 0..<occupied.count {
-            guard occupied.contains(where: { abs($0.minX - candidate.minX) < 1 && abs($0.maxY - candidate.maxY) < 1 }) else { break }
-            // Down and right on screen (AppKit's y grows up), back to the screen's top-left when it would leave it.
-            var next = candidate.offsetBy(dx: step, dy: -step)
-            if !screen.contains(next) { next.origin = CGPoint(x: screen.minX + step, y: screen.maxY - next.height - step) }
-            candidate = next
+            guard taken(candidate) else { break }
+            let stepped = candidate.offsetBy(dx: step, dy: -step)
+            var wrapped = stepped
+            wrapped.origin = CGPoint(x: screen.minX + step, y: screen.maxY - stepped.height - step)
+            candidate = screen.contains(stepped) || taken(wrapped) ? stepped : wrapped
         }
         return candidate
     }
