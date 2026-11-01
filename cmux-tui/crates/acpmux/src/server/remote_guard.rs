@@ -973,12 +973,13 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = if params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true)) {
-        cloud_chat_folder(&name)?
+    let cloud = params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true));
+    let dir = if cloud { cloud_chat_folder(&name)? } else { peer_scratch_root()?.join(name) };
+    // `cloud_chat_folder` creates the stable directory itself and retries
+    // must reuse it. The legacy peer scratch path remains fresh per name.
+    let made = if cloud {
+        Ok(Ok(()))
     } else {
-        peer_scratch_root()?.join(name)
-    };
-    let made = {
         let dir = dir.clone();
         tokio::task::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
