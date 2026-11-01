@@ -148,7 +148,7 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         XCTAssertEqual(requests.values.count, 0)
     }
 
-    func testTickingDontAskAgainTurnsOffWindowWarning() throws {
+    func testRunningProcessWindowPromptOffersNoDontAskAgain() throws {
         let appDelegate = try XCTUnwrap(AppDelegate.shared)
         let targetWindow = try makeMainWindow(appDelegate)
         try setShellActivity(.commandRunning, appDelegate)
@@ -174,12 +174,12 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
             return true
         }
 
-        // Cancel with the box ticked: the window stays and the ordinary window
-        // warning turns off, while the live-process safety warning remains.
+        // The live-process prompt ignores warnBeforeClosingWindow, so it offers
+        // no "Don't ask again" that could not stop it (#20517).
         appDelegate.closeWindowWithConfirmation(targetWindow)
         XCTAssertEqual(prompts, 1)
-        XCTAssertEqual(offered, [[.window, .safety]])
-        XCTAssertFalse(AppCatalogSection().warnBeforeClosingWindow.value(in: defaults))
+        XCTAssertEqual(offered, [])
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingWindow.value(in: defaults))
         XCTAssertTrue(targetWindow.isVisible)
 
         let requests = recordShouldCloseRequests(appDelegate)
