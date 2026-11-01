@@ -14,6 +14,9 @@ import { noChat } from "../../../gallery/fixtures/acpmux";
 const DRAFT = "Summarize the failing upload tests";
 const FOLDER_A = "/Users/you/src/atlas-web";
 const FOLDER_B = "/Users/you/src/relay";
+/// The tab's own folder, neither of the two picks: a pick of either is a real pick, so its send asks
+/// the host about it (`requestFolder`) instead of starting in the inherited folder at once.
+const INHERITED = "/Users/you/src/harbor";
 
 const newTab = {
   transport: "mock",
@@ -23,7 +26,7 @@ const newTab = {
     template: "minimal",
     layout: "b",
     lastAgent: "claude",
-    cwd: FOLDER_A,
+    cwd: INHERITED,
     home: "/Users/you",
   },
 };
@@ -84,6 +87,8 @@ async function staleFolder(ctx: PlayContext) {
   // Return asks the host about atlas-web again for this send; before it answers, a newer folder
   // request (the pane's own pick of relay) replaces it. The send's late reply is stale.
   await ctx.press("Enter");
+  // atlas-web is a real pick (the tab inherited harbor), so the send waits on the host's reply.
+  if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the send started before its folder reply");
   view.cmuxAcpmuxDebug!.pickFolder(FOLDER_B);
   await ctx.waitFor(() => chip().includes("relay"), { capMs: 10_000 });
   await frames(ctx);
