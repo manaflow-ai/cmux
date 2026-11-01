@@ -50,10 +50,11 @@ extension DaemonLauncher {
         return commit.count >= 7 ? String(commit) : nil
     }
 
-    /// True when the running daemon was built from a different commit than
-    /// the bundled binary, so the app should hand off with `restartDaemon`.
+    /// True when the running daemon is another build than the bundled binary
+    /// (``versionDecision(running:bundled:)``), so the app should hand it off.
     public func isStale(_ identity: DaemonIdentity) async -> Bool {
-        guard let running = identity.buildCommit, let bundled = try? await bundledBuildCommit() else { return false }
-        return running != bundled
+        let bundled = try? await bundledBuild()
+        guard case .restart = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled) else { return false }
+        return true
     }
 }

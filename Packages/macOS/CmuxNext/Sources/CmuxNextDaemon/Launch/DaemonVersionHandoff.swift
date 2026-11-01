@@ -85,7 +85,15 @@ enum ProcessExit {
 }
 
 extension DaemonLauncher {
+    /// Whether the running owner is another build than the bundled binary. The build identity
+    /// (`build_id`) decides when both sides have one: it is the stamped commit for a packaged build
+    /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
+    /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
+    /// commits decide. With neither, the owner is kept and the reason names the unknown side.
     static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
+        if let runningID = running.id, let bundledID = bundled?.id {
+            return runningID == bundledID ? .keep("same build") : .restart(running: runningID, bundled: bundledID)
+        }
         guard let running = running.commit else { return .keep("running build unknown") }
         guard let bundled = bundled?.commit else { return .keep("bundled build unknown") }
         return running == bundled ? .keep("same build") : .restart(running: running, bundled: bundled)

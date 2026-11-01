@@ -198,15 +198,25 @@ public final class DaemonService {
         }
         // After an update the daemon may still be the previous build's: hand
         // it off to the bundled build before attaching; terminals survive
-        // (their hosts are adopted by the new daemon). The bundled build's
-        // commit is read while the first connect runs, off its path.
+        // (their hosts are adopted by the new daemon). The bundled build
+        // (`--version --json`) is read while the first connect runs, off its path.
         let logger = logger
         // task-owner: one `--version --json` run per start; the handoff check awaits it
         let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            guard identity.buildCommit != nil, let bundled = await bundledBuild.value else { return false }
-            let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
-            guard case .restart(let running, let target) = decision else { return false }
+            // A bundled binary that did not report its build keeps the owner; the decision names why.
+            let decision: DaemonVersionDecision
+            if let bundled = await bundledBuild.value {
+                decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
+            } else {
+                decision = .keep("bundled build unknown")
+            }
+            guard case .restart(let running, let target) = decision else {
+                if case .keep(let reason) = decision, reason != "same build" {
+                    logger.notice("daemon \(identity.pid) kept: \(reason, privacy: .public)")
+                }
+                return false
+            }
             DaemonService.launchMark("daemon_version_handoff")
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")
             return true
