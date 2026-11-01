@@ -57,6 +57,7 @@ import {
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
   LANE_NOTICE_BATCH,
+  restRoom,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -2808,6 +2809,14 @@ export function VirtualTranscript({
   });
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// The room the rows keep over a floating stack: its height, and the rest gap's share past the last
+  /// row's own turn gap (model.ts `restRoom`), so the newest row rests the same gap over whatever the
+  /// stack's top is. Read once per transcript; the masks, Jump to latest and the scroll-into-view
+  /// clearance keep the stack's own height (`dockSpace`).
+  const [restExtra] = useState(restRoom);
+  const dockRoom = dockSpace > 0 ? dockSpace + restExtra : 0;
+  const dockRoomRef = useRef(0);
+  dockRoomRef.current = dockRoom;
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
   // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
   const [dockHeight, setDockHeight] = useState(0);
@@ -3356,7 +3365,7 @@ export function VirtualTranscript({
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
-  const heldRoom = useRef(dockSpace);
+  const heldRoom = useRef(dockRoom);
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
@@ -3378,8 +3387,8 @@ export function VirtualTranscript({
     const held = Math.abs(foldBase.current - dockTrayRef.current) > 0.5;
     foldBase.current = dockTrayRef.current;
     trayToggled.current = false;
-    if (!held && Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
-    heldRoom.current = dockSpaceRef.current;
+    if (!held && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
+    heldRoom.current = dockRoomRef.current;
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
@@ -3648,8 +3657,8 @@ export function VirtualTranscript({
     following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && dockCard > 0 && cardRest.current > 0;
   const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
-  // The last footer's turn gap and the thread's top inset make the normal turn gap over the
-  // floating stack. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
+  // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
+  // floating stack, which the room keeps however tall the stack grows. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
   // band here; the pinned-bottom layout below already follows streaming growth before paint.
   // What the reader opens or folds in the running tray moves no row (Leo, 2026-11-01: "there's a
   // layout shift when i expand it"): what it opens lies over the transcript's foot, as a menu over
@@ -3667,7 +3676,7 @@ export function VirtualTranscript({
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
         : foldBase.current;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockSpace - trayHold;
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockRoom - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -3691,7 +3700,7 @@ export function VirtualTranscript({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockSpace - lifted - trayHold : heldRoom.current;
+  const room = sessionSwitched || following ? dockRoom - lifted - trayHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4258,7 +4267,7 @@ export function VirtualTranscript({
       if (event.deltaY <= 0 || !followingRef.current || dockTrayRef.current - foldBase.current <= 0.5) return;
       foldBase.current = dockTrayRef.current;
       trayToggled.current = false;
-      heldRoom.current = dockSpaceRef.current;
+      heldRoom.current = dockRoomRef.current;
       flushSync(() => {
         followRef.current(false);
         roomTaken();
@@ -4633,7 +4642,7 @@ export function VirtualTranscript({
     dropFoldRoom();
     stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
-    heldRoom.current = dockSpaceRef.current;
+    heldRoom.current = dockRoomRef.current;
     // The placement pass already has the latest estimated total and measured viewport. Reusing
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional

@@ -1087,6 +1087,20 @@ function foldedGroupHeight(group: ToolGroup): number {
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 16;
+/// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
+/// as much as claude code"): from the newest row's line (a turn footer's 24px action row, or the
+/// running turn's live line) to the top of the floating bottom stack (the running tray, else the
+/// composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
+/// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
+/// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+export const REST_GAP = 56;
+/// What the room under the last row adds over a floating stack to the last row's turn gap. The
+/// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
+export function restRoom(): number {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.restGap;
+  const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
+  return Math.max(0, gap - TURN_GAP);
+}
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
 /// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
 /// images alone.
