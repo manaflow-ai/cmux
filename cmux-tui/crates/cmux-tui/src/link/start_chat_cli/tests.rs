@@ -158,7 +158,7 @@ fn fleet_vms_under_my_own_account_are_never_picked() {
     ] {
         let fleet = machine("vm-fleet", name);
         assert!(pick::is_fleet(&fleet), "{name}");
-        assert_eq!(pick::pick(&[fleet.clone()], Some(ME), &none()), None, "{name}");
+        assert_eq!(pick::pick(std::slice::from_ref(&fleet), Some(ME), &none()), None, "{name}");
         // Idle-paused too.
         let paused = offline(fleet, "paused", Some("idle"));
         assert_eq!(pick::pick(&[paused], Some(ME), &none()), None, "{name}");
