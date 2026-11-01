@@ -3,7 +3,9 @@
 //! first connected machine, which on a shared account is often someone's busy
 //! lane VM: a machine this person owns that is free (no chat open on it, or
 //! one named for chats, [`CHATS_NAME`]), else a new one named for chats.
-//! Lane-pool VMs (`fs-lane-N`, `lane-vm-N`) are never picked. A retry of the
+//! Lane-pool and other fleet VMs ([`is_fleet`]: a `fleet` or `infra` tag, or
+//! a name under `fs-`, `sr2-` or `lane-vm-`) are never picked, even when our
+//! tooling made them under the person's own account. A retry of the
 //! same send stays on the machine its first try took ([`destination`]), so it
 //! never opens a second chat with the prompt elsewhere.
 
@@ -34,6 +36,9 @@ pub(crate) struct Candidate {
     /// Chat tabs open on it; None when its store is not read (not connected).
     #[serde(default)]
     pub(crate) chats: Option<u64>,
+    /// The server's tags for it, when it names any (`fleet`, `infra`, ...).
+    #[serde(default)]
+    pub(crate) tags: Vec<String>,
 }
 
 impl Candidate {
@@ -96,9 +101,29 @@ pub(crate) fn is_lane_pool(name: &str) -> bool {
     })
 }
 
+/// Name prefixes of the machines fleet tooling makes (lanes, peers, probes):
+/// `fs-lane-N`, `fs-peer-N`, `fs-firstsend-...`, `sr2-tunnel-probe`, `lane-vm-N`.
+/// Until every such machine carries a fleet tag, its name marks it.
+const FLEET_PREFIXES: [&str; 3] = ["fs-", "sr2-", "lane-vm-"];
+
+/// Tags that mark a machine as fleet or infrastructure.
+const FLEET_TAGS: [&str; 2] = ["fleet", "infra"];
+
+/// A fleet or infrastructure machine: tagged `fleet` or `infra`, or named
+/// (title or slug) for the lane pool or under a fleet prefix. A chat never
+/// lands on one by itself: a fleet VM made under the person's account (Leo's
+/// `sr2-tunnel-probe`) runs fleet sign-ins, not the person's own.
+pub(crate) fn is_fleet(machine: &Candidate) -> bool {
+    machine.tags.iter().any(|tag| FLEET_TAGS.contains(&tag.trim().to_lowercase().as_str()))
+        || machine.names().any(|name| {
+            let name = name.trim().to_lowercase();
+            is_lane_pool(&name) || FLEET_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+        })
+}
+
 /// The machine a first send takes, by id; None: make one ([`CHATS_NAME`]).
 /// Only this person's (`user`; a machine the server names no creator for
-/// counts when an earlier send ran on it, `used`), never a lane-pool VM, and
+/// counts when an earlier send ran on it, `used`), never a fleet VM ([`is_fleet`]), and
 /// only one that can take work now or after an idle resume, with no pause,
 /// resume or delete on its way and not failed or removed (a stale link may
 /// still read as connected). Among those: one
@@ -121,7 +146,7 @@ pub(crate) fn pick(
             !machine.is_changing()
                 && !machine.is_gone()
                 && mine(machine)
-                && !machine.names().any(is_lane_pool)
+                && !is_fleet(machine)
                 && (machine.connected || machine.is_live() || machine.is_idle_paused())
                 && (marked(machine) || free(machine))
         })
@@ -204,7 +229,7 @@ pub(crate) fn destination(
 /// The machine the workspace `workspace` picked, while it is listed, this
 /// person's and usable (one made since, `stored`, or before the App's list is
 /// `loaded`, it is kept). Other workspaces may share it. Drops the
-/// workspace's machine when it is gone, a teammate's or failed, so the
+/// workspace's machine when it is gone, a teammate's, a fleet VM or failed, so the
 /// machine its next send takes becomes the workspace's.
 #[allow(clippy::too_many_arguments)]
 fn workspace_machine(
@@ -220,7 +245,9 @@ fn workspace_machine(
     let own = pins.workspace_machine(workspace, account)?;
     let keep = match candidates.iter().find(|machine| machine.id == own) {
         Some(machine) => {
-            user.is_some_and(|user| is_mine(machine, user, used)) && machine.is_usable()
+            user.is_some_and(|user| is_mine(machine, user, used))
+                && machine.is_usable()
+                && !is_fleet(machine)
         }
         None => !loaded || stored.contains(&own),
     };

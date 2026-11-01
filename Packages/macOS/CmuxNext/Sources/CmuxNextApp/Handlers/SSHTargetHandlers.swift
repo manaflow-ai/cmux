@@ -32,7 +32,7 @@ enum SSHTargetHandlers {
         }
         ActionTargetVisibility.hide("disconnectRemoteTab", in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
-            return context.services.locateTab(target.id).flatMap { tabMachine($0.0, context.services) } == nil
+            return context.targetTab(target.id, invocation).flatMap { tabMachine($0.0, context.services) } == nil
         }
     }
 

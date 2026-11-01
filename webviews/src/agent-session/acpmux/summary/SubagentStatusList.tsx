@@ -5,7 +5,7 @@
 // agent started with its `start_session` tool (subagents/subsessions.ts) follow, theirs indented under
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
-// chats the agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
+// chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -18,12 +18,13 @@ import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
+  subsessionDisplayName,
   type SubsessionRow,
   type SubsessionState,
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
+import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
@@ -280,7 +281,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <AgentIdentity harness={session.harness} tone={agentTone(session.sessionId)} size={ROW_ICON} />
       </span>
       <span className="acpmux-summary-text">
-        <span className="acpmux-summary-agent__name">{session.name}</span>
+        <span className="acpmux-summary-agent__name">{subsessionDisplayName(t, session)}</span>
         {line && <span className="acpmux-summary-agent__kind">{line}</span>}
       </span>
       {session.unread && (
