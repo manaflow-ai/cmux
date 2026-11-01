@@ -310,6 +310,11 @@ pub struct Session {
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
+    /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
+    /// of the same prompt id is answered as a duplicate, and that answer names the same kept
+    /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
+    pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -710,6 +715,9 @@ impl Session {
         self.meta.lock().unwrap().status
     }
 }
+/// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).
+pub(super) const KEPT_MESSAGES: usize = 256;
+
 /// Tags that have not expired, as a flat map.
 pub fn live_tags(m: &SessionMeta) -> Value {
     let now = now_ms();

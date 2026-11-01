@@ -243,6 +243,34 @@ pub(super) fn message_context(
 /// sender's session, so a peer forwarding the prompt records its sender's copy only for that
 /// message: every send of one prompt id to one chat (a direct send and its `send_queue` retry,
 /// or two sessions' sends) hears the one acceptance (`server/peer_forward.rs`).
+/// Remembers which message `prompt_id`'s acceptance named on `session` (`Session::kept_messages`).
+pub(super) fn keep_message(session: &Session, prompt_id: &str, message: &MessageContext) {
+    let mut kept = session.kept_messages.lock().unwrap_or_else(|e| e.into_inner());
+    kept.retain(|(id, _, _)| id != prompt_id);
+    kept.push_back((
+        prompt_id.to_owned(),
+        message.message_id.clone(),
+        message.sender_session.clone(),
+    ));
+    while kept.len() > super::session::KEPT_MESSAGES {
+        kept.pop_front();
+    }
+}
+
+/// Names on a duplicate's acceptance the message `prompt_id`'s first acceptance named, when the
+/// session still remembers it: a direct send that came after its `send_queue` copy was accepted
+/// hears the kept message, as the first send did (`server/peer_forward.rs` `kept_another`).
+pub(super) fn name_kept_message(accepted: &mut Value, session: &Session, prompt_id: &str) {
+    let kept = session.kept_messages.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((_, message_id, sender)) = kept.iter().rev().find(|(id, _, _)| id == prompt_id) else {
+        return;
+    };
+    if let Some(fields) = accepted.as_object_mut() {
+        fields.insert("messageId".to_owned(), Value::String(message_id.clone()));
+        fields.insert("messageSenderId".to_owned(), Value::String(sender.clone()));
+    }
+}
+
 pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
     if let Some(fields) = accepted.as_object_mut() {
         fields.insert("messageId".to_owned(), Value::String(message.message_id.clone()));
