@@ -668,6 +668,128 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
+/// Reads lines into `replies` (by their string `id`, with the time each arrived) until `id`
+/// has a reply or `deadline` passes. Lines without a string id (events) are skipped.
+fn read_reply_until(
+    reader: &mut impl BufRead,
+    replies: &mut std::collections::HashMap<String, (serde_json::Value, Instant)>,
+    id: &str,
+    deadline: Instant,
+) -> bool {
+    while !replies.contains_key(id) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        if let Some(value) = read_json_line(reader)
+            && let Some(reply_id) = value["id"].as_str()
+        {
+            replies.insert(reply_id.to_string(), (value.clone(), Instant::now()));
+        }
+    }
+    true
+}
+
+/// A pending `wait-for` never holds a later request on its connection. The app sends two
+/// 60 s waits on a Cloud machine's main connection while it delivers secrets; a split sent
+/// meanwhile used to wait until the wait ended. Here a lookup, a list and a terminal create
+/// sent behind a wait are answered while it is pending, input on the same connection then
+/// makes the pattern appear, and the wait answers under its own id.
+#[test]
+fn control_socket_wait_for_off_dispatch_answers_later_requests_while_pending() {
+    // Generous on a loaded runner and far below the wait's own timeout, which is when
+    // every request queued behind the wait used to be answered.
+    let quick = Duration::from_secs(2);
+    let create_bound = Duration::from_secs(10);
+    let wait_timeout = Duration::from_secs(20);
+    let mux = Mux::new(unique_session("test-wait-for-off-dispatch"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut replies = std::collections::HashMap::new();
+
+    let sent = Instant::now();
+    let wait = serde_json::json!({
+        "id": "wait",
+        "cmd": "wait-for",
+        "surface": surface.id,
+        "pattern": "release-wait-[0-9]+",
+        "timeout_ms": wait_timeout.as_millis() as u64,
+    });
+    writeln!(writer, "{wait}").unwrap();
+    for request in [
+        serde_json::json!({"id": "identify", "cmd": "identify"}),
+        serde_json::json!({"id": "list", "cmd": "list-workspaces"}),
+        serde_json::json!({"id": "tab", "cmd": "new-tab", "cols": 80, "rows": 24}),
+    ] {
+        writeln!(writer, "{request}").unwrap();
+    }
+    for (id, bound) in [("identify", quick), ("list", quick), ("tab", create_bound)] {
+        if !read_reply_until(&mut reader, &mut replies, id, sent + bound) {
+            // Measure how long the request really waited, then fail with it.
+            read_reply_until(
+                &mut reader,
+                &mut replies,
+                id,
+                sent + wait_timeout + Duration::from_secs(10),
+            );
+            let answered_after = replies.get(id).map(|(_, at)| at.duration_since(sent));
+            panic!(
+                "`{id}`, sent behind a pending wait-for on the same connection, was not \
+                 answered within {bound:?} (answered after {answered_after:?}; the wait's \
+                 reply: {:?})",
+                replies.get("wait").map(|(reply, _)| reply)
+            );
+        }
+        let (reply, at) = &replies[id];
+        assert_eq!(reply["ok"], true, "`{id}` failed: {reply}");
+        eprintln!(
+            "wait-for-off-dispatch: `{id}` answered {:?} after it was sent behind a pending wait-for",
+            at.duration_since(sent)
+        );
+    }
+    assert!(
+        !replies.contains_key("wait"),
+        "the wait answered before its pattern appeared: {:?}",
+        replies.get("wait")
+    );
+
+    // Input on the same connection makes the pattern appear (`cat` echoes it).
+    let send_sent = Instant::now();
+    let send = serde_json::json!({
+        "id": "send",
+        "cmd": "send",
+        "surface": surface.id,
+        "text": "release-wait-42\n",
+    });
+    writeln!(writer, "{send}").unwrap();
+    assert!(
+        read_reply_until(&mut reader, &mut replies, "send", send_sent + quick),
+        "send was not answered while the wait was pending"
+    );
+    assert_eq!(replies["send"].0["ok"], true, "send failed: {}", replies["send"].0);
+    assert!(
+        read_reply_until(&mut reader, &mut replies, "wait", send_sent + Duration::from_secs(10)),
+        "the wait did not answer after its pattern appeared"
+    );
+    let wait_reply = &replies["wait"].0;
+    assert_eq!(wait_reply["ok"], true, "wait-for failed: {wait_reply}");
+    assert_eq!(wait_reply["data"]["matched"], true, "{wait_reply}");
+    assert!(
+        wait_reply["data"]["text"].as_str().unwrap_or_default().contains("release-wait-42"),
+        "the wait answered without the pattern on screen: {wait_reply}"
+    );
+    assert!(wait_reply["data"]["elapsed_ms"].as_u64().is_some(), "{wait_reply}");
+
+    if let Some(tab) = replies["tab"].0["data"]["surface"].as_u64() {
+        let _ = mux.close_surface(tab);
+    }
+    mux.close_surface(surface.id).unwrap();
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
 #[test]
 fn control_socket_set_default_colors_merges_fields() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };

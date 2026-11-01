@@ -1075,6 +1075,18 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  # The signer route's exact runs-on line (its exception below).
+  local signer_route
+  signer_route=$(cat <<'SIGNER_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+SIGNER_ROUTE
+)
+  # signer-build takes the nightly's early fleet placement (#29864) first, then the same route.
+  local signer_build_route
+  signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+SIGNER_BUILD_ROUTE
+)
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
@@ -1099,6 +1111,15 @@ check_no_github_hosted_runners() {
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
+    # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
+    # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and
+    # free on this public repository; a re-run takes Blacksmith Linux 4 vCPU, and a pool signer GitHub drops
+    # unstarted hands the nightly to the macOS signer. Leo, 2026-11-01: "surely we measured the signign we
+    # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
+    "nightly.yml:$signer_route"
+    "nightly.yml:$signer_build_route"
+    "cmux-next-dev-daily.yml:$signer_route"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
