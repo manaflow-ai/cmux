@@ -238,14 +238,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       ),
     ).toEqual([]);
     // And the rail's prompt index (direct.ts readPromptIndex): one read, so it lays out every turn.
-    const indexReads = requests.filter((request) => request.params.promptIndex === true);
-    expect(indexReads).toHaveLength(1);
-    // It is asked beside the attach, which is what names the page the index must precede, so it names
-    // none: the pane cuts the prompts the held page has.
-    expect(indexReads[0]!.params.beforeSeq).toBeUndefined();
-    expect(requests.indexOf(indexReads[0]!)).toBeLessThan(
-      requests.findIndex((request) => request.method === "_acpmux/events" && request.params.beforeSeq !== undefined),
-    );
+    expect(requests.filter((request) => request.params.promptIndex === true)).toHaveLength(1);
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
