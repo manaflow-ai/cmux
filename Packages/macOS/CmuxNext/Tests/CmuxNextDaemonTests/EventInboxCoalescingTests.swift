@@ -55,4 +55,24 @@ import Testing
         #expect(batch.map(\.sequence) == [1, 2, 3, 4, 5])
         #expect(inbox.coalescedCount == 0)
     }
+
+    /// Overflow drops tree events the snapshot will replace, but preserves session events it cannot.
+    /// A snapshot must neither acknowledge the latter before take nor strand the dropped tail afterward.
+    @Test func overflowKeepsTheConsumedFrontierBehindBufferedSessionEvents() {
+        let inbox = EventInbox(limit: 1)
+        _ = inbox.append(title(1, "before", 1))
+        _ = inbox.append(.init(sequence: 2, event: .sessionState(.delta([]))))
+        _ = inbox.append(title(2, "dropped", 3))
+        #expect(inbox.takenThrough == 0)
+        let batch = inbox.take()
+        #expect(batch.contains { if case .sessionState = $0.event { true } else { false } })
+        #expect(!batch.contains { $0.sequence == 3 }, "the tree snapshot covers the discarded tail")
+        #expect(inbox.takenThrough == 3, "a discarded tree event must not strand a snapshot barrier")
+        inbox.hold()
+        _ = inbox.append(.init(sequence: 4, event: .sessionState(.delta([]))))
+        #expect(inbox.takenThrough == 3, "a buffered session event is not covered by a tree snapshot")
+        _ = inbox.take()
+        #expect(inbox.takenThrough == 4)
+    }
+
 }

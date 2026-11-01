@@ -185,25 +185,29 @@ struct CloudHubLoopbackTests {
         tunnel.close()
     }
 
-    /// Open Desktop's native viewer connects at once only for a person's open: the first local tab
-    /// that shows the record within the window is the person's, once; the CLI or an agent, a
-    /// remote tree, or a tab that comes too late asks first.
-    @Test @MainActor func onlyAPersonsOpenDesktopConnectsAtOnce() throws {
-        var clock = ContinuousClock.now
-        let pages = RemoteViewPageService(now: { clock })
+    /// Open Desktop's native viewer connects at once only in the exact tab a person's open made
+    /// (#29208): another tab that shows the same record first (an agent, the CLI, a script or a
+    /// restore made it) asks for Connect and takes nothing from the person's tab; the CLI's open, a
+    /// remote tree, or the person's tab after it left the record asks too.
+    @Test @MainActor func onlyThePersonsOwnDesktopTabConnectsAtOnce() throws {
+        let pages = RemoteViewPageService()
         let url = try #require(URL(string: "cmux://remote-view?host=vm-1&target=virtual&mode=control&via=cloud"))
 
-        pages.personOpens(url, scope: nil)
-        #expect(pages.source(for: "tab-1", url: url, isLocal: false) == .remoteTree)
-        #expect(pages.source(for: "tab-1", url: url, isLocal: true) == .person)
-        #expect(pages.source(for: "tab-2", url: url, isLocal: true) == .unconfirmed, "once")
+        // An automated tab with the same record shows up before the person's tab is made.
+        #expect(pages.source(for: "agent-tab", url: url, isLocal: true) == .unconfirmed)
+        pages.confirm("person-tab", url: url, scope: nil)
+        #expect(pages.source(for: "agent-tab", url: url, isLocal: true) == .unconfirmed, "the same address is not the same tab")
+        #expect(pages.source(for: "person-tab", url: url, isLocal: true) == .person)
+        #expect(pages.source(for: "person-tab", url: url, isLocal: false) == .remoteTree)
+        #expect(pages.source(for: "person-tab", url: url, isLocal: true) == .person, "reading never consumes it")
 
-        pages.personOpens(url, scope: ActionRunScope(origin: .cli, allowsViewChange: false))
-        #expect(pages.source(for: "tab-3", url: url, isLocal: true) == .unconfirmed, "the CLI is not a person")
+        pages.confirm("cli-tab", url: url, scope: ActionRunScope(origin: .cli, allowsViewChange: false))
+        #expect(pages.source(for: "cli-tab", url: url, isLocal: true) == .unconfirmed, "the CLI is not a person")
 
-        pages.personOpens(url, scope: nil)
-        clock = clock.advanced(by: .seconds(16))
-        #expect(pages.source(for: "tab-4", url: url, isLocal: true) == .unconfirmed, "too late")
+        let other = try #require(URL(string: "cmux://remote-view?host=vm-2&target=virtual&mode=control&via=cloud"))
+        #expect(pages.source(for: "person-tab", url: other, isLocal: true) == .unconfirmed, "a changed record asks again")
+        pages.forget("person-tab")
+        #expect(pages.source(for: "person-tab", url: url, isLocal: true) == .unconfirmed, "a closed tab keeps nothing")
     }
 
     /// A desktop address routes over this Mac's tunnel only for a tab of this Mac's daemon: in a

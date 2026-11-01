@@ -28,6 +28,11 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var depth = 0
     /// Archived in the sidebar document: its header draws dimmed (its members too). Set by `arrange`.
     public var isArchived = false
+    /// The machine a remote group stands for (``SidebarSection/wrappedAsHostGroup()``): its header is
+    /// a group's, with the machine's mark and status dot (``SidebarHostGroupLook``); nil for every other group.
+    public var machine: SidebarMachine?
+    /// How a remote group's header draws its machine (the gallery sets the others).
+    public var hostLook: SidebarHostGroupLook = .trailingMarkAndDot
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
@@ -136,11 +141,37 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// - Parameter collapsed: Whether the header is collapsed (its members hidden).
     /// - Returns: The state the header's status glyph draws.
     public func statusRollUp(collapsed: Bool) -> StatusIndicatorState {
-        let states = workspaces.compactMap { WorkspaceRowBadges(unread: $0.unread, activity: $0.activity, detailed: false).first }
-        if states.contains(.error) { return .error }
-        if states.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
-        if states.contains(.success) { return .success }
-        return collapsed ? loadingActivity : .idle
+        // This runs while a group folds and unfolds. Constructing a WorkspaceRowBadges (and its
+        // sorted temporary array) for every member made a 10,000-workspace group spend tens of
+        // milliseconds configuring one header. The collapsed header only needs the highest-level
+        // state, so keep the same priority as WorkspaceRowBadges.simple in one pass.
+        var waiting = false
+        var success = false
+        var loading = false
+        for workspace in workspaces {
+            switch workspace.activity {
+            case .error:
+                return .error
+            case .waiting:
+                waiting = true
+            case .busy, .working:
+                loading = true
+            case .idle, .paused, .success:
+                break
+            }
+            if workspace.activity == .success { success = true }
+            switch workspace.unread {
+            case .none:
+                break
+            case .dot:
+                success = true
+            case let .count(n):
+                if n > 0 { success = true }
+            }
+        }
+        if waiting { return .waiting }
+        if success { return .success }
+        return collapsed && loading ? loadingActivity : .idle
     }
 
     /// Strongest activity among children, shown on a collapsed group header

@@ -54,4 +54,27 @@ struct SidebarWorkspaceAccessibilityReuseTests {
         for action in oldActions { #expect(action.handler?() == false) }
         #expect(calls == 0)
     }
+
+    @Test func currentGroupActionsActAndARetainedFoldRefusesAChangedFold() throws {
+        _ = NSApplication.shared
+        let row = WorkspaceRowView(key: .workspace(WorkspaceID("first")))
+        var edits = 0, menus = 0, adds = 0, toggles = 0
+        var group = StandingGroupAccess(expanded: true, toggle: { toggles += 1 }, edit: { edits += 1 },
+                                        menu: { menus += 1 }, add: { adds += 1 })
+        row.standingGroup = group
+        let actions = try #require(row.accessibilityCustomActions())
+        let expectedNames: [String] = [GroupEditorStrings.editor, GroupEditorStrings.moreActions,
+                                       GroupEditorStrings.newWorkspace, GroupEditorStrings.collapse]
+        #expect(actions.map(\.name) == expectedNames)
+        for action in actions { #expect(action.handler?() == true) }
+        #expect(edits == 1)
+        #expect(menus == 1)
+        #expect(adds == 1)
+        #expect(toggles == 1)
+
+        group.expanded = false
+        row.standingGroup = group
+        #expect(actions[3].handler?() == false)
+        #expect(toggles == 1)
+    }
 }

@@ -1,6 +1,27 @@
 import Foundation
 
 extension AcpmuxPaneSocket {
+    private static let rawWaitedEventMarkers = [
+        "\"kind\":\"turn_end\"", "\"kind\": \"turn_end\"",
+        "\"kind\":\"turn_result\"", "\"kind\": \"turn_result\"",
+        "\"kind\":\"queued\"", "\"kind\": \"queued\"",
+        "\"kind\":\"dequeued\"", "\"kind\": \"dequeued\"",
+        "\"kind\":\"queue_removed\"", "\"kind\": \"queue_removed\"",
+        "\"kind\":\"prompt_refused\"", "\"kind\": \"prompt_refused\"",
+    ]
+
+    /// The opaque-notification fast path in ``AcpmuxRequestIds`` keeps the original text. These
+    /// markers are enough for pacing decisions; the observer notifications are parsed before this
+    /// path and use the object overload below. A false positive only wakes a hidden page sooner.
+    nonisolated static func pageWaits(on text: String) -> Bool {
+        guard text.contains("\"method\"") else { return false }
+        if text.contains("\"_acpmux/prompt_accepted\"") || text.contains("\"session/request_permission\"") {
+            return true
+        }
+        guard text.contains("\"_acpmux/event\"") else { return false }
+        return Self.rawWaitedEventMarkers.contains(where: text.contains)
+    }
+
     /// Whether the page waits on a daemon frame, so a pane nobody can see still gets it soon
     /// (``AgentPaneFramePacer``): a reply or a request (an `id`); `_acpmux/prompt_accepted`, whose
     /// absence fails a sent prompt after a minute (direct.ts `deliveryTiming`); and a turn's end
