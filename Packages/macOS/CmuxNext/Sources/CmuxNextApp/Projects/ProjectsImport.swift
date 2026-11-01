@@ -6,8 +6,9 @@ import os
 
 /// Relays acpmux's chat index into the daemon's project list
 /// (plans/cmux-next/projects.md section 3). acpmux already watches the chat
-/// roots and `ChatsFeed` mirrors its index, so no second watcher reads them:
-/// on each index change this sends one complete `project.observe` per harness
+/// roots and groups its index (`_acpmux/chat_projects`), so no second watcher
+/// reads them and the app holds no copy of the index: on each index change
+/// (`ChatsFeed`'s signal) this sends one complete `project.observe` per harness
 /// whose project set changed. On each new daemon connection it first sends
 /// `project.sync`, which makes the daemon reread the editor sources. It holds
 /// no rule: refusals, merge and the user's overlay are the daemon's.

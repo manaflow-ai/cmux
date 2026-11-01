@@ -74,6 +74,7 @@ jobs:
           sparse-checkout: |
             .github/workflows/ci.yml
             .github/workflows/cmux-next-ios-kit.yml
+            .github/workflows/backend.yml
             scripts/ci/runner_pool_reconcile.py
             tests/test_ci_runner_pool_reconcile.py
           persist-credentials: false

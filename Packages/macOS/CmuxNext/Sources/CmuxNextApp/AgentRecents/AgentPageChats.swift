@@ -78,15 +78,17 @@ final class AgentPageChats {
         }
     }
 
+    /// The cards follow their window (acpmux sorts and pages; only that window's changes push).
     func follow(_ feed: ChatsFeed, open: @escaping @MainActor (String) -> Void, views: @escaping @MainActor () -> [AgentPaneView]) {
         self.open = open
-        let push = { [weak self, weak feed] in
-            guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
+        let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
+        window.follow(self) { [weak self] rows in
+            guard let self else { return }
+            chats = Self.deviceChats(rows)
             for view in views() { view.deviceChats = chats }
         }
-        feed.observe(self) { push() }
-        push()
+        feed.windows.open(.newTabCards)
+        chats = Self.deviceChats(window.rows)
     }
 
     /// A new page starts with the current chats and closed items.
