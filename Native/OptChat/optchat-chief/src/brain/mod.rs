@@ -50,6 +50,7 @@ mod side;
 mod spawns;
 mod steer;
 mod transcript;
+mod turn_actions;
 mod turns;
 mod wakes;
 mod watches;
@@ -455,6 +456,14 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
@@ -665,6 +674,8 @@ impl Queued {
             Source::Message {
                 requires_approval: true,
                 ..
+            } | Source::OwnerAction {
+                requires_approval: true
             } | Source::Resume {
                 requires_approval: true,
                 ..
@@ -709,6 +720,8 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
@@ -1585,6 +1598,12 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(self.owner_continue());
+            }
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
