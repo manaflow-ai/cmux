@@ -1496,9 +1496,17 @@ fn pack_with(
     }
 }
 
-/// The local `tar` command every sync and pull runs.
+/// The local `tar` command every sync and pull runs, with only the
+/// arguments given here: options from the caller's environment
+/// (`TAR_OPTIONS=--sparse` for GNU tar, `TAR_READER_OPTIONS` and
+/// `TAR_WRITER_OPTIONS` for bsdtar) could shrink a hole past the
+/// unpacked-size count or change how pulled files unpack.
 fn tar_command(program: &str) -> std::process::Command {
-    std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+        command.env_remove(name);
+    }
+    command
 }
 
 /// `tar --version`'s text; a tar that cannot say what it is is not run.
