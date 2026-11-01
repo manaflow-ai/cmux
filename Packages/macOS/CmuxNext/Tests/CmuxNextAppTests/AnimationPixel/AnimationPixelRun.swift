@@ -26,9 +26,29 @@ struct AnimationPixelRun {
         let description: String
     }
 
-    /// Applies `change` to the fixture's model, captures every frame until the layout rests, and
-    /// returns the failures (empty when every frame passes). Prints the frame data either way.
-    func judge(_ axis: Axis, spring token: MotionSpring, animated: Bool, change: () -> Void) async throws -> [String] {
+    /// Applies `change` to the fixture's model (then syncs the view in the same turn), captures
+    /// every frame until the layout rests, and judges them against `spring` (`animated`) or a
+    /// one-frame landing (animations off). Returns the failures; prints the frame data either way.
+    func judgeSpring(_ axis: Axis, spring token: MotionSpring, animated: Bool, change: () -> Void) async throws -> [String] {
+        var springs = false
+        let period = fixture.display.refreshPeriod
+        var failures = try await judge(axis, moves: animated, oracle: { .spring(try DeclaredSpring.declared(token), $0, period: period) }) {
+            change()
+            fixture.root.syncWithModel()
+            springs = fixture.screen?.hasMotion ?? false
+        }
+        if springs != animated {
+            failures.insert(animated ? "the change did not animate (no motion after it)" : "the change animated with animations off", at: 0)
+        }
+        return failures
+    }
+
+    /// Captures the window at rest, runs `change` (which may take many frames, a drag), waits for
+    /// the layout to rest, and judges every captured frame along `axis` against the oracle
+    /// `makeOracle` builds from the scanline's elements (built after `change`, so a drag's oracle
+    /// can read the pointer path it posted). Returns the failures; prints the frame data either way.
+    func judge(_ axis: Axis, moves: Bool, oracle makeOracle: ([ScanlineElement]) throws -> ScanlineOracle,
+               change: () async throws -> Void) async throws -> [String] {
         let window = fixture.window, scale = fixture.scale
         let screen = try #require(fixture.screen)
         let width = Int((window.frame.width * scale).rounded()), height = Int((window.frame.height * scale).rounded())
@@ -59,20 +79,15 @@ struct AnimationPixelRun {
         }
         let sampler = PresentationSampler(window: window, views: fixture.sampledViews)
         let trigger = CACurrentMediaTime()
-        change()
-        fixture.root.syncWithModel()
-        let springs = screen.hasMotion
-        let after = elements(screen, axis: axis, at: CGFloat(axis == .row ? rowY : columnX) / scale, length: axis == .row ? width : height)
+        try await change()
         try await fixture.settle()
+        let after = elements(screen, axis: axis, at: CGFloat(axis == .row ? rowY : columnX) / scale, length: axis == .row ? width : height)
         // The last frames reach the window server and the stream a few refreshes after the layout rests.
         try await Task.sleep(for: .milliseconds(300))
         sampler.stop()
         await stream.stop()
 
         var failures: [String] = []
-        if springs != animated {
-            failures.append(animated ? "the change did not animate (no motion after it)" : "the change animated with animations off")
-        }
         let shapes = stream.frameShapes
         if shapes.contains(where: { $0.width != width || $0.height != height || ($0.contentScale != 0 && $0.contentScale != 1) }) {
             failures.append("captured frames are not the window's \(width)x\(height) device pixels unscaled: \(shapes)")
@@ -80,16 +95,15 @@ struct AnimationPixelRun {
         guard before.map(\.label) == after.map(\.label) else {
             throw Failure(description: "\(name): the scanline crosses \(before.map(\.label)) before and \(after.map(\.label)) after")
         }
-        let judge = ScanlineJudge(spring: try DeclaredSpring.declared(token),
-                                  elements: zip(before, after).map { b, a in
-                                      ScanlineElement(label: b.label, before: (b.start, b.end), after: (a.start, a.end), exactLength: b.exactLength)
-                                  },
-                                  trigger: trigger, period: fixture.display.refreshPeriod)
+        let tracked = zip(before, after).map { b, a in
+            ScanlineElement(label: b.label, before: (b.start, b.end), after: (a.start, a.end), exactLength: b.exactLength)
+        }
+        let judge = ScanlineJudge(oracle: try makeOracle(tracked), elements: tracked, trigger: trigger, period: fixture.display.refreshPeriod)
         let frames = stream.captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }
-        let verdict = judge.judge(frames, palette: palette, animated: animated)
+        let verdict = judge.judge(frames, palette: palette, moves: moves)
         failures += verdict.failures
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
-        if animated {
+        if moves {
             let end = sampler.samples.last { $0.rects != sampler.samples.last?.rects }?.time ?? trigger
             for gap in sampler.missedRefreshes(from: trigger, to: end, period: fixture.display.refreshPeriod) {
                 failures.append("the main thread missed a display refresh in the motion: \(String(format: "%.1f", gap)) ms between ticks")
@@ -106,7 +120,7 @@ struct AnimationPixelRun {
     /// What a scanline at `position` (points, top-left origin) along `axis` crosses at the layout's
     /// targets: the panes and divider lines across it, and background between and around them, in
     /// device pixels.
-    private func elements(_ screen: ScreenContentView, axis: Axis, at position: CGFloat, length: Int) -> [(label: String, start: Double, end: Double, exactLength: Int?)] {
+    func elements(_ screen: ScreenContentView, axis: Axis, at position: CGFloat, length: Int) -> [(label: String, start: Double, end: Double, exactLength: Int?)] {
         let scale = fixture.scale, thickness = Int((fixture.model.style.dividerThickness * scale).rounded())
         let origin = screen.convert(CGPoint.zero, to: fixture.root)
         var found: [(label: String, start: Double, end: Double, exactLength: Int?)] = []
