@@ -12,6 +12,7 @@ public struct EmptyState: View {
     let primaryTitle: LocalizedStringKey?
     let isPrimaryLoading: Bool
     let primary: (() -> Void)?
+    let retry: (@MainActor () async -> Void)?
     let secondaryTitle: LocalizedStringKey?
     let secondary: (() -> Void)?
 
@@ -22,6 +23,7 @@ public struct EmptyState: View {
         primaryTitle: LocalizedStringKey? = nil,
         isPrimaryLoading: Bool = false,
         primary: (() -> Void)? = nil,
+        retry: (@MainActor () async -> Void)? = nil,
         secondaryTitle: LocalizedStringKey? = nil,
         secondary: (() -> Void)? = nil
     ) {
@@ -31,6 +33,7 @@ public struct EmptyState: View {
         self.primaryTitle = primaryTitle
         self.isPrimaryLoading = isPrimaryLoading
         self.primary = primary
+        self.retry = retry
         self.secondaryTitle = secondaryTitle
         self.secondary = secondary
     }
@@ -56,6 +59,9 @@ public struct EmptyState: View {
             if let primaryTitle, let primary {
                 PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
                     .padding(.top, 20)
+            }
+            if let retry {
+                RetryButton(action: retry).padding(.top, 20)
             }
             if let secondaryTitle, let secondary {
                 TextCTA(secondaryTitle, action: secondary)
@@ -203,26 +209,40 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public let text: String
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
+    public var offersRetry = false
+    /// Stable identity so two Macs with the same state still refresh the banner.
+    public var identity: String? = nil
 
-    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…") }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
-    public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "\(mac) is offline") }
+    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
+    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
-    /// A dial that keeps failing (for example WebRTC with no TURN path).
-    public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
+    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
+    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
+    /// An application failure distinct from connection state.
+    public static func failed(_ text: String, identity: String? = nil) -> Self {
+        Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
+    }
+
+    /// Gives a banner a stable owner without changing its copy. The owner keeps
+    /// dismissal scoped to the Mac that produced the banner.
+    public func identified(_ identity: String?) -> Self {
+        var copy = self
+        copy.identity = identity
+        return copy
+    }
     /// The Mac asks "Allow … to connect?" for this phone
     /// (verify/phone-approvals.md): a notification, a Dock bounce and
     /// Settings → Mobile on a Mac with #20491, only a cmux dialog on an older
     /// one. "Look for cmux" is true for both.
-    public static func waitingForPairing(on mac: String) -> Self {
+    public static func waitingForPairing(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
-             detail: String(localized: "Look for cmux on your Mac"))
+             detail: String(localized: "Look for cmux on your Mac"), identity: identity ?? mac)
     }
     /// The same after the phone replaced an unreadable stored key.
-    public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
+    public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"))
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
     }
 }
 
@@ -231,8 +251,11 @@ public struct ConnectionBannerState: Sendable, Hashable {
 public struct ConnectionBanner: View {
     let state: ConnectionBannerState
 
-    public init(_ state: ConnectionBannerState) {
+    let retry: (() -> Void)?
+
+    public init(_ state: ConnectionBannerState, retry: (() -> Void)? = nil) {
         self.state = state
+        self.retry = retry
     }
 
     public var body: some View {
@@ -257,6 +280,12 @@ public struct ConnectionBanner: View {
             } else {
                 Text(state.text)
             }
+            if state.offersRetry, let retry {
+                Text("·").accessibilityHidden(true)
+                Button("Retry", action: retry)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("connection.retry")
+            }
         }
         .font(theme.type.meta.weight(.semibold))
         .foregroundStyle(theme.colors.label)
@@ -265,7 +294,7 @@ public struct ConnectionBanner: View {
         .frame(minHeight: 36)
         .glassEffect(.regular, in: .rect(cornerRadius: state.detail == nil ? 18 : 20, style: .continuous))
         .padding(.horizontal, 16)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: state.offersRetry && retry != nil ? .contain : .combine)
         .accessibilityAddTraits(.updatesFrequently)
     }
 }
@@ -287,8 +316,8 @@ extension View {
     /// y - 12. It takes its own room: the content below (a list) is inset
     /// by the banner's height at every text size, so it covers nothing (R2-4).
     /// A swipe up or sideways, or a tap, hides it until the state changes.
-    public func cmuxMobileBanner(_ state: ConnectionBannerState?) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state) }
+    public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
+        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
@@ -298,16 +327,18 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes.
+/// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
+    let retry: (() -> Void)?
     @State private var dismissed: ConnectionBannerState?
 
     var body: some View {
         ZStack {
             if let state, state != dismissed {
-                ConnectionBanner(state)
-                    .cmuxMobileDismissibleToast(entry: .top, announcement: state.text) {
+                ConnectionBanner(state, retry: retry)
+                    .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
+                                               tapDismisses: !(state.offersRetry && retry != nil)) {
                         withAnimation(theme.motion.snappy.animation) { dismissed = state }
                     }
                     .padding(.top, 8)
@@ -317,6 +348,15 @@ private struct BannerHost: View {
         }
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation, value: state)
+        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+    }
+}
+
+/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
+/// included, ends the dismissal, so the next episode of the same state shows again.
+enum BannerDismissal {
+    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
+        state == dismissed ? dismissed : nil
     }
 }
 

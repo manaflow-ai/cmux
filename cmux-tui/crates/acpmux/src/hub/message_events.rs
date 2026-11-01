@@ -1,6 +1,7 @@
 //! Durable message projections, repaired from accepted prompt records after a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 #[derive(Clone)]
 pub(super) struct MessageContext {
@@ -94,15 +95,18 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
     // describe the parent's delivery and must never recreate a sender-side copy in the child.
     // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
     let mut inherited = session.meta().fork_seq.is_some();
-    let _ =
-        hub.store.scan_kinds(&session.id, &["queued", "user_message", "forked"], &mut |record| {
+    let _ = hub.store.scan_kinds(
+        &session.id,
+        &["queued", "user_message", "inbox", "forked"],
+        &mut |record| {
             if inherited {
                 if record.kind == "forked" {
                     inherited = false;
                 }
                 return true;
             }
-            if !matches!(record.kind.as_str(), "queued" | "user_message") {
+            // An inbox message (`inbox.rs`) is accepted as a queued one is, under its own kind.
+            if !matches!(record.kind.as_str(), "queued" | "user_message" | "inbox") {
                 return true;
             }
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
@@ -110,7 +114,8 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             };
             collect_message_contexts(&provenance, &session.id, &mut pending);
             true
-        });
+        },
+    );
     for message in pending {
         append_or_repair(hub, &session.id, &message, None);
         if message.record_sender_copy && message.sender_session != session.id {
@@ -253,7 +258,7 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(id) = sender.get("sessionId").and_then(Value::as_str) else { return };
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
-    provenance["sessionId"] = json!(id);
+    provenance.set("sessionId", json!(id));
     opts.provenance = Some(provenance);
 }
 

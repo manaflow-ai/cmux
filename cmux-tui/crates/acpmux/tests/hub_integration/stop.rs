@@ -70,7 +70,7 @@ fn held(row: &Value) -> Vec<(String, bool)> {
 /// process lands after it, and the other agents' messages stay queued, held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "works-through-stop").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
     let first =
@@ -140,11 +140,73 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
     );
 }
 
+/// Stop never ends a process that runs background work (Leo, 2026-10-31: "WELL THAT STOP BUTTON
+/// STOPPED LITERALLY EVERYTHING"). The agent works on through both cancels beside a background
+/// subagent; acpmux ends only the turn (`stop_escalated` `interrupt`, then `spared`): its process
+/// is neither ended nor started again, and the background subagent still runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-beside-background").await;
+    c.send(
+        method::SESSION_PROMPT,
+        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
+    )
+    .await;
+    let first =
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let title = first["update"]["title"].as_str().unwrap().to_owned();
+    let pid = format!("pid {}", title.rsplit(' ').next().unwrap());
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let ended = tokio::time::timeout(
+        Duration::from_secs(40),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("the stopped turn never ended");
+    assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
+    assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    assert_ne!(ended["msg"]["restarted"], true, "{ended}");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let steps: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "stop_escalated")
+        .filter_map(|e| e.msg["step"].as_str())
+        .collect();
+    assert_eq!(steps, ["interrupt", "spared"], "the process was ended beside background work");
+    assert!(!events.iter().any(|e| e.kind == "stop_restarted"), "the agent was started again");
+    assert!(
+        !events.iter().any(|e| matches!(e.kind.as_str(), "stopped" | "exited")),
+        "the agent's process ended"
+    );
+    let result = events.iter().find(|e| e.kind == "turn_result").unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "resumed" && e.seq > result.seq),
+        "a new process resumed the conversation"
+    );
+    // The same process still runs: it goes on calling tools after the turn ended.
+    let after: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "tool_call" && e.seq > result.seq)
+        .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
+        .collect();
+    assert!(
+        after.iter().any(|t| t.ends_with(&pid)),
+        "the agent's process did not run on: {after:?}"
+    );
+    let row = summary(&hub, &id);
+    assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
+}
+
 /// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
 /// messages wait held until it completed, then go in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-keeps-person").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
@@ -157,7 +219,10 @@ async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() 
         p["kind"] == "turn_started" && p["msg"]["promptId"] == "p-next"
     })
     .await;
-    assert_eq!(held(&summary(&hub, &id)), [("p-agent".to_owned(), true)]);
+    let row = summary(&hub, &id);
+    assert_eq!(held(&row), [("p-agent".to_owned(), true)]);
+    // The list says the Stop holds it, so a client that attaches now says so too.
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
     tokio::time::timeout(
         Duration::from_secs(20),
         c.wait_for(method::SESSION_UPDATE, |p| {
@@ -172,7 +237,7 @@ async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() 
 /// neither steers nor starts a turn (`inbox_digest.rs`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn after_the_persons_stop_an_inbox_digest_of_the_held_messages_waits_held() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-holds-digest").await;
     let run = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
@@ -197,7 +262,7 @@ async fn after_the_persons_stop_an_inbox_digest_of_the_held_messages_waits_held(
 /// leaves them held, since only the person's next turn or a resume ends a Stop's hold.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn after_the_persons_stop_a_failed_turns_retry_leaves_agent_messages_held() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![1_500]);
     let id = new_session(&mut c, "stop-outlasts-retry").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;

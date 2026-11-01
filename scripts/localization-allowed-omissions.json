@@ -7059,6 +7059,14 @@
       }
     }
   },
+  "iphone.phone.transport.next": {
+    "class": "brand",
+    "source": "%@ · cmux next"
+  },
+  "iphone.phone.transport.ios": {
+    "class": "brand",
+    "source": "%@ · cmux (iOS)"
+  },
   "cloud.workspaceSetup.setupScriptPlaceholder": {
     "class": "technical",
     "source": "bun install"
@@ -7079,14 +7087,6 @@
     "source": "Name",
     "identityLocales": {
       "de": "Name is the German noun for name; the translated entry remains required."
-    }
-  },
-  "sidebar.tab.untitledTerminal": {
-    "source": "Terminal",
-    "identityLocales": {
-      "de": "Terminal is the standard computing noun in this language; the translated entry remains required.",
-      "fr": "Terminal is the standard computing noun in this language; the translated entry remains required.",
-      "es": "Terminal is the standard computing noun in this language; the translated entry remains required."
     }
   }
 }

@@ -105,6 +105,32 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
 /// move has that id, so it is never committed, aborted or watched again.
 pub(super) const MOVED_AWAY: &str = "moved-away";
 
+/// The `moving` mark of a chat being imported here (`transfer.rs` `import_into`): published
+/// frozen and freed once its own `imported` receipt is logged. No move has that id.
+pub(super) const IMPORTING: &str = "importing";
+
+/// The `moving` mark of a chat whose log could not be read at load (`queue.rs`
+/// `restore_queue`): whether a move of it began is unknown, so it stays frozen, as a move would
+/// keep it, until a later load reads its log. No move has that id.
+pub(super) const LOG_UNREADABLE: &str = "log-unreadable";
+
+/// The `moving` mark a load restores from its log scan: the scan's own when it read the log,
+/// else frozen (`LOG_UNREADABLE`). An unreadable log may hold a move that began here, so the
+/// chat never runs beside the copy that may be running on its target.
+pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<String> {
+    if scanned { moving } else { moving.or_else(|| Some(LOG_UNREADABLE.to_owned())) }
+}
+
+/// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
+/// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
+pub(super) fn names_a_move(mark: &str) -> bool {
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
+}
+
+#[cfg(test)]
+#[path = "restore_freeze_tests.rs"]
+mod restore_freeze_tests;
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
@@ -208,7 +234,20 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running")));
         }
-        self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
+        // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
+        // one that never reached the log does not begin.
+        let (_, logged) = self.append_at(
+            session,
+            "mux",
+            "transfer_out",
+            json!({"transferId": transfer_id}),
+            None,
+            None,
+        );
+        if !logged {
+            drop(guard);
+            return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
+        }
         let dir = transfers_dir().join(&transfer_id);
         let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
         drop(guard);
@@ -216,8 +255,12 @@ impl Hub {
             Ok(files) => files,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
-                return Err(unfreeze(RpcError::internal(format!("transfer: bundle: {e}"))));
+                let error = RpcError::internal(format!("transfer: bundle: {e}"));
+                let record = json!({"transferId": transfer_id});
+                // Its `transfer_out` is logged: it stays frozen unless its end is too.
+                let (_, logged) =
+                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
+                return Err(if logged { unfreeze(error) } else { error });
             }
         };
         if let Some(socket) = to {
@@ -312,7 +355,8 @@ impl Hub {
     /// The move the session is in, or an error naming the one it is in (or that it is in none).
     fn moving_as(session: &Session, transfer_id: &str) -> Result<(), RpcError> {
         match session.moving() {
-            Some(id) if id == transfer_id => Ok(()),
+            // A mark that only freezes the chat is no move a caller may end.
+            Some(id) if id == transfer_id && names_a_move(&id) => Ok(()),
             other => Err(transfer_error("unknown", "the chat is not in this move")
                 .with_data(json!({"transferId": other}))),
         }
@@ -386,8 +430,14 @@ impl Hub {
         if let Some(reason) = reason {
             record.set("reason", json!(reason));
         }
+        // Logged while the chat is still frozen: a new move begins only after it, so this
+        // record never follows (and undoes) a newer `transfer_out` (`transfer_authority.rs`).
+        // One that never reached the log leaves it frozen, as its `transfer_out` says.
+        let (_, logged) = self.append_at(session, "mux", "transfer_aborted", record, None, None);
+        if !logged {
+            return Err(transfer_error("store", "could not durably record transfer_aborted"));
+        }
         self.end_move(session);
-        self.append(session, "mux", "transfer_aborted", record);
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
@@ -395,7 +445,7 @@ impl Hub {
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy
     /// that changed while it moved (a deny-all default skips a moving chat, `policy_mode.rs`) is
     /// followed, then its queued prompts run again.
-    fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(super) fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
         tokio::spawn(async move {

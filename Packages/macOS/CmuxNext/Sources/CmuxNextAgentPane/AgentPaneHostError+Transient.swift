@@ -16,7 +16,7 @@ nonisolated extension AgentPaneHostError {
         case .daemonFailed(_, let cause):
             switch cause {
             case .refused, .foreignHome: false
-            case .replacedBundle, .peerRefused, .noWebSocket, .exited, .unresponsive, .other: true
+            case .replacedBundle, .peerRefused, .noWebSocket, .exited, .personRestart, .other: true
             }
         // A daemon of another acpmux home refuses whether or not its holder is known (AcpmuxHost.foreignHome).
         case .daemonRefused(let holder, _, let reason, _, let owner):

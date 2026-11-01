@@ -80,7 +80,15 @@ pub(super) fn connect_and_attach(
     if let Some(author) = &author {
         watch.set_path(&["_meta", "acpmux", "author"], author.clone());
     }
-    let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
+    let watched = link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT);
+    // A list read whole from bad pages would follow only some of the session's descendants,
+    // and lose the changes of the rest; the client attaches again instead.
+    if let Err(LinkError::BadList(_)) = &watched {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::BadList);
+        return;
+    }
     let page = if author.is_some() { without_drafts(page) } else { page };
     let attachment = Arc::new(Attachment {
         author,

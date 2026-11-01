@@ -47,6 +47,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         AgentPaneView.finishWarmup()
+        let pid = PageTermination.webContentPid(of: webView)
+        if pid != 0 { view?.knownWebContentPid = pid }
+        view?.pageLoadedAgain()
         view?.applyTheme(force: true)
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
@@ -59,10 +62,17 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.replayCustomization()
     }
 
-    /// A crashed web content process leaves a blank pane; the view reloads
-    /// the page, which asks for a fresh handshake and reattaches the session.
+    /// A crashed web content process leaves a blank pane; the view shows the crash notice, whose
+    /// Reload asks for a fresh handshake and reattaches the session (only when pressed).
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        view?.webContentProcessDidTerminate()
+        view?.webContentProcessDidTerminate(PageTermination(reason: .unknown, pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// The same with WebKit's reason (`WKNavigationDelegatePrivate`); a WebKit that has it calls
+    /// this instead of ``webViewWebContentProcessDidTerminate(_:)``.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        view?.webContentProcessDidTerminate(PageTermination(reason: .init(webKit: reason), pid: PageTermination.webContentPid(of: webView)))
     }
 
     enum Decision: Equatable {

@@ -140,11 +140,14 @@ import Testing
         page.layoutSubtreeIfNeeded()
         page.show(ConversationID(rows[0]))
         let h = Harness(services: services, window: window, page: page)
+        var completed = false
+        defer { if !completed { h.close() } }
         await wait { h.box != nil }
         let hasBox = h.box != nil
         try #require(hasBox, "Home's message box never appeared")
         let listed = page.list.itemFramesInWindow.count == entries.count
         try #require(listed, "the list does not show the test items")
+        completed = true
         return h
     }
 

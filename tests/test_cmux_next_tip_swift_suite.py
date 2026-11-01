@@ -25,7 +25,8 @@ def job(name: str) -> str:
 
 def tip_branch() -> str:
     route = job("path_route")
-    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_SWIFT_SUITE" == true \]\]; then\n(.*?)\n          else\n',
+    # Up to the next branch: the tip daemon suite's elif, or the router's else.
+    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_SWIFT_SUITE" == true \]\]; then\n(.*?)\n          el(?:se|if)\b',
                       route, re.DOTALL)
     assert match, "path_route has no tip_swift_suite branch"
     return match.group(1)
@@ -58,6 +59,43 @@ class TipSwiftSuite(unittest.TestCase):
         group = re.search(r"^concurrency:\n(?:  #.*\n)*  group: (.*)$", WORKFLOW, re.MULTILINE).group(1)
         # Dispatches on feat-cmux-next get a group of their own run id.
         self.assertIn("github.ref != 'refs/heads/feat-cmux-next'", group)
+
+
+def tip_daemon_branch() -> str:
+    route = job("path_route")
+    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_DAEMON_SUITE" == true \]\]; then\n(.*?)\n          else\n',
+                      route, re.DOTALL)
+    assert match, "path_route has no tip_daemon_suite branch"
+    return match.group(1)
+
+
+class TipDaemonSuite(unittest.TestCase):
+    """A feat-cmux-next push never runs daemon-test, so main's tip suite dispatcher asks for a
+    tip_daemon_suite run: the base daemon-test verdict base_red_excuse.py compares with (#27692)."""
+
+    def test_the_dispatch_input_exists_and_names_the_tested_commit(self):
+        self.assertRegex(WORKFLOW, r"\n      tip_daemon_suite:\n(?:        .*\n)*?        type: boolean\n")
+        # A same-tree run tests inputs.same_tree_sha while github.sha is the tip by then.
+        self.assertIn("format('cmux-next tip daemon suite · {0}', inputs.same_tree_sha || github.sha)", WORKFLOW)
+
+    def test_it_routes_only_the_daemon_tier(self):
+        outputs = dict(re.findall(r"echo '(\w+)=([^']*)'", tip_daemon_branch()))
+        self.assertEqual(outputs.get("daemon"), "true")
+        self.assertEqual(outputs.get("macos"), "true")
+        for tier in ("native", "scheme", "generated", "swift", "full", "swift_canary", "cmuxnext_swift"):
+            self.assertEqual(outputs.get(tier), "false", tier)
+        self.assertIn('[[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]]', tip_daemon_branch())
+
+    def test_its_tree_wait_marker_is_a_tip_suite(self):
+        route = job("path_route")
+        self.assertIn("TIP_DAEMON_SUITE: ${{ inputs.tip_daemon_suite || false }}", route)
+        self.assertIn('marker.update(tip_suite="daemon")', route)
+
+    def test_daemon_test_runs_for_a_dispatch_and_its_same_tree_run(self):
+        condition = re.search(r"^    if: (.*)$", job("daemon-test"), re.MULTILINE).group(1)
+        # Only a push's same-tree run is skipped; the tip suite's is origin dispatch.
+        self.assertIn("inputs.same_tree_origin != 'push'", condition)
+        self.assertNotIn("tip_daemon_suite", condition)
 
 
 if __name__ == "__main__":

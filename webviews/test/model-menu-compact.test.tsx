@@ -104,6 +104,8 @@ async function mount(
     effort?: string;
     folderProfile?: boolean;
     currentFolder?: boolean;
+    /** A custom harness whose only icon is acpmux's generic glyph (no brand mark behind it). */
+    glyphHarness?: boolean;
     update?: UpdateOffer;
   } = {},
 ) {
@@ -122,6 +124,16 @@ async function mount(
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     })),
+    ...(options.glyphHarness
+      ? [
+          {
+            id: "glyph-harness",
+            name: "Glyph harness",
+            iconSpec: { kind: "glyph", name: "terminal", source: "default" },
+            models: [{ id: "glyph-model", name: "Glyph model" }],
+          },
+        ]
+      : []),
     ...(options.folderProfile
       ? [
           {
@@ -243,15 +255,20 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const modelNames = (popup: HTMLElement) =>
   modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
-const currentEffortSegments = (popup: HTMLElement) => {
+/// The running model's effort levels: its effort item opens them beside the row as a side dropdown
+/// (a submenu of their own), one per line.
+const currentEffortSegments = async (popup: HTMLElement) => {
   const row = modelRows(popup).find((item) => item.querySelector(".acpmux-menu-label")?.textContent === "Opus 5.5");
-  return row
-    ? [
-        ...row
-          .closest<HTMLElement>(".acpmux-quick-model-effort")!
-          .querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment"),
-      ]
-    : [];
+  const trigger = row
+    ?.closest<HTMLElement>(".acpmux-quick-model-effort")
+    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  if (!trigger) return [];
+  if (!trigger.hasAttribute("data-popup-open")) {
+    await act(async () => trigger.click());
+    await settle();
+  }
+  const dropdown = doc().querySelector<HTMLElement>(".acpmux-quick-effort-menu");
+  return [...(dropdown?.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment") ?? [])];
 };
 const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
 const key = (value: string) =>
@@ -303,16 +320,21 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
-  const segments = currentEffortSegments(menu()!);
-  expect(segments.map((segment) => segment.textContent?.replace(/^✓/, "").trim())).toEqual(["Low", "Medium", "High"]);
+  const segments = await currentEffortSegments(menu()!);
+  expect(
+    segments.map((segment) =>
+      (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
-  // Claude Code's order: the models (with inline effort), More models, then Account last.
+  // Claude Code's order: the models, More models (named Legacy models in the default symbols
+  // layout), then Account last.
   expect(
     rows
-      .filter((row) => /^(More models|Account)/.test(row ?? ""))
-      .map((row) => row?.match(/^(More models|Account)/)?.[0]),
-  ).toEqual(["More models", "Account"]);
+      .filter((row) => /^(Legacy models|Account)/.test(row ?? ""))
+      .map((row) => row?.match(/^(Legacy models|Account)/)?.[0]),
+  ).toEqual(["Legacy models", "Account"]);
 });
 
 test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
@@ -332,7 +354,12 @@ test("a number key picks that model in place", async () => {
   await open();
   const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
-  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["✓", "2", "3", "4"]);
+  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓")).toEqual([
+    "✓",
+    "2",
+    "3",
+    "4",
+  ]);
   const third = models[2]!;
   const name = third.querySelector(".acpmux-menu-label")!.textContent!;
   await act(async () => {
@@ -347,12 +374,15 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const effort = menu()!;
-  expect(currentEffortSegments(effort).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
-  const high = currentEffortSegments(effort).find((item) => item.textContent?.replace(/^✓/, "").trim() === "High")!;
+  expect(
+    (await currentEffortSegments(effort)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
+  const high = (await currentEffortSegments(effort)).find(
+    (item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim() === "High",
+  )!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
@@ -506,6 +536,63 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
 });
 
+test("⌘D stars and unstars the highlighted model row, as its star does", async () => {
+  await mount({ routes: [] });
+  await open();
+  const row = modelRows(menu()!)[0]!;
+  const name = row.querySelector(".acpmux-menu-label")?.textContent ?? "";
+  await act(async () => row.focus());
+  await settle();
+  expect(row.hasAttribute("data-highlighted")).toBe(true);
+  const star = () => row.closest(".acpmux-quick-model-effort")!.querySelector<HTMLButtonElement>(".acpmux-quick-star")!;
+  // The star says which model it stars, and its key.
+  expect(star().getAttribute("aria-label")).toContain(name);
+  expect(star().getAttribute("aria-keyshortcuts")).toBe("Meta+D");
+  expect(star().title).toContain("⌘D");
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+  const press = () =>
+    act(async () => {
+      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "d", metaKey: true, bubbles: true }));
+    });
+  await press();
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("true");
+  expect(menu(), "⌘D closed the menu").not.toBeNull();
+  await press();
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+});
+
+test("every harness tab on the symbols row is a mark with no visible text, its name only its label", async () => {
+  // Leo 2026-10-31: "NOBODY FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON
+  // THEM THAT'S THE POINT". A glyph-only harness (no brand mark behind it) draws its initial.
+  const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  rememberHarnessIcons([{ id: "glyph-harness", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
+  await mount({ routes: [] }, { glyphHarness: true });
+  await open();
+  const tabs = railTabs().filter((tab) => !tab.classList.contains("acpmux-quick-rail-add"));
+  expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toContain("Glyph harness");
+  for (const tab of tabs) {
+    const name = tab.getAttribute("aria-label");
+    // The name is the tab's label and tooltip, hidden on the tab itself.
+    expect(tab.title, `${name}`).toContain(name!);
+    const label = tab.querySelector(".acpmux-quick-harness-name")!;
+    expect(label.classList.contains("sr-only"), `${name}: its name shows on the tab`).toBe(true);
+    // Its mark: a symbol, the star, or the name's initial.
+    expect(tab.querySelector(".agent-mark, svg, .acpmux-quick-rail-initial"), `${name}: no mark`).not.toBeNull();
+    // No visible text: everything outside the hidden name is a mark.
+    const visible = [...tab.childNodes]
+      .filter((node) => node !== label)
+      .map((node) => node.textContent ?? "")
+      .join("");
+    expect(visible.replace(/\s/g, "").length, `${name}: visible text "${visible}"`).toBeLessThanOrEqual(1);
+  }
+  const glyph = tabs.find((tab) => tab.getAttribute("aria-label") === "Glyph harness")!;
+  expect(glyph.querySelector(".acpmux-quick-rail-initial")?.textContent).toBe("G");
+  const add = menu()!.querySelector(".acpmux-quick-rail-add");
+  if (add) expect(add.querySelector(".sr-only")).not.toBeNull();
+});
+
 test("without a starred model the rail starts at the harnesses", async () => {
   await mount({ routes: [] });
   await open();
@@ -539,7 +626,8 @@ test("Add harness… is the last item in the harness strip, outside More models"
   const { added } = await mount({ routes: [] });
   await open();
   const top = modelNames(menu()!);
-  const more = await openSub("More models");
+  // The default symbols layout names More models "Legacy models".
+  const more = await openSub("Legacy models");
   const rows = itemsOf(more);
   expect(rows).not.toContain("Add harness…");
   expect(rows.length).toBeGreaterThan(0);
@@ -740,11 +828,11 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(currentEffortSegments(menu()!).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
+  expect(
+    (await currentEffortSegments(menu()!)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "on" }]);
