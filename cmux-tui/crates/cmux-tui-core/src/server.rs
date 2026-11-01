@@ -135,10 +135,10 @@ mod agent_session_attach;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -492,6 +492,11 @@ pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
 /// `workspace.create` takes `focus`: a created workspace becomes the focused
 /// one only with `focus: true` (the app sends it for the person's creations).
 pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
+/// `workspace.create` takes `placement` (`top`, `after_current`, `bottom`):
+/// the new workspace's sidebar place for that create, over the
+/// `workspaces.newPlacement` setting; and `workspace.move {index}` moves the
+/// workspace in the sidebar document's order too (#29875).
+pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-placement-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -1827,6 +1832,8 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
+    /// The cloud environment editor; the signed-in person only.
+    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2644,7 +2651,7 @@ use bounded_outbound::{
 #[cfg(test)]
 use bounded_outbound::{
     ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
-    websocket_server_frame_header,
+    claim_terminal_connection_from, websocket_server_frame_header,
 };
 
 mod client_registry;
@@ -2951,3 +2958,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

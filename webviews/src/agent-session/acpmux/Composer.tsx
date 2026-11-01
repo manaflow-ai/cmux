@@ -55,6 +55,7 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
   composerCommand,
   harnessTakesToo,
   type CmuxCommand,
@@ -121,6 +122,7 @@ import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -619,10 +621,10 @@ export function Composer({
   // Whether Esc stops a turn on a double press (escapeStop.ts).
   const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
-  // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
-  // Codex keeps its action behavior even though the model moved.
+  // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
+  // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
-  const quietActions = plainFooter && look === "claude";
+  const quietActions = plainFooter;
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -1225,13 +1227,17 @@ export function Composer({
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
   };
+  // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
+  const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
     const next = `/${command.name} ${existing}`;
     pendingCaret.current = next.length;
@@ -1368,9 +1374,10 @@ export function Composer({
               if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
-            () => {
+            (reason: unknown) => {
               sending.current = false;
-              setAttachError(t("composer.cmuxUnavailable"));
+              // A command may refuse with its own sentence (`/cd` to a path that is no folder).
+              setAttachError(reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable"));
             },
           );
           return true;
@@ -1801,9 +1808,16 @@ export function Composer({
 
   // Stop was sent and the turn has not ended: Stop turns and says so.
   const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
-  const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt held while the chat's agent starts (harnessSwitch.ts) reads as its turn already
+  // running: Stop is there from the send on and takes the held prompts back to the composer (the
+  // transcript draws no Cancel for them, Leo 2026-11-01), then stops the turn once it runs.
+  const holding =
+    !snapshot.isWorking &&
+    snapshot.switching?.phase === "starting" &&
+    snapshot.rows.some((row) => row.queued !== undefined);
+  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && snapshot.isWorking;
+  const running = !shell && (snapshot.isWorking || holding);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
@@ -2111,9 +2125,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's box draws no Send at rest until there is a draft, the mic alone on the right;
-      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right
-      // edge through a turn. Codex's look keeps Send's ↑ last, after the mic.
+      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
+      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn, in both looks.
       <button
         key="send"
         ref={sendButton}
@@ -2166,8 +2180,8 @@ export function Composer({
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
-      // The box inside draws Claude's compact grid (ComposerBox.tsx, composerLocation.css).
-      data-composer-grid={look === "codex" ? undefined : ""}
+      // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
+      data-composer-grid=""
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -2286,6 +2300,7 @@ export function Composer({
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
+        onPasteFiles={(files) => void attach(files, true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -2382,6 +2397,7 @@ export function Composer({
                 planning={planning}
                 entries={composerPlusRegistry({
                   commands,
+                  recentCommands: recentCommands(recentCommandNames, commands),
                   translate: t,
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
@@ -2415,6 +2431,7 @@ export function Composer({
                 }}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
                 onSlash={pickFromPlus}
+                onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}
           </>

@@ -67,7 +67,11 @@ export function MarkdownPage({
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
       <div className="md-page md-page-message" role="alert">
-        <p>{t(state.phase === "disconnected" ? L.disconnected : L.failed)}</p>
+        <p>
+          {state.phase === "failed" && state.failure
+            ? state.failure
+            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
+        </p>
         <button type="button" className="md-button" onClick={() => void store.start()}>
           {t(L.retry)}
         </button>
@@ -187,6 +191,7 @@ export function MarkdownPage({
         </div>
       ) : null}
       {state.readOnly && readOnlyNote && state.phase === "ready" ? <div className="md-note">{readOnlyNote}</div> : null}
+      {state.unavailable && state.phase === "ready" ? <output className="md-note">{state.unavailable}</output> : null}
       {find ? (
         <div className="md-find-host">
           <MarkdownFindBar find={find} strings={strings} />

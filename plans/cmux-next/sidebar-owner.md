@@ -1,5 +1,45 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
+  them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
+  see the # of associated subagents and whatnot would be a lot more useful / like the details aren't even very useful
+  / there's a lot of low hanging fruit". acpmux counts the work on each chat's summary (`subagentsRunning`,
+  `subagentNames`, `commandsRunning`, a `subagents_running` record per change, `turn.notice`); the card only words it.
+  A tab row's second line leads with "3 subagents · 1 command" (tabular digits) before its folder; the expanded card
+  adds a "3 subagents · 1 command" line (the running tray's glyph) and one line per running subagent, named
+  (`WorkspaceHoverCardWork.Style.list`, chosen over `summary` and `inline` in the gallery's "Running work" cards). A
+  turn acpmux's "[inbox] New messages from other agents" notice started is no prompt: the History leaves it out and
+  the stats still count its work. Nothing is removed. Regression: `WorkspaceHoverCardRunningWorkTests`; acpmux
+  `running_subagents_reach_the_summary_and_each_change_is_recorded`.
+
+- 2026-11-01: the opt-in content hold (`sidebar.slideHoldsContent`, Debug Settings) changes the content's frame once, to
+  where it lands, and leaves it still while the sidebar slides. Leo, verbatim: "when i toggle the sidebar on and off I
+  STILL SEE THE ENTIRE OTHER PART OF THE APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK". The hold kept the widest width
+  of the slide and rode the sidebar's moving edge: a show slid the old wide layout across and laid it out narrower at
+  the landing. It now takes the landing width at the start and pins the content to the card's far edge
+  (`ContentHold.pinsTrailingEdge`), still one layout per toggle. The default stays #29894's (the content follows the card
+  every frame). Regression: `SidebarSlideHoldsContentTests`; display-tick trace of both modes
+  `SidebarToggleContentTraceTests`.
+- 2026-11-01: a workspace row's machine mark sits in the trailing status column, a status mark's size, one neutral
+  colour (#29833, fixing #22763's placement). Leo: "WHY ARE THE CLOUD ICONS LIKE THIS ON THE
+  LEFT WHO DID THIS" / "I HATE HOW SMALL THEY ARE, I HATE THAT THEY'RE ON THE LEFT, I HATE THAT THEY'RE ON THE
+  BOTTOM". The mark (Cloud, ssh and local alike) no longer sits before the title: it takes a
+  `statusGlyphSize` box (`statusGlyphFrame`) on the row's centre line, right to left after the muted bell and before
+  the warning triangle, or the column itself on a row with no status (`layoutColumnMark`). Tint is
+  `Palette.textTertiary`, never `MachineColor`. It gives way to the hover controls as the other marks do. The machine's
+  name in the row label and the show/hide rules are unchanged. Regression: `SidebarMachineMarkTests`.
+- 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
+  host name for remote, and no location label for local. It stays visible without opening details;
+  expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
+  kind of delineation between cloud/remote (local has no distinguishing) seem alright for cloud
+  related stuff"; "it's just on the hover preview". Regression: WorkspaceHoverHostIdentityTests.
+
+- 2026-11-01: Leo: "did we get the “bigger blue dot” thing in? i also think we ought to have a bigger red warn symbol".
+  #29633 made legacy unread badges, tiles and priority dots 8 pt, but the default workspace badge still
+  painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
+  `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
+  keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
+
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
   of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
@@ -191,6 +231,14 @@ performance.
 
 ## Rule for every sidebar change
 
+### Shared grid columns (2026-10-30)
+
+The native sidebar rows consume `SidebarColumns` for their lead, text, nesting and trailing
+slots. Text-only rows start at the lead without reserving an empty icon well; group headers keep
+their members' text column while the existing rail and edge geometry stays unchanged. Trailing
+marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
+alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
@@ -220,6 +268,12 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Last workspace close keeps its group (2026-11-01)
+
+Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
+
+A workspace close removes only the workspace. The daemon close path and remote-close forwarding use the reducer's existing `item.delete` operation; the immediate sidebar edit also preserves the group. Every ancestor keeps its identity, order and fold, so the existing row close animation leaves its header in place, including with the currently pinned app FFI. Explicit Close Group and move/reorder/unpin cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and daemon workspace-close tests. The empty-group presentation is a separate change.
+
 ## Group editor opens in one frame (2026-10-29)
 
 - Leo 2026-10-24: "why the fuck would you fade in opening up a fucking menu? Just open the menu... Every single fucking instance." The group editor opens at final opacity and size without entrance motion; its placement, contents, colors and closing fade/shrink stay unchanged. This intentionally takes back #26400's opening animation. Native motion coverage: `PopupGrowMotionTests`, `PagePopupMotionTests`. Real light/dark app captures remain pending the coordinator's Swift HOLD #26809.
@@ -229,6 +283,8 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Part | Target | Source |
 | --- | --- | --- |
 | Hover preview first show | After the existing dwell delay, a sidebar row's hover preview appears at full opacity at its final position. Switching between shown cards keeps its existing motion. | Leo 2026-10-28, ask-067e9aa217 ("there's no fade-in animation for the hover. We can just have it instantly come in on the first load; the delay that we have is fine, maybe.") |
+| Hover preview timing, list and travel | The cold delay is 400 ms (`HoverCardTiming.showDelay`, `sidebar.hoverCards.delay`); an open card moves to the next row at once and a hover within 300 ms of it going shows at once. The card lists every tab: no "Show N more"; up to the row limit plus one fit, a longer list shows the limit plus half a row and scrolls in place, and its gaps and scroller take the pointer. A pointer aiming from its row into the card across other rows keeps the card (the safe triangle, `cardAim`); a crossed row takes it only if the pointer stops there. Show details is a row-styled disclosure: chevron on the tab rows' icon column, words on their title column, secondary ink, the rows' hover and pressed fill. | Leo 2026-11-01 ("i need these hover previews to appear a hell of a lot faster than they do now"; "the show 1 more is reallly bad when it's this small like you need to be able to scroll through them and also for my mouse to be able to reliably go across them and the show details... make the thing a little bit less completely unstyled. at least try a little bit"). Replaces the 1300 ms Chrome delay (Lawrence 2026-10-28 msg 15729) for the default; the setting keeps any value. |
+| Workspace hover card | One grid: the header's icon, every tab row's icon and the Show details chevron center on one icon column; the name, each tab's title and detail line and "Show details" start on one text column; tab rows keep one pitch (the list scrolls as the row above says). Each tab row is two lines: its icon (favicon, agent mark or kind), its title, and one muted detail line, the folder or page host · the status word (none when idle) · the time since its last activity, its kind when it has none (a blank page reads "New Tab"); only the place shortens, from its middle, keeping its last path component or host, never the status or the time; its spinner, needs-you or error mark, or unread dot on the trailing column. The card sizes to its rows up to 320 pt, or the sidebar's width plus 120 when less, and no narrower than 180 pt. The card lays a frosted veil (the theme's window background at 0.55) over its glass, so it reads over a busy terminal and stays glass (Leo 2026-10-21's overlay rule caps a body tint under 0.6). Variants V1..V12: `AAWorkspaceHoverCardVariantsGalleryTests` (V1 is this). | Lawrence msg 19245 ("alignment here looks bad. design not very good either, not showing enough details per each. make many variations and show me") |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
 | Group rail shape | Chrome's line on that edge: 2 pt, flat ends, the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
@@ -391,7 +447,9 @@ the gap, no row left out of place after drop or cancel).
 
 | Range | Change |
 | --- | --- |
+| perfx/sidebar-burst (port of cp/motion-sidebar-burst; red 8dacc89f2bc, then the fix) | Cmd-N held (Lawrence 2026-10-28: "when i hold down cmd n, the animation in sidebar is not good, like i see empty space where workspaces should be, and only after i stop cmd n, do the workspaces show up"; handoff/sidebar-burst-motion.md). A row still opening that the next insert only pushes keeps its view, its content and its open (its frame retargets on the additive render-server springs from what shows); before, `SidebarListView.apply` rebuilt it at height 0 and opacity 0 on every key under every new row motion that opens rows (`sidebar.insertMotion` nudge, quick, full spring). A row still opening that moves by itself (both rows beside it changed) still opens again at its new slot (cx-ai79). With the list taller than the viewport, Cmd-N at the top no longer moves the rows and the offset down and jumps back, and a Cmd-N whose reveal jumps to a new row it had not drawn shows it whole in its slot in that frame. Motion only: rows, density, the snap default and the contract unchanged. Tests: `SidebarInsertBurstTests` (every motion, on a display). |
 | sb-stray-switch: the "(red)" test commit ("no notice card switch draws outside a card that shows", fleet step 511710c9b7e2ad1adf3ac159, failed as expected), then this fix | Lawrence msg 19185 (NIGHTLY shot): a lone switch at the sidebar's top left, over Home's icon, no card on screen. Root cause (0ed7a661a153, a934's inline Always switch): the notice card squeezed `SidebarCardSwitch` to the room left on its button row (`min(size.width, b.width - pad - x)`, 0 on a narrow card) and the switch drew its `NSSwitch` from its own right edge leftward, past its frame; nothing in the card clipped. A card laid out narrower than its rows (the sidebar laid out small, which put the Tidy Up card at its top left, keeping that place while it played its exit) drew every row at zero width, all but the switch, which showed alone left of the card. Now the switch shows whole on the button row or not at all, never left of its own frame, and the card's content clips to its rounded edge. Look change: none on a card of normal width. Tests: `SidebarStraySwitchTests` (real `SidebarView` with Home and pinned rows: the Tidy Up card left, flipped, replaced, no notice, a narrowing sidebar, a sliver card at the top left mid-exit, a shown switch on the button row); stills `AASidebarStraySwitchGalleryTests`. |
+| sb-hovercard: the "(red)" test commit 894b4e1d0477 (fleet step bc33d8fc7ffea8e9ff76f39f, failed as expected: tab icons at x 19 vs the header's 14.5, text at 30 vs 25, "Show 9 more" at 8), then this fix | Workspace hover card on one grid with a detail line per tab (Lawrence msg 19245). `WorkspaceTabHoverCardStyle` (`.standard` is V1), `WorkspaceTabHoverCardLine`; `SidebarTab` gains `host`, `branch`, `lastActivity` (mapped in `SidebarMapping`); rows (and Leo's Show details disclosure, now on the same grid) reach `fillOutset` past the list so the hover fill keeps room while the icon stays on the column; rebased over #29980 (no Show N more; the list scrolls); the card body lays a 0.55 veil of the theme's window background over the glass (`WorkspaceTabHoverCardStyle.Material.frosted`; takes back the 10-19 "no fill over the glass" body for this card, within the overlay-glass gate; `WorkspaceHoverCardSurfaceTests` pins the veil). The card sizes to its rows up to `WorkspaceHoverCardView.maxCardWidth` (320 pt, or the sidebar plus 120); a detail line shortens only its place (`WorkspaceTabHoverCardLine.detail(fitting:font:)`); about:blank reads New Tab; tab labels take their padded frame size (`ChromeLabel.naturalSize`: a frame of the intrinsic size clipped 4 pt). Regression: `WorkspaceHoverCardGridTests`; gallery `AAWorkspaceHoverCardVariantsGalleryTests` (artifact `hover-card-variants.tar`). |
 | sb-controls-on-hover: the "(red)" test commit ("failing tests for controls on hover and the Search button at the footer's right end"), then this fix | Lawrence 2026-10-27 (message 14242): "move the bottom-left search thing to the right side ... there should be a minimal mode such that it will only show when the mouse is over the sidebar". The footer's Search button sits at the row's right end, its inset mirroring the avatar's at the left (`SidebarFooterBand.placeSearch`); the spaces strip runs between them and the status slot stops before it. Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`, off by default; not Minimal Mode, `sidebar.minimal`, which it stacks with): off, the New Workspace button, spaces strip, profile control and Search button always show (the New Workspace button and a hover-mode strip were hover-only before); on, they fade in only while the pointer is over the sidebar, a fade with no frame change, at once under Reduce Motion (`SidebarChromeReveal`). `sidebar.spacesVisibility` Always keeps the strip with controls on hover. Cmd+Shift+P, `cmux sidebar hide-controls-until-hover` / `show-controls-always` and MCP: Show Sidebar Controls Only on Hover / Always Show Sidebar Controls. Also: `sidebar.noFade` hides the Search button again (`placeSearch` showed it after the noFade pass hid it). Tests: `SidebarControlsOnHoverTests`, `SidebarControlsOnHoverSettingTests`, `SidebarControlsOnHoverSurfaceTests`, `SidebarSearchButtonTests` (right end). |
 | sb-no-fade: the "(red)" test commit c7836aa6305, then this fix | `sidebar.noFade` (Lawrence 2026-10-26: "shows the whole left sidebar with no fade"): off by default; on, the list and band edges stop fading and the bottom profile and search bar hides. Cmd+Shift+P: Show Whole Sidebar (No Fade) and Restore Sidebar Fade. `Sidebar-Look:` trailer on the fix commit. |
 | [d7e481c..52bbe91](https://github.com/manaflow-ai/cmux/compare/d7e481c0bcc53add423486f53fa053bc9c2a4200~1...52bbe9167a61c436db638f829a76d0275637d3d6) a755 (d7e481c0bcc5 red, 52bbe9167a61 fix; omnibar chip 7794ba39c8dd..4c7015f1124d) | Hand-framed labels hold their whole text (Lawrence 2026-10-27, msg 14473: "file slightly cut off here", the omnibar's "File" chip). The status header name ("Runn…") and count, presence overflow, session-tree roll-up and pull request counts, chat history meta and PR badge framed their label at `intrinsicContentSize`, the text alone without the label's 2 pt padding on each side. Text-box placements now go through `frame(forAlignmentRect:)`, self-sized labels use `naturalSize`. Look change: text no longer truncates or loses its last glyph's edge; roll-up counts, history meta and the PR badge sit 2 pt left, where their layout put the text box. Test: `HandSizedLabelClippingTests` (red commit first). |
@@ -809,6 +867,28 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+## Sidebar layout grid (2026-10-29)
+
+Leo: "We need to have the fucking shit aligned on fucking grids and lines and whatever the fuck."
+`SidebarColumns` (via `SidebarStyle.columns`) is the one source of every row kind's lead, icon,
+text and trailing lines. Lead sits `horizontalInset` inside the row (12 compact, 16 comfortable
+from the sidebar edge), so iconless titles keep Lawrence's 2026-10-23 "text needs to be as left as
+possible (how it originally was)" (`a1af264c7a7`); a row with an icon takes text at lead + icon
+column + 8 (36 compact, 44 comfortable); +16 per real nesting depth. Every trailing mark centers
+24 from the sidebar edge (22.5 from the row's end, which stays `rowEdgeGap` 1.5 from the edge),
+a second mark 20 further in. Row heights, fonts, hit boxes, fills, glyph sizes and group rail
+and bar x stay at base; group names keep their members' text column (`ab905adeadd`).
+`SidebarGridAlignmentTests` pins the columns and the preserved base geometry.
+Commits of #27598 that predate its branch's `Sidebar-Look:` trailer check carry no trailer; each is a
+visual change asked for by the grid request above, reviewed (Astra SHIP at `14317162851`, and the merge
+with feat-cmux-next at `c552fc0cff0`) and logged here: `af33eaea0cf` (iconless lead at the row inset, band
+marks on the trailing line), `81ab5acc7fe` (tab rows under their workspace; titleFrame reports drawn
+text), `d3a10cfc23d` (base's icon box outside the row columns), `c231ff796c8` (glyphs keep base's icon
+box, centered in the icon column), `05c5b297b4e` (glyphs start on lead; base's rail padding),
+`2a896b81d78` (a quiet tab keeps its trailing inset; the comfortable icon frame is the 20 pt box).
+The merge keeps base's later sidebar looks on the columns: the trailing column's resize-band clearance
+(#27954, `9a79771762c`) as a floor in `SidebarColumns`, a section header's + on the column, a remote
+group's machine mark, the left-rail slot, the 8 pt unread dot, and no hover close on pinned rows.
 
 ## One list's "Connecting…" waits out the startup deadline (2026-10-30)
 
@@ -880,3 +960,38 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Agent and lane session row titles (2026-10-30)
 
 - Leo: “i feel like there's still a big mess of uncategorized stuff in the sidebar”, “eg a lot of these subtitles are bad”, and “im saying for my particular sidebar there's a lot of wack stuff there”. Agent and lane session rows prefer a generated chat title or an explicit leading `Title:` task header before their short session name. Generating titles for named lanes belongs to acpmux ([#28376](https://github.com/manaflow-ai/cmux/pull/28376)); until that metadata arrives, the session name remains. The sidebar, titlebar, palette and window lists share this resolver. User-role last-message previews are excluded from subtitles so status, repository, branch or pull request metadata can show through; agent replies remain eligible. The opt-in Now line uses activity/plan metadata instead of a prompt-derived lane step. Explicit user workspace and chat names remain authoritative, and automatic naming still obeys its existing setting. General workspace defaults and fleet grouping are unchanged. Test: `SidebarAgentRowPresentationTests`.
+||||||| parent of 50fa91406f22 (feat(sidebar): a remote group draws as one sidebar group with its machine's mark and status dot)
+## Remote groups draw as groups (2026-10-31, a954)
+
+- User 2026-10-31 (Chief msg 19277), verbatim: "remote groups needs to be better, this is unintuitive to use, and also it needs to look like a group in the sidebar". Before: a remote group was its machine's section header (quiet text, status dot and word) over unindented rows. Now `SidebarDocProjection.arrange` wraps a remote group's section into one sidebar group (`SidebarSection.wrappedAsHostGroup`, id `host:<machine>`): the group bar, chevron, rail and member indent of any group, with a trailing machine mark and status dot left of the chevron (`SidebarHostGroupLook.trailingMarkAndDot`, the default; the gallery `AARemoteGroupGalleryTests` renders all six looks, light and dark, `sectionHeader` being the before). Its loose rows are members and its groups nest one level down. Its intents go to the machine (`SidebarIntent.resolvingHostGroup`: fold folds the section, + makes a workspace on the machine, a drop lands at the section's top level); rename, color, ungroup, pin, icon, close and reorder of the host group are dropped. This Mac never wraps. Tests: `SidebarHostGroupTests`, `AARemoteGroupGalleryTests.everyGroupLookDrawsTheMachineAsAGroupRow`.
+
+## Red warning mark size (2026-11-01, #30236)
+
+- 2026-11-01: Leo: "did we get the \"bigger blue dot\" thing in? i also think we ought to have a bigger red warn symbol";
+  "like look at this in chatgpt". The row badge's error glyph grows from a 10 pt box (~9 pt visible ring)
+  to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
+  other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
+  measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
+
+## Empty groups keep just their header (2026-11-01)
+
+Leo: "what do you feel about this placeholder situation? idk doesn't that plceholder text seem a bit wack?"
+
+An empty group now keeps only its header at rest. The header's existing + appears on hover or keyboard focus, and New Workspace in Group remains available through accessibility and the group menu. A workspace dragged into the empty group highlights its header; no permanent "No workspaces · drag one here" row is projected by either full layout or fast fold. This replaces the placeholder and always-visible row + from 0105692a41d / user 17912; creation and drop capabilities remain. `SidebarEmptyGroupTests` and `SidebarEmptyGroupAddButtonTests` cover layout, folding, drop targeting and creation. `SidebarEmptyGroupGalleryTests` compares the old placeholder, the chosen header-only design, and a permanent header +, each at rest, hover and drop in light/dark at 2x. Chosen: header-only, because it keeps group names easy to scan and reveals the action when needed. Design spec: leo-workspace `design/sidebar.md`.
+## Search-aligned trailing controls and the single-space slot (2026-11-01)
+
+- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
+  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
+  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
+  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
+  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
+  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
+  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
+  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
+  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
+  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
+  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
+  visible and clickable left of the end action, with overflow on the next free shared slot.
+  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
+  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.

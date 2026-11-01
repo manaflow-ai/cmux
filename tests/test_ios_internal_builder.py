@@ -507,7 +507,7 @@ class TriggerRunnerTests(unittest.TestCase):
         self.assertNotIn("|| vars.LINUX_RUNNER ||", runs_on)
         # Retain the manual run's fallback choice and the existing decision,
         # even when the iOS builder is held or its shared packages drift.
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || "
                       "'blacksmith-2vcpu-ubuntu-2404'", runs_on)
 
 

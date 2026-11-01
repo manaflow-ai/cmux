@@ -22,6 +22,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
     "pages/shared/desktop.css",
     "agent-session/shared/styles.css",
     "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/conversation/spinner.css",
     "agent-session/acpmux/conversation/conversation.css",
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
@@ -31,6 +32,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
     <div>
       <div id="thinking">
         <Thinking
+          since={START}
           doing="Read the Freestyle lanes note; check dispatcher"
           doingAt={START}
           now={() => START + 50_000}
