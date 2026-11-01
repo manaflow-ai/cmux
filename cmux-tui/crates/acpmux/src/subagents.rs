@@ -225,6 +225,14 @@ impl SubagentTree {
             .collect()
     }
 
+    /// A turn ended or a new one began: the foreground subagents of the one before are over
+    /// even when the harness never said so (a cancelled turn), so only the background ones
+    /// still run. Without it, the next turn's `running_now(true)` showed them again.
+    pub fn end_foreground(&mut self) {
+        let background = &self.background;
+        self.running.retain(|(id, _)| background.contains(id));
+    }
+
     /// How many subagents run now, whatever their turn (`running_now` with a running turn):
     /// the tap compares it around each update to tell watchers of a change.
     pub fn running_count(&self) -> usize {
@@ -246,7 +254,12 @@ impl SubagentTree {
             let label = ["name", "task"]
                 .iter()
                 .filter_map(|k| event.get(*k).and_then(Value::as_str))
-                .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+                // A task can be the subagent's whole prompt: its secrets are masked before it is
+                // cut, as a turn's preview is (`session::masked_preview`), so none leaves on the
+                // summary's `subagentNames` or half a one survives the cut.
+                .map(|t| {
+                    crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" ")
+                })
                 .find(|t| !t.is_empty())
                 .map(|t| truncate_label(&t));
             match at {
@@ -1364,6 +1377,39 @@ mod background_tests {
         assert_eq!(tree.running_now(true)[0].0, "b", "oldest first");
         tree.end_background();
         assert_eq!(tree.running_count(), 0, "its harness exited");
+    }
+
+    /// A subagent named by its task (its prompt) never carries a credential out to the summary.
+    #[test]
+    fn a_running_subagents_task_label_has_its_secrets_masked() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        let token: String = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k");
+        let task = format!("Push with GITHUB_TOKEN={token} and open the PR");
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "a", "task": task}),
+            true,
+        );
+        let label = tree.running_now(true)[0].1.unwrap().to_owned();
+        assert!(!label.contains(&token), "the token survives in {label:?}");
+        assert!(label.starts_with("Push with"), "{label:?}");
+    }
+
+    /// Two turns in a row: the first turn's foreground subagents, whose ends the harness never
+    /// sent, are gone once it ends, and only its background one runs on into the next.
+    #[test]
+    fn a_turns_foreground_subagents_do_not_show_again_in_the_next_turn() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "name": id, "background": background});
+        annotate(&mut tree, spawn("fg1", false), true);
+        annotate(&mut tree, spawn("bg1", true), true);
+        assert_eq!(tree.running_now(true).len(), 2, "turn 1");
+        tree.end_foreground();
+        annotate(&mut tree, spawn("fg2", false), true);
+        let ids: Vec<_> = tree.running_now(true).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec!["bg1", "fg2"], "turn 2 shows its own and the background one");
     }
 
     /// A legacy activity echo of the native root that arrives before the root is known counts as

@@ -834,6 +834,8 @@ impl Hub {
         Self::hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         self.clear_deferred_unread(session);
+        // The turn before's foreground subagents are over (`work_below.rs`).
+        self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
