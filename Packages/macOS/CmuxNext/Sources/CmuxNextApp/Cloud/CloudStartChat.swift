@@ -139,6 +139,10 @@ struct CloudStartChat {
     /// this Mac's tab: the chat is the machine's now.
     private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?,
                       tabKey: String) async throws -> String {
+        await CloudOutdatedMachine.updateBeforeUsingCapability(
+            holds: { services.agentTabs.holdsTabs(machine.daemon) },
+            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
+            update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
