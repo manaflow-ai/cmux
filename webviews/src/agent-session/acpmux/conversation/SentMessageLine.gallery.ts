@@ -53,6 +53,13 @@ const viaReach = bash(
   "completed",
   { output: "queued" },
 );
+// The same send over plain ssh (ask-1b0c0b04de): the session is on that host, as through reach.
+const viaSsh = bash(
+  `ssh -o ConnectTimeout=5 build-box 'acpmux send --no-wait docs-lane "The copy pass is yours; #4182 merged."'`,
+  "Hand the copy pass to docs-lane on build-box",
+  "completed",
+  { output: "steered" },
+);
 const fromFile = bash(
   `acpmux send --no-wait reports:leo "$(cat /tmp/net-retries/summary.md)"`,
   "Send the summary to Leo's reports",
@@ -112,7 +119,7 @@ const sent = () => {
   const snapshot = chat(
     [
       user("Report the merge, tell scroll-jitter, and ask for the re-review.", 4),
-      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, subsessionSend], 3.8),
+      activity([reported, viaTimeout, viaHeredoc, viaReach, viaSsh, fromFile, subsessionSend], 3.8),
       assistant("Reported to coord-deputy, told scroll-jitter, and asked review-astra for a re-review.", 3.5),
       summary(3.5, { status: "completed" }),
     ],

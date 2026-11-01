@@ -92,7 +92,7 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name="terminal" size={ROW_ICON} row className="acpmux-row-glyph" />
+          <Icon name="terminal.prompt" size={ROW_ICON} row className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
@@ -130,7 +130,7 @@ export function TasksSection({
       {finished.length > 0 && (
         <>
           <SessionInfoFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
-            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             {t("rail.finished", { count: finished.length })}
           </SessionInfoFold>
           {showFinished && (

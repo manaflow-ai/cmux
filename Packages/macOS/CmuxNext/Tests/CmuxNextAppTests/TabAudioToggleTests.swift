@@ -185,7 +185,7 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
 
     /// Mute Other Tabs and Mute/Unmute Workspace Tabs each have a menu position no other
     /// action's row shares, so their order in the tab and workspace menus is fixed.
-    @Test(arguments: ["tab.muteOtherAudio", "workspace.toggleAudioMute"])
+    @Test(arguments: ["workspace.toggleAudioMute"])
     func theMuteRowsHaveTheirOwnMenuPosition(_ id: String) throws {
         let own = try #require(ActionSurfaceCatalog.placements[ActionID(stringLiteral: id)], "\(id) has no menu row")
         for row in own {

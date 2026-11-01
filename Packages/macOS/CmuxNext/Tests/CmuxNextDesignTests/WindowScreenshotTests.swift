@@ -51,14 +51,25 @@ import CmuxNextTestSupport
     /// Whether AppKit can put a window on screen here: a fleet worker
     /// whose user session has no window server (logged out, at the login
     /// window) cannot, and no capture path can be checked on it.
-    static func hostShowsWindows() -> Bool {
+    static func hostShowsWindows() async -> Bool {
         _ = NSApplication.shared
-        guard NSScreen.main != nil else { return false }
+        let requireDisplay = ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"]
+            .contains { ProcessInfo.processInfo.environment[$0] == "1" }
+        guard NSScreen.main != nil else { return requireDisplay }
         let probe = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 8, height: 8), styleMask: [.borderless], backing: .buffered, defer: false)
         probe.isReleasedWhenClosed = false
         defer { probe.close() }
         probe.orderFrontRegardless()
-        return probe.isVisible && probe.windowNumber > 0
+        guard probe.isVisible && probe.windowNumber > 0 else { return requireDisplay }
+        // The first window-server frame can arrive after orderFrontRegardless. Give a healthy
+        // display a short bounded settle before treating capture as unavailable.
+        for _ in 0..<10 {
+            CATransaction.flush()
+            if probe.compositedSnapshot() != nil { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        // Explicit display runs must still exercise the capture and report a real failure.
+        return requireDisplay
     }
 
     private struct Fixture {
