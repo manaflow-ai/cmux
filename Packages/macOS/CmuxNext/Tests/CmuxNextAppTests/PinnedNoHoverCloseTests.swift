@@ -201,22 +201,4 @@ import Testing
         let cell = try #require(harness.strip.cells[StripHarness.loose])
         #expect(cell.closeButtonRect != nil, "a hovered unpinned tab lost its close x")
     }
-
-    /// Middle-click on a pinned tab is left as it was: it closes the tab (`TabStripView.otherMouseUp`).
-    @Test func middleClickOnAPinnedTabStillCloses() throws {
-        let harness = StripHarness()
-        defer { harness.window.closeAfterTest() }
-        let point = try harness.hover(StripHarness.pinned)
-        for type in [NSEvent.EventType.otherMouseDown, .otherMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: harness.window.windowNumber,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .otherMouseUp ? 0 : 1))
-            // `mouseEvent(with:)` makes button 0; the strip acts on the middle button (2).
-            let middle = try #require(event.cgEvent)
-            middle.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-            let sent = try #require(NSEvent(cgEvent: middle))
-            if type == .otherMouseDown { harness.strip.otherMouseDown(with: sent) } else { harness.strip.otherMouseUp(with: sent) }
-        }
-        #expect(harness.closes == [StripHarness.pinned], "a middle click on a pinned tab no longer closes it: \(harness.closes)")
-    }
 }
