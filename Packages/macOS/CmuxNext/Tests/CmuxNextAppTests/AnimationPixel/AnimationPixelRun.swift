@@ -26,6 +26,8 @@ struct AnimationPixelRun {
         let description: String
     }
 
+    static func ms(_ seconds: Double) -> String { String(format: "%.1f", seconds * 1000) }
+
     /// Applies `change` to the fixture's model (then syncs the view in the same turn), captures
     /// every frame until the layout rests, and judges them against `spring` (`animated`) or a
     /// one-frame landing (animations off). Returns the failures; prints the frame data either way.
@@ -92,13 +94,10 @@ struct AnimationPixelRun {
         if shapes.contains(where: { $0.width != width || $0.height != height || ($0.contentScale != 0 && $0.contentScale != 1) }) {
             failures.append("captured frames are not the window's \(width)x\(height) device pixels unscaled: \(shapes)")
         }
-        guard before.map(\.label) == after.map(\.label) else {
-            throw Failure(description: "\(name): the scanline crosses \(before.map(\.label)) before and \(after.map(\.label)) after")
-        }
-        let tracked = zip(before, after).map { b, a in
-            ScanlineElement(label: b.label, before: (b.start, b.end), after: (a.start, a.end), exactLength: b.exactLength)
-        }
-        let judge = ScanlineJudge(oracle: try makeOracle(tracked), elements: tracked, trigger: trigger, period: fixture.display.refreshPeriod)
+        let structural = before.map(\.label) != after.map(\.label)
+        let tracked = try Self.track(before: before, after: after)
+        var judge = ScanlineJudge(oracle: try makeOracle(tracked), elements: tracked, trigger: trigger, period: fixture.display.refreshPeriod)
+        if structural { judge.previous = (before.map(\.label), before.dropLast().map { Int($0.end.rounded()) }) }
         let frames = stream.captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }
         let verdict = judge.judge(frames, palette: palette, moves: moves)
         failures += verdict.failures
@@ -117,6 +116,27 @@ struct AnimationPixelRun {
         return failures
     }
 
+    /// The scanline's elements after a change, each with where it was before: a pane or divider
+    /// at its old place, a new one at its target (it shows at once), a background run between
+    /// where its neighbours were. A pane or divider that left (a close) is not in the result:
+    /// the judge sees the layout before the change as the previous structure.
+    static func track(before: [(label: String, start: Double, end: Double, exactLength: Int?)],
+                      after: [(label: String, start: Double, end: Double, exactLength: Int?)]) throws -> [ScanlineElement] {
+        let old = Dictionary(before.filter { $0.label != "background" }.map { ($0.label, ($0.start, $0.end)) }, uniquingKeysWith: { a, _ in a })
+        var spans: [(start: Double, end: Double)?] = after.map { element in
+            element.label == "background" ? nil : old[element.label] ?? (element.start, element.end)
+        }
+        for index in spans.indices where spans[index] == nil {
+            let start = index > 0 ? spans[index - 1]?.end ?? 0 : 0
+            let end = index + 1 < spans.count ? spans[index + 1]?.start ?? after[index].end : after[index].end
+            spans[index] = (start, max(start, end))
+        }
+        return zip(after, spans).map { element, span in
+            ScanlineElement(label: element.label, before: span ?? (element.start, element.end), after: (element.start, element.end),
+                            exactLength: element.exactLength)
+        }
+    }
+
     /// What a scanline at `position` (points, top-left origin) along `axis` crosses at the layout's
     /// targets: the panes and divider lines across it, and background between and around them, in
     /// device pixels.
@@ -131,9 +151,19 @@ struct AnimationPixelRun {
             let start = Double((axis == .row ? rect.minX : rect.minY) * scale), end = Double((axis == .row ? rect.maxX : rect.maxY) * scale)
             found.append((label, start, end, exact))
         }
-        for (pane, rect) in screen.geometry.panes { add(pane.rawValue, rect, exact: nil) }
-        for divider in screen.geometry.dividers where (axis == .row) == (divider.frame.height > divider.frame.width) {
-            add("divider:\(divider.id.rawValue)", divider.frame, exact: thickness)
+        // Strip frames are in strip space: on screen they move by the camera's shift at its target.
+        let geometry = screen.geometry, shift = geometry.viewShift(offset: screen.scroll.target)
+        for (pane, rect) in geometry.panes {
+            add(pane.rawValue, geometry.scrolls(pane: pane) ? rect.offsetBy(dx: shift, dy: 0) : rect, exact: nil)
+        }
+        for divider in geometry.dividers where (axis == .row) == (divider.frame.height > divider.frame.width) {
+            let rect = geometry.fixedSplits.contains(divider.id) ? divider.frame : divider.frame.offsetBy(dx: shift, dy: 0)
+            add("divider:\(divider.id.rawValue)", rect, exact: thickness)
+        }
+        // What the window shows: the scanline's own extent.
+        found = found.compactMap { element in
+            let start = max(element.start, 0), end = min(element.end, Double(length))
+            return end > start ? (element.label, start, end, element.exactLength) : nil
         }
         found.sort { $0.start < $1.start }
         var tiled: [(label: String, start: Double, end: Double, exactLength: Int?)] = []

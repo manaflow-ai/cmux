@@ -24,9 +24,12 @@ final class LayoutPixelFixture {
         var colors: [PaneID: NSColor] = [:]
 
         func makeContentView(for pane: PaneID) -> NSView {
+            // A pane a change adds takes the next color.
+            let color = colors[pane] ?? LayoutPixelFixture.colors[colors.count % LayoutPixelFixture.colors.count]
+            colors[pane] = color
             let view = NSView()
             view.wantsLayer = true
-            view.layer?.backgroundColor = (colors[pane] ?? .black).cgColor
+            view.layer?.backgroundColor = color.cgColor
             view.layer?.isOpaque = true
             view.layer?.allowsEdgeAntialiasing = true
             view.layer?.edgeAntialiasingMask = [.layerLeftEdge, .layerRightEdge, .layerBottomEdge, .layerTopEdge]

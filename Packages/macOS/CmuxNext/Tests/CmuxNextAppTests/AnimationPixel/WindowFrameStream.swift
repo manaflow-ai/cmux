@@ -87,6 +87,8 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
         configuration.showsCursor = false
         configuration.queueDepth = 8
         configuration.captureResolution = .best
+        // A narrower window (a resize test) is drawn 1:1, never scaled to the output size.
+        configuration.scalesToFit = false
         configuration.ignoreShadowsSingleWindow = true
         let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target), configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)

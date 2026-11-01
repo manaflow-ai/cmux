@@ -5,6 +5,7 @@ Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTest
 Packages/macOS/CmuxNext CmuxNextAppTests.AnimationPixelHarnessTests
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
 Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
+Packages/macOS/CmuxNext CmuxNextAppTests.ColumnPixelTests
 Packages/macOS/CmuxNext CmuxNextAppTests.DividerDragPixelTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
@@ -28,6 +29,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TitlebarDoubleClickTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TooltipSurfaceTests
+Packages/macOS/CmuxNext CmuxNextAppTests.WindowResizePixelTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WindowZoomTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceTabHoverCardTests

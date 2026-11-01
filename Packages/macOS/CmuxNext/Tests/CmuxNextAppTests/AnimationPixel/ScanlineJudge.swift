@@ -58,6 +58,10 @@ struct ScanlineJudge {
     static let curveTolerance = 1.0
     /// A moving change shows at least this many frames between its start and end layouts.
     static let minimumMotionFrames = 8
+    /// A change of structure (a pane added or closed): the scanline before the change, as labels
+    /// and rounded boundaries. Frames that show it must show it exactly and come before every
+    /// frame of the new structure.
+    var previous: (labels: [String], boundaries: [Int])?
 
     typealias Shown = (time: Double, boundaries: [Int])
 
@@ -80,6 +84,15 @@ struct ScanlineJudge {
         for (index, frame) in frames.enumerated() where frame.time >= trigger - 3 * period {
             let runs = palette.runs(frame.line)
             let at = "frame \(index) (t=\(Self.ms(frame.time - trigger)) ms)"
+            if let previous, runs.map(\.label) == previous.labels {
+                let shown = Array(runs.dropLast().map(\.end))
+                if !valid.isEmpty {
+                    verdict.failures.append("\(at): the layout before the change shows again after the new one")
+                } else if shown != previous.boundaries {
+                    verdict.failures.append("\(at): the layout before the change shows at \(shown), not where it was, \(previous.boundaries)")
+                }
+                continue
+            }
             guard let spans = match(runs) else {
                 if let blend = runs.first(where: { $0.label == nil }) {
                     let colors = frame.line[blend.start..<min(blend.end, blend.start + 4)].map(ScanlinePalette.hex)
@@ -133,7 +146,7 @@ struct ScanlineJudge {
         for frame in valid where frame.time >= trigger {
             if frame.boundaries == finalBoundaries {
                 landed = true
-            } else if landed || frame.boundaries != startBoundaries {
+            } else if landed || previous != nil || frame.boundaries != startBoundaries {
                 verdict.failures.append("t=\(Self.ms(frame.time - trigger)) ms: boundaries \(frame.boundaries) are neither the start "
                     + "\(startBoundaries) nor the final \(finalBoundaries) layout with animations off")
             }
