@@ -397,8 +397,27 @@ extension AgentTabStore {
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
-            let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
+            let cloudSession = services.machines.session(daemon.machineID)
+            let links = cloudSession.map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = links?.ownerLink
+            // A chat grant makes a *teammate* look like the owner on this link, but taking that
+            // grant back cannot change an already-connected link's cached owner word. Recheck the
+            // current classic API authorization for every new delegated start, before any remote
+            // chat command. Creators retain their original offline start behavior.
+            let verifyDelegatedStart: (@Sendable () async throws -> Bool)?
+            if let cloudSession, cloudSession.link != nil,
+               !(services.cloud.auth.user?.id.map { $0 == cloudSession.machine.createdBy } ?? false) {
+                let machineID = cloudSession.machineID
+                let account = services.cloud.account
+                verifyDelegatedStart = { [weak services] in
+                    guard let services, await services.cloud.account == account else { return false }
+                    let allowed = try await services.cloud.callerOwnsVM(machineID)
+                    let stillSameAccount = await services.cloud.account == account
+                    return allowed && stillSameAccount
+                }
+            } else {
+                verifyDelegatedStart = nil
+            }
             // A start its older daemon refused updates the machine to this app's build and tries
             // once more, only on the caller's own machine (the link's owner answer, read then).
             if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
@@ -424,7 +443,8 @@ extension AgentTabStore {
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                                          ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
+                                                          ownerLink: links?.ownerLink, verifyChatStart: verifyDelegatedStart,
+                                                          teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
