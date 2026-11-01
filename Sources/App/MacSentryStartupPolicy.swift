@@ -2,6 +2,16 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 
+/// Keeps AppKit's exception escalation policy aligned with the macOS versions
+/// where its SF Symbol renderer throws recoverable Objective-C exceptions.
+struct MacOSExceptionPolicy: Sendable {
+    let operatingSystemVersion: OperatingSystemVersion
+
+    var shouldEscalateUncaughtExceptions: Bool {
+        operatingSystemVersion.majorVersion < 27
+    }
+}
+
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
@@ -41,6 +51,17 @@ struct MacSentryStartupPolicy: Sendable {
 
     var shouldStart: Bool {
         telemetryEnabled && allowsBuildIdentity && (!isRunningUnderXCTest || allowUnderXCTest)
+    }
+
+    /// Sentry's uncaught Objective-C exception handler registers
+    /// `NSApplicationCrashOnExceptions`. macOS 27's AppKit SF Symbol renderer
+    /// throws an exception that AppKit can recover from, so enabling that
+    /// handler turns the OS bug into a process crash.
+    static func shouldEnableUncaughtNSExceptionReporting(
+        for operatingSystemVersion: OperatingSystemVersion
+    ) -> Bool {
+        MacOSExceptionPolicy(operatingSystemVersion: operatingSystemVersion)
+            .shouldEscalateUncaughtExceptions
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
