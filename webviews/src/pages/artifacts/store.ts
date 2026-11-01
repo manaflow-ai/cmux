@@ -68,8 +68,10 @@ export class ArtifactsStore {
     } catch (error) {
       if (request !== this.treeRequest) return;
       const failure = failureOf(error);
-      // A refresh that fails keeps the tree it had on screen; the next one tries again.
-      if (this.snapshot.status === "ready" && failure.code !== "cmux.artifacts.not_found") return;
+      // A refresh that fails keeps the tree it had on screen; the next one tries again. Signed out
+      // (or nothing saved any more) drops it, so another account's tree never stays up.
+      const keep = !["cmux.artifacts.not_found", "cmux.artifacts.signed_out"].includes(failure.code);
+      if (this.snapshot.status === "ready" && keep) return;
       this.set({ status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed", failure, paths: [] });
     }
   }

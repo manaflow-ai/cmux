@@ -251,3 +251,21 @@ test("a refresh that fails keeps the tree on screen", async () => {
   expect(store.getSnapshot().status).toBe("ready");
   expect(store.getSnapshot().paths).toEqual(paths);
 });
+
+test("a refresh that finds the person signed out drops the tree", async () => {
+  const mock = new MockArtifactsProvider();
+  let signedOut = false;
+  const host = new Host((op, params) => {
+    if (signedOut) throw pageError("cmux.artifacts.signed_out", "Sign in to cmux to see your artifacts.", true);
+    return mock.call(op, params);
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  signedOut = true;
+  await store.start();
+  expect(store.getSnapshot()).toMatchObject({
+    status: "failed",
+    paths: [],
+    failure: { code: "cmux.artifacts.signed_out" },
+  });
+});
