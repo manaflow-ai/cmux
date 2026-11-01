@@ -24,8 +24,10 @@ public final class AgentPaneModel {
     /// loading state shows the page in one frame instead of fading it in
     /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``). False
     /// for a chat read cold, for a page that says nothing, and for the host's
-    /// own give-up path, each of which keeps the fade.
+    /// own give-up path, which keep the fade unless a child-window page is replacing a saved frame.
     public internal(set) var paintedFromKeptTail = false
+    /// The first reveal came from the page's after-render report, rather than the watchdog.
+    @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
@@ -402,7 +404,10 @@ public final class AgentPaneModel {
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
-            if !hasPainted { paintedFromKeptTail = fromKeptTail }
+            if !hasPainted {
+                paintedFromKeptTail = fromKeptTail
+                pageReportedPaint = true
+            }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
