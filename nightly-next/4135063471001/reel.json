@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4135063471001",
+  "notes": "notes/4135063471001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31314,
+      "title": "Cloud start chat: never open the chat in a workspace another machine lists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31322,
+      "title": "agent-pane dev-slot: --from HOME hot-reloads the pane against a projection of your own chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31268,
+      "title": "cmux next: type a skill anywhere in the prompt",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31319,
+      "title": "ci: skip ci-status on pull requests into feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31312,
+      "title": "fix(agent-chat): the band above the composer holds still at the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31306,
+      "title": "Chief: chief engine set --preset opus|hybrid|codex",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30265,
+      "title": "gallery: real-shaped recorded Claude and Codex chats (anonymized replays)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31228,
+      "title": "cmux next: tool summary lines get a several-tools icon and a hover",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31253,
+      "title": "Show Add repository for real Cloud Session Info chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31301,
+      "title": "docs(input-spec): section 7 names the deleted bug tests and what covers each bug now",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31304,
+      "title": "cmux NEXT Feed: the reports basket is a Reports tab of the Feed inbox, on by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31307,
+      "title": "ci(pickers): count each picker's GitHub API requests per token and print the rate-limit headers at exit",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
