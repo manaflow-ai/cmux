@@ -1413,6 +1413,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py
 
+      - name: Validate the release signer scripts (unused yet, shared with nightly-next)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_signer_scripts.py
+
       - name: Validate that no Sparkle private key reaches a command line
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_sparkle_private_key_not_on_argv.py

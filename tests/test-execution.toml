@@ -2139,6 +2139,10 @@ path = "tests/test_rcodesign_sign_bundle_dev.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_signer_scripts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 
