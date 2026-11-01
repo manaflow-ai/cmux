@@ -8,6 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
+import { pickFolder } from "./startFolder";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -25,6 +26,24 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   // never copied.
   if (isAgentHome(folder)) return { home: true };
   return { cwd: folder };
+}
+
+type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// The New Tab page's project pick goes to the host on its click (workspace.useFolder), so a Cloud
+/// send copies it (#29789): cloud.startChat copies only the pane's own folders. It is attached
+/// whenever Cloud may be offered to this new chat (`offerable`), not only once the host answered
+/// what the tab already sent (`sandbox.checked`): a pick made while that check was out was never
+/// sent, and the Cloud start then failed with pathOutsideRoots. A project folder granted to a tab
+/// the check then hands to a run is harmless. Only a folder Cloud would copy (cloudStartFolder);
+/// a home or root answer asks nothing here (the local start still asks on Return).
+export function newTabProjectPick(callNative: Native, offerable: boolean): { onProjectPicked?: (cwd: string) => void } {
+  if (!offerable) return {};
+  return {
+    onProjectPicked: (cwd) => {
+      if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
+    },
+  };
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
