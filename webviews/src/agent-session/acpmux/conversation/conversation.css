@@ -5003,13 +5003,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 
 .cv-repo-recovery {
+  /* The repository choices are a <fieldset> (a named group): no fieldset border, padding or min width. */
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 2px 0 8px 28px;
   color: color-mix(in srgb, var(--agent-text) 72%, transparent);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .cv-repo-recovery--quiet { color: color-mix(in srgb, var(--agent-text) 55%, transparent); }
 .cv-repo-recovery--error { color: var(--agent-error, #d66); }
@@ -5017,7 +5021,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-repo-recovery button {
   border: 0;
   border-radius: 5px;
-  padding: 3px 7px;
+  padding: 4px 8px;
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
