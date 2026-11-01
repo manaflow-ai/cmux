@@ -115,6 +115,7 @@
         "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
         "Report a missing daemon attestation": {"plumbing": true}},
       "build-nightly-inputs": {
+        "Set up Rust for the third-party notices": {"plumbing": true, "note": "Installs Cargo for exact notice dependency trees on clean fleet Linux runners"},
         "Source key of the web bundles": {"plumbing": true},
         "Restore the published web bundles": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; the installer verifies its source manifest before use"},
         "Drop stale submodule checkouts (self-hosted reused workspace)": {"plumbing": true},
