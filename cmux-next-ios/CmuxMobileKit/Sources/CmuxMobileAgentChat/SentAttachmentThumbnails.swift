@@ -122,6 +122,14 @@ final class SentAttachmentThumbnails {
         revision &+= 1
     }
 
+    /// Lets go of an image's decoded thumbnails, as the byte bound does (tests).
+    func evict(attachmentID: String) {
+        for key in order where key.hasPrefix("\(attachmentID)|") {
+            residentBytes -= images.removeValue(forKey: key)?.cost ?? 0
+        }
+        order.removeAll { images[$0] == nil }
+    }
+
     /// The sent images of `turns` that have their bytes, at the size their bubbles draw them.
     private func wanted(_ turns: [AgentTurn]) -> [(key: String, data: Data, side: CGFloat)] {
         var out: [(String, Data, CGFloat)] = []

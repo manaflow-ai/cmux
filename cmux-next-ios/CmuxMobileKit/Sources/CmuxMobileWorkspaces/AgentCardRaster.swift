@@ -129,7 +129,8 @@ final class AgentCardRasterizer: NSObject {
         link = nil
     }
 
-    @objc private func frame() {
+    /// One display frame: draws the next card waiting (internal for tests).
+    @objc func frame() {
         guard idle else { return stop() }
         let next: (AgentCardFeed, AgentCardRasterKey)?
         if !queue.isEmpty {
