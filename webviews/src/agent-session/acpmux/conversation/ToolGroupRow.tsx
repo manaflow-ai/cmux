@@ -15,10 +15,10 @@ import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
-import { isQuietThought } from "./thoughts";
+import { isQuietThought, isThought } from "./thoughts";
 import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
@@ -104,9 +104,9 @@ function entryNodes(
       const node = !item.tool ? (
         <ThoughtRow key={key} id={key as string} item={item} />
       ) : kind === "commands" ? (
-        <CommandRow key={key} item={item} />
+        <CommandRow key={key} item={item} grouped />
       ) : (
-        <ToolRow key={key} item={item} />
+        <ToolRow key={key} item={item} grouped />
       );
       entry = { kind, key, node };
       entryCache.set(item, entry);
@@ -143,9 +143,9 @@ const Step = memo(
       <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
         {item.tool ? (
           commands ? (
-            <CommandRow item={item} />
+            <CommandRow item={item} grouped />
           ) : (
-            <ToolRow item={item} />
+            <ToolRow item={item} grouped />
           )
         ) : (
           <StepThought id={thoughtId} item={item} lead={lead} />
@@ -182,7 +182,11 @@ export function ToolGroupRow({
   thoughtId?: (n: number) => string;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
+  // The Verbose transcript view opens every group, edits included. Thinking opens a group that
+  // holds a thought, so the thought it opens is on screen.
+  const thinking = useTranscriptViewContext() === "thinking";
+  const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   useFindReveal(items, () => setOpen(true));
   // Every step shows, as Claude Code desktop lists a run's: no "+K more" behind the latest few.

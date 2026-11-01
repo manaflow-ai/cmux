@@ -129,7 +129,6 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     page.evaluate(() => ({
       composer: document.querySelectorAll(".acpmux-composer").length,
       queued: [...document.querySelectorAll(".acpmux-queued")].map((row) => row.textContent ?? ""),
-      prDock: document.querySelectorAll(".acpmux-pr-dock").length,
       readOnly: document.querySelector(".cv-subagent-pane-footer")?.textContent?.trim() ?? "",
     }));
   beforeAll(async () => {
@@ -168,7 +167,6 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(1);
     expect(shown.queued.some((text) => text.includes("this is a bit spammy"))).toBe(true);
-    expect(shown.prDock).toBe(1);
     expect(shown.readOnly).toBe("");
     await page.close();
   });
@@ -185,14 +183,12 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
-    expect(shown.prDock).toBe(0);
     expect(shown.readOnly).toContain("Release review");
     // "Subagent of" shows the chat in this pane: the chat's composer, queue and bar are back.
     await page.locator(".cv-subagent-of__pill").click();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     const chat = await bottom(page);
     expect(chat.composer).toBe(1);
-    expect(chat.prDock).toBe(1);
     expect(chat.readOnly).toBe("");
     await page.close();
   });

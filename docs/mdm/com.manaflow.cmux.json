@@ -99,6 +99,17 @@
       "title" : "Prompt Rail Side",
       "type" : "string"
     },
+    "agentPane.display.transcriptView" : {
+      "default" : "normal",
+      "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+      "enum" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Transcript View",
+      "type" : "string"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -169,6 +180,16 @@
       "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
       "title" : "Needs You",
       "type" : "boolean"
+    },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
     },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
@@ -3883,6 +3904,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -4963,6 +4990,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
       "type" : "string"
     },
     "workspaces.autoArchive.idleDays" : {

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextSettings
 import CoreGraphics
@@ -49,6 +50,25 @@ struct LinkOpenPlacementTests {
         #expect(Rule.inColumn(right: "strip", column: ["strip"], sourceWidth: 1400, width: wide) == .splitBelow(of: "strip"))
         #expect(Rule.inColumn(right: "strip", column: ["strip", "lower"], sourceWidth: 1400, width: wide) == .pane("lower"))
         #expect(Rule.inColumn(right: "strip", column: [], sourceWidth: 1400, width: wide) == .pane("strip"))
+    }
+
+    /// Leo 2026-10-31: "imo in this case, just open it on the existing. you only need the rightmost
+    /// botom auto split when there's a terminal that gets opened when there's already a browser, and
+    /// vice versa". A link beside a chat whose right pane already holds a browser is a tab there; a
+    /// folder's terminal splits below it. The docked chat's strip column follows the same rule.
+    @Test func aLinkGoesToTheBrowserPaneAlreadyOnTheRight() {
+        let wide: (String) -> CGFloat? = { _ in 700 }
+        let holds: (String, RightColumnPlacement.Kind) -> Bool = { pane, kind in (pane == "web" && kind == .browser) || (pane == "shell" && kind == .terminal) }
+        let rule = Rule(setting: .splitRight)
+        #expect(rule.target(source: "chat", takesTabs: true, right: "web", column: ["web"], sourceWidth: 1400, width: wide,
+                            kind: .browser, holds: holds) == .pane("web"))
+        #expect(rule.target(source: "chat", takesTabs: true, right: "web", column: ["web"], sourceWidth: 1400, width: wide,
+                            kind: .terminal, holds: holds) == .splitBelow(of: "web"))
+        #expect(rule.target(source: "chat", takesTabs: true, right: "web", column: ["web", "shell"], sourceWidth: 1400, width: wide,
+                            kind: .browser, holds: holds) == .pane("web"), "the browser pane, not the lower one")
+        #expect(Rule.inColumn(right: "web", column: ["web"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds) == .pane("web"))
+        #expect(Rule.inColumn(right: "shell", column: ["shell"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds)
+                == .splitBelow(of: "shell"))
     }
 
     /// Review of #28044 at 34122a1a: with nothing on its right, a 900-959 pt source still split to

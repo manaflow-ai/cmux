@@ -236,7 +236,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
-/// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
+/// The pull requests the chat opened.
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
   transcriptPullRequests(rows).filter((pr) => pr.opened && pr.kind !== "issue");
 
@@ -297,7 +297,7 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
   transcriptBackgroundTasks(rows).filter((task) => task.state === "running");
 
 /// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
-/// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
+/// none), Session Info's Changes: its pull requests include the ones the agent only named in a
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
   const producerRevision = transcriptSummaryVersion(rows);

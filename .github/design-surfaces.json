@@ -4,6 +4,7 @@
   "surfaces": {
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
+      "checklist": "design/model-picker.md#checklist",
       "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
       "paths": [
         "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
@@ -35,7 +36,10 @@
         "webviews/src/agent-session/acpmux/composerControls.css",
         "webviews/src/agent-session/acpmux/composerFooterShared.css",
         "webviews/src/agent-session/acpmux/composerLook.css",
-        "webviews/src/agent-session/acpmux/composerStates.css"
+        "webviews/src/agent-session/acpmux/composerStates.css",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/agent-session/acpmux/hostLine.ts",
+        "webviews/src/agent-session/acpmux/hostRetry.ts"
       ]
     },
     "session-rail": {
@@ -71,6 +75,20 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
       ]
     },
+    "chat-transcript": {
+      "spec": "leo-workspace design/chat-transcript.md",
+      "aliases": ["transcript", "tool row", "tool rows", "mcp row", "cmux exec", "cmux_exec"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
+        "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
+        "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",
+        "webviews/src/agent-session/acpmux/conversation/jsHighlight.ts",
+        "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
+        "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+      ]
+    },
     "settings": {
       "spec": "leo-workspace design/settings.md",
       "aliases": ["settings", "settings page", "settings menu", "settings select", "update channel", "check every"],
@@ -92,7 +110,7 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/inspector"
+        "webviews/src/agent-session/acpmux/session-info"
       ]
     }
   }
