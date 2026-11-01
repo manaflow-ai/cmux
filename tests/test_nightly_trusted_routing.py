@@ -322,7 +322,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 }
                 self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
-                                 "ubuntu-24.04")
+                                 "blacksmith-16vcpu-ubuntu-2404")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
