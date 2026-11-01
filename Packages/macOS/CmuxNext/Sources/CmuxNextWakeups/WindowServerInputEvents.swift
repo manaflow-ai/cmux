@@ -1,10 +1,15 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The production ``SessionInputEvents``: `CGEventSource`'s combined session state, `NSApp`, and
 /// one local event monitor for the input events AppKit dispatches.
 @MainActor
 public final class WindowServerInputEvents: SessionInputEvents {
     private var monitor: Any?
+    /// The menus tracking now (``MenuTracking``, started with the dispatch monitor; it lives as long
+    /// as this source, the app's one budget's).
+    private var menus: MenuTracking?
+    private var trackingMenus: Set<ObjectIdentifier> = []
     /// `kCGAnyInputEventType` (`~0`, a C macro Swift does not import).
     private let anyInput = CGEventType(rawValue: ~0)
 
@@ -23,9 +28,23 @@ public final class WindowServerInputEvents: SessionInputEvents {
 
     public var isAppActive: Bool { NSApp?.isActive ?? false }
 
+    /// A menu posted its begin and not yet its end, and the main run loop is in its tracking mode.
+    /// Out of that mode no menu tracks, so a lost end notice never leaves this on.
+    public var isMenuTracking: Bool {
+        !trackingMenus.isEmpty && RunLoop.main.currentMode == .eventTracking
+    }
+
     public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (TimeInterval, Bool) -> Void) -> Bool {
         guard monitor == nil else { return true }
         guard NSApp != nil else { return false }
+        let menus = MenuTracking()
+        menus.subscribe { [weak self] change in
+            switch change {
+            case .began(let menu): self?.trackingMenus.insert(ObjectIdentifier(menu))
+            case .ended(let menu): self?.trackingMenus.remove(ObjectIdentifier(menu))
+            }
+        }
+        self.menus = menus
         let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                            .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged,
                                            .otherMouseDragged, .scrollWheel]

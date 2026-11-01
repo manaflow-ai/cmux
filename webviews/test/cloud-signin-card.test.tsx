@@ -311,6 +311,39 @@ test("Codex: the device code shows with Copy; after approval Send again takes it
   expect(sent[0]![4]).toBe("ticket-1");
 });
 
+// A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
+// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
+// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
+// own") is offered, by hand or automatically.
+test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  const transfers: unknown[][] = [];
+  const team = { ...cloudRoute, teamMachine: true };
+  const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
+  await render(
+    {
+      route: team,
+      cloudSignIn: signIn,
+      switchModel: () => undefined,
+      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
+    },
+    rejected,
+  );
+  await flush();
+  expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain(
+    "Claude Code on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines.",
+  );
+  expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Sign in to Claude")).toBeUndefined();
+  expect(button("Set up Claude Code credentials")).toBeUndefined();
+  expect(transfers).toEqual([]);
+  // An owner machine's card is as it was.
+  await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
+  expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
+});
+
 test("API key: a password field, saved on the machine, then Send again", async () => {
   const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
   const { signIn, intents } = signInFor(client);

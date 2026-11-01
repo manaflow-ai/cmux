@@ -140,6 +140,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
 import simple_pool_picker as _picker_rule  # noqa: E402 - the one Blacksmith stall rule
+import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
 
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
@@ -995,8 +996,10 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
+                github_spend.record(request.get_header("Authorization") or "", getattr(response, "headers", None), getattr(response, "status", 200))
                 return json.load(response)
         except urllib.error.HTTPError as error:
+            github_spend.record(request.get_header("Authorization") or "", error.headers, error.code)
             print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
             raise
 
