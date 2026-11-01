@@ -10,8 +10,13 @@ final class FileExplorerWorkspaceObservation {
     private var previous: FileExplorerWorkspaceRoot?
     private var catalogObserver: NSObjectProtocol?
     private var directoryObserver: NSObjectProtocol?
+    /// Released in `stop()`; the handler holds `self` weakly, so a dropped
+    /// observation is inert until the mirror detaches.
+    private weak var observedMirror: RemoteTmuxSessionMirror?
+    private var mirrorConnectionObserver: UUID?
     private var bindingChangesTask: Task<Void, Never>?
 
+    /// Subscribes to every owner of the workspace's root and publishes changed roots through `apply`.
     init(workspace: Workspace, resolver: FileExplorerWorkspaceRootResolver,
          apply: @escaping (FileExplorerWorkspaceRoot) -> Void) {
         self.workspace = workspace
@@ -28,6 +33,10 @@ final class FileExplorerWorkspaceObservation {
                         (notification.userInfo?["workspaceId"] as? UUID) == workspace.id else { return }
                 self.refresh()
             }
+        }
+        if let mirror = workspace.remoteTmuxSessionMirror {
+            observedMirror = mirror
+            mirrorConnectionObserver = mirror.addConnectionObserver { [weak self] in self?.refresh() }
         }
         catalogObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
@@ -59,6 +68,7 @@ final class FileExplorerWorkspaceObservation {
         apply(root)
     }
 
+    /// Ends every subscription and releases the workspace.
     func stop() {
         bindingChangesTask?.cancel()
         bindingChangesTask = nil
@@ -69,6 +79,10 @@ final class FileExplorerWorkspaceObservation {
         if let catalogObserver {
             NotificationCenter.default.removeObserver(catalogObserver)
             self.catalogObserver = nil
+        }
+        if let mirrorConnectionObserver {
+            observedMirror?.removeConnectionObserver(mirrorConnectionObserver)
+            self.mirrorConnectionObserver = nil
         }
         workspace = nil
     }

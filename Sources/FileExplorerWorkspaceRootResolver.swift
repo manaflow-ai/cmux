@@ -25,6 +25,7 @@ struct FileExplorerWorkspaceRootResolver {
         self.managedCloudEnabled = managedCloudEnabled
     }
 
+    /// Projects the workspace's current owner (local, Cloud, managed SSH or tmux mirror) into a Files root.
     func resolve(_ workspace: Workspace) -> FileExplorerWorkspaceRoot {
         // A cmux-tui binding is the explicit Cloud filesystem authority. A
         // legacy managedCloudVMID on an SSH workspace must keep using its SSH
@@ -101,6 +102,25 @@ struct FileExplorerWorkspaceRootResolver {
                 catalog.projectionRecords(forWorkspace: workspace.id).contains(where: { !$0.resource.machine.isLocal }) {
                 return .remoteCloud(workspaceId: workspace.id, vmID: "", displayTarget: "",
                                     rootPath: nil, isAvailable: false, unavailableDetail: nil, target: nil)
+            }
+            if workspace.isRemoteTmuxMirror {
+                // Mirrors own their SSH connection independently of managed SSH
+                // workspaces. Reuse that authenticated master and only remote cwd reports.
+                // A surviving ET control stream does not establish SSH availability.
+                guard let mirror = workspace.remoteTmuxSessionMirror,
+                      mirror.host.transport == .ssh else { return .none }
+                let host = mirror.host
+                return .remoteSSH(
+                    workspaceId: workspace.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: host.destination, port: host.port, identityFile: host.identityFile,
+                        sshOptions: ["ControlPath=\(host.controlSocketPath)"]
+                    ),
+                    displayTarget: host.destination,
+                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    isAvailable: mirror.connection.connectionState == .connected,
+                    unavailableDetail: nil
+                )
             }
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else { return .none }
