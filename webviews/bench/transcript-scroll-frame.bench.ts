@@ -7,6 +7,7 @@
 // dropped frames) and the transcript's own per-frame work (acpmuxPerf: React, layout, spans,
 // vt.renders = renders of VirtualTranscript per frame).
 //   bun bench/transcript-scroll-frame.bench.ts [rows=3000] [rounds=3]
+// Each line: interval, react, layout and other are p50/p95/max ms per frame.
 /// <reference types="bun" />
 import path from "node:path";
 import { webkit } from "playwright";
@@ -102,7 +103,22 @@ try {
     flings.push(await fling());
     wheels.push(await wheel(240));
   }
-  console.log(`transcript-scroll-frame: ${JSON.stringify({ rows: ROWS, flings, wheels })}`);
+  // One short line per run and per span: CI logs cut long lines.
+  const line = (name: string, frame: Record<string, unknown>, perf: Record<string, unknown>) => {
+    const pick = (value: unknown) => {
+      const { p50_ms, p95_ms, max_ms } = value as Record<string, number>;
+      return `${p50_ms}/${p95_ms}/${max_ms}`;
+    };
+    console.log(
+      `transcript-scroll-frame ${name}: frames=${frame.frames} interval=${frame.p50_ms}/${frame.p95_ms}/${frame.max_ms} ` +
+        `dropped=${frame.dropped_frames ?? frame.over_25ms} blank=${perf.blank_frames} react=${pick(perf.react)} ` +
+        `layout=${pick(perf.layout)} other=${pick(perf.other)}`,
+    );
+    for (const [span, value] of Object.entries(perf.spans as Record<string, unknown>))
+      console.log(`transcript-scroll-frame ${name} span ${span}=${pick(value)}`);
+  };
+  flings.forEach(({ fling, perf }, round) => line(`fling#${round}`, fling, perf));
+  wheels.forEach(({ perf, ...frame }, round) => line(`wheel#${round}`, frame, perf));
 } finally {
   await browser.close();
   await vite.close();
