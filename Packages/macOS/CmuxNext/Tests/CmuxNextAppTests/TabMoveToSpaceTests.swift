@@ -19,7 +19,7 @@ struct TabMoveToSpaceTests {
             let sibling = try #require(pane.tabs.last)
             let source = try #require(services.workspaceID(ofTab: moved.id))
             let sourceQualified = try #require(WindowProfiles.qualified(source, machines: services.machines))
-            let originalPin = WindowProfiles.membership(services.machines)?.pins[sourceQualified]
+            let originalPin = WindowProfiles.membership(services.machines)?.pinned(sourceQualified)
             let target = try await connection.createProfile(name: "Tab destination")
             try await PinnedPageTests.until({ store.profile(target.id) != nil }, report: { "destination not mirrored" })
             let window = try #require(services.windows.active)
@@ -39,14 +39,14 @@ struct TabMoveToSpaceTests {
             try await PinnedPageTests.until({
                 guard let destination = services.workspaceID(ofTab: moved.id), destination != source,
                       let qualified = WindowProfiles.qualified(destination, machines: services.machines) else { return false }
-                return WindowProfiles.membership(services.machines)?.pins[qualified] == target.id
+                return WindowProfiles.membership(services.machines)?.pinned(qualified) == target.id
             }, report: { "the promoted tab and its space assignment were not mirrored" })
             let destination = try #require(services.workspaceID(ofTab: moved.id))
             #expect(destination != source, "moving a tab reassigned its whole source workspace")
             #expect(services.workspaceID(ofTab: sibling.id) == source, "the sibling moved with the selected tab")
             let destinationQualified = try #require(WindowProfiles.qualified(destination, machines: services.machines))
-            #expect(WindowProfiles.membership(services.machines)?.pins[destinationQualified] == target.id)
-            #expect(WindowProfiles.membership(services.machines)?.pins[sourceQualified] == originalPin)
+            #expect(WindowProfiles.membership(services.machines)?.pinned(destinationQualified) == target.id)
+            #expect(WindowProfiles.membership(services.machines)?.pinned(sourceQualified) == originalPin)
             #expect(window.state.profileID == shownSpace, "a CLI move switched the person's space")
         }
     }

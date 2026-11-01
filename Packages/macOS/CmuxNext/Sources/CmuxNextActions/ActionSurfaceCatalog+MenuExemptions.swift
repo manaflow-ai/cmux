@@ -139,8 +139,6 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.moveAbove", "workspace.moveBelow",
         ],
         .minimalMenu: [
-            // Space filing is a palette/CLI/MCP action; keep the compact tab pointer menu unchanged.
-            "tab.moveToSpace",
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
             // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
             // window with a new workspace of the space) stays in the palette and the CLI.
