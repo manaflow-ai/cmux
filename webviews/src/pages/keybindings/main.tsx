@@ -12,6 +12,7 @@ import { KeybindingsPage } from "./KeybindingsPage";
 import { MockKeybindingsProvider, SAMPLE_TITLES, sampleLayers } from "./mockProvider";
 import { KeybindingsStore } from "./store";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { appPopupHost } from "../shared/pagePopupHost";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -35,7 +36,7 @@ export function mountKeybindingsPage(root: HTMLElement, client: PageClient | nul
   document.title = strings.t("keybindings.page.title");
   // The recorder popover (KeybindingsPage `Recorder`) portals into the page root.
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <KeybindingsPage store={store} strings={strings} />
     </UiProvider>,
   );

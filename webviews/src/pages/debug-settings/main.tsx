@@ -9,6 +9,7 @@ import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { focusSearchField } from "../shared/searchField";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { appPopupHost } from "../shared/pagePopupHost";
 import table from "./generated/strings.json";
 import { DebugSettingsPage } from "./DebugSettingsPage";
 import { MockDebugTunablesProvider } from "./mockProvider";
@@ -38,7 +39,7 @@ export function mountDebugSettingsPage(
   document.documentElement.lang = strings.language;
   document.title = strings.t("debugSettings.title");
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DebugSettingsPage store={store} strings={strings} />
     </UiProvider>,
   );

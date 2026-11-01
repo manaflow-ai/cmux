@@ -8,6 +8,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
 import { setLocale } from "./strings";
+import type { PopupHost } from "../../ui/popupHost";
 
 // React DOM decides once, when its module first evaluates, whether it runs in a DOM (native
 // `input` events drive onChange). bun runs all test files in one process with one module
@@ -44,6 +45,7 @@ export async function renderPage(
     path?: string;
     locale?: string;
     setup?: (provider: MockSettingsProvider) => void;
+    popupHost?: PopupHost | null;
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
@@ -60,7 +62,7 @@ export async function renderPage(
   let root: Root | null = null;
   await act(async () => {
     root = createRoot(container);
-    root.render(<SettingsPage store={store} history={history} />);
+    root.render(<SettingsPage store={store} history={history} popupHost={options.popupHost} />);
   });
   await settle();
   return {
