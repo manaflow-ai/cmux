@@ -209,6 +209,9 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
             "scripts/swift_source_mask.py",
+            # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
+            "scripts/whats-new/digest.py",
+            "scripts/whats-new/validate.py",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -1627,6 +1630,93 @@ let package = Package(
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # What's New highlights (release-notes/next/WRITING.md). 2026-11-01: #30774, #31156 and #31140 each landed a
+    # highlight with no docs link (or three sentences); only the release-notary job's test (after the merge) saw it,
+    # and it was red on every pull request until a fix landed (#31032, #31252).
+    HIGHLIGHT_NO_LINK = ("title: Continue a stopped reply\ncategory: improved\n\n"
+                         "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n\n"
+                           "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHTS = "release-notes/next/highlights"
+
+    def test_a_pushed_highlight_without_a_docs_link_is_refused_by_the_hook_only(self):
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the highlight must not reach origin")
+        self.assertIn("What's New highlights", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
+        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # (pull requests, fast gates, car guards) or --commits (pushes).
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                ci = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                    capture_output=True)
+                self.assertEqual(ci.returncode, 0, ci.stdout + ci.stderr)
+                self.assertNotIn("What's New highlights", ci.stdout + ci.stderr)
+
+    def test_a_pushed_highlight_with_a_docs_link_passes(self):
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.commit("adds a highlight with a docs link")
+
+        direct = subprocess.run(["python3", "-I", GATE, "--timings"], cwd=self.repo, env=self.env, text=True,
+                                capture_output=True)
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        # The plain run judged the highlight (its timing line) and found nothing.
+        self.assertIn("What's New highlights", direct.stderr, direct.stdout + direct.stderr)
+        self.assertNotIn("needs a tryIt", direct.stdout + direct.stderr)
+
+    def test_an_unchanged_bad_highlight_elsewhere_does_not_block_a_push(self):
+        # Someone else's bad highlight reached the base past the hook; this push adds its own highlight next to it.
+        self.write(f"{self.HIGHLIGHTS}/old-bad.md", "title: Old\n\nOne. Two. Three sentences is too many.\n")
+        self.commit("someone else's bad highlight")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md", output)
+        self.assertNotIn("old-bad.md", output, "only the highlights the push changes are judged")
+
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "--amend", "-m", "adds a highlight with a docs link")
+
+        passed = self.push()
+
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
+        # A push that also weakens the validator cannot pass its own highlight: the hook reads
+        # origin/feat-cmux-next's validator, as it runs the installed checks and never the branch's.
+        before = self.remote_head()
+        self.write("scripts/whats-new/digest.py", (self.repo / "scripts/whats-new/digest.py").read_text()
+                   + "\n\ndef entry_problems(entry):\n    return []\n")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight and a validator that accepts it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("needs a tryIt action/deeplink or a docs link", output)
 
 
 
