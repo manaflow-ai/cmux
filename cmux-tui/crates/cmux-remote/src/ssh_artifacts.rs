@@ -302,8 +302,11 @@ const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
 /// it: shipped there, or downloaded once from the immutable per-commit
 /// release into the payload cache and checked against the pin. A Cloud
 /// machine's in-place update installs it (cmux link machine update,
-/// cx-rppd.13). `Ok(None)` when this build ships no manifest (dev and source
-/// builds); a payload that does not match its pin is an error, never an
+/// cx-rppd.13). A build that ships no manifest (DEV builds) takes the pin
+/// from its own commit's published manifest instead ([`published_pin`]), as
+/// the app's SSH installer does for a DEV build (RemoteInstaller.plan).
+/// `Ok(None)` when it has neither (a source build of an unpublished or dirty
+/// tree); a payload that does not match its pin is an error, never an
 /// unverified file.
 /// `identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
 pub async fn pinned_linux_payload(
@@ -315,7 +318,22 @@ pub async fn pinned_linux_payload(
     let source =
         PayloadSource { base_url: PUBLISHED_BASE_URL, cache: cache.as_deref(), proxy_pac: None };
     match payload(&executable, identity, "linux", arch, &source)? {
-        None => Ok(None),
+        None => {
+            // No manifest ships with this build. A DEV build's commit is
+            // published by CI (cmux-tui-artifacts): its manifest pins the
+            // same build, and the download is still checked against that pin.
+            let Some(cache) = cache else { return Ok(None) };
+            let Some(manifest) = published_manifest(PUBLISHED_BASE_URL, identity).await else {
+                return Ok(None);
+            };
+            let Some(published) =
+                published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
+            else {
+                return Ok(None);
+            };
+            let path = fetch_published(&published).await?;
+            Ok(Some((path, published.sha256.to_ascii_lowercase())))
+        }
         Some(Payload::Bundled(path)) => {
             // The manifest's own pin, which `payload` matched the file against.
             let pinned = PinnedArtifacts::load(&executable, identity)?
@@ -332,6 +350,72 @@ pub async fn pinned_linux_payload(
             "a Linux payload resolved to this client's own build".into(),
         )),
     }
+}
+
+/// The published manifest of commit `identity` (`<base>/<commit>/manifest.json`),
+/// or None when `identity` is not a plain commit (a dirty or local build) or
+/// nothing is published for it. HTTPS only, from the same immutable release the
+/// payload comes from.
+async fn published_manifest(base_url: &str, identity: &str) -> Option<Vec<u8>> {
+    if !is_commit(identity) {
+        return None;
+    }
+    let url = format!("{}/{identity}/manifest.json", base_url.trim_end_matches('/'));
+    let mut command = tokio::process::Command::new("curl");
+    command
+        .args(["--fail", "--silent", "--show-error", "--location", "--max-time", "30"])
+        .args(["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"])
+        // A 404 the CDN edge cached before the commit was published is skipped.
+        .arg(format!("{url}?t={}", std::process::id()))
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output =
+        tokio::time::timeout(Duration::from_secs(40), command.output()).await.ok()?.ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+/// A 40-hex lowercase commit.
+fn is_commit(text: &str) -> bool {
+    text.len() == 40 && text.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The payload `manifest` (commit `identity`'s published manifest) pins for
+/// `os`/`arch`: None for a platform no release publishes. A manifest of
+/// another commit, or one without a well-formed digest for the platform, is an
+/// error, never an unpinned download.
+fn published_pin(
+    base_url: &str,
+    identity: &str,
+    os: &str,
+    arch: &str,
+    manifest: &[u8],
+    cache: &Path,
+) -> Result<Option<PublishedPayload>, BootstrapError> {
+    let Some((target, _)) = release_target(os, arch) else { return Ok(None) };
+    let manifest: ArtifactManifest = serde_json::from_slice(manifest)
+        .map_err(|_| BootstrapError::Configuration("invalid published cmux-tui manifest".into()))?;
+    if manifest.commit != identity {
+        return Err(BootstrapError::Configuration(
+            "the published cmux-tui manifest names another commit".into(),
+        ));
+    }
+    let name = format!("cmux-tui-{target}");
+    let sha256 = manifest
+        .binaries
+        .get(&name)
+        .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            BootstrapError::Configuration(
+                "the published cmux-tui manifest lacks a checksum for this platform".into(),
+            )
+        })?
+        .to_ascii_lowercase();
+    Ok(Some(PublishedPayload {
+        url: format!("{}/{identity}/{name}", base_url.trim_end_matches('/')),
+        cache_path: cache.join(format!("{sha256}-{name}")),
+        sha256,
+        proxy_pac: None,
+    }))
 }
 
 fn file_sha256(path: &Path) -> std::io::Result<String> {
@@ -606,5 +690,80 @@ fn prune_cache(directory: &Path, keep: &str) {
         if stale && name.contains("cmux-tui-") {
             let _ = std::fs::remove_file(entry.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod published_pin_tests {
+    use super::*;
+
+    const COMMIT: &str = "5bdd4c9e4de3d3e93809a65135a039effc453c05";
+    const BASE: &str = "https://files.cmux.com/cmux-tui/";
+
+    fn manifest(commit: &str, digest: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "commit": commit,
+            "builtAt": "2026-11-01T00:00:00Z",
+            "binaries": {"cmux-tui-x86_64-unknown-linux-musl": digest, "cmux-tui-aarch64-apple-darwin": "00"},
+        }))
+        .unwrap()
+    }
+
+    /// A DEV build ships no manifest; its own commit's published one pins the
+    /// Cloud machine's build (Cloud start proof, 2026-11-01: a fresh machine's
+    /// older image refused the first send and the DEV app could not update it).
+    #[test]
+    fn a_dev_builds_published_manifest_pins_the_linux_build() {
+        let digest = "B4311A86C5EA".to_owned() + &"0".repeat(52);
+        let cache = Path::new("/tmp/cache");
+        let pin = published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(COMMIT, &digest), cache)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pin.url,
+            format!("https://files.cmux.com/cmux-tui/{COMMIT}/cmux-tui-x86_64-unknown-linux-musl")
+        );
+        assert_eq!(pin.sha256, digest.to_ascii_lowercase());
+        assert_eq!(
+            pin.cache_path,
+            cache.join(format!(
+                "{}-cmux-tui-x86_64-unknown-linux-musl",
+                digest.to_ascii_lowercase()
+            ))
+        );
+    }
+
+    #[test]
+    fn another_commits_or_an_incomplete_manifest_pins_nothing() {
+        let digest = "a".repeat(64);
+        let cache = Path::new("/tmp/cache");
+        let other = "1".repeat(40);
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(&other, &digest), cache)
+                .is_err()
+        );
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(COMMIT, "short"), cache)
+                .is_err()
+        );
+        assert!(published_pin(BASE, COMMIT, "linux", "x86_64", b"not json", cache).is_err());
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "aarch64", &manifest(COMMIT, &digest), cache)
+                .is_err(),
+            "a platform the manifest does not pin"
+        );
+        assert!(
+            published_pin(BASE, COMMIT, "plan9", "x86_64", &manifest(COMMIT, &digest), cache)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn only_a_plain_commit_is_looked_up() {
+        assert!(is_commit(COMMIT));
+        assert!(!is_commit(&COMMIT.to_ascii_uppercase()));
+        assert!(!is_commit(&format!("{COMMIT}-dirty")));
+        assert!(!is_commit("local"));
     }
 }

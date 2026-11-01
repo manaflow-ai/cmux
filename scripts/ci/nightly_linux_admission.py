@@ -4,14 +4,15 @@
 The controller owns the 180-second lease and dispatches the existing HQ JIT
 provisioner. A fleet receipt names an unconsumed runner for each requested job;
 the controller gives the fleet 180 seconds before overflow. If admission is
-unavailable, use declared hosted-light or measured overflow instead of an unregistered pool.
-This client never cancels a job or workflow.
+unavailable in legacy mode, use declared hosted-light or measured overflow instead
+of an unregistered pool. Opted-in Check Run admission instead fails closed until
+the existing controller App publishes a matching terminal receipt. This client
+never cancels a job or workflow.
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
-import math
 import os
 import re
 import signal
@@ -22,6 +23,8 @@ from typing import Any, Mapping
 
 import portable_job_placement as portable
 from fleet_admission_transport import exchange
+import nightly_admission_receipt as published
+from nightly_admission_receipt import validate
 
 FLEET_LINUX = "cmux-fleet-linux-x64"
 OVERFLOW = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
@@ -57,44 +60,9 @@ def timestamp(value: Any) -> dt.datetime:
     return parsed
 
 
-def validate(receipt: Mapping[str, Any], request: Mapping[str, Any]) -> str:
-    for key in ("repository", "run_id", "run_attempt", "source_sha"):
-        if type(receipt.get(key)) is not type(request[key]) or receipt[key] != request[key]:
-            raise ValueError(f"admission receipt mismatches {key}")
-    if receipt.get("jobs") != request["jobs"]:
-        raise ValueError("admission receipt mismatches jobs")
-    lease = receipt.get("lease_id", "")
-    if not isinstance(lease, str) or not re.fullmatch(r"[0-9a-f]{24}", lease):
-        raise ValueError("invalid lease identity")
-    created, expires = timestamp(receipt.get("created_at")), timestamp(receipt.get("expires_at"))
-    if (expires - created).total_seconds() != WAIT_SECONDS:
-        raise ValueError("admission lease must give the fleet 180 seconds")
-    now = dt.datetime.now(dt.timezone.utc)
-    if created > now:
-        raise ValueError("admission receipt starts in the future")
-    status = receipt.get("status")
-    if status == "pending":
-        return status
-    decided = timestamp(receipt.get("decided_at"))
-    if decided > now:
-        raise ValueError("admission receipt was decided in the future")
-    if status == "fleet":
-        expected = {job: f"cmux-nightly-{lease}-{job}" for job in request["jobs"]}
-        if receipt.get("runners") != expected or not created <= decided < expires:
-            raise ValueError("fleet receipt does not reserve matching runners before expiry")
-    elif status == "overflow":
-        elapsed = receipt.get("no_start_seconds")
-        if (not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool)
-                or not math.isfinite(elapsed) or elapsed < WAIT_SECONDS
-                or decided < expires or elapsed != int((decided - created).total_seconds())
-                or receipt.get("runners") != {}):
-            raise ValueError("overflow requires a recorded 180-second fleet no-start")
-    else:
-        raise ValueError("unknown admission status")
-    return str(status)
-
-
 def admit(env: Mapping[str, str], request: Mapping[str, Any]) -> dict[str, Any]:
+    if env.get("CHECK_RECEIPTS") == "1":
+        return published.read(request, env.get("SNAPSHOT_TOKEN", ""))
     controller = env.get("CMUX_CI_CONTROLLER", "").rstrip("/")
     if not controller:
         raise ValueError("CMUX_FLEET_CONTROLLER is not configured")
@@ -115,13 +83,18 @@ def admit(env: Mapping[str, str], request: Mapping[str, Any]) -> dict[str, Any]:
 
 def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[str, Any] | None,
            runners=None, snapshot=None) -> dict[str, str]:
+    if env.get("CHECK_RECEIPTS") == "1" and receipt is None:
+        raise ValueError("published admission is required before routing")
     status = validate(receipt, request) if receipt is not None else "unknown"
+    if env.get("CHECK_RECEIPTS") == "1" and status not in {"fleet", "overflow"}:
+        raise ValueError("terminal published admission is required before routing")
     if status == "fleet":
         return dict(receipt["runners"])
     # A configured label is not live runner evidence. Only a verified fleet
     # receipt selects Linux; minis also require a successful capacity read.
     placement_env = {**env, "FLEET_LINUX": "", "LINUX_ONLY": "",
-                     "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": ""}
+                     "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": "",
+                     "REQUIRE_LIVE_CAPACITY": "1" if env.get("CHECK_RECEIPTS") == "1" else env.get("REQUIRE_LIVE_CAPACITY", "")}
     placed = portable.decide(placement_env, runners, snapshot, dt.datetime.now(dt.timezone.utc))
     fallback = env.get("OVERFLOW_LINUX", "")
     if fallback not in OVERFLOW:
@@ -129,7 +102,7 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     # The central table is the only authority for hosted-light eligibility.
     table = json.loads((Path(__file__).resolve().parents[2] / ".github/runners.json").read_text())
     light = table.get("hosted_light_jobs", {})
-    result = {job: "ubuntu-24.04" if request["run_attempt"] == 1 and f"nightly.yml#{job}" in light else fallback
+    result = {job: "ubuntu-24.04" if env.get("CHECK_RECEIPTS") != "1" and request["run_attempt"] == 1 and f"nightly.yml#{job}" in light else fallback
               for job in request["jobs"]}
     for job in placed.mini_jobs:
         result[job] = placed.mini_runner
@@ -146,6 +119,7 @@ def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[
           error: str = "", client_observation: Mapping[str, Any] | None = None) -> None:
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"admission_ready={str(receipt is not None).lower()}\n")
             for job, label in selected.items():
                 output.write(f"{output_key(job)}_runner={label}\n")
     record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error,
@@ -176,6 +150,21 @@ def read_minis(env: Mapping[str, str]):
 
 def main(env: Mapping[str, str] = os.environ) -> int:
     request = identity(env)
+    if env.get("CHECK_RECEIPTS") == "1":
+        try:
+            receipt = admit(env, request)
+            runners = snapshot = None
+            if receipt["status"] == "overflow":
+                try:
+                    runners, snapshot = read_minis(env)
+                except (Exception, portable.Deadline):
+                    pass  # The verified controller receipt still authorizes paid overflow.
+            selected = routes(env, request, receipt, runners, snapshot)
+        except (Exception, portable.Deadline) as failure:
+            write(env, {}, None, f"published fleet admission unavailable: {type(failure).__name__}")
+            return 1
+        write(env, selected, receipt)
+        return 0
     started = time.monotonic()
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     observation = None

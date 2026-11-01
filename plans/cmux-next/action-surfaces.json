@@ -11088,6 +11088,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "home hide",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.hideConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Delete Conversation from List",
+      "title_key" : "action.home.hideConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home show-hidden",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.showHiddenConversations",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Hidden Conversations",
+      "title_key" : "action.home.showHiddenConversations",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "chat colors",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -22333,12 +22389,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "=",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomIn",
       "main_menu" : "view",
       "mcp" : "systemChange",
@@ -22367,12 +22418,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "-",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomOut",
       "main_menu" : "view",
       "mcp" : "systemChange",
@@ -22401,12 +22447,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "0",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPaneZoomReset",
       "main_menu" : "view",
       "mcp" : "systemChange",

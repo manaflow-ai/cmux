@@ -71,7 +71,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 MACOS_HINT = re.compile(
     r"macos|glaeda-|MACOS_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER"
     r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|NIGHTLY_[A-Z_]*(RUNNER|POOL)"
-    r"|pr_[a-z_]*runner|macos_runner|mini_runner|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
+    r"|pr_[a-z_]*runner|macos_runner|mini_runner|pick-nightly-build-runner\.outputs\.helper"
+    r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
 NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
@@ -81,8 +82,11 @@ NEEDS = ("macos", "linux", "any")
 PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$")
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
-# Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner)$")
+# Blacksmith; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
+# Mac pick (pick-nightly-build-runner's helper) instead. They have no fleet Linux step: a nightly job
+# never takes vars.LINUX_RUNNER as it is.
+NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner"
+                          r"|pick-nightly-build-runner\.outputs\.helper)$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
@@ -510,10 +514,18 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if "ubuntu-24.04'" not in text:
                 # A declaration may precede the separate workflow routing change.
                 continue
-            if alternatives.count(hosted) != 1 or alternatives[-1] not in paid:
+            track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
+            hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
-            position = alternatives.index(hosted)
+            hosted_term = hosted_terms[0]
+            # Track-gating is required when a declared resolver also runs on
+            # non-NEXT tracks; a bare hosted branch would widen the exception.
+            if hosted_term == hosted and "needs.decide.outputs.track == 'nightly-next'" in text:
+                problems.append(f"hosted_light_jobs[{key!r}] must gate hosted Ubuntu to nightly-next")
+                continue
+            position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
             if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):

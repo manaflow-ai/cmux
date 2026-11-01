@@ -33,7 +33,8 @@ use crate::mux::Mux;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
-/// is one of the seven `fs-v1` ops or the two `git-seed-v1` ops, exactly;
+/// is one of the seven `fs-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
+/// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
 /// every other frame is denied as before (`remote_denied`, no detail).
 /// Whether the op is served is decided after admission: a daemon that is not
 /// a Cloud host answers `fs.unavailable` (`seed.unavailable`).
@@ -41,7 +42,11 @@ pub struct FsGate;
 
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
-        frame_command(frame).is_some() || crate::git_seed::frame_command(frame).is_some()
+        frame_command(frame).is_some()
+            || crate::git_seed::frame_command(frame).is_some()
+            || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
+                !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
+            })
     }
 }
 

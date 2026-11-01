@@ -222,3 +222,6 @@ pub enum SplitDir {
     /// Split into top/bottom rows.
     Down,
 }
+
+#[cfg(unix)]
+pub mod cloud_repos;
