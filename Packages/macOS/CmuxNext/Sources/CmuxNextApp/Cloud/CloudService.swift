@@ -64,6 +64,7 @@ final class CloudService {
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
+    @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
@@ -404,6 +405,15 @@ final class CloudService {
     /// see, nor mark the store loaded with an older answer than the latest.
     func refresh() async {
         guard auth.isSignedIn, unavailableReason == nil else { return }
+        await refreshGate.run { [weak self] in
+            await self?.performRefresh()
+        }
+    }
+
+    /// Performs one machine-list read. ``refreshGate`` coalesces overlapping
+    /// triggers, while a later trigger during the read asks for one follow-up
+    /// pass so a wake or mutation cannot be lost behind the shared request.
+    private func performRefresh() async {
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration

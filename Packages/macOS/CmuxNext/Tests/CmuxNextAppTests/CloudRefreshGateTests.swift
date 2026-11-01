@@ -1,6 +1,7 @@
 import Foundation
-import Testing
 @testable import CmuxNextApp
+@testable import CmuxNextCloud
+import Testing
 
 @MainActor @Suite(.serialized)
 struct CloudRefreshGateTests {
