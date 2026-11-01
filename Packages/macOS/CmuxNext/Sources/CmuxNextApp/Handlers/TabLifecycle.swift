@@ -57,11 +57,11 @@ enum TabLifecycle {
             // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
             let chatStart = tabCwd ?? NewTerminalStart.inherited(besides: controller.selectedTab, in: pane, services: ctx.services)
+            let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
             var target: PaneController? = controller
-            if invocation.origin == .user {
-                let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
-                target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
-            }
+            if invocation.origin == .user { target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services) }
+            // A pinned dock taking no tab (Home's before its `allow_tabs`, FC-1) refuses one: a column right of it (H1, H5).
+            if let closed = target, closed.isClosedPinnedDockPane { return ChatColumnPlacement.openBesideDock(closed, respawn: .terminal(spawn), services: ctx.services) }
             // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
             let homePlacement = target.map { HomeDockOpens.opensBeside($0.pane, services: ctx.services) } ?? false
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
@@ -70,13 +70,13 @@ enum TabLifecycle {
                                    placementOwner: homePlacement, then: placed)
             return
         }
-        let handle = pane.handle
-        let start = tabCwd ?? pane.tabs.first?.cwd
-        let workspace = ctx.services.workspaceKey(of: pane)
-        // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept.
-        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services)
+        let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+        // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
+        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services), width = ctx.services.newColumnWidth(nextTo: pane)
+        let closed = HomeDockOpens.pinnedDock(holding: pane, in: ctx.services.daemon(for: pane).store)?.takesTabs == false
         ctx.send("new-tab") { connection in
-            let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
+            if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
+            let created = try await connection.newTab(in: handle, options: options)
             if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
         }
     }

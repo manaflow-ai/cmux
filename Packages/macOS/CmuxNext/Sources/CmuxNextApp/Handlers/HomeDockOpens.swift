@@ -51,7 +51,7 @@ enum HomeDockOpens {
     }
 
     /// Whether a new tab made in `pane` moves beside it: `pane` is in Home's pinned dock while it
-    /// takes tabs. A dock closed to tabs needs no move: the daemon refuses or reroutes the tab.
+    /// takes tabs. A dock closed to tabs takes none (`dock-column-pinned`): its creators open beside it themselves.
     static func opensBeside(_ pane: PaneModel, services: AppServices) -> Bool {
         pinnedDock(holding: pane, in: services.daemon(for: pane).store)?.allowsTabs == true
     }
