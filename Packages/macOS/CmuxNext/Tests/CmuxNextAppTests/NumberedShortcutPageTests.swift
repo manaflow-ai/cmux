@@ -85,6 +85,11 @@ struct NumberedShortcutPageTests {
         #expect(relaunched == expected, "the move was gone after the relaunch")
     }
 
+    /// Another key on one digit of Select Space binds that digit alone, in keybindings.json, and
+    /// the rest of the family is unchanged. Select Space's extra keys Ctrl-Opt-Cmd-1…9 (ac2557f40b2,
+    /// `KeyBindingDefaults.spaceAliases`) stay: `KeyBindingDefaults.entries` drops an action's
+    /// aliases only for a cmux.json override or a chord, never for a keybindings.json line. So
+    /// digit 2 has Ctrl-Opt-Cmd-2 and the new key; every other digit keeps Ctrl-Opt-N and Ctrl-Opt-Cmd-N.
     @Test func anotherKeyOnADigitRebindsThatDigitAloneInKeybindingsJSON() async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = try Self.root("keydig")
@@ -92,6 +97,9 @@ struct NumberedShortcutPageTests {
         let session = "cn-keydig-\(UUID().uuidString.prefix(8).lowercased())"
         let command = ActionID(rawValue: "space.selectByNumber")
         let ctrlOpt2 = try Self.key("ctrl+opt+2")
+        var expected = Dictionary(uniqueKeysWithValues: (1...9).map { ("\($0)", Set(["opt+ctrl+\($0)", "cmd+opt+ctrl+\($0)"])) })
+        expected["2"] = ["cmd+opt+ctrl+2", "cmd+opt+ctrl+k"]
+        let keys = { (launch: Launch) in Self.family(launch, command).mapValues(Set.init) }
 
         let first = try await Launch(root: root, session: session, binary: binary)
         await first.wait { first.connected }
@@ -102,20 +110,20 @@ struct NumberedShortcutPageTests {
         } catch {
             failure = String(describing: error)
         }
-        let rebound = Self.family(first, command)
+        let rebound = keys(first)
         await first.quit()
         #expect(failure == nil, "the page refused the rebind: \(failure ?? "")")
-        #expect(rebound["2"] == ["cmd+opt+ctrl+k"], "digit 2: \(rebound["2"] ?? [])")
-        #expect(rebound["3"] == ["opt+ctrl+3"], "the other digits moved: \(rebound)")
+        #expect(rebound == expected, "after the rebind: \(rebound)")
         let file = (try? String(contentsOf: root.appending(path: "keybindings.json"), encoding: .utf8)) ?? ""
         #expect(file.contains("space.selectByNumber") && file.contains("cmd+opt+ctrl+k"), "keybindings.json: \(file)")
 
         let second = try await Launch(root: root, session: session, binary: binary)
-        await second.wait { second.connected && Self.family(second, command)["2"] == ["cmd+opt+ctrl+k"] }
-        let relaunched = Self.family(second, command)
+        // Until the relaunch read keybindings.json (its key is in the table), not until the whole
+        // expected state: a wrong family fails at once instead of at the wait's limit.
+        await second.wait { second.connected && keys(second)["2"]?.contains("cmd+opt+ctrl+k") == true }
+        let relaunched = keys(second)
         await second.quit()
-        #expect(relaunched["2"] == ["cmd+opt+ctrl+k"], "the rebind was gone after the relaunch: \(relaunched)")
-        #expect(relaunched["3"] == ["opt+ctrl+3"])
+        #expect(relaunched == expected, "after the relaunch: \(relaunched)")
     }
 
     /// Onboarding's Spaces scheme keeps both families in cmux.json: one digit
