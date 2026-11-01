@@ -1184,10 +1184,10 @@ fn a_repick_moves_a_sends_retry_to_the_picked_machine() {
     ]);
     let request = json!({"key": send_key, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": true, "machines": machines})
         .to_string();
-    let first = plan(&path, &request)["machine"].clone();
-    assert!(first == json!("vm-sr2") || first == json!("vm-zesty"), "{first}");
-    let (from, to) =
-        if first == json!("vm-sr2") { ("vm-sr2", "vm-zesty") } else { ("vm-zesty", "vm-sr2") };
+    // A workspace's first send makes a machine of its own (pick.rs), which the App pins.
+    assert_eq!(plan(&path, &request)["machine"], Value::Null);
+    let (from, to) = ("vm-sr2", "vm-zesty");
+    assert_eq!(pin(&path, &send_key, ACCOUNT, from, Some("ws-a"))["ok"], json!(true));
     // The first try's copy finished there.
     let copy = StartCopy {
         key: send_key.clone(),
