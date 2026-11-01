@@ -245,10 +245,10 @@ struct WorkspaceTabHoverCardTests {
         #expect(!toggle.isHidden)
         #expect(abs(toggle.frame.width - card.tabList.frame.width) < 0.5, "toggle \(toggle.frame) list \(card.tabList.frame)")
         #expect(abs(toggle.frame.minX - card.tabList.frame.minX) < 0.5)
-        let label = try #require(toggle.subviews.compactMap { $0 as? NSTextField }.first)
+        let label = try #require(toggle.subviews.compactMap { $0 as? ChromeLabel }.first)
         let row = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.first)
         row.layoutSubtreeIfNeeded()
-        let title = try #require(Self.descendants(of: row).compactMap { $0 as? NSTextField }.first)
+        let title = try #require(Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.first)
         let labelX = label.convert(NSPoint.zero, to: card).x
         let titleX = title.convert(NSPoint.zero, to: card).x
         #expect(abs(labelX - titleX) < 0.5, "Show details at \(labelX), tab titles at \(titleX)")

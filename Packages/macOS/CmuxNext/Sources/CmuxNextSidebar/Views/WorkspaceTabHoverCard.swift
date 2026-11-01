@@ -41,13 +41,17 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         scrollView.hasVerticalScroller = true
         scrollView.verticalScrollElasticity = .none
         SystemScrollers.followThin(scrollView)
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        let stack = NSStackView(views: [scrollView])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         let height = scrollView.heightAnchor.constraint(equalToConstant: 0)
         height.isActive = true
@@ -95,8 +99,8 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
     override func layout() {
         super.layout()
-        // The scroll view spans this view's width (it is pinned to our edges), but Auto Layout
-        // places it only after this pass: its frame here can still be the old (first pass:
+        // The scroll view spans this view's width (its stack is pinned to our edges), but the
+        // stack places it only after this pass: its frame here can still be the old (first pass:
         // zero) one, which gave every row zero width, so no click or hit test reached a row.
         let width = NSScrollView.contentSize(forFrameSize: NSSize(width: bounds.width, height: scrollView.frame.height),
                                              horizontalScrollerClass: nil,
