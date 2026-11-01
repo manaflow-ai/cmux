@@ -177,6 +177,19 @@ struct MoveToNewWindowTests {
         #expect(cascaded.size == wide.size && cascaded != wide && screen.contains(cascaded))
     }
 
+    /// A source window that fills its screen (zoomed) or nearly fills it leaves no room to cascade on the screen: the
+    /// cascade wrapped back to the spot a window already took, so the second move from a zoomed window still opened
+    /// exactly on the first (review of #30011). Every move gets a spot of its own, partly off screen if it must.
+    @Test(arguments: [CGRect(x: 0, y: 0, width: 1512, height: 944), CGRect(x: 20, y: 20, width: 1480, height: 900),
+                      CGRect(x: 206, y: 112, width: 1100, height: 720)])
+    func threeMovesFromOneWindowEachGetASpotOfTheirOwn(source: CGRect) {
+        let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        var open = [source]
+        for _ in 0..<3 { open.append(MovedWindowPlacement().frame(beside: source, on: screen, avoiding: open)) }
+        let spots = Set(open.map { "\(Int($0.minX.rounded())),\(Int($0.maxY.rounded()))" })
+        #expect(spots.count == open.count, "two windows share a top-left: \(open)")
+    }
+
     // MARK: Helpers
 
     static func on(_ kind: ActionTargetKind, _ id: String) -> ActionInvocation {
