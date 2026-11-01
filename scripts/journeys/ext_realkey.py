@@ -303,6 +303,49 @@ def press_char(j, ch):
     return press(j, ch)
 
 
+def _pane_center(j, pane):
+    """The center of PANE ("focused" = the focused pane) in its window's points from the top-left (debug.surfaces
+    grid frame, the frame the journeys' window snapshots use)."""
+    rows = [p for w in (j.app.rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
+            if isinstance(p, dict)]
+    row = next((p for p in rows if (p.get("focused") if pane == "focused" else p.get("pane") == pane)), None)
+    grid = (row or {}).get("grid") or {}
+    if not all(k in grid for k in ("frame_x", "frame_y", "frame_width", "frame_height")):
+        raise D.StepError(f"real_click: no frame for pane {pane!r} in debug.surfaces")
+    return (grid["frame_x"] + grid["frame_width"] / 2, grid["frame_y"] + grid["frame_height"] / 2), row.get("pane")
+
+
+def step_real_click(j, step):
+    """A REAL click through CuaDriver (`click`, delivery_mode foreground: the window is fronted so macOS sees the
+    modifier keys as physically held, then the prior front app is restored) with MODIFIERS held (e.g. ["cmd"]: a
+    plain Cmd-click, Cmd pressed only around the click). Where: `window_point` [x, y] in the app's main window points
+    from its top-left, or `pane` ("focused" or a pane id): that pane's center. Records the host time just before and
+    just after the click (D.now()), the point, the pixels sent and CuaDriver's answer. Needs a whole-host lease.
+    Not a hold: CuaDriver has no separate key-down/key-up call (STATUS 3105)."""
+    require_front(j)
+    if step.get("window_point"):
+        point, pane = tuple(float(v) for v in step["window_point"]), None
+    else:
+        point, pane = _pane_center(j, step.get("pane", "focused"))
+    bad, size, raw = _session(j).call("get_screen_size", {})
+    scale = float((size or {}).get("scale_factor") or 1.0)
+    wid = _main_window(j)
+    mods = [MODIFIERS.get(m, m) for m in step.get("modifiers", [])]
+    args = {"pid": j.app.pid, "window_id": wid, "x": round(point[0] * scale), "y": round(point[1] * scale),
+            "delivery_mode": "foreground", **({"modifier": mods} if mods else {})}
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    before = D.now()
+    bad, data, raw = _session(j).call("click", args)
+    after = D.now()
+    if bad or data.get("effect") in ("refused", "failed", "error"):
+        raise D.NotRun(f"real_click: CuaDriver did not click: {json.dumps(raw)[:400]}")
+    return {"key_path": "real_hid", "point": list(point), "pane": pane, "pixels": [args["x"], args["y"]],
+            "scale": scale, "modifiers": mods, "window_id": wid, "clicked_at": round(before, 4),
+            "returned_at": round(after, 4), "click_s": round(after - before, 4), "cua_effect": data.get("effect"),
+            "front_pid_after": front_pid()}
+
+
 def step_real_key_probe(j, step):
     """Proof of what one REAL key did (cmux-ad 14:50Z, the Ctrl-Cmd-D finding): sends KEY with MODIFIERS as a real
     HID key (press), then after WAIT s (default 1.5) records: whether the app's key router saw a key at all
@@ -356,5 +399,5 @@ def step_app_log(j, step):
     return {"lines": [l[:300] for l in lines[-120:]], "count": len(lines)}
 
 
-STEPS = {"real_key_probe": step_real_key_probe, "app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
+STEPS = {"real_click": step_real_click, "real_key_probe": step_real_key_probe, "app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
 CONDITIONS = {}

@@ -125,6 +125,20 @@
       "name": "probe-escape-f",
       "key": "escape",
       "title": "Escape (closes what Shift-Cmd-F opened)"
+    },
+    {
+      "do": "real_click",
+      "pane": "focused",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "cmd-click",
+      "title": "a real plain Cmd-click in the focused pane (CuaDriver click, foreground; animation tests' no-chip case)"
+    },
+    {
+      "do": "real_click",
+      "pane": "focused",
+      "title": "a real plain click in the focused pane"
     }
   ],
   "finally": [
