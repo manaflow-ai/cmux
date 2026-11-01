@@ -3,14 +3,14 @@ import CmuxNextSettings
 import CmuxNextFocus
 import CmuxNextPalette
 
-/// `debug.focus`: per window, the coordinator state next to what AppKit,
-/// Ghostty and the layout actually show, and whether they agree
-/// (plans/cmux-next/focus.md section 6). Pane and tab ids match
+/// `debug.focus`: per window, the coordinator state next to what AppKit, Ghostty and the layout show, whether they
+/// agree (plans/cmux-next/focus.md section 6), and its key holds: the New Tab hold and the creation hold (`creation_hold`
+/// open now, `creation_hold_end` how the last one ended), so a held key names its holder. Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs
-        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty) }
+        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty, creations: services.keyRouter.creationInputCoordinator) }
         let context = services.registry.context
         let windowProblems = WindowInvariants.problems(services.windows)
         return .object([
@@ -51,13 +51,12 @@ enum DebugFocus {
     private static func keyboardGuard(_ services: AppServices) -> JSONValue {
         guard let guardian = services.input.keyboardGuard else { return .null }
         let last = guardian.giveBacks.last.map { giveBack -> JSONValue in
-            ["trigger": .string(giveBack.trigger.rawValue), "cause": .string(giveBack.cause),
-             "restored_to": giveBack.restoredTo.map { JSONValue(Int($0)) } ?? .null]
+            ["trigger": .string(giveBack.trigger.rawValue), "cause": .string(giveBack.cause), "restored_to": giveBack.restoredTo.map { JSONValue(Int($0)) } ?? .null]
         } ?? .null
         return ["count": JSONValue(guardian.giveBackCount), "last": last]
     }
 
-    private static func window(of controller: WindowController, ghostty: [String]) -> JSONValue {
+    private static func window(of controller: WindowController, ghostty: [String], creations: CreationInputCoordinator) -> JSONValue {
         let state = controller.focus.state
         let resolved = state.resolved
         let window = controller.window
@@ -72,6 +71,7 @@ enum DebugFocus {
             "workspace": state.topology.workspace.map(JSONValue.string) ?? .null,
             "workspace_name": controller.content.map { .string($0.workspace.displayName) } ?? .null,
             "is_key": .bool(isKey),
+            "creation_hold": .bool(creations.isHolding(in: window)), "creation_hold_end": creations.lastHoldEnd(in: window).map { .string(String(describing: $0)) } ?? .null,
             "model": .object([
                 "pane": state.pane.map(JSONValue.string) ?? .null,
                 "target": .string(String(describing: state.target)),
