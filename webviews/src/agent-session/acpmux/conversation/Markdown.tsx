@@ -42,6 +42,8 @@ import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
+import { splitSkillWords } from "./skillWords";
+import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
@@ -355,6 +357,9 @@ export type InlineOptions = {
   linkBareReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
+  /** A sent prompt's skills by shown name, with their descriptions: each `/name` in prose draws as a
+   *  skill word (SkillWord.tsx). Prose only, never code. */
+  skills?: ReadonlyMap<string, string>;
   /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
    *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
   commits?: "chip" | "quiet";
@@ -558,6 +563,25 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
     out.push(
       ...pieces.flatMap((piece): ReactNode[] => {
         const current = `${key}-${index++}`;
+        if (typeof piece === "string" && opts.skills?.size) {
+          const words = splitSkillWords(piece, opts.skills);
+          if (words.length > 1 || typeof words[0] !== "string")
+            return words.flatMap((word, at): ReactNode[] =>
+              typeof word === "string"
+                ? softBreakNodes(
+                    linkedGithubText(
+                      word,
+                      `${current}-${at}`,
+                      opts.githubRepository,
+                      opts.linkGithubReferences !== false,
+                      opts.commits === "quiet",
+                      opts.linkBareReferences !== false,
+                    ),
+                    `${current}-${at}`,
+                  )
+                : [<SkillWord key={`${current}-${at}`} {...word} />],
+            );
+        }
         return typeof piece === "string"
           ? softBreakNodes(
               linkedGithubText(
@@ -1122,6 +1146,7 @@ export function Markdown({
   thumbnails,
   messageAt,
   trailing,
+  skills,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -1153,8 +1178,9 @@ export function Markdown({
       ...(started ? { started } : {}),
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
+      ...(skills?.size ? { skills } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

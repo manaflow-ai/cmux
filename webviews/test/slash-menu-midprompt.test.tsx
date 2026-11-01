@@ -281,3 +281,13 @@ test("where a command shares a Codex skill's name, a picked skill goes as `/$nam
   await press(typed.field, "Enter");
   expect(typed.sent).toEqual(["use /emil-color now"]);
 });
+
+test("a skill word in the prompt carries the skill's description as its tooltip; a built-in none", async () => {
+  await composer(codexChat(), "/init then use /emil-color");
+  const tokens = [...host.querySelectorAll<HTMLElement>(".acpmux-slash-token")];
+  expect(tokens.map((token) => [token.textContent, token.dataset.tooltip ?? null])).toEqual([
+    ["/init", null],
+    ["/emil-color", "Colour in CSS"],
+  ]);
+  expect(tokens[1]!.getAttribute("aria-description")).toBe("Colour in CSS");
+});

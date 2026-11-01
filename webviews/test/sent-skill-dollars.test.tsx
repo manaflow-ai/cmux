@@ -82,8 +82,7 @@ test("the bubble, its Copy and its editor read `/name`; Edit sends `/$name`, Ret
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-  const { SkillWordsContext } = await import("../src/agent-session/acpmux/conversation/skillWords");
-  const { skillCatalog } = await import("../src/agent-session/acpmux/slashCommands");
+  const { SkillWordsContext, skillWords } = await import("../src/agent-session/acpmux/conversation/skillWords");
   const sent: string[] = [];
   const retried: string[] = [];
   const actions = {
@@ -100,7 +99,7 @@ test("the bubble, its Copy and its editor read `/name`; Edit sends `/$name`, Ret
   act(() =>
     root!.render(
       <TurnActionsContext.Provider value={actions}>
-        <SkillWordsContext.Provider value={skillCatalog(COMMANDS)}>
+        <SkillWordsContext.Provider value={skillWords(COMMANDS)}>
           <UserBubble row={rows[3]} text={SENT} />
         </SkillWordsContext.Provider>
       </TurnActionsContext.Provider>,

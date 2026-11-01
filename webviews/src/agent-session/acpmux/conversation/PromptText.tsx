@@ -28,6 +28,8 @@ import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
+import { SkillWordsContext } from "./skillWords";
+import { withSkillWords } from "./SkillWord";
 
 export function PromptText({
   rowId,
@@ -236,14 +238,20 @@ export function PromptTyped({
   plain?: boolean;
 }) {
   const shown = show(text);
+  // A skill's `/name` draws as the composer's command words do, its description on hover.
+  const skills = useContext(SkillWordsContext).words;
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false}>
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={skills}>
       {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      <LiteralText text={shown} />
+      {skills.size && shown.includes("/") ? (
+        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />)
+      ) : (
+        <LiteralText text={shown} />
+      )}
     </span>
   );
 }

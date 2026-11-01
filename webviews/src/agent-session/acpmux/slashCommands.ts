@@ -256,19 +256,36 @@ export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTr
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
-export type SlashNames = { leading: ReadonlySet<string>; anywhere: ReadonlySet<string> };
+/// `descriptions`: each skill's and prompt's description by name, which its word shows on hover.
+export type SlashNames = {
+  leading: ReadonlySet<string>;
+  anywhere: ReadonlySet<string>;
+  descriptions?: ReadonlyMap<string, string>;
+};
 
 export function slashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
   const list = commands ?? [];
   // A `$` skill by the name the prompt shows (`/emil-color`) and by its own (`/$emil-color`).
   const names = (each: readonly SlashCommand[]) => each.flatMap((command) => [command.name, shownName(command)]);
-  return { leading: new Set(names(list)), anywhere: new Set(names(list.filter(goesAsText))) };
+  const descriptions = new Map<string, string>();
+  for (const command of list.filter(goesAsText)) {
+    const description = command.description.trim();
+    if (!description) continue;
+    descriptions.set(command.name, description);
+    descriptions.set(shownName(command), description);
+  }
+  return { leading: new Set(names(list)), anywhere: new Set(names(list.filter(goesAsText))), descriptions };
 }
 
 /// `slashNames` kept while the list's names and kinds are the same: a chat's snapshot rebuilds its
 /// list on every update, and the prompt recolours only when the names change.
 export function useSlashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
-  const key = (commands ?? []).map((command) => `${goesAsText(command) ? "a" : "c"}${command.name}`).join("\n");
+  const key = (commands ?? [])
+    .map(
+      (command) =>
+        `${goesAsText(command) ? "a" : "c"}${command.name}\u0000${goesAsText(command) ? command.description : ""}`,
+    )
+    .join("\n");
   const kept = useRef<{ key: string; names: SlashNames }>(undefined);
   if (kept.current?.key !== key) kept.current = { key, names: slashNames(commands) };
   return kept.current.names;

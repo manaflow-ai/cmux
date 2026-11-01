@@ -57,6 +57,7 @@ import {
   type SlashCommand,
 } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
+import { withSkillWords } from "./conversation/SkillWord";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -996,7 +997,8 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              withoutSkillDollars(entry.prompt, skills)
+              // A skill's `/name` draws as in the prompt's bubble (SkillWord.tsx).
+              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words)
             )}
           </span>
         </button>
