@@ -114,7 +114,7 @@ test("driver upstream in a build without its helper says Legacy runs instead", a
   page.unmount();
 });
 
-test("the buttons run the shared actions; a policy lock hides the card", async () => {
+test("the buttons run the shared actions; a policy lock leaves only the rows", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
   for (const action of [
@@ -137,7 +137,11 @@ test("the buttons run the shared actions; a policy lock hides the card", async (
     }),
   );
   await settle();
-  expect(card(page.container)).toBeNull();
+  const locked = card(page.container)!;
+  expect(locked.dataset.phase).toBe("disabled_by_policy");
+  expect(locked.querySelector("[data-action]")).toBeNull();
+  expect(grants(locked)).toEqual([]);
+  expect(locked.querySelector('[data-row-key="computerUse.enabled"]')).not.toBeNull();
   page.unmount();
 });
 

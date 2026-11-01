@@ -206,7 +206,8 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
+  selector: '[data-card="computer-use"] [data-action-row] button',
   action: "focus",
 };
 const customValues: Record<string, unknown> = Object.fromEntries(

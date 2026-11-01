@@ -58,8 +58,9 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const { host } = useSettingsState();
   const state = host?.computer_use ?? null;
-  // A policy lock (DisabledFeatures) turns Computer Use off for this Mac: nothing here applies.
-  if (state?.phase === "disabled_by_policy") return null;
+  // A policy lock (DisabledFeatures) turns Computer Use off for this Mac: setup and grants do not
+  // apply, but the rows still show (as search lists them), so a deep link lands on its row.
+  const locked = state?.phase === "disabled_by_policy";
   const failed = state?.phase === "failed";
   const off = state?.phase === "off";
   const row = (key: string) => {
@@ -81,32 +82,39 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
       <div className="rows">
         {row(COMPUTER_USE_ENABLED)}
         {/* The guided setup: it offers to turn Computer Use on, then walks each grant. */}
-        <ActionRow
-          title={t("settingsWindow.computerUse.setUpTitle")}
-          help={state && !off ? phaseText(state) : t("settingsWindow.computerUse.setUpHelp")}
-        >
-          {failed ? (
-            <button
-              type="button"
-              className="button"
-              data-action="palette.computerUse.restart"
-              onClick={() => run("palette.computerUse.restart")}
-            >
-              {t("settingsWindow.computerUse.restartHelper")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              data-action="palette.computerUse.setup"
-              onClick={() => run("palette.computerUse.setup")}
-            >
-              {t("settingsWindow.computerUse.setUp")}
-            </button>
-          )}
-        </ActionRow>
-        {state && !failed && !off && grant("accessibility", state.accessibility, "palette.computerUse.accessibility")}
+        {!locked && (
+          <ActionRow
+            title={t("settingsWindow.computerUse.setUpTitle")}
+            help={state && !off ? phaseText(state) : t("settingsWindow.computerUse.setUpHelp")}
+          >
+            {failed ? (
+              <button
+                type="button"
+                className="button"
+                data-action="palette.computerUse.restart"
+                onClick={() => run("palette.computerUse.restart")}
+              >
+                {t("settingsWindow.computerUse.restartHelper")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                data-action="palette.computerUse.setup"
+                onClick={() => run("palette.computerUse.setup")}
+              >
+                {t("settingsWindow.computerUse.setUp")}
+              </button>
+            )}
+          </ActionRow>
+        )}
         {state &&
+          !locked &&
+          !failed &&
+          !off &&
+          grant("accessibility", state.accessibility, "palette.computerUse.accessibility")}
+        {state &&
+          !locked &&
           !failed &&
           !off &&
           grant("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
