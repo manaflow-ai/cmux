@@ -19,10 +19,24 @@ pub struct HostLauncher {
 
 impl HostLauncher {
     /// This process's own binary, with the prefix it starts its daemon with.
+    ///
+    /// On Linux the exe is the open inode, `/proc/self/exe`: once an update
+    /// replaces the file a long-lived daemon runs from (a Cloud VM's
+    /// `~/.cmux/bin/cmux-tui`), `current_exe` reads `PATH (deleted)`, which no
+    /// longer exists, and every new chat failed with "start PATH (deleted): No
+    /// such file or directory" (shown in the app as `agent_session.refused`).
+    /// The host also runs the daemon's own build, never a newer file at the
+    /// path. cmux-tui's terminal hosts do the same (`self_exe_for_spawn`).
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
-        Ok(Self { exe: this.exe, prefix: this.prefix })
+        Ok(Self { exe: spawn_exe(this.exe), prefix: this.prefix })
     }
+}
+
+/// The program that starts this binary again: the open inode on Linux
+/// ([`HostLauncher::current`]), the resolved path elsewhere.
+fn spawn_exe(resolved: PathBuf) -> PathBuf {
+    if cfg!(target_os = "linux") { PathBuf::from("/proc/self/exe") } else { resolved }
 }
 
 /// Start a host for `spec` and return its record once the harness runs.
@@ -708,5 +722,24 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::HostLauncher;
+    use std::path::PathBuf;
+
+    /// A daemon whose binary an update replaced still starts agent hosts: on
+    /// Linux the launcher execs the open inode, never `PATH (deleted)`.
+    #[test]
+    fn the_host_starts_from_the_open_inode_on_linux() {
+        let launcher = HostLauncher::current().expect("launcher");
+        if cfg!(target_os = "linux") {
+            assert_eq!(launcher.exe, PathBuf::from("/proc/self/exe"));
+            assert!(launcher.exe.exists(), "the open inode is always there");
+        } else {
+            assert_eq!(launcher.exe, std::env::current_exe().expect("current exe"));
+        }
     }
 }
