@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 786,
-    "mcp": 702
+    "verbs": 788,
+    "mcp": 704
   },
   "nouns": [
     {
@@ -5141,6 +5141,20 @@
           "id": "workspace.mergeInto",
           "mcp": true,
           "mcpTool": "app_workspace_merge_into"
+        },
+        {
+          "command": "cmux workspace move-above",
+          "title": "Move Workspace Above…",
+          "id": "workspace.moveAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_above"
+        },
+        {
+          "command": "cmux workspace move-below",
+          "title": "Move Workspace Below…",
+          "id": "workspace.moveBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_below"
         },
         {
           "command": "cmux workspace move-down",
