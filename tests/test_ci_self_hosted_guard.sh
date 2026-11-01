@@ -68,7 +68,7 @@ check_cla_guard_runner() {
   # the same exact allowlist and is the authority; this keeps it visible.
   local hosted selector runs_on
   hosted="    runs-on: ubuntu-24.04"
-  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
   if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
     echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
@@ -84,7 +84,7 @@ check_cla_guard_runner() {
   # needs the guard step that also admits Blacksmith scale-set VM names.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-8vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
 
   # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
   # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
@@ -103,7 +103,7 @@ check_cla_guard_runner() {
     'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
     'refuse cmuxs-mac-mini-5-glaeda-1' \
     'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
-    'admit blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
     'refuse blacksmith-4vcpu-ubuntu-2404'; do
     expected="${case_line%% *}"
     name="${case_line#* }"
@@ -1282,7 +1282,7 @@ check_no_github_hosted_runners() {
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
-  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
@@ -1323,6 +1323,7 @@ check_no_github_hosted_runners() {
   done
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
     if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
