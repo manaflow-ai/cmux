@@ -106,4 +106,89 @@ struct SidebarInsertBurstTests {
         #expect(rebuilt == 0, "\(motion): \(rebuilt) times an insert rebuilt a shown row's view")
         #expect(reopened == 0, "\(motion): \(reopened) times a shown row had opened more than once")
     }
+
+    /// A row still opening that moves by itself (shown at the daemon's slot first, then placed below another row) opens
+    /// again at its new slot in a new view, so it never crosses the list half open (cx-ai79); a row an insert above
+    /// only pushes keeps its view (the burst case above).
+    @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() })
+    func aRowStillOpeningThatMovesByItselfOpensAgainThere() throws {
+        let (model, list, restore) = try Self.sidebar(Array(1...10), motion: .spring)
+        defer { restore() }
+        model.sections = Self.sections(Array(1...10) + [100])
+        list.reload(animated: true)
+        let moved = try Self.key(100)
+        let view = try #require(list.rowViews[moved])
+        let opened = try #require(list.openingRows[moved], "the appended row did not open")
+        model.sections = Self.sections([1, 100] + Array(2...10))
+        list.reload(animated: true)
+        let again = try #require(list.rowViews[moved])
+        #expect(again !== view, "a row that moved by itself flew across the list half open")
+        #expect(again.opens == 1, "it did not open again at its new slot")
+        #expect((list.openingRows[moved]?.until ?? 0) >= opened.until, "its open did not start again")
+    }
+
+    /// Cmd-N with the list scrolled away from its top: the reveal jumps to the new row at the top, so its gap is open in
+    /// that frame. The row is in its slot, whole, in that frame (it does not grow from nothing in the open gap).
+    @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() },
+          arguments: [SidebarInsertMotion.nudge, .quick, .spring])
+    func aCmdNTheRevealJumpsToShowsTheNewRowWhole(_ motion: SidebarInsertMotion) throws {
+        let ids = Array(1...40)
+        let (model, list, restore) = try Self.sidebar(ids, motion: motion)
+        defer { restore() }
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        clip.scroll(to: NSPoint(x: 0, y: 900))
+        list.enclosingScrollView?.reflectScrolledClipView(clip)
+        try #require(clip.bounds.minY > 400, "the list did not scroll")
+        let sections = Self.sections([500] + ids)
+        model.sections = sections
+        model.activeWorkspaceID = try #require(sections.first?.workspaces.first?.id)
+        list.reload(animated: true)
+        #expect(clip.bounds.minY < 1, "\(motion): the reveal did not show the new row")
+        let key = try Self.key(500)
+        let view = try #require(list.rowViews[key], "\(motion): the new row has no view")
+        #expect(view.opens == 0 && view.alphaValue == 1,
+                "\(motion): the new row grows from an empty slot (opens \(view.opens), alpha \(view.alphaValue))")
+        #expect(list.openingRows[key] == nil, "\(motion): the new row is still opening")
+        #expect(view.frame == list.frame(for: try #require(list.displayed.row(for: key))), "\(motion): the new row is not in its slot")
+    }
+
+    /// A new row inserted just below the viewport (a new workspace after the current one near the bottom): the reveal
+    /// scrolls a little, and the row, drawn in this apply, opens with its gap, so the row below it, which springs down
+    /// from the new row's slot, never draws over a whole row.
+    @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() })
+    func aNewRowJustBelowTheViewportOpensWithItsGap() throws {
+        var ids = Array(1...40)
+        let (model, list, restore) = try Self.sidebar(ids, motion: .spring)
+        defer { restore() }
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        let height = clip.bounds.height
+        // The first row whose bottom is past the viewport: insert after the row before it.
+        let rows = list.displayed.rows.filter { if case .workspace = $0.key { true } else { false } }
+        let index = try #require(rows.firstIndex { list.frame(for: $0).maxY > height }, "the list fits the viewport")
+        ids.insert(500, at: index)
+        let sections = Self.sections(ids)
+        model.sections = sections
+        model.activeWorkspaceID = try #require(sections.first?.workspaces.first { $0.title == "w500" }?.id)
+        list.reload(animated: true)
+        let key = try Self.key(500)
+        #expect(list.rowViews[key] != nil, "the new row has no view")
+        #expect(list.openingRows[key] != nil, "the new row was shown whole while the row below sprang over it")
+    }
+
+    /// The rule for a row still opening: it moved by itself only when both rows beside it changed. An insert at the top
+    /// pushes the rows (no neighbour change for any row both layouts list); a row whose neighbour moved away keeps the
+    /// other one; a row taken out and put elsewhere changes both.
+    @Test func aRowMovesByItselfOnlyWhenBothNeighboursChange() throws {
+        func layout(_ ids: [Int]) -> SidebarLayout {
+            SidebarLayout.make(sections: Self.sections(ids), metrics: .standard, options: SidebarLayoutOptions())
+        }
+        let keys = try (1...12).map(Self.key) + [try Self.key(100), try Self.key(101)]
+        #expect(SidebarListView.movedByThemselves(keys, from: layout(Array(1...10)), to: layout([11] + Array(1...10))).isEmpty,
+                "an insert at the top moved rows by themselves")
+        let appended = layout(Array(1...10) + [100, 101])
+        #expect(SidebarListView.movedByThemselves(keys, from: appended, to: layout([1, 100] + Array(2...10) + [101])) == [try Self.key(100)],
+                "only the row moved below 1 moved by itself")
+        #expect(SidebarListView.movedByThemselves(keys, from: appended, to: layout(Array(1...10) + [101])).isEmpty,
+                "a removal moved its neighbour by itself")
+    }
 }
