@@ -64,6 +64,65 @@ pub struct EngineChoice {
 /// The values `subagent_routing` takes.
 pub const SUBAGENT_ROUTINGS: &[&str] = &["auto", "off"];
 
+/// The Chief kinds `engine set --preset` writes in one step (Leo, 2026-10-23:
+/// "we can have vanilla all opus 5.5 med chief, we can have forced hybrid
+/// chief, and we can have pure codex chief").
+pub const PRESETS: &[&str] = &["opus", "hybrid", "codex"];
+
+/// The choice a preset writes over `choice`: turns, compactor and subagents.
+/// The reaction classifier and the prompt fields are kept.
+/// - `opus`: every turn on Claude Opus 5.5 at medium; the compactor and the
+///   subagents follow the Claude route.
+/// - `hybrid`: Opus 5.5 medium turns, every subagent forced onto codex
+///   (routing off, so a spawn cannot name another harness).
+/// - `codex`: turns, compactor and subagents on codex at their default
+///   model, fast.
+pub fn apply_preset(mut choice: EngineChoice, preset: &str) -> Result<EngineChoice, String> {
+    let some = |v: &str| Some(v.to_owned());
+    let (harness, model, effort, speed, compactor, subagents) = match preset.trim() {
+        "opus" => (
+            some("claude"),
+            some("claude-opus-5-5"),
+            some("medium"),
+            None,
+            None,
+            None,
+        ),
+        "hybrid" => (
+            some("claude"),
+            some("claude-opus-5-5"),
+            some("medium"),
+            None,
+            None,
+            some("codex"),
+        ),
+        "codex" => (
+            some("codex"),
+            None,
+            None,
+            some("fast"),
+            some("codex"),
+            some("codex"),
+        ),
+        other => {
+            return Err(format!(
+                "--preset is one of {}, not {other:?}",
+                PRESETS.join(", ")
+            ));
+        }
+    };
+    choice.harness = harness;
+    choice.model = model;
+    choice.effort = effort;
+    choice.speed = speed;
+    choice.compactor_harness = compactor;
+    choice.compactor_model = None;
+    choice.compactor_speed = None;
+    choice.subagent_harness = subagents;
+    choice.subagent_routing = some("off");
+    Ok(choice)
+}
+
 /// The speeds a Chief engine takes: `default` (the harness's) and `fast`
 /// (codex's priority tier, "2x speed, increased usage").
 pub const SPEEDS: &[&str] = &["default", "fast"];
@@ -268,12 +327,17 @@ pub fn resolve(
 /// `--compactor-speed`, and the reaction classifier's
 /// `--reactions-can-wake`, `--classifier-harness`, `--classifier-model`,
 /// `--classifier-prompt`, and the subagents' `--subagent-routing auto|off`
-/// and `--subagent-harness`; the value `default` clears a field.
+/// and `--subagent-harness`; the value `default` clears a field. `--preset`
+/// applies first, so the other flags adjust it.
 pub fn apply_flags(
     mut choice: EngineChoice,
     flags: &crate::cli::Flags,
 ) -> Result<EngineChoice, String> {
     let mut changed = false;
+    if let Some(preset) = flags.value("preset") {
+        changed = true;
+        choice = apply_preset(choice, preset)?;
+    }
     for (key, field) in [
         ("harness", &mut choice.harness),
         ("model", &mut choice.model),
@@ -327,6 +391,7 @@ pub fn apply_flags(
 }
 
 pub const USAGE: &str = "chief engine show
+chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
 chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--subagent-routing auto|off] [--subagent-harness H]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
 
 /// `engine show|set`; Ok carries what to print.
