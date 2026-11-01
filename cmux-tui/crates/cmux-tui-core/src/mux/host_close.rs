@@ -21,6 +21,10 @@ use super::*;
 /// short-lived threads and never consume these workers.
 #[cfg(any(unix, windows))]
 const MAX_HOST_CLOSE_WORKERS: usize = 8;
+const MAX_HOST_CLOSE_WAIT_THREADS: usize = 32;
+
+#[cfg(any(unix, windows))]
+static HOST_CLOSE_WAIT_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(any(unix, windows))]
 struct PendingHostClose {
@@ -104,22 +108,32 @@ impl TerminalHostCloses {
                 let closes = self.clone();
                 let close_slot = Arc::new(Mutex::new(Some(close)));
                 let waiter_slot = close_slot.clone();
-                if std::thread::Builder::new()
-                    .name("terminal-host-close-wait".into())
-                    .spawn(move || {
-                        if let Some(close) = waiter_slot.lock().unwrap().take() {
-                            finish_host_close(close);
-                            closes.complete();
-                        }
+                let can_spawn = HOST_CLOSE_WAIT_THREADS
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                        (active < MAX_HOST_CLOSE_WAIT_THREADS).then_some(active + 1)
                     })
-                    .is_err()
-                {
-                    // Thread exhaustion must not strand a close. Finish it
-                    // inline as the enqueue path did before the pool existed.
+                    .is_ok();
+                let spawned = can_spawn
+                    && std::thread::Builder::new()
+                        .name("terminal-host-close-wait".into())
+                        .spawn(move || {
+                            if let Some(close) = waiter_slot.lock().unwrap().take() {
+                                finish_host_close(close);
+                                closes.complete();
+                            }
+                            HOST_CLOSE_WAIT_THREADS.fetch_sub(1, Ordering::AcqRel);
+                        })
+                        .is_ok();
+                if !spawned {
+                    if can_spawn {
+                        HOST_CLOSE_WAIT_THREADS.fetch_sub(1, Ordering::AcqRel);
+                    }
+                    // Do not hold the close-state mutex during the bounded
+                    // fallback wait: later signals must keep flowing.
+                    drop(state);
                     if let Some(close) = close_slot.lock().unwrap().take() {
                         finish_host_close(close);
-                        state.pending -= 1;
-                        self.idle.notify_all();
+                        self.complete();
                     }
                 }
                 continue;
