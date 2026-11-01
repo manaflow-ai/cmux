@@ -85,7 +85,7 @@ export function ToolRun({
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
         <span className={totals ? "cv-tool__text has-counts" : "cv-tool__text"} data-find-skip>
           <span className="cv-tool__summary">
-            <ToolLabel text={summary} tight />
+            <ToolLabel text={summary} />
           </span>
           {totals && <EditCounts totals={totals} />}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
