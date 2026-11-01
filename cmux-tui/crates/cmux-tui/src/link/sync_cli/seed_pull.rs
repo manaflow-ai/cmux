@@ -137,6 +137,12 @@ pub(crate) fn failure_code(error: &anyhow::Error) -> String {
     pull::failure_code(error)
 }
 
+/// Whether `text` is a full object id (SHA-1 or SHA-256), lowercase.
+pub(crate) fn is_sha(text: &str) -> bool {
+    matches!(text.len(), 40 | 64)
+        && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 /// Pulls the machine's changes to the seeded folder `remote_root` since
 /// `base` into the working copy at `local`.
 pub(crate) fn seed_pull(

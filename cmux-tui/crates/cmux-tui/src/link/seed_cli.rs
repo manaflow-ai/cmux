@@ -58,8 +58,8 @@ use serde_json::{Value, json};
 
 use super::seed::plan::{self, Fallback, FallbackCode, Planned, PreviousSeed};
 use super::{machine_gate, sync_cli};
-use sync_cli::SeedBase;
 use record::{Kept, Record};
+use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--since-last]
@@ -237,7 +237,7 @@ fn parse(args: &[String]) -> Option<Command> {
     let base = match (head, index, work) {
         (None, None, None) => None,
         (Some(head), Some(index), Some(work))
-            if [&head, &index, &work].iter().all(|sha| is_sha(sha)) =>
+            if [&head, &index, &work].iter().all(|sha| sync_cli::is_sha(sha)) =>
         {
             Some(SeedBase { head, index, work })
         }
@@ -264,11 +264,6 @@ fn parse(args: &[String]) -> Option<Command> {
         }
         _ => None,
     }
-}
-
-fn is_sha(text: &str) -> bool {
-    matches!(text.len(), 40 | 64)
-        && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The machine as `identify` describes it.
@@ -692,8 +687,17 @@ mod tests {
         assert_eq!((local.to_str(), remote.as_str()), (Some("/a"), "/home/w/a"));
         assert!(base.is_none(), "the record's");
         let Some(Command::Pull { base: Some(base), .. }) = parse(&args(&[
-            "pull", "--socket", "/s", "/a", "/b", "--base-head", SHA, "--base-index", SHA,
-            "--base-work", SHA,
+            "pull",
+            "--socket",
+            "/s",
+            "/a",
+            "/b",
+            "--base-head",
+            SHA,
+            "--base-index",
+            SHA,
+            "--base-work",
+            SHA,
         ])) else {
             panic!("pull with a base");
         };
@@ -730,15 +734,37 @@ mod tests {
             &["clone", "--socket", "/s", "/b"],
             &["plan", "--socket", "/s", "/a", "/b"],
             &["push", "--socket", "/s", "/a", "/b", "--x"],
-            &["push", "--socket", "/s", "/a", "/b", "--base-head", SHA, "--base-index", SHA,
-              "--base-work", SHA],
+            &[
+                "push",
+                "--socket",
+                "/s",
+                "/a",
+                "/b",
+                "--base-head",
+                SHA,
+                "--base-index",
+                SHA,
+                "--base-work",
+                SHA,
+            ],
             &["pull", "--socket", "/s", "/a"],
             &["pull", "/a", "/b"],
             &["pull", "--socket", "/s", "/a", "b"],
             &["pull", "--socket", "/s", "/a", "/b", "--since-last"],
             &["pull", "--socket", "/s", "/a", "/b", "--base-head", SHA],
-            &["pull", "--socket", "/s", "/a", "/b", "--base-head", "HEAD", "--base-index", SHA,
-              "--base-work", SHA],
+            &[
+                "pull",
+                "--socket",
+                "/s",
+                "/a",
+                "/b",
+                "--base-head",
+                "HEAD",
+                "--base-index",
+                SHA,
+                "--base-work",
+                SHA,
+            ],
         ] {
             assert!(parse(&args(bad)).is_none(), "{bad:?}");
         }

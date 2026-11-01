@@ -45,7 +45,9 @@ mod remote;
 mod seed_pull;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
-pub(super) use seed_pull::{SeedBase, SeedPulled, failure_code as seed_pull_failure_code, seed_pull};
+pub(super) use seed_pull::{
+    SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
+};
 mod skips;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -253,7 +255,6 @@ pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back 
 pub(super) fn is_refusal(error: &anyhow::Error) -> bool {
     remote::refusal_code(error).is_some()
 }
-
 
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {

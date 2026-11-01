@@ -55,9 +55,9 @@ pub(super) fn pull(
     let base = match flags {
         Some(base) => base,
         None => {
-            let kept = kept.as_ref().map_err(|error| {
-                SeedError::new("seed.no_previous", format!("{error:#}")).line()
-            })?;
+            let kept = kept
+                .as_ref()
+                .map_err(|error| SeedError::new("seed.no_previous", format!("{error:#}")).line())?;
             base_of(kept.as_ref(), machine.as_deref()).map_err(|error| error.line())?
         }
     };

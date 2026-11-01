@@ -41,7 +41,8 @@ impl World {
     fn new(label: &str) -> Self {
         let stamp =
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-        let root = PathBuf::from("/tmp").join(format!("csp-{label}-{}-{stamp}", std::process::id()));
+        let root =
+            PathBuf::from("/tmp").join(format!("csp-{label}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(root.join("remotes/o")).unwrap();
         let root = fs::canonicalize(&root).unwrap();
         let cleanup = Cleanup(root.clone());
