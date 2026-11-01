@@ -10,6 +10,15 @@ import Testing
 /// (`CMUX_NEXT_TUI_TREE_PATH`, which a lane may take from the newest published tree when this head
 /// changes no cmux-tui input), else `pin-cmux-tui.sh acpmux-path`.
 nonisolated enum ChatsSearchTreeAcpmux {
+    /// The runner said it has no tree: `CMUX_NEXT_TUI_TREE_PATH` names no binary (the swift test job's
+    /// broad pass sets a path that is never a file when the tree is not published yet). Only then does the
+    /// suite skip, with the live-daemon suites' reason, which package-test-lane.sh reports as no result.
+    /// Anywhere else a missing acpmux fails the test: it is an end-result check, and a skip is no pass.
+    static let runnerHasNoTree: Bool = {
+        guard let tree = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !tree.isEmpty else { return false }
+        return !FileManager.default.isExecutableFile(atPath: tree)
+    }()
+
     static let url: URL? = {
         if let tree = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !tree.isEmpty {
             let beside = URL(fileURLWithPath: tree).deletingLastPathComponent().appendingPathComponent("acpmux")
@@ -38,7 +47,8 @@ nonisolated enum ChatsSearchTreeAcpmux {
 /// home folder; the app's chat feed on its socket; and Search with the agent chats contributed as the App
 /// contributes them, with the palette's real choice history. Typing a word of one chat's title shows that
 /// chat under Agent Chats, also when the word is typed before the index has started.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: ChatsSearchTreeAcpmux.url != nil, "needs the same-tree acpmux"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: !ChatsSearchTreeAcpmux.runnerHasNoTree,
+                                                                    "needs the same-tree cmux-tui (its acpmux); the runner has none"))
 struct AgentChatsSearchLiveAcpmuxTests {
     static let chats = 3000
     static let zebra = 1234
@@ -121,7 +131,7 @@ struct AgentChatsSearchLiveAcpmuxTests {
     }
 
     @Test func searchShowsTheChatWhoseTitleHoldsTheTypedWord() async throws {
-        let binary = try #require(ChatsSearchTreeAcpmux.url)
+        let binary = try #require(ChatsSearchTreeAcpmux.url, "no same-tree acpmux (pin-cmux-tui.sh fetch, then acpmux-path): this check needs a real daemon")
         let made = URL(fileURLWithPath: "/tmp/fc3-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: made, withIntermediateDirectories: true)
         let root = Self.real(made)
