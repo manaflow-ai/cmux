@@ -78,7 +78,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     }
 
     /// Its checks summed: `failing` when any failed, else `pending` when any has not finished, else
-    /// `passing`, or `none` without checks. A skipped or neutral check counts as passed.
+    /// `passing`, or `none` without checks. A neutral check counts as passed. Counted over
+    /// ``counted(_:)``: a cancelled or skipped check and a run a newer run of the same check
+    /// replaced are not counted at all.
     public struct Checks: Equatable, Sendable {
         public var state: String
         public var passed: Int
@@ -165,7 +167,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
               let url = object["url"] as? String, url.hasPrefix("https://"), !url.contains(where: \.isWhitespace),
               let number = object["number"] as? Int else { return nil }
         let state = (object["state"] as? String)?.lowercased() ?? "open"
-        let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
+        // Every surface that shows this pull request's checks (Session Info's Changes, the card, the
+        // sidebar's marks) reads them from here, so this is the one place they are made countable.
+        let rollup = Self.counted(object["statusCheckRollup"] as? [[String: Any]] ?? [])
         // The base branch's tip as the batched read answers it (`baseStatusCheckRollup`); a
         // `gh pr view` cannot read it, so there it is absent and no check is marked.
         let onBase = Self.failing(object["baseStatusCheckRollup"] as? [[String: Any]] ?? [])
@@ -251,7 +255,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// `pull_request` trigger whose concurrency groups differ runs twice and both runs stand, and
     /// a dispatched or rescued re-run outranks the run it stands beside without cancelling it.
     /// Dropping the older of those on a base tip can only fail to excuse a red, which is the safe
-    /// direction; doing it to a pull request's own rollup would drop a red it does cause.
+    /// direction. A pull request's own rollup goes through ``counted(_:)`` instead, which compares
+    /// single checks rather than whole runs.
     static func latestRuns(_ rollup: [[String: Any]]) -> [[String: Any]] {
         var newest: [String: Int] = [:]
         for check in rollup {
@@ -279,10 +284,49 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             .map(identity))
     }
 
+    /// A pull request's own rollup as its counts read it: one context per check, its newest run's,
+    /// with every cancelled or skipped context left out first.
+    ///
+    /// A head's rollup lists every run of every workflow a pull request event started, and label or
+    /// edit events start the same workflows again, whose concurrency groups then cancel the older
+    /// runs. Counted whole, a pull request with two real reds read "19 failing" (17 of them
+    /// cancelled duplicates). So a cancelled context, which reached no verdict, is not counted, nor
+    /// is a skipped one, which never ran; and of the runs left, only the newest of each check (its
+    /// workflow and name, ``identity(_:)``, by run id, else by `startedAt`, else the later in the
+    /// list) is. Dropping the cancelled ones first means a cancelled re-run never hides the verdict
+    /// of the run before it. A context with no name (a commit status always has one) is kept as
+    /// it is. Unlike ``latestRuns(_:)`` this compares checks, not whole runs, so a check a newer run
+    /// did not run again keeps its older verdict.
+    static func counted(_ rollup: [[String: Any]]) -> [[String: Any]] {
+        let ran = rollup.filter { !["CANCELLED", "SKIPPED"].contains(conclusionOf($0)) }
+        func rank(_ check: [String: Any], _ index: Int) -> (Int, String, Int) {
+            (runOf(check)?.run ?? -1, check["startedAt"] as? String ?? "", index)
+        }
+        var newest: [String: (Int, String, Int)] = [:]
+        for (index, check) in ran.enumerated() {
+            guard let key = countedKey(check) else { continue }
+            let candidate = rank(check, index)
+            if let kept = newest[key], kept > candidate { continue }
+            newest[key] = candidate
+        }
+        return ran.enumerated().filter { index, check in
+            guard let key = countedKey(check) else { return true }
+            return newest[key].map { $0 == rank(check, index) } ?? true
+        }.map(\.element)
+    }
+
+    /// The check a context is a run of, for ``counted(_:)``: its ``identity(_:)``, with gh's
+    /// `workflowName` standing in for the workflow when the run was not read; nil without a name.
+    private static func countedKey(_ check: [String: Any]) -> String? {
+        guard check["name"] is String || check["context"] is String else { return nil }
+        guard runOf(check) == nil, let workflow = check["workflowName"] as? String else { return identity(check) }
+        return "\(workflow)\u{0}\(name(check))"
+    }
+
     /// Each check run or commit status with its outcome, failed first; links only when https. A
     /// failing check whose ``identity(_:)`` is in `failingOnBase` is marked as the base branch's
-    /// red, not this pull request's. Every context of `rollup` is counted: a pull request's own
-    /// rollup is read exactly as GitHub reports it (see ``latestRuns(_:)``).
+    /// red, not this pull request's. Every context of `rollup` is listed; a pull request's own
+    /// rollup comes here through ``counted(_:)``.
     static func checkList(_ rollup: [[String: Any]], failingOnBase: Set<String> = []) -> [Check] {
         let order = ["failed": 0, "pending": 1, "passed": 2]
         let list = rollup.map { check in
