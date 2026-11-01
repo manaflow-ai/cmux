@@ -14,7 +14,7 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  * platform verified the person's cmux access token for its derive); CloudDO still checks, on every
  * call, that the user may use the team's machines now, and runs boot, snapshot and delete as that
  * person's own ops, so the team's plan, quotas and per-team limit decide as for a machine the person
- * creates. Exec, snapshot and delete reach only machines a platform boot made. It answers in every
+ * creates. Exec, snapshot, resize and delete reach only machines a platform boot made. It answers in every
  * environment where PLATFORM_MACHINES is "on"; the team's plan (cloud-plan.ts teamPlan) decides who
  * may create, so production creates only for a team with a paid plan or grant. With the flag off
  * only ownership-checked find and destroy remain for cleanup; create/fork only recover existing
@@ -55,6 +55,17 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
 
   resume(caller: PlatformCaller, machine: string): Promise<PlatformReply<PlatformMachine>> {
     return this.call(caller, { op: "resume", machine }) as Promise<PlatformReply<PlatformMachine>>
+  }
+
+  /**
+   * Grow the machine in place to `shape` (Freestyle grows only; the disk only while running), as the
+   * person's own cloud.machine.resize, so the team's plan limits apply. Already at `shape`: its
+   * metadata, with no provider call. A shrink on any axis is cloud.size.grow_only; a change still
+   * running on the machine is a retryable mutation.indeterminate. Done: the provider-confirmed shape.
+   */
+  resize(caller: PlatformCaller, machine: string, shape: PlatformShape): Promise<PlatformReply<PlatformMachine>> {
+    if (!validShape(shape)) return invalid("shape")
+    return this.call(caller, { op: "resize", machine, shape: { vcpu: shape.vcpu, memGiB: shape.memGiB, diskGiB: shape.diskGiB } }) as Promise<PlatformReply<PlatformMachine>>
   }
 
   fork(caller: PlatformCaller, machine: string, name: string): Promise<PlatformReply<PlatformMachine>> {
