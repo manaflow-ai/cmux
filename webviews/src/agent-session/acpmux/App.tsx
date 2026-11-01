@@ -803,7 +803,6 @@ function emptySnapshot(): AcpmuxSnapshot {
   };
 }
 
-
 /// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
 /// one a display frame, and serializing the whole transcript each frame took main-thread time that
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides

@@ -388,12 +388,7 @@ test("Session Info derives Cloud from the host handshake when the summary has no
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <Pane
-        snapshot={realCloudShape}
-        onOpenOutput={noop}
-        cloudMachineID="cloud-machine-id"
-        cloudRepositoryAvailable
-      />,
+      <Pane snapshot={realCloudShape} onOpenOutput={noop} cloudMachineID="cloud-machine-id" cloudRepositoryAvailable />,
     );
   });
   const environment = section(container, "environment")!;
