@@ -18,13 +18,6 @@ on:
         required: false
         type: string
         default: ""
-      # The PR picker's owned side label (ci.yml, pr_runner_pool.py: set only for an owned pool), for
-      # web-subarea-scope: Python and git only, no Linux kernel, so an owned mini takes it ahead of
-      # Blacksmith. Empty (every caller but ci.yml, and no owned pick) takes the Linux pool.
-      pr_side_runner:
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -32,10 +25,10 @@ permissions:
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
-    # An owned mini first, then the Linux pool's live member, never LINUX_RUNNER alone: on 2026-11-01
+    # The Linux pool's live member, never LINUX_RUNNER alone: on 2026-11-01
     # LINUX_RUNNER sat on a stalled blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited
     # 50 minutes unassigned, holding every webview shard behind it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.event_name == 'pull_request' && github.run_attempt == 1 && inputs.pr_side_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
       db: ${{ steps.scope.outputs.db }}
