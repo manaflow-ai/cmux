@@ -158,6 +158,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
+    /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
+    /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
+    case cloudRepickChat(AgentPaneCloudRepick)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)

@@ -55,6 +55,7 @@ extension KeyRouter {
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
+        if facts.terminalAlternateScreen, case .terminal = resolved { context[KeyContext.terminalAlternateScreen] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
@@ -136,7 +137,8 @@ extension KeyRouter {
         // Only a code editor page has key sequences; the editor pages' service is not made for others.
         let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
         return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                     terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     terminalCopyMode: terminalCopyMode(in: controller),
+                     terminalAlternateScreen: terminalAlternateScreen(in: controller), pageID: page?.descriptor.id,
                      markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
                      listFocus: focusedReadiness(in: controller)?.isListFocused == true,
                      pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
@@ -233,5 +235,11 @@ extension KeyRouter {
         guard case .terminal(let pane, _) = controller.focus.state.resolved,
               case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
         return entry.session.surfaceView.isCopyModeActive
+    }
+
+    private func terminalAlternateScreen(in controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved,
+              case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
+        return entry.session.surfaceView.isAlternateScreen
     }
 }

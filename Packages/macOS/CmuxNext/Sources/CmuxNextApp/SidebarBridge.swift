@@ -157,7 +157,7 @@ final class SidebarBridge {
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
-                tabTitle: Self.tabTitle(services), rows: feed.laneRowSource,
+                tabTitle: Self.tabTitle(services), rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }),
                 groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
