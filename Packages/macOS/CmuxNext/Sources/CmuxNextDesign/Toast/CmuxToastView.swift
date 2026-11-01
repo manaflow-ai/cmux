@@ -245,7 +245,8 @@ public final class CmuxToastView: NSView {
     }
 
     /// Details on or off: on, the message has no line limit and the detail shows under it (its
-    /// tooltip goes, the text is there); off, the toast is as it was. The button stays lit while on.
+    /// tooltip goes, the text is there); off, the toast is as it was. The button reads Hide Details
+    /// with an up chevron while on, a quiet link, never a lit chip.
     public func setShowsDetails(_ shows: Bool) {
         guard toast.action?.revealsDetails == true, shows != showsDetails else { return }
         showsDetails = shows

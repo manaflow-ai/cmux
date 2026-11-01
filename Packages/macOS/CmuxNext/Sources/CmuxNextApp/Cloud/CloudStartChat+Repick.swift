@@ -25,16 +25,12 @@ extension CloudStartChat {
         var machineID: String
     }
 
-    /// The chats starts opened, by their tab's key, for this run of the App: a repick moves only one of
-    /// these. A relaunched App has none, and a pick there does what it did before.
-    @MainActor static var started: [String: Started] = [:]
-
     /// The page's runner for `cloud.repickChat`: `view` is the pane of the chat on the machine it was on.
     static func repickRunner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any] {
         { [weak tabs, weak services] view, repick in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key,
-                  let started = Self.started[key], let (tab, _) = services.locateTab(key) else {
+            guard let view, let tabs, let key = tabs.views.first(where: { $0.value === view })?.key,
+                  let started = tabs.pageChats.cloudStarted[key], let (tab, _) = services.locateTab(key) else {
                 // No chat a start opened: the page does what a pick did before.
                 return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
             }
@@ -76,7 +72,7 @@ extension CloudStartChat {
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
                 // The chat's tab on the machine it was on, whose first send never ran.
-                Self.started[key] = nil
+                services.agentTabs.pageChats.cloudStarted[key] = nil
                 do {
                     try await old.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
                 } catch {
