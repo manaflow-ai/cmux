@@ -203,7 +203,7 @@ fn is_component(value: &str) -> bool {
 }
 
 /// A full object name: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits.
-fn check_sha(name: &str, sha: &str) -> Result<(), SeedRefusal> {
+pub(super) fn check_sha(name: &str, sha: &str) -> Result<(), SeedRefusal> {
     let hex = sha.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
     if hex && (sha.len() == 40 || sha.len() == 64) {
         Ok(())

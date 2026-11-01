@@ -165,12 +165,12 @@ test("Claude New Tab location heads the box and the model keeps the quiet row un
   expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
   expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
 
-  // Codex's look keeps the mode and model in the box's own row (Leo 2026-10-30: "the
-  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
+  // Codex's look splits as Claude's too: the mode and model in the quiet row under the box (Leo
+  // 2026-11-01: "we already have a good version"); only its tray over the box differs.
   act(() => setComposerLook("codex", { remember: false }));
   expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot")).toBeNull();
-  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).toBeNull();
   expect(composer.querySelector(".nt-box .acpmux-composer-context")).toBeNull();
   act(() => setComposerLook("claude", { remember: false }));
 });
