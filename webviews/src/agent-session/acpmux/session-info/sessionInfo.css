@@ -1216,13 +1216,13 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 .acpmux-cloud-repository-picker {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 .acpmux-cloud-repository-search {
   width: 100%;
   box-sizing: border-box;
   min-height: 28px;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 6px;
   color: var(--agent-text);
@@ -1230,7 +1230,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 .acpmux-cloud-repository-list {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   max-height: 260px;
   overflow: auto;
   padding: 0;
@@ -1243,13 +1243,12 @@ button.acpmux-session-info-scope__parent:focus-visible {
   align-items: center;
   gap: 8px;
   min-height: 28px;
-  padding: 5px 7px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 5px;
   color: var(--agent-text);
   background: transparent;
   text-align: left;
-  cursor: pointer;
 }
 .acpmux-cloud-repository-option:hover,
 .acpmux-cloud-repository-option:focus-visible {
@@ -1266,22 +1265,22 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-source {
   margin-left: auto;
   color: color-mix(in srgb, var(--agent-text) 52%, transparent);
-  font-size: 11px;
+  font-size: var(--text-caption);
   white-space: nowrap;
 }
 .acpmux-cloud-repository-progress,
 .acpmux-cloud-repository-empty,
 .acpmux-cloud-repository-error {
-  padding: 6px 7px;
+  padding: 4px 8px;
   color: color-mix(in srgb, var(--agent-text) 65%, transparent);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .acpmux-cloud-repository-error {
   color: var(--agent-error, #d66);
 }
 .acpmux-cloud-repository-connect {
   display: block;
-  padding: 5px 7px;
+  padding: 4px 8px;
   color: var(--accent-color);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }

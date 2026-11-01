@@ -1192,6 +1192,9 @@
   position: relative;
   margin: 0 0 19px;
   box-sizing: border-box;
+  /* Never wider than its column, so a long line scrolls inside the card rather than past its edge. */
+  min-width: 0;
+  max-width: 100%;
   border-radius: 16px;
   overflow: hidden;
   background: var(--cv-codeblock-bg);
@@ -1247,6 +1250,49 @@
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
+}
+/* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
+   top-right corner over the card's own tint and show while the pointer is on the card or focus is
+   inside it (Leo 2026-11-01, on a tree diagram under "</> Plain text": "could we render this type of
+   thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
+.cv-codeblock--corner .cv-codeblock__header {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: var(--layer-raised);
+  min-height: 0;
+  padding: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--cv-fg) 7.5%, var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base))));
+  opacity: 0;
+  transition: opacity var(--agent-motion-hover, 120ms) ease-out;
+}
+.cv-codeblock--corner:hover .cv-codeblock__header,
+.cv-codeblock--corner:focus-within .cv-codeblock__header,
+.cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
+  opacity: 1;
+}
+.cv-codeblock--corner .cv-codeblock__body {
+  margin-top: 13px;
+}
+/* Gallery version B (CodeHeader.tsx `muted`): a short quiet row that names the block. */
+.cv-codeblock--muted .cv-codeblock__header {
+  min-height: calc(var(--cv-font-size) * 34 / 14);
+  color: var(--cv-text-muted);
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
+/* A tree drawn in box-drawing characters (codeShape.ts isDiagram): lines at 1.15 of the font, so
+   each │ meets the one under it (SF Mono's │ inks 1.37em, Menlo's 1.27em), and every line exactly
+   that tall, so a fallback glyph (↓) cannot open a gap under its own line. Never wrapped: a long
+   line scrolls inside the card. */
+.cv-codeblock--diagram .cv-code-plain {
+  font-family: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  line-height: 1.15;
+  white-space: pre;
+  overflow-x: auto;
+}
+.cv-codeblock--diagram .cv-code-plain__line {
+  height: 1lh;
 }
 /* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
 .cv-edit-diff {
@@ -4400,23 +4446,18 @@ a.cv-sha:focus-visible {
 .acpmux-scroll[data-fade-bottom],
 .acpmux-scroll[data-docked] {
   --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
+  --acpmux-view-mask: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+    transparent var(--acpmux-view-foot)
+  );
   -webkit-mask-image:
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--acpmux-fade-top, 0px),
-      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
-      transparent var(--acpmux-view-foot)
-    ),
+    var(--acpmux-view-mask),
     linear-gradient(#000, #000);
   mask-image:
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--acpmux-fade-top, 0px),
-      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
-      transparent var(--acpmux-view-foot)
-    ),
+    var(--acpmux-view-mask),
     linear-gradient(#000, #000);
   -webkit-mask-size:
     100% 100%,
@@ -4432,6 +4473,48 @@ a.cv-sha:focus-visible {
     100% 0;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+}
+/* The prompt rail's lane (threadMinimap.css): the gutter beside the rows on the rail's side, where
+   rows never reach (they sit --cv-inset in), keeps full ink too. The rail sits in the scroller, so
+   without it a composer that grows over the view's foot, or a fade that comes and goes, would wash
+   out its bottom ticks; the rail's box does not follow the stack (VirtualTranscript `railBox`), and
+   nothing over it changes how it draws (Leo, 2026-11-01: "the left side scroll rail needs to not
+   really get affected by most other layout things"). */
+.acpmux-scroll:has(> .acpmux-minimap):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+  -webkit-mask-image:
+    var(--acpmux-view-mask),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000);
+  mask-image:
+    var(--acpmux-view-mask),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--cv-inset) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--cv-inset) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0,
+    0 0;
+  mask-position:
+    0 0,
+    100% 0,
+    0 0;
+}
+.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+  -webkit-mask-position:
+    0 0,
+    100% 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0,
+    100% 0;
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
@@ -4966,13 +5049,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 
 .cv-repo-recovery {
+  /* The repository choices are a <fieldset> (a named group): no fieldset border, padding or min width. */
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 2px 0 8px 28px;
   color: color-mix(in srgb, var(--agent-text) 72%, transparent);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .cv-repo-recovery--quiet { color: color-mix(in srgb, var(--agent-text) 55%, transparent); }
 .cv-repo-recovery--error { color: var(--agent-error, #d66); }
@@ -4980,9 +5067,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-repo-recovery button {
   border: 0;
   border-radius: 5px;
-  padding: 3px 7px;
+  padding: 4px 8px;
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  cursor: pointer;
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1264,
+    "entries": 1265,
     "shortcuts": 189
   },
   "sections": [
@@ -4849,6 +4849,12 @@
           "id": "toggleBrowserDeveloperTools",
           "title": "Toggle Developer Tools",
           "shortcut": "⌥⌘I",
+          "command": null
+        },
+        {
+          "id": "toggleFileEditorMinimap",
+          "title": "Toggle Editor Minimap",
+          "shortcut": null,
           "command": null
         },
         {

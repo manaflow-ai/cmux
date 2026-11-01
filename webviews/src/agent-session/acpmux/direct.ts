@@ -5167,6 +5167,15 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
+      } else if (event.kind === "host_notice") {
+        // A line from outside the chat, such as cmux Cloud's after it resized the machine
+        // (acpmux `server/host_notice.rs`): one muted notice where it happened.
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          // What the agent writes or does after the notice goes below it, not into the row above.
+          this.closeSegment();
+          const id = `host-notice-${event.seq}`;
+          this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
+        }
       } else if (event.kind === "policy_unenforced") {
         // The chat's policy is narrower than approve-all and its harness has no mode that asks
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
@@ -6047,6 +6056,7 @@ export class AcpmuxDirectClient {
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
+      ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -8315,7 +8325,7 @@ export class AcpmuxDirectClient {
   /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
   /// start of the text, in one reply however long the chat. A daemon without the index reads the
   /// bounded `user_message` page the request also names, which covers what it holds.
-  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[] };
+  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean };
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
 
@@ -8341,9 +8351,28 @@ export class AcpmuxDirectClient {
     return list;
   }
 
+  /// The chat's prompt count as its summary has it (`turnCount`), while the rail does not hold every
+  /// prompt yet: older history is left and the prompt index has not answered, or this daemon has none.
+  /// The rail takes its full height from it on the first frame instead of growing as the index or
+  /// older pages arrive (snapshot `promptCount`; Leo, 2026-11-01: "i also want the left scroll rail to
+  /// be starting off to its max height if there truly are that many prompts in the chat").
+  private promptCountAwaited(): number | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.seqHistoryLeft()) return undefined;
+    const index = this.promptIndex;
+    if (index?.rows && !index.failed && index.sessionId === sessionId && index.generation === this.selectionGeneration)
+      return undefined;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const count = Number(summary?.turnCount ?? 0);
+    return count > 0 ? count : undefined;
+  }
+
   private readPromptIndex(sessionId: string, before: number): void {
     const generation = this.selectionGeneration;
-    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[] } = { sessionId, generation };
+    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean } = {
+      sessionId,
+      generation,
+    };
     this.promptIndex = entry;
     void this.typed("_acpmux/events", {
       sessionId,
@@ -8371,8 +8400,10 @@ export class AcpmuxDirectClient {
         this.emit();
       })
       .catch(() => {
-        // Without the index the rail grows as pages load, as it did before it.
-        if (this.promptIndex === entry) entry.rows = [];
+        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load.
+        if (this.promptIndex !== entry) return;
+        entry.rows = [];
+        entry.failed = true;
       });
   }
 

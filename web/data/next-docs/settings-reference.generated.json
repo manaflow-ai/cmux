@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 540,
+  "count": 541,
   "sections": [
     {
       "id": "general",
@@ -1499,6 +1499,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "title": "Hibernate Hidden Spaces After",
+          "help": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.hibernation.idleMinutes",

@@ -563,7 +563,7 @@ extension CloudHandlers {
                 do {
                     cwd = try await CloudNewWorkspacePlan.copy(folder, workRoots: cloud.move.workRoots) { remote in
                         try checkScope(session)
-                        let answer = try await cli.syncPush(socket: socket, local: folder.root, remote: remote)
+                        let answer = try await cli.seedPush(socket: socket, local: folder.root, remote: remote)
                         return CloudNewWorkspacePlan.CopyAnswer(ok: answer.ok, errorCode: answer.errorCode, error: answer.error)
                     }.chat
                 } catch is CancellationError {
