@@ -313,7 +313,12 @@ impl Daemon {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
+        // Scratch A/B (candidate g4): G4_NORMAL_CLASS runs the stand-in at normal CPU class.
+        let mut fake_profile = json!({"argv": ["python3", fake]});
+        if G4_NORMAL_CLASS.load(std::sync::atomic::Ordering::SeqCst) {
+            fake_profile["env"] = json!({"ACPMUX_SESSION_CPU_CLASS": "normal"});
+        }
+        let config = json!({"harnesses": {"fake": fake_profile},
                             "defaultHarness": "fake", "permissionPolicy": "ask",
                             "agentInbox": false, "autoResumeDelaysMs": []});
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
@@ -1456,6 +1461,21 @@ fn percentile(sorted: &[u64], p: f64) -> u64 {
 fn enabled() -> bool {
     std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|k| k.contains("fuzz-g"))
         || std::env::var("ACPMUX_FUZZ_SEED").is_ok()
+}
+
+static G4_NORMAL_CLASS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Scratch A/B for candidate g4: seed_a's seeds with the default (background) class.
+#[test]
+fn fuzz_g4ab_default_class() {
+    run("g4ab_default", &[0x6701, 0x6711, 0x6721], 12);
+}
+
+/// Scratch A/B for candidate g4: seed_a's seeds with the stand-in at normal class.
+#[test]
+fn fuzz_g4ab_normal_class() {
+    G4_NORMAL_CLASS.store(true, std::sync::atomic::Ordering::SeqCst);
+    run("g4ab_normal", &[0x6701, 0x6711, 0x6721], 12);
 }
 
 fn run(name: &str, seeds: &[u64], rounds: u32) {
