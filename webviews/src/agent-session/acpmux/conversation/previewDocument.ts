@@ -105,7 +105,12 @@ export function inlinePreviewDocument(
   theme: string,
   nonce: string | undefined,
 ): string {
-  const html = inlinePreviewHtml(kind, code);
+  return previewFrameDocument(inlinePreviewHtml(kind, code), theme, nonce);
+}
+
+/// The `srcdoc` of a preview frame around `html`, which the caller has made inert (`inertDocument`):
+/// the inline preview's, and the side panel's passive frame in the gallery (ArtifactPanel.tsx).
+export function previewFrameDocument(html: string, theme: string, nonce: string | undefined): string {
   const script = nonce ? `<script nonce="${nonce}">${REPORTER}</script>` : `<script>${REPORTER}</script>`;
   // l10n-allow: HTML document syntax and CSP directives, not user-visible text.
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy(nonce)}">${NO_DNS_PREFETCH}<style>${theme}</style>${script}${html}`;
