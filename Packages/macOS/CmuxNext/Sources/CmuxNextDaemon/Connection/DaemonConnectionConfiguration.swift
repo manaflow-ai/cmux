@@ -62,6 +62,11 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// sends no `workspace_placement` restatement. The App's composition root sets it
     /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
+    /// Hands an owner the handshake refuses (another protocol, or a required capability missing)
+    /// off to the bundled build before the refusal surfaces; true when it is exiting for that
+    /// handoff. Only the app's own connections to its local daemon set it
+    /// (`DaemonLauncher.handingOffIncompatibleOwners`).
+    var incompatibleOwner: (@Sendable (DaemonIdentity, LineTransport) async -> Bool)?
 
     public init(
         clientName: String = "cmux-next",

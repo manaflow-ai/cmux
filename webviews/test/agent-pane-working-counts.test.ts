@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -237,6 +238,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
+    // It starts folded to its header (cmux#28875); the person opens it.
+    await openRunningTray(page);
     // What runs is listed first; the Linter that ended stays as a finished card under it
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray

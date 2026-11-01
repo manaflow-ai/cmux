@@ -228,7 +228,9 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
             const shown = control
               ? parts(control).filter(
                   (part) =>
-                    visible(part) && !(part.classList.contains("reset-slot") && !part.hasAttribute("data-shown")),
+                    // Reset has its own reserved accessory gutter; compare the editors themselves
+                    // whether that accessory is hidden, enabled, or visible at the default.
+                    visible(part) && !part.classList.contains("reset-slot"),
                 )
               : [];
             const end = shown.length ? Math.max(...shown.map((part) => part.getBoundingClientRect().right)) : null;
@@ -301,6 +303,79 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     }
     return found;
   }
+
+  for (const width of [446, 641, 1000])
+    test(`Settings Reset keeps editor columns and its accessory gutter (${width}px)`, async () => {
+      const page = await open(
+        "pages.settings",
+        { variant: "appearance", colorScheme: "light", width, height: 2400 },
+        { width, height: 2400 },
+      );
+      try {
+        for (const [key, value, alwaysShown] of [
+          ["appearance.metrics.sidebarWidth", "280", false],
+          ["appearance.metrics.chromeFontSize", "16", true],
+        ] as const) {
+          const row = page.locator(`[data-row-key="${key}"]`);
+          const field = row.locator("input.number");
+          const reset = row.locator(".reset-button");
+          const originalValue = await field.inputValue();
+          const geometry = () =>
+            row.evaluate((row) => {
+              const editor = row.querySelector(".number-editor")!.getBoundingClientRect();
+              const slot = row.querySelector(".reset-slot")!.getBoundingClientRect();
+              const button = row.querySelector(".reset-button")!.getBoundingClientRect();
+              const control = row.querySelector(".row-control")!;
+              const bounds = row.getBoundingClientRect();
+              return {
+                edge: editor.right,
+                gap: slot.left - editor.right,
+                expectedGap: parseFloat(getComputedStyle(control).columnGap),
+                slot: { left: slot.left, right: slot.right, top: slot.top, bottom: slot.bottom },
+                button: { left: button.left, right: button.right, top: button.top, bottom: button.bottom },
+                row: { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom },
+              };
+            });
+          const baseline = await geometry();
+          expect(await reset.getAttribute("aria-hidden")).toBe(alwaysShown ? null : "true");
+          expect(await reset.isDisabled()).toBe(true);
+          await field.fill(value);
+          await field.press("Enter");
+          await page.waitForFunction((key) => {
+            const button = document.querySelector<HTMLButtonElement>(`[data-row-key="${key}"] .reset-button`);
+            return button && !button.disabled && button.getAttribute("aria-hidden") !== "true";
+          }, key);
+          expect(await field.inputValue()).toBe(value);
+          const customized = await geometry();
+          await reset.click();
+          await page.waitForFunction(
+            (key) => document.querySelector<HTMLButtonElement>(`[data-row-key="${key}"] .reset-button`)?.disabled,
+            key,
+          );
+          expect(await field.inputValue()).toBe(originalValue);
+          expect(await reset.getAttribute("aria-hidden")).toBe(alwaysShown ? null : "true");
+          const restored = await geometry();
+          for (const state of [baseline, customized, restored]) {
+            expect(Math.abs(state.edge - baseline.edge)).toBeLessThanOrEqual(0.5);
+            expect(Math.abs(state.gap - state.expectedGap)).toBeLessThanOrEqual(0.5);
+            expect(state.button.left).toBeGreaterThanOrEqual(state.slot.left - 0.5);
+            expect(state.button.right).toBeLessThanOrEqual(state.row.right);
+            expect(state.button.top).toBeGreaterThanOrEqual(state.row.top);
+            expect(state.button.bottom).toBeLessThanOrEqual(state.row.bottom);
+            expect(state.slot.left).toBeGreaterThanOrEqual(state.row.left);
+            expect(state.slot.right).toBeLessThanOrEqual(state.row.right);
+            expect(state.slot.top).toBeGreaterThanOrEqual(state.row.top);
+            expect(state.slot.bottom).toBeLessThanOrEqual(state.row.bottom);
+          }
+          const neighborEdge = await page
+            .locator('[data-row-key="appearance.metrics.columnGap"] .number-editor')
+            .evaluate((editor) => editor.getBoundingClientRect().right);
+          expect(Math.abs(restored.edge - neighborEdge)).toBeLessThanOrEqual(0.5);
+        }
+      } finally {
+        await page.close();
+      }
+    });
 
   const pages = [...categories.map((category) => category.id), "agents-harnesses-registry"];
   /** The cards whose stills a PR shows, by page: the ones the rule changed. */

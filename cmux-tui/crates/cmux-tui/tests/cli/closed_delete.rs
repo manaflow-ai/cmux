@@ -272,6 +272,139 @@ fn a_closed_split_reopened_while_its_kept_terminal_adopts_takes_that_terminal() 
     );
 }
 
+/// A start's adoptions take turns, visible workspace first (perf100,
+/// startup_adoption_gate.rs, #24307). A reopen that waits on its kept
+/// terminal (`wait_for_terminal_adoption`) must not wait behind the other
+/// hosts' turns: that terminal adopts at once. A debug seam holds each turn
+/// 5 s, and the visible workspace's ten terminals take every first turn, so
+/// a reopen that waits for its terminal's turn takes 5 s or more.
+#[cfg(debug_assertions)]
+#[test]
+fn a_reopen_during_a_restart_does_not_wait_behind_other_adoptions() {
+    let mut server = HeadlessServer::start("reopen-skips-adoption-turns");
+    let panes_of = |snapshot: &serde_json::Value, workspace: &str| -> Vec<String> {
+        let screens: Vec<&str> = snapshot["screens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|screen| screen["workspace_id"] == workspace)
+            .filter_map(|screen| screen["id"].as_str())
+            .collect();
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|pane| screens.iter().any(|screen| pane["screen_id"] == *screen))
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let terminal_of_pane = |snapshot: &serde_json::Value, pane: &str| -> String {
+        let tab = snapshot["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["pane_id"] == pane)
+            .and_then(|tab| tab["id"].as_str())
+            .unwrap()
+            .to_string();
+        snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["tab_id"] == tab.as_str())
+            .and_then(|terminal| terminal["id"].as_str())
+            .unwrap()
+            .to_string()
+    };
+
+    // A closed split whose terminal is kept.
+    state_cli(&server, None, &["workspace", "create", "--name", "survivor"]);
+    let survivor = workspace_id_named(&server, "survivor");
+    let source_pane = panes_of(&state_cli_topology(&server), &survivor)[0].clone();
+    state_cli(&server, None, &["pane", &source_pane, "split", "--right"]);
+    let split = state_cli_topology(&server);
+    let split_pane = panes_of(&split, &survivor)
+        .into_iter()
+        .find(|pane| *pane != source_pane)
+        .expect("split did not create a pane");
+    let split_terminal = terminal_of_pane(&split, &split_pane);
+    state_cli(&server, None, &["terminal", &split_terminal, "keep", "on"]);
+    state_cli(&server, None, &["pane", &split_pane, "close"]);
+    let closed = state_cli(&server, None, &["closed", "list"]);
+    let closed_id = closed[0]["id"].as_str().unwrap().to_string();
+
+    // The user looks at another workspace with ten terminals: they adopt
+    // first and take every turn the gate has (8).
+    state_cli(&server, None, &["workspace", "create", "--name", "busy"]);
+    let busy = workspace_id_named(&server, "busy");
+    let busy_pane = panes_of(&state_cli_topology(&server), &busy)[0].clone();
+    for _ in 0..9 {
+        state_cli(&server, None, &["tab", "create", "terminal", "--pane", &busy_pane]);
+    }
+    let tree =
+        json_socket_request(&server.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}));
+    let busy_index = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|workspace| workspace["name"] == "busy")
+        .expect("busy workspace listed");
+    json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 2, "cmd": "select-workspace", "index": busy_index}),
+    );
+
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    server.child = Command::new(bin())
+        .args(["--headless", "--socket"])
+        .arg(&server.socket)
+        .arg("--state")
+        .arg(&server.state)
+        .env("CMUX_TUI_CONFIG", server.dir.join("config.json"))
+        .env("CMUX_TUI_TEST_ADOPT_TURN_DELAY_MS", "5000")
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_CLIENT")
+        .env_remove("SSH_TTY")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    server.wait_for_socket();
+
+    let before_reopen = tab_ids(&server);
+    let started = Instant::now();
+    let reopened = state_cli(&server, None, &["closed", &closed_id, "reopen"]);
+    let took = started.elapsed();
+    let restored_tab = new_tab(&before_reopen, &tab_ids(&server));
+    assert_eq!(reopened["value"]["tab_ids"], serde_json::json!([restored_tab]), "{reopened}");
+    let restored = state_cli_topology(&server);
+    let tab = restored["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"] == restored_tab.as_str())
+        .expect("reopened tab is present in the snapshot");
+    assert_eq!(tab["content_id"], split_terminal.as_str(), "{restored}");
+    assert!(
+        took < Duration::from_millis(3_000),
+        "the reopen waited {took:?} for its kept terminal behind the other adoptions' turns"
+    );
+    // The busy workspace's terminals still adopt in held turns (two waves of
+    // 5 s); the fixture can close them only once they are running.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let terminals = state_cli(&server, None, &["terminal", "list"]);
+        let all_running =
+            terminals.as_array().unwrap().iter().all(|terminal| terminal["lifecycle"] == "running");
+        if all_running {
+            break;
+        }
+        assert!(Instant::now() < deadline, "terminals never adopted: {terminals}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Splits, keeps the split's terminal, closes its pane, restarts the daemon
 /// (with `restart_env`) and reopens the closed group.
 fn split_close_and_restore_after_a_restart(name: &str, restart_env: &[(&str, &str)]) {
