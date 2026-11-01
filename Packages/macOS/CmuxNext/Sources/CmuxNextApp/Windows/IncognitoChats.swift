@@ -23,7 +23,8 @@ enum IncognitoChats {
         pending[id] = Task { @MainActor in
             defer { pending[id] = nil }
             do {
-                try await acpmux.purgeWorkspace(key: key)
+                // Within a Keep quit's 4 s deadline (QuitSteps).
+                try await acpmux.purgeWorkspace(key: key, deadline: .seconds(3))
             } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
                     .error("incognito chats purge failed: \(String(describing: error), privacy: .public)")

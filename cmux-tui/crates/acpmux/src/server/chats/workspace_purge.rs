@@ -16,6 +16,7 @@
 //!
 //! Local unix socket only, as `_acpmux/stats`: a WebSocket origin gets "Method not found".
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -29,6 +30,8 @@ use crate::rpc::RpcError;
 use crate::store::SessionMeta;
 
 pub(crate) const METHOD: &str = crate::rpc::method::MUX_WORKSPACE_PURGE;
+/// Scans of the workspace's sessions one purge makes at most.
+const MAX_PASSES: usize = 4;
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -46,22 +49,34 @@ pub(super) async fn handle(
         .to_ascii_lowercase();
     let mut purged = Vec::new();
     let mut transcripts = 0usize;
-    for session in of_workspace(hub, &workspace) {
-        // A parent's purge may already have taken this one.
-        if !hub.resolve(&session.id).is_ok_and(|s| Arc::ptr_eq(&s, &session)) {
-            continue;
+    // Each session is tried once: a failed stop is not retried in a loop.
+    let mut tried = HashSet::new();
+    // Scanned again after each pass: a fork, sub-session or terminal agent that started for the
+    // workspace while a pass ran (its close still on its way) goes too.
+    for _ in 0..MAX_PASSES {
+        let left: Vec<_> =
+            of_workspace(hub, &workspace).into_iter().filter(|s| !tried.contains(&s.id)).collect();
+        if left.is_empty() {
+            break;
         }
-        // Read before the stop: the purge forgets the session.
-        let files = own_transcripts(hub, &session.meta());
-        if let Err(e) = hub.kill(&session, true).await {
-            tracing::warn!(session = %session.id, "workspace purge failed: {}", e.message);
-            continue;
-        }
-        purged.push(session.id.clone());
-        // After the stop, so the harness writes no more of it.
-        transcripts += files.iter().filter(|f| remove(f)).count();
-        if let Some(index) = hub.chat_index().filter(|_| !files.is_empty()) {
-            index.paths_changed(&files, false);
+        for session in left {
+            tried.insert(session.id.clone());
+            // A parent's purge may already have taken this one.
+            if !hub.resolve(&session.id).is_ok_and(|s| Arc::ptr_eq(&s, &session)) {
+                continue;
+            }
+            // Read before the stop: the purge forgets the session.
+            let files = own_transcripts(hub, &session.meta());
+            if let Err(e) = hub.kill(&session, true).await {
+                tracing::warn!(session = %session.id, "workspace purge failed: {}", e.message);
+                continue;
+            }
+            purged.push(session.id.clone());
+            // After the stop, so the harness writes no more of it.
+            transcripts += files.iter().filter(|f| remove(f)).count();
+            if let Some(index) = hub.chat_index().filter(|_| !files.is_empty()) {
+                index.paths_changed(&files, false);
+            }
         }
     }
     Ok(json!({"workspaceId": workspace, "purged": purged, "transcripts": transcripts}))

@@ -206,10 +206,11 @@ final class QuitCoordinator {
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
-                        // Incognito windows' chats are purged before their spaces go (IncognitoChats);
-                        // endLocalAgents waits for the purges.
+                        // Incognito windows' chats are purged before their spaces go (IncognitoChats), and
+                        // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         IncognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
+                        await IncognitoChats.drain()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
