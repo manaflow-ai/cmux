@@ -36,6 +36,14 @@ extension DaemonLauncher {
         return Self.parseBuildCommit(String(decoding: result.stdout, as: UTF8.self))
     }
 
+    /// Build of the bundled binary (`cmux --version --json`: `build_commit` and `build_identity`),
+    /// for the version handoff; nil when the binary does not answer with that JSON.
+    public func bundledBuild() async throws -> DaemonBuildStamp? {
+        let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version", "--json"],
+                                                 environment: nil, timeout: .seconds(5), clock: clock)
+        return DaemonBuildStamp(versionJSON: result.stdout)
+    }
+
     static func parseBuildCommit(_ version: String) -> String? {
         guard version.contains("(") else { return nil }
         let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }

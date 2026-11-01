@@ -201,11 +201,11 @@ public final class DaemonService {
         // (their hosts are adopted by the new daemon). The bundled build's
         // commit is read while the first connect runs, off its path.
         let logger = logger
-        // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
+        // task-owner: one `--version --json` run per start; the handoff check awaits it
+        let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
-            let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)
+            guard identity.buildCommit != nil, let bundled = await bundledBuild.value else { return false }
+            let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
             guard case .restart(let running, let target) = decision else { return false }
             DaemonService.launchMark("daemon_version_handoff")
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")

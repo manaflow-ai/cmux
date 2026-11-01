@@ -29,12 +29,13 @@ struct DaemonVersionHandoffTests {
             let terminalID = terminal.terminalID.rawValue
 
             // The same build is never handed off.
-            let running = try #require(old.buildCommit)
-            #expect(await launcher.handOffIfStale(identity: old, using: connection, bundledCommit: running)
+            let build = DaemonBuildStamp(identity: old)
+            let running = try #require(build.id ?? build.commit)
+            #expect(await launcher.handOffIfStale(identity: old, using: connection, bundled: build)
                 == .keep("same build"))
 
             // As if the app had been updated to another build.
-            let decision = await launcher.handOffIfStale(identity: old, using: connection, bundledCommit: "0000000")
+            let decision = await launcher.handOffIfStale(identity: old, using: connection, bundled: Self.otherBuild)
             #expect(decision == .restart(running: running, bundled: "0000000"))
 
             // The connection reconnects to the new daemon by itself.
@@ -56,7 +57,7 @@ struct DaemonVersionHandoffTests {
 
             // A second handoff to the same bundled build is not repeated.
             let again = await launcher.handOffIfStale(identity: try #require(current), using: connection,
-                                                      bundledCommit: "0000000")
+                                                      bundled: Self.otherBuild)
             #expect(again == .keep("already handed off to 0000000"))
         } catch {
             await BranchDaemonHarness.shutDown(connection)
@@ -116,11 +117,64 @@ struct DaemonVersionHandoffTests {
         await BranchDaemonHarness.shutDown(connection)
     }
 
-    @Test func decisionRules() {
-        #expect(DaemonLauncher.versionDecision(running: nil, bundled: "abc1234") == .keep("running build unknown"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: nil) == .keep("bundled build unknown"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: "abc1234") == .keep("same build"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: "def5678")
+    /// Another build than any real one, as an updated app's bundle.
+    static let otherBuild = DaemonBuildStamp(commit: "0000000", id: "0000000")
+}
+
+/// The version handoff's rule: which running owner is another build than the bundled binary.
+/// Pure: no daemon runs.
+struct DaemonVersionDecisionTests {
+    private func decide(_ running: DaemonBuildStamp, _ bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
+        DaemonLauncher.versionDecision(running: running, bundled: bundled)
+    }
+
+    /// Two packaged builds: `build_id` is the stamped commit.
+    @Test func stampedBuildsCompareByBuild() {
+        let abc = DaemonBuildStamp(commit: "abc1234", id: "abc1234")
+        let def = DaemonBuildStamp(commit: "def5678", id: "def5678")
+        #expect(decide(abc, abc) == .keep("same build"))
+        #expect(decide(abc, def) == .restart(running: "abc1234", bundled: "def5678"))
+    }
+
+    /// An owner older than `daemon-build-v1` reports no `build_id`: the stamped commits decide.
+    @Test func anOwnerWithoutBuildIDComparesCommits() {
+        let old = DaemonBuildStamp(commit: "abc1234", id: nil)
+        #expect(decide(old, DaemonBuildStamp(commit: "abc1234", id: "abc1234")) == .keep("same build"))
+        #expect(decide(old, DaemonBuildStamp(commit: "def5678", id: "def5678"))
             == .restart(running: "abc1234", bundled: "def5678"))
+    }
+
+    /// Two unstamped builds of one commit with different uncommitted edits: no `build_commit`, and
+    /// `build_id` carries the dirty hash. The owner runs the other edits, so it is handed off. On
+    /// the code before this fix the null commit kept it with no notice ("running build unknown").
+    @Test func aDirtyBuildOfTheSameCommitIsHandedOff() {
+        let running = DaemonBuildStamp(commit: nil, id: "abc1234-dirty.aaaa")
+        let bundled = DaemonBuildStamp(commit: nil, id: "abc1234-dirty.bbbb")
+        #expect(decide(running, bundled) == .restart(running: "abc1234-dirty.aaaa", bundled: "abc1234-dirty.bbbb"))
+        #expect(decide(running, running) == .keep("same build"))
+    }
+
+    /// One commit stamped on both, but the identities differ: the identity decides, not the commit.
+    @Test func theBuildIDDecidesOverTheCommit() {
+        let running = DaemonBuildStamp(commit: "abc1234", id: "abc1234-dirty.aaaa")
+        let bundled = DaemonBuildStamp(commit: "abc1234", id: "abc1234-dirty.bbbb")
+        #expect(decide(running, bundled) == .restart(running: "abc1234-dirty.aaaa", bundled: "abc1234-dirty.bbbb"))
+    }
+
+    /// When nothing can be compared the owner is kept, and the reason says which side is unknown.
+    @Test func anUnknownBuildIsKeptWithItsReason() {
+        let known = DaemonBuildStamp(commit: "abc1234", id: "abc1234")
+        #expect(decide(DaemonBuildStamp(commit: nil, id: nil), known) == .keep("running build unknown"))
+        #expect(decide(known, nil) == .keep("bundled build unknown"))
+        #expect(decide(known, DaemonBuildStamp(commit: nil, id: nil)) == .keep("bundled build unknown"))
+    }
+
+    /// `cmux --version --json` and `identify` give the same two fields.
+    @Test func theStampReadsTheVersionJSONAndIdentify() throws {
+        let json = Data(#"{"app":"cmux-tui","build_identity":"abc1234-dirty.aaaa","build_commit":null}"#.utf8)
+        #expect(DaemonBuildStamp(versionJSON: json) == DaemonBuildStamp(commit: nil, id: "abc1234-dirty.aaaa"))
+        #expect(DaemonBuildStamp(versionJSON: Data("cmux 0.1.0".utf8)) == nil)
+        let identity = DaemonIdentity(buildCommit: "", buildID: "abc1234", generation: DaemonGeneration(rawValue: "stamp-test"))
+        #expect(DaemonBuildStamp(identity: identity) == DaemonBuildStamp(commit: nil, id: "abc1234"))
     }
 }
