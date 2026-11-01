@@ -10,8 +10,8 @@ import CmuxNextCompat
 /// have no id to rewrite, so the original text is forwarded after the duplicate-key check; only
 /// notifications that feed a host-side observer are parsed.
 nonisolated final class AcpmuxRequestIds: Sendable {
-    private static let observedNotificationMarkers = [
-        "\"_acpmux/prompt_accepted\"", "\"_acpmux/event\"", "\"_acpmux/permission_pending\"",
+    private static let observedNotificationMethods = [
+        "_acpmux/prompt_accepted", "_acpmux/event", "_acpmux/permission_pending",
     ]
     private static let eventObserverMarkers = [
         "\"permission_request\"", "\"permission_reissued\"", "\"permission_decision\"",
@@ -117,25 +117,27 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // Stream notifications have no id to rewrite. The marker check avoids Foundation's full
         // parse for the usual `session/update` payloads while retaining the parsed object for the
         // three notifications read by host observers.
-        if Self.hasTopLevelMethod(text) {
-            guard Self.observedNotificationMarkers.contains(where: text.contains) else {
+        let methodScan = Self.topLevelMethod(text)
+        if methodScan.found {
+            guard let method = methodScan.value else {
+                return .page(text, object: nil, replyTo: nil)
+            }
+            guard Self.observedNotificationMethods.contains(method) else {
                 return .page(text, object: nil, replyTo: nil)
             }
             // Most `_acpmux/event` frames are transcript chunks. The host only reads permission
             // records from that stream; pacing for turn boundaries uses the raw text path below.
-            if text.contains("\"_acpmux/event\"") &&
+            if method == "_acpmux/event" &&
                 !Self.eventObserverMarkers.contains(where: text.contains) {
                 return .page(text, object: nil, replyTo: "_acpmux/event")
             }
             guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             else { return .page(text, object: nil, replyTo: nil) }
-            let method = object["method"] as? String
             if method == "_acpmux/prompt_accepted", let promptAccepted,
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
                 promptAccepted(promptId)
             }
-            return .page(text, object: Self.observedNotificationMarkers.contains(where: { text.contains($0) }) ? object : nil,
-                         replyTo: method)
+            return .page(text, object: object, replyTo: method)
         }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
@@ -168,13 +170,18 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Finds the top-level `method` key without constructing a JSON object. The duplicate-key
+    /// Finds the top-level `method` key and value without constructing a JSON object. The duplicate-key
     /// validator has already established that this is well-formed JSON, so this small scanner only
     /// needs to track strings and nesting; it avoids mistaking a transcript field named `method`
     /// for the frame's method when deciding whether a reply needs a full parse.
-    private static func hasTopLevelMethod(_ text: String) -> Bool {
+    private struct MethodScan {
+        var found: Bool
+        var value: String?
+    }
+
+    private static func topLevelMethod(_ text: String) -> MethodScan {
         text.withUTF8 { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return false }
+            guard let base = bytes.baseAddress, bytes.count > 0 else { return MethodScan(found: false, value: nil) }
             var depth = 0
             var i = 0
             while i < bytes.count {
@@ -196,7 +203,25 @@ nonisolated final class AcpmuxRequestIds: Sendable {
                         if next < bytes.count, base[next] == 0x3A,
                            base[start] == 0x6D, base[start + 1] == 0x65, base[start + 2] == 0x74,
                            base[start + 3] == 0x68, base[start + 4] == 0x6F, base[start + 5] == 0x64 {
-                            return true
+                            var value = next + 1
+                            while value < bytes.count, base[value] == 0x20 || base[value] == 0x09 || base[value] == 0x0A || base[value] == 0x0D { value += 1 }
+                            guard value < bytes.count, base[value] == 0x22 else {
+                                return MethodScan(found: true, value: nil)
+                            }
+                            let valueStart = value + 1
+                            value = valueStart
+                            var valueEscaped = false
+                            while value < bytes.count {
+                                let byte = base[value]
+                                if valueEscaped { valueEscaped = false }
+                                else if byte == 0x5C { valueEscaped = true }
+                                else if byte == 0x22 { break }
+                                value += 1
+                            }
+                            if valueEscaped || value >= bytes.count {
+                                return MethodScan(found: true, value: nil)
+                            }
+                            return MethodScan(found: true, value: String(decoding: bytes[valueStart..<value], as: UTF8.self))
                         }
                     }
                     i += 1
@@ -205,7 +230,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
                 default: i += 1
                 }
             }
-            return false
+            return MethodScan(found: false, value: nil)
         }
     }
 }

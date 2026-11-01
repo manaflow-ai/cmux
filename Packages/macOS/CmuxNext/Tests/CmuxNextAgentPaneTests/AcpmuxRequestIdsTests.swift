@@ -27,6 +27,17 @@ struct AcpmuxRequestIdsTests {
         #expect((object?["params"] as? [String: Any])?["permissionId"] as? String == "p")
     }
 
+    @Test func observerMethodValueIsUsedInsteadOfSubstringMarkers() throws {
+        let text = #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"message":"_acpmux/event"}}"#
+        let ids = AcpmuxRequestIds()
+        guard case .page(_, let object, let method) = ids.toPage(text) else {
+            Issue.record("observer notification was not forwarded")
+            return
+        }
+        #expect(method == "_acpmux/permission_pending")
+        #expect(object != nil)
+    }
+
     @Test func replyWithMethodInResultStillRewritesItsId() throws {
         let text = #"{"jsonrpc":"2.0","id":1,"result":{"value":"method","nested":{"method":"opaque"}}}"#
         let ids = AcpmuxRequestIds()
