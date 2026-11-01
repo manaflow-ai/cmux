@@ -1,9 +1,14 @@
 // A closed ```html or ```svg fence in a reply, drawn as the document it holds (leo-workspace
 // design/artifacts.md). The preview is an iframe sandboxed with `allow-scripts` and no
-// `allow-same-origin`, whose `srcdoc` starts with the artifact policy: no network, and no script but
-// the client's own nonce'd frame script (previewDocument.ts), which reports the height and keeps the
-// frame on its document. Its height follows the frame's report, accepted only from that frame's
-// window, capped at 480 px (Expand lifts the cap), and the document scrolls past it. A document that
+// `allow-same-origin`, so the document is an opaque origin that cannot reach the pane. Only markup
+// with no script (artifactNeedsRun) previews, made inert first (previewDocument.ts: no refresh, no
+// resource hints, no outbound link). In the app it draws in the native artifact frame
+// (`cmux-agent://render/artifact`, or the shared page host's), which has its own policy with no
+// network, reports its height and whose host refuses its navigation; a `srcdoc` frame would take the
+// pane's policy, which runs no inline script, so it could not report a height. The gallery, which has
+// no native frame, draws it in `srcdoc` behind the artifact policy with a nonce'd frame script. Any
+// other page shows the source. The height follows the frame's report, accepted only from that
+// frame's window, capped at 480 px (Expand lifts the cap), and the document scrolls past it. A document that
 // carries script stays the code card, whose Open puts it in the side panel, where Run is (#26216).
 // Code shows the source card, which keeps Copy. Markdown.tsx draws this only once the fence has
 // closed: an open fence stays plain code, so no frame is made or reloaded per token. The frame mounts
@@ -11,17 +16,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
-import { artifactNeedsRun } from "./artifactSandbox";
+import { artifactFrameURL, artifactGallery, artifactNeedsRun } from "./artifactSandbox";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { OpenPreview } from "./OpenPreview";
 import { renderFrameCSS } from "./renderBase";
+import { useRenderFrame } from "./RenderCard";
 import {
   INLINE_PREVIEW_EXPANDED_MAX_HEIGHT,
   INLINE_PREVIEW_MAX_HEIGHT,
   INLINE_PREVIEW_MIN_HEIGHT,
   INLINE_PREVIEW_SANDBOX,
   inlinePreviewDocument,
+  inlinePreviewHtml,
   previewNonce,
   reportedHeight,
 } from "./previewDocument";
@@ -43,7 +50,9 @@ export function InlinePreview({
   // The frame left its document (its frame counts its loads): the card shows the source.
   const [left, setLeft] = useState(false);
   const scripted = useMemo(() => artifactNeedsRun(code), [code]);
-  if (scripted || left) return <CodeBlock code={code} lang={lang} actions={actions} />;
+  // Only the native frame or the gallery can draw it; anywhere else (the dev server) shows the source.
+  const framed = artifactFrameURL() !== undefined || artifactGallery();
+  if (scripted || left || !framed) return <CodeBlock code={code} lang={lang} actions={actions} />;
   const toggle = (
     <button
       type="button"
@@ -120,12 +129,47 @@ function FrameCard({
         )}
         <span className="cv-codeblock__actions">{head}</span>
       </div>
-      {near && <PreviewFrame kind={kind} code={code} max={max} onHeight={setHeight} onLeave={onLeave} />}
+      {near &&
+        (artifactFrameURL() ? (
+          <NativeFrame kind={kind} code={code} max={max} onHeight={setHeight} />
+        ) : (
+          <PreviewFrame kind={kind} code={code} max={max} onHeight={setHeight} onLeave={onLeave} />
+        ))}
     </div>
   );
 }
 
-/// The document in srcdoc. The height listener takes only this frame's own messages. A second load
+/// The inert document in the native artifact frame, which writes it into itself under its own policy
+/// and reports its height (useRenderFrame, as the side panel's Run does).
+function NativeFrame({
+  kind,
+  code,
+  max,
+  onHeight,
+}: {
+  kind: "html" | "svg";
+  code: string;
+  max: number;
+  onHeight(height: number): void;
+}) {
+  const t = useT();
+  const html = useMemo(() => inlinePreviewHtml(kind, code), [kind, code]);
+  const { frame, height } = useRenderFrame(html);
+  useEffect(() => onHeight(height), [onHeight, height]);
+  return (
+    <iframe
+      ref={frame}
+      className="acpmux-render-card-frame"
+      src={artifactFrameURL()}
+      title={languageLabel(kind, t)}
+      sandbox={INLINE_PREVIEW_SANDBOX}
+      referrerPolicy="no-referrer"
+      style={{ height: Math.min(height, max) }}
+    />
+  );
+}
+
+/// The document in srcdoc (the gallery). The height listener takes only this frame's own messages. A second load
 /// means the frame navigated away from its document (past the frame script's guards,
 /// previewDocument.ts): whatever it loaded runs without the policy, so the frame goes and the card
 /// shows the source.

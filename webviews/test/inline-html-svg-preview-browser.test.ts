@@ -106,7 +106,7 @@ parent.postMessage({ type: "probe-ran" }, "*");
   }
 
   for (const engine of ["chromium", "webkit"]) {
-    test(`${engine}: a passive frame stays on its document: no refresh, no link out, fragments still scroll`, async () => {
+    test(`${engine}: a passive frame stays on its document: no refresh, no link out, fragments scroll in place`, async () => {
       const { page, frame, requests } = await passiveFrame(engine);
       const result = await frame.evaluate(() => {
         const click = (id: string) => {
@@ -121,8 +121,10 @@ parent.postMessage({ type: "probe-ran" }, "*");
           inPrevented: click("in"),
         };
       });
-      // The link out points nowhere (previewDocument.ts inertDocument), so clicking it cannot leave.
-      expect(result).toEqual({ refreshes: 0, outHref: "#", outPrevented: false, inPrevented: false });
+      // The link out points nowhere (previewDocument.ts inertDocument), and every click is handled in
+      // the frame: a fragment scrolls there (in srcdoc `#x` resolves against the parent page).
+      expect(result).toEqual({ refreshes: 0, outHref: "#", outPrevented: true, inPrevented: true });
+      expect(await frame.evaluate(() => document.getElementById("in") !== null)).toBe(true);
       expect(requests).toEqual([]);
       await page.close();
     });

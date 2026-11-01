@@ -46,15 +46,18 @@ export function previewPolicy(nonce: string | undefined): string {
 
 /// The frame's own script, the first to run in it: it reports the document's height to the parent
 /// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame),
-/// and keeps the frame on its document: a link click is refused (a `#fragment` still scrolls). With
+/// and keeps the frame on its document: every link click is refused, and a `#fragment` scrolls to its
+/// target here (in srcdoc a `#x` resolves against the parent page, so following it would leave). With
 /// `inertDocument` that leaves no way for markup without script to navigate the frame; a frame that
 /// leaves its document anyway is torn down by the parent (InlinePreview.tsx counts its loads), since
 /// the policy is the document's and a page the frame navigated to would run without it.
-const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(link&&!(link.getAttribute("href")||"").startsWith("#"))event.preventDefault();},true);})();`;
+const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(!link)return;event.preventDefault();const href=link.getAttribute("href")||"";if(href.length>1&&href.startsWith("#")){const id=decodeURIComponent(href.slice(1));(document.getElementById(id)||document.getElementsByName(id)[0])?.scrollIntoView();}},true);})();`;
 
 /// A link attribute and its value; the character before it keeps it an attribute boundary (text that
 /// merely reads `href=` is renamed too, which only changes what the preview shows).
-const LINK_ATTRIBUTE = /([\s"'/])((?:xlink:)?href)(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi;
+/// The boundary is a lookbehind, never consumed: a quote that closes one attribute's value is also
+/// the boundary before the next (`<a xlink:href="#x"href="https://…">`).
+const LINK_ATTRIBUTE = /(?<=[\s"'/])((?:xlink:)?href)(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi;
 
 /// The document with what the policy cannot stop made inert. Every link that leaves the document
 /// (`href` and `xlink:href` other than a `#fragment` or an inline `data:`/`blob:` image): an engine
@@ -71,17 +74,29 @@ export function inertDocument(html: string): string {
   return html
     .replace(/http-equiv/gi, "data-http-equiv")
     .replace(/<link(?=[\s/>])/gi, "<cmux-inert-link")
-    .replace(LINK_ATTRIBUTE, (whole, before: string, name: string, equals: string, value: string) => {
+    .replace(LINK_ATTRIBUTE, (whole, name: string, equals: string, value: string) => {
       const target = value.replace(/^["']|["']$/g, "");
       if (target.startsWith("#") || /^(?:data|blob):/i.test(target)) return whole;
-      return `${before}data-${name}${equals}${value} ${name}="#"`;
+      return `data-${name}${equals}${value} ${name}="#"`;
     });
 }
 
 /// Turns off the browser's own DNS prefetch of the document's link targets.
 const NO_DNS_PREFETCH = '<meta http-equiv="x-dns-prefetch-control" content="off">';
 
-/// The `srcdoc` of an inline preview: the policy first, then the pane's theme, the frame's script and
+/// The document an inline preview draws, made inert (`inertDocument`): an SVG image centered at its
+/// own size, no wider than the card (not the panel's 100vh fit, previewHtml: a frame sized from its
+/// document's height would never shrink back from it). The native artifact frame takes this as is.
+export function inlinePreviewHtml(kind: "html" | "svg", code: string): string {
+  return inertDocument(
+    kind === "svg"
+      ? `<style>body{display:flex;justify-content:center}svg{max-width:100%;height:auto}</style>${code}`
+      : code,
+  );
+}
+
+/// The `srcdoc` of an inline preview (the gallery, which has no native frame; a srcdoc frame takes
+/// its parent's policy too, which in the app allows no inline script): the policy first, then the pane's theme, the frame's script and
 /// the document. `nonce` set: only the frame's script runs. Unset: inline scripts run too, under the
 /// sandbox alone.
 export function inlinePreviewDocument(
@@ -90,13 +105,7 @@ export function inlinePreviewDocument(
   theme: string,
   nonce: string | undefined,
 ): string {
-  // An SVG image centers at its own size, no wider than the card. Not the panel's 100vh fit
-  // (previewHtml): a frame sized from its document's height would never shrink back from it.
-  const html = inertDocument(
-    kind === "svg"
-      ? `<style>body{display:flex;justify-content:center}svg{max-width:100%;height:auto}</style>${code}`
-      : code,
-  );
+  const html = inlinePreviewHtml(kind, code);
   const script = nonce ? `<script nonce="${nonce}">${REPORTER}</script>` : `<script>${REPORTER}</script>`;
   // l10n-allow: HTML document syntax and CSP directives, not user-visible text.
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy(nonce)}">${NO_DNS_PREFETCH}<style>${theme}</style>${script}${html}`;
