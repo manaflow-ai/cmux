@@ -9,9 +9,9 @@ import Foundation
 /// (`cmux cloud move` from its shell, or the cmux MCP server's tool), and instead of moving, the app
 /// asks the person in that agent's chat with a card (Move, Not now, Always), never a sheet. Only a
 /// click there (a real gesture in the pane, ``AgentPaneToolCard``) starts the move, through the
-/// one Move to Cloud action (``CloudMove``) on that chat, as a person's run. "Always" also records
-/// the chat's synced folder: an agent's later ask from a chat in that folder starts the move at
-/// once, with "Ask first next time" on its card to take that back.
+/// one Move to Cloud action (``CloudMove``) on that chat, as a person's run. "Always" records
+/// the folder for this Cloud account, team and API origin only: an agent's later ask in that
+/// scope starts the move at once, with "Ask first next time" to revoke it.
 ///
 /// An agent asks only for its own chat: the run's `caller.agent_session` names it, and a target of
 /// another tab is refused. Like every caller rule this trusts the caller's claim; a process that
@@ -29,6 +29,8 @@ final class CloudMoveAsks {
     private struct Ask {
         var folder: String
         var always: Bool
+        /// Account and Cloud destination selected when the ask began.
+        var scope: CloudMoveAlwaysGrants.Scope?
     }
 
     private var asks: [String: Ask] = [:]
@@ -39,8 +41,7 @@ final class CloudMoveAsks {
     static let dismissedKey = "cmux.cloud.moveUnfinishedDismissed"
     /// Where "Always" folders are kept (``CloudMoveSetup/ledger``); nil keeps them in memory.
     var defaults: @MainActor () -> UserDefaults? = { nil }
-    private var memory: Set<String> = []
-    static let defaultsKey = "cmux.cloud.moveAlwaysFolders"
+    private var grants = CloudMoveAlwaysGrants()
 
     /// Whether `invocation` is an agent's: a cmux MCP run, or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
@@ -58,19 +59,23 @@ final class CloudMoveAsks {
         }
         guard !CloudMove.hiddenMenuItems(tab).contains(CloudMove.action) else { throw ActionFailure(message: CloudMoveStrings.alreadyRemote) }
         let tabID = tab.id
+        let requestedScope = Self.scope(services)
         let work: ActionWork = Task { @MainActor [weak self] in
             let workspace = services.machines.local.store.workspace(containing: pane.handle)
             let chat = try? await CloudMove(services: services).chatFolder(tab: tab, workspace: workspace, session: session, invocation: ActionInvocation())
             guard let self else { return nil }
             guard let folder = chat.flatMap(CloudMoveFolder.init(chat:)) else { return ActionWorkFailure(CloudMoveStrings.noFolder) }
             guard !folder.isTooBroad else { return ActionWorkFailure(CloudMoveStrings.homeFolder) }
+            // Never turn an ask started under one Cloud identity into approval under another.
+            guard requestedScope == Self.scope(services) else { return ActionWorkFailure(CloudMoveAskStrings.noMove) }
             // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
             if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
-            asks[tabID] = Ask(folder: folder.root, always: false)
-            if alwaysFolders().contains(folder.root) {
+            asks[tabID] = Ask(folder: folder.root, always: false, scope: requestedScope)
+            if grants.contains(folder.root, scope: requestedScope, defaults: defaults()) {
                 asks[tabID]?.always = true
                 start(tabID, services: services)
-            } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)), [.move, .notNow, .always], services: services) {
+            } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)),
+                            requestedScope == nil ? [.move, .notNow] : [.move, .notNow, .always], services: services) {
                 asks[tabID] = nil
                 return ActionWorkFailure(CloudMoveAskStrings.noPage)
             }
@@ -96,7 +101,7 @@ final class CloudMoveAsks {
                     case .show: CloudMoveStrings.unfinishedShow
                     case .move, .askFirst, .update: CloudMoveStrings.unfinishedMove
                     }
-                    asks[tab] = Ask(folder: "", always: false)
+                    asks[tab] = Ask(folder: "", always: false, scope: nil)
                     offered.insert(tab)
                     show(tab, .failed, text, [.retry, .dismiss], services: services)
                 }
@@ -136,15 +141,23 @@ final class CloudMoveAsks {
 
     private func answer(_ answer: Answer, tab: String, services: AppServices) {
         guard let ask = asks[tab] else { return }
+        // An old card cannot grant or start a move after a Cloud account/team change.
+        // Launch offers are a separate Retry flow with a pinned machine. Declining and
+        // "Ask first next time" (which revokes the original scope's grant) only take authority away.
+        if !offered.contains(tab), ask.scope != Self.scope(services), ![.notNow, .dismiss, .askFirst].contains(answer) {
+            show(tab, .failed, CloudMoveAskStrings.noMove, [.dismiss], services: services)
+            return
+        }
         switch answer {
         case .move, .retry:
             start(tab, services: services)
         case .always:
-            remember(ask.folder, true)
+            guard let scope = ask.scope else { return }
+            grants.remember(ask.folder, scope: scope, always: true, defaults: defaults())
             asks[tab]?.always = true
             start(tab, services: services)
         case .askFirst:
-            remember(ask.folder, false)
+            grants.remember(ask.folder, scope: ask.scope, always: false, defaults: defaults())
             asks[tab]?.always = false
             show(tab, .working, CloudMoveStrings.moving, [], services: services)
         case .notNow, .dismiss:
@@ -192,7 +205,7 @@ final class CloudMoveAsks {
         }
     }
 
-    // MARK: "Always" folders
+    // MARK: Persisted grants and unfinished moves
 
     /// A Retry as text: a launch offer Dismissed stays dismissed until its tab's Retry changes.
     static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
@@ -213,15 +226,10 @@ final class CloudMoveAsks {
         defaults.set(all, forKey: Self.dismissedKey)
     }
 
-    private func alwaysFolders() -> Set<String> {
-        guard let defaults = defaults() else { return memory }
-        return Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
-    }
-
-    private func remember(_ folder: String, _ always: Bool) {
-        var folders = alwaysFolders()
-        if always { folders.insert(folder) } else { folders.remove(folder) }
-        guard let defaults = defaults() else { return memory = folders }
-        defaults.set(folders.sorted(), forKey: Self.defaultsKey)
+    private static func scope(_ services: AppServices) -> CloudMoveAlwaysGrants.Scope? {
+        let auth = services.cloud.auth
+        guard auth.isSignedIn else { return nil }
+        return CloudMoveAlwaysGrants.Scope(userID: auth.user?.id, teamID: auth.teamID,
+                                          cloudOrigin: auth.configuration.apiBaseURL.absoluteString)
     }
 }

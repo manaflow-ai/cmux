@@ -205,6 +205,128 @@ struct RemoteVNCReconnectTests {
     }
 }
 
+/// The input and output fences between `RemoteVNCSource` sessions (#29212).
+@MainActor
+struct RemoteVNCGenerationTests {
+    private static let endpoint = VNCEndpoint(host: "vm-test", port: 5901)
+
+    /// Starts a session on `transport` and returns once it streams.
+    private func connect(_ source: RemoteVNCSource, over transport: RecordingRFBTransport) async throws {
+        source.connect(to: Self.endpoint, credentials: VNCCredentials(), transport: transport)
+        // Subscribed after `connect`, so the first status is this session's, never the last one's.
+        for await status in source.statusUpdates() {
+            if status.state == .streaming { break }
+            if case .ended = status.state { break }
+        }
+        try #require(source.status.state == .streaming)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func inputQueuedForAnOldSessionNeverReachesTheNext() async throws {
+        let source = RemoteVNCSource()
+        let first = RecordingRFBTransport(holdFirstKey: true)
+        let second = RecordingRFBTransport()
+        try await connect(source, over: first)
+        let sink = RemoteVNCInputSink(source: source)
+        var firstKeys = first.keySends.makeAsyncIterator()
+        var secondKeys = second.keySends.makeAsyncIterator()
+
+        // The worker holds inside the first session's send; "b" waits in the queue behind it.
+        sink.send(.text("a"))
+        _ = await firstKeys.next()
+        sink.send(.text("b"))
+        try await connect(source, over: second)
+        first.release()
+        sink.send(.text("c"))
+        _ = await secondKeys.next()
+
+        // The worker drains in order: "b" was handled before "c", so had it leaked, it would be here.
+        #expect(second.keyChunks.map(\.last) == [UInt8(ascii: "c")])
+        #expect(first.keyChunks.map(\.last) == [UInt8(ascii: "a")])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func stopEndsTheGenerationAtOnce() async throws {
+        let source = RemoteVNCSource()
+        try await connect(source, over: RecordingRFBTransport())
+        source.stop()
+        #expect(source.client == nil)
+        // Published by `stop` itself, not by the old session's disconnect arriving later.
+        #expect(source.status.state == .ended(.stoppedByViewer))
+    }
+}
+
+/// An RFB server that accepts the handshake and records what the client sends. With
+/// `holdFirstKey`, the first KeyEvent send waits until `release()`.
+private nonisolated final class RecordingRFBTransport: RFBTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var sent: [[UInt8]] = []
+    private var holding: Bool
+    private var gate: CheckedContinuation<Void, Never>?
+    private var released = false
+    private let bytes: AsyncThrowingStream<[UInt8], any Error>
+    private let continuation: AsyncThrowingStream<[UInt8], any Error>.Continuation
+    /// One element per KeyEvent message the client sent (after it is recorded and, if held, waiting).
+    let keySends: AsyncStream<Void>
+    private let keySendsSink: AsyncStream<Void>.Continuation
+
+    init(holdFirstKey: Bool = false) {
+        holding = holdFirstKey
+        (keySends, keySendsSink) = AsyncStream.makeStream(of: Void.self)
+        (bytes, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self)
+        var handshake = Array("RFB 003.008\n".utf8)
+        handshake += [1, 1, 0, 0, 0, 0] // None security, accepted.
+        handshake += [0, 1, 0, 1] // One-pixel desktop.
+        handshake += RFBPixelFormat.bgrx.encoded
+        handshake += [0, 0, 0, 4] + Array("test".utf8)
+        continuation.yield(handshake)
+    }
+
+    /// Each KeyEvent send (RFB client message 4), in order.
+    var keyChunks: [[UInt8]] { lock.withLock { sent.filter { $0.first == 4 } } }
+
+    func open() async throws {}
+    func receive() async throws -> [UInt8] {
+        var iterator = bytes.makeAsyncIterator()
+        guard let chunk = try await iterator.next() else { throw RFBError.connectionClosed }
+        return chunk
+    }
+
+    func send(_ bytes: [UInt8]) async throws {
+        let isKey = bytes.first == 4
+        let hold = lock.withLock { () -> Bool in
+            sent.append(bytes)
+            guard isKey, holding else { return false }
+            holding = false
+            return true
+        }
+        guard isKey else { return }
+        guard hold else {
+            keySendsSink.yield()
+            return
+        }
+        await withCheckedContinuation { (gate: CheckedContinuation<Void, Never>) in
+            let resumeNow = lock.withLock { () -> Bool in
+                if released { return true }
+                self.gate = gate
+                return false
+            }
+            keySendsSink.yield()
+            if resumeNow { gate.resume() }
+        }
+    }
+
+    /// Lets a held KeyEvent send finish.
+    func release() {
+        let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { self.gate = nil }
+            return self.gate
+        }
+        gate?.resume()
+    }
+
+    func close() { continuation.finish(throwing: RFBError.connectionClosed) }
+}
+
 private nonisolated final class TransportBox: @unchecked Sendable {
     private let lock = NSLock()
     private var transports: [ConnectedRFBTransport] = []

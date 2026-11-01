@@ -658,12 +658,15 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux MCP server in a turn (cx-4a5w2), and in it only
-    // the Chief's cmux tools (no code mode).
+    // Only acpmux's cmux and agent memory MCP servers in a turn (cx-4a5w2),
+    // and in cmux only the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
-            ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            (
+                "ACPMUX_AGENT_TOOL_SERVERS".to_owned(),
+                "cmux,cmux-agent-memory".to_owned()
+            ),
             (
                 "CMUX_MCP_TOOLS".to_owned(),
                 optchat_chief::session_dir::CHIEF_CMUX_TOOLS.join(","),
@@ -753,9 +756,8 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
             [
                 "--setting-sources",
                 "project,local",
-                "--disable-slash-commands",
                 "--tools",
-                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch,Skill"
             ],
             "{harness}"
         );

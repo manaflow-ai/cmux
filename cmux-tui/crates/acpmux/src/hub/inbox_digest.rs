@@ -246,6 +246,8 @@ fn one_line(text: &str) -> String {
 fn digestible(q: &QueuedPrompt) -> bool {
     let run = &q.run;
     run.agent.is_some()
+        // One that waits for the owner runs only once approved, in its place (`queue_approve.rs`).
+        && !q.awaiting_owner
         && !is_digest(run.provenance.as_ref())
         && !q.steer
         && !q.sent_now
@@ -392,6 +394,8 @@ impl Hub {
             q
         });
         *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
+        // Out of the queue, they still wait: charged under this lock (`queue_admission.rs`).
+        digest.charge(session, &queue, &taken);
         // Its turn takes them over (`take_joined`).
         let digests = &session.inbox_digests;
         digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
@@ -403,6 +407,7 @@ impl Hub {
         let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
+            size: super::queue_admission::content_bytes(&blocks, None).into(),
             blocks: blocks.clone(),
             display_parts: None,
             control,
@@ -430,6 +435,9 @@ impl Hub {
                 resume: false,
                 steer,
                 held: stop_held,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
@@ -502,6 +510,12 @@ impl Hub {
                     let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                     hub.append(&s, "mux", "prompt_refused", msg);
                 }
+            }
+            // Whatever way it ended, its messages wait with it no more (`queue_admission.rs`):
+            // its turn took them over, or `requeue_joined` put them back. Once only.
+            {
+                let queue = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                digest.release(&s, &queue);
             }
             digest.answer.send_replace(Some(result));
         });

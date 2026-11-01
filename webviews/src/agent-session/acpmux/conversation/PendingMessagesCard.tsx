@@ -41,7 +41,11 @@ export function PendingMessagesCard({
   const bodyId = useId();
   const rows = row.pendingMessages?.rows;
   const displayRows = row.pendingMessages?.displayRows ?? rows;
-  const senders = useMemo(() => bySender(displayRows ?? []), [displayRows]);
+  const flat = row.pendingMessages?.flat === true;
+  const senders = useMemo(
+    () => (flat ? [{ key: "flat", rows: [...(displayRows ?? [])] }] : bySender(displayRows ?? [])),
+    [displayRows, flat],
+  );
   const sources = useMemo(() => bySender(rows ?? []), [rows]);
   const reveal = useContext(FindReveal);
   // Find names the group's row for a match in one of its messages: the group opens, and only the
@@ -54,15 +58,16 @@ export function PendingMessagesCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [holdsMatch, reveal]);
   if (!rows?.length) return null;
-  const n = rows.length;
-  const names = sources.map((group) => {
+  const n = displayRows?.length ?? rows.length;
+  const countSources = flat ? bySender(displayRows ?? []) : sources;
+  const names = countSources.map((group) => {
     const first = group.rows[0]!;
     return first.incoming?.kind === "message" ? first.incoming.message.name : "";
   });
   const count =
-    sources.length === 1
+    countSources.length === 1
       ? t("message.waitingFromOne", { n })
-      : t("message.waitingFrom", { n, sessions: sources.length });
+      : t("message.waitingFrom", { n, sessions: countSources.length });
   return (
     <div className="cv-pending" data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
@@ -88,8 +93,8 @@ export function PendingMessagesCard({
             const first = group.rows[0]!;
             const message = first.incoming?.kind === "message" ? first.incoming.message : undefined;
             return (
-              <section key={group.key} className={message ? "cv-pending__sender" : undefined}>
-                {message && (
+              <section key={group.key} className={!flat && message ? "cv-pending__sender" : undefined}>
+                {!flat && message && (
                   <div className="cv-pending__sender-head" data-find-skip="">
                     <SenderName message={message} onOpen={onOpen} />
                     {group.rows.length > 1 && <span className="cv-pending__sender-count">{group.rows.length}</span>}

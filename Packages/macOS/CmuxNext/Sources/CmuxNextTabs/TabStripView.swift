@@ -457,7 +457,7 @@ public final class TabStripView: NSView {
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
-        let font = Typography.body
+        let font = Typography.tabTitle
         for cell in cells.values {
             cell.metrics = metrics
             cell.titleFont = font

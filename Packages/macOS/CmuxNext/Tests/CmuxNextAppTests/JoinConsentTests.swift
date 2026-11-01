@@ -791,7 +791,7 @@ import Testing
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(state.rawValue))
             return try #require(NSEvent(cgEvent: cgEvent))
         }
-        let check = PersonInputCheck()
+        let check = PersonInputCheck(sources: EventSourceProcesses())
         #expect(check.isPerson(try event(0, .hidSystemState)), "the HID system's")
         #expect(!check.isPerson(try event(0, .privateState)), "a private source, pid 0")
         #expect(!check.isPerson(try event(0, .combinedSessionState)), "a combined-session source, pid 0")
@@ -1097,7 +1097,7 @@ import Testing
         let page = SettingsPageProvider(settings: settings)
         let sets = Recorder()
         page.setJoinConsent = { surface, on in sets.values.append("\(surface) \(on)"); return nil }
-        let ledger = PersonInputLedger()
+        let ledger = PersonInputLedger(sources: EventSourceProcesses())
         page.personBacksGesture = { ledger.backs($0) }
         let poster = Process()
         poster.executableURL = URL(fileURLWithPath: "/bin/sleep")

@@ -922,6 +922,42 @@ class GatewayRoute(unittest.TestCase):
         lines = self.run_main(self.light(False))
         self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
 
+    def fleet_placed(self, *jobs: str):
+        return placement.cascade.Placement({placement.cascade.LARGE: (), placement.cascade.SMALL: ()}, "", "placed",
+                                           fleet_jobs=jobs)
+
+    def test_a_fleet_client_needs_its_own_idle_gateway_runner(self):
+        # fast-tier-fleet runs on gateway_runner beside GATEWAY_JOBS: with one idle runner for two jobs one
+        # would queue behind the other until its timeout, so placement lists nothing and fast-tier keeps its route.
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet"}
+        placed = self.fleet_placed("fast-tier")
+        two, one = self.light(False, False), self.light(False, True)
+        self.assertEqual(placement.fleet_gateway(placed, values, two, LIGHT_SIDE).fleet_jobs, ("fast-tier",))
+        self.assertEqual(placement.fleet_gateway(placed, values, one, LIGHT_SIDE).fleet_jobs, ())
+        # The run's own jobs racing for the gateway's runners count too, as gateway_route() counts them.
+        self.assertEqual(placement.fleet_gateway(placed, values, two, LIGHT_SIDE, {LIGHT_SIDE: 1}).fleet_jobs, ())
+        self.assertEqual(placement.fleet_gateway(placed, {"GATEWAY_LABEL": LIGHT_SIDE}, one, LIGHT_SIDE).fleet_jobs,
+                         ("fast-tier",))
+        # No gateway, unread runners: no client runs, so nothing is listed.
+        self.assertEqual(placement.fleet_gateway(placed, values, two, "").fleet_jobs, ())
+        self.assertEqual(placement.fleet_gateway(placed, values, None, LIGHT_SIDE).fleet_jobs, ())
+        dropped = placement.fleet_gateway(placed, values, one, LIGHT_SIDE)
+        self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
+        self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
+
+    def test_main_lists_a_fleet_job_only_with_a_gateway_runner_for_its_client(self):
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet", "CASCADE_RUNS": ""}
+        for runners, listed in ((self.light(False, False), " fast-tier "), (self.light(False, True), "")):
+            with self.subTest(idle=len([r for r in runners if not r.get("busy")])), \
+                    mock.patch.object(placement.cascade, "place", return_value=self.fleet_placed("fast-tier")):
+                lines = self.run_main(runners, **values)
+                self.assertEqual(lines["gateway_runner"], LIGHT_SIDE)
+                self.assertEqual(lines["fleet_jobs"], listed)
+
+    def test_a_rerun_lists_no_fleet_job(self):
+        self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
+                         .fleet_jobs, ())
+
 
 class SpillToCompatiblePool(unittest.TestCase):
     def setUp(self):
@@ -1152,6 +1188,7 @@ class CmuxNextWiring(unittest.TestCase):
                             placed_attempt=placed, blacksmith_12_jobs=f" {name} ",
                             owned_jobs=f" {name} ", runner=GUI,
                             retry_runner="blacksmith-12vcpu-macos-26",
+                            retry_jobs=f" {name} ",
                             deferred_runner="blacksmith-12vcpu-macos-26")
                         for expression in (jobs[name]["runs-on"], jobs[name]["env"]["CMUX_NEXT_RUNNER"]):
                             with self.subTest(job=name, attempt=attempt, actor=actor, side=side, placed=placed):
@@ -1176,6 +1213,7 @@ class CmuxNextWiring(unittest.TestCase):
             for output, expected in (("retry_runner", FALLBACK), ("deferred_runner", SIDE)):
                 retry = self.context("2", triggering_actor="cmux-bot[bot]")
                 retry["needs"][self.PLACEMENT]["outputs"].update({output: expected})
+                retry["needs"][self.PLACEMENT]["outputs"]["retry_jobs"] = f" {name} "
                 self.assertEqual(evaluate(jobs[name]["runs-on"], retry), expected)
 
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
@@ -1323,6 +1361,7 @@ class CmuxNextWiring(unittest.TestCase):
                 # (run 40398277457, 2026-10-26: a 39-minute-old slot, then 55 minutes with no runner).
                 stale = self.push_context("3", runner=STD, triggering_actor=bot)
                 stale["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                stale["needs"][self.PLACEMENT]["outputs"]["retry_jobs"] = f" {name} "
                 self.assertEqual(evaluate(runs_on, stale), overflow(name))
                 # A person's rerun needs a fresh role placement, just like a bot's rerun.
                 self.assertEqual(evaluate(runs_on, self.push_context("4", runner=STD)),
@@ -1381,6 +1420,7 @@ class CmuxNextWiring(unittest.TestCase):
                     # placement (rerun_main()) found no idle GUI or session runner: it names only the overflow.
                     free = self.push_context("2", runner=STD, triggering_actor=bot)
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                    free["needs"][self.PLACEMENT]["outputs"]["retry_jobs"] = f" {name} "
                     if name in GUI_JOBS:
                         free["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
                                                                         gui_overflow=FALLBACK)

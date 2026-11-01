@@ -42,7 +42,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
     /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
+    /// Lawrence msg 19392). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
@@ -259,6 +260,17 @@ extension SidebarItemInfo {
     public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
         var info = fallback(for: item.ref)
         if info.isMissing, let label = item.label { info.title = label }
+        return info
+    }
+
+    /// A workspace item no open workspace answers: dimmed under its stored
+    /// name, or hidden when it has none. Without a name it would be an
+    /// anonymous workspace glyph whose click does nothing (a pin from an old
+    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
+    /// The layout keeps it, so it draws again when its workspace comes back.
+    public static func closedWorkspace(_ item: LayoutItem) -> SidebarItemInfo {
+        var info = fallback(for: item)
+        if item.label == nil { info.isHidden = true }
         return info
     }
 }
