@@ -5,8 +5,14 @@
 # Run alone on an idle worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/replay-build-bench.sh \
 #     --ref SHA [--arg=runs=5]
-# Prints REPLAY-BENCH-MACHINE, REPLAY-BENCH-LOAD before each run and one
-# REPLAY-BUILD-BENCH line per run.
+# Prints REPLAY-BENCH-MACHINE, the host load before and after, and one
+# REPLAY-BUILD-BENCH line per run (also in .build/artifacts/replay-build-bench.txt).
+# A measure script not on the controller's list runs only at a commit on
+# feat-cmux-next or main. Before that, the same test runs in the dev profile
+# (Rust opt-level 1; libghostty-vt is ReleaseFast in every profile) as a test
+# step: cmux-ci run --class isolated --os macos --script scripts/ci/cmux-tui-rust-check.sh
+#   --arg terminal --arg replay_build_bench --env CMUX_REPLAY_BUILD_BENCH=5
+#   --artifact .build/artifacts/replay-build-bench.txt
 set -euo pipefail
 runs=5
 for arg in "$@"; do
@@ -30,13 +36,13 @@ cd cmux-tui
 toolchain_cargo="$(rustup which cargo)"
 export PATH="$(dirname "$toolchain_cargo"):$PATH"
 echo "REPLAY-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m)\" cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc) sha=$(git rev-parse --short=11 HEAD)"
-bench=(cargo test --locked --release -p ghostty-vt --lib -- --ignored --exact --nocapture
-  terminal::replay_layout_tests::replay_build_bench_one_pass_against_two)
-"${bench[@]}" --list 2>&1 | grep -v '^ *\(Compiling\|Finished\|Running\)' || true
-for run in $(seq 1 "$runs"); do
-  echo "REPLAY-BENCH-LOAD run=$run $(uptime | sed 's/.*load averages*: //')"
-  "${bench[@]}" 2>&1 | grep -E 'REPLAY-BUILD-BENCH|test result|panicked|error' || {
-    echo "replay-build-bench.sh: run $run printed no result" >&2
-    exit 1
-  }
-done
+rm -f "$root/.build/artifacts/replay-build-bench.txt"
+echo "REPLAY-BENCH-LOAD before $(uptime | sed 's/.*load averages*: //')"
+CMUX_REPLAY_BUILD_BENCH="$runs" cargo test --locked --release -p ghostty-vt --lib -- --exact --nocapture \
+  terminal::replay_layout_tests::replay_build_bench_one_pass_against_two 2>&1 |
+  grep -v '^ *\(Compiling\|Finished\|Running\)'
+echo "REPLAY-BENCH-LOAD after $(uptime | sed 's/.*load averages*: //')"
+grep -c REPLAY-BUILD-BENCH "$root/.build/artifacts/replay-build-bench.txt" | grep -qx "$runs" || {
+  echo "replay-build-bench.sh: expected $runs REPLAY-BUILD-BENCH lines" >&2
+  exit 1
+}

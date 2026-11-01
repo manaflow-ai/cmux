@@ -73,13 +73,22 @@ fn one_pass_replays_equal_the_two_pass_bytes_on_the_corpus() {
 }
 
 /// Bench: one replay build of a 120x40 terminal with 10,000 lines of history,
-/// one pass against two (the reference path), the arms interleaved and their
-/// order alternated so neither arm always runs warm. Run with
-/// --release --ignored --nocapture, or on the fleet with
+/// one pass against two (the reference path). The arms are interleaved, their
+/// order alternated each round, so neither always runs warm. Off unless
+/// CMUX_REPLAY_BUILD_BENCH=<runs> is set: each run prints one
+/// REPLAY-BUILD-BENCH line to stderr and appends it to
+/// .build/artifacts/replay-build-bench.txt (nextest hides a passing test's
+/// output; a fleet step returns the file with --artifact). Release build:
 /// scripts/measure/replay-build-bench.sh.
 #[test]
-#[ignore = "bench: prints replay build times"]
 fn replay_build_bench_one_pass_against_two() {
+    let Some(runs) = std::env::var("CMUX_REPLAY_BUILD_BENCH")
+        .ok()
+        .and_then(|runs| runs.parse::<usize>().ok())
+        .filter(|runs| *runs > 0)
+    else {
+        return;
+    };
     const BUILDS: usize = 60;
     const BUDGET: usize = 15 * 1024 * 1024;
     let mut one = terminal_with(120, 40, &history_text(10_000));
@@ -97,32 +106,45 @@ fn replay_build_bench_one_pass_against_two() {
     let (_, one_bytes) = build(&mut one, false);
     let (_, two_bytes) = build(&mut two, true);
     assert_eq!(one_bytes, two_bytes, "the arms built different replay bytes");
-    let (mut one_ms, mut two_ms) = (Vec::with_capacity(BUILDS), Vec::with_capacity(BUILDS));
-    for round in 0..BUILDS {
-        if round % 2 == 0 {
-            two_ms.push(build(&mut two, true).0);
-            one_ms.push(build(&mut one, false).0);
-        } else {
-            one_ms.push(build(&mut one, false).0);
-            two_ms.push(build(&mut two, true).0);
-        }
-    }
     let percentiles = |times: &mut Vec<f64>| {
         times.sort_by(f64::total_cmp);
         let at = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
         format!(
-            "p50 {:.2} ms p95 {:.2} ms p99 {:.2} ms max {:.2} ms",
+            "p50 {:.3} ms p95 {:.3} ms p99 {:.3} ms max {:.3} ms",
             at(0.5),
             at(0.95),
             at(0.99),
             at(1.0)
         )
     };
-    eprintln!(
-        "REPLAY-BUILD-BENCH 120x40 10k lines, {BUILDS} interleaved builds per arm, {} replay bytes: \
-         two-pass {}; one-pass {}",
-        one_bytes.len(),
-        percentiles(&mut two_ms),
-        percentiles(&mut one_ms)
-    );
+    let profile = if cfg!(debug_assertions) { "dev-profile" } else { "release" };
+    let artifacts =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts");
+    std::fs::create_dir_all(&artifacts).unwrap();
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(artifacts.join("replay-build-bench.txt"))
+        .unwrap();
+    for run in 1..=runs {
+        let (mut one_ms, mut two_ms) = (Vec::with_capacity(BUILDS), Vec::with_capacity(BUILDS));
+        for round in 0..BUILDS {
+            if round % 2 == 0 {
+                two_ms.push(build(&mut two, true).0);
+                one_ms.push(build(&mut one, false).0);
+            } else {
+                one_ms.push(build(&mut one, false).0);
+                two_ms.push(build(&mut two, true).0);
+            }
+        }
+        let line = format!(
+            "REPLAY-BUILD-BENCH run {run}/{runs} {profile} 120x40 10k lines, {BUILDS} interleaved \
+             builds per arm, {} replay bytes: two-pass {}; one-pass {}",
+            one_bytes.len(),
+            percentiles(&mut two_ms),
+            percentiles(&mut one_ms)
+        );
+        eprintln!("{line}");
+        std::io::Write::write_all(&mut out, format!("{line}\n").as_bytes()).unwrap();
+    }
 }
