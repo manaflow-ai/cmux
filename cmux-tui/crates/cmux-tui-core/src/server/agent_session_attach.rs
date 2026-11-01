@@ -454,9 +454,9 @@ struct LoginParams {
 /// acpmux's params of one login step, with the attached `session` where acpmux restarts its agent
 /// signed in; `None` for a step whose fields are missing or out of bounds.
 fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, Duration)> {
-    let text = |value: &Option<String>| {
+    fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
-    };
+    }
     let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
     let (body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
