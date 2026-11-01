@@ -23,7 +23,7 @@ struct AgentChatTabActions {
     var openTool: @MainActor (_ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool = { _, _ in false }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
-    /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
+    /// `target`; the header's Terminal and Browser on the chat's tab go through ``openTool`` first.
     func run(_ id: String, cwd: String?, on target: String? = nil) {
         // The header's Terminal names the chat's folder, the one a split inherits: with Ghostty's
         // `split-inherit-working-directory = false` it names none, and the split starts in the home

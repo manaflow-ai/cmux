@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
 
@@ -244,11 +245,15 @@ extension AgentTabStore {
             }
         }
         // The header's Terminal and Browser open on the chat's right by the same rule (Leo, 2026-10-31): a tab in
-        // the pane that holds that kind, else a split below the right pane, never a third column.
+        // the pane that holds that kind, else a split below the right pane, never a third column. A lone chat
+        // (main pane layout) and Home's dock keep their split action's own route (false).
         tabs.openTool = { [weak services] chat, kind, cwd in
             guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
+            // Ghostty's `split-inherit-working-directory = false` (the header passes no folder): the home folder, as its split did.
+            let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
             return services.linkOpener.open(from: source, besideChat: true, kind: kind) { target, placed in
-                guard kind == .browser else { target.newTerminalTab(cwd: cwd, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
+                guard kind == .browser else { target.newTerminalTab(cwd: start, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
                 return target.newBrowserTab(placementOwner: placed != nil, then: placed)
             }
         }
