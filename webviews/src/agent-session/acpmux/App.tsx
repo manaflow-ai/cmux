@@ -50,6 +50,7 @@ import {
   prevDrawnRow,
   isBeforeFooter,
   hasReplyActions,
+  keepsReplyRoom,
   statusEdge,
   type StatusEdge,
   isLastFooter,
@@ -1894,7 +1895,7 @@ export const readOnlyRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-/// `actions`: whether a reply drew its own action row then (model.ts `hasReplyActions`); a drawn
+/// `actions`: whether a reply kept its action row's room then (model.ts `keepsReplyRoom`); a drawn
 /// height taken without it, or with it, is stale once the row after the reply changes that.
 type DrawnHeight = {
   sessionId?: string;
@@ -2084,7 +2085,7 @@ const RowFrame = React.memo(function RowFrame({
   joinsNext: boolean;
   /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
   beforeFooter: boolean;
-  /// Whether the row (a reply) draws its own action row (model.ts `hasReplyActions`): its height
+  /// Whether the row (a reply) keeps its action row's room (model.ts `keepsReplyRoom`): its height
   /// depends on it, so the frame redraws and measures again when it changes.
   replyActions: boolean;
   /// Next to a status row (model.ts `statusEdge`): the room between the row and the next one is the
@@ -2201,7 +2202,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -3173,7 +3174,7 @@ export function VirtualTranscript({
                     row.id,
                     row.version,
                     drawnHeightOf(target),
-                    hasReplyActions(row, nextDrawnRow(shown, index)),
+                    keepsReplyRoom(row, nextDrawnRow(shown, index)),
                     statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
                   );
               }
@@ -3577,8 +3578,8 @@ export function VirtualTranscript({
       if (
         reply >= 0 &&
         rows[reply]!.kind === "assistant" &&
-        hasReplyActions(rows[reply]!, nextDrawnRow(rows, reply)) !==
-          hasReplyActions(last.rows[reply]!, nextDrawnRow(last.rows, reply))
+        keepsReplyRoom(rows[reply]!, nextDrawnRow(rows, reply)) !==
+          keepsReplyRoom(last.rows[reply]!, nextDrawnRow(last.rows, reply))
       )
         kept = reply;
       if (changed.size > 0) {
@@ -3616,7 +3617,7 @@ export function VirtualTranscript({
               // holds until it is drawn again (`hasReplyActions` reads only the next drawn row).
               const next = nextDrawnRow(rows, index);
               if (
-                (row.kind === "assistant" && Boolean(known.actions) !== hasReplyActions(row, next)) ||
+                (row.kind === "assistant" && Boolean(known.actions) !== keepsReplyRoom(row, next)) ||
                 known.status !== statusEdge(row, next, prevDrawnRow(rows, index))
               )
                 return undefined;
@@ -5323,7 +5324,7 @@ export function VirtualTranscript({
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
-                      replyActions={actions}
+                      replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
