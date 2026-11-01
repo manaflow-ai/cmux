@@ -114,6 +114,8 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+FeedRows).
+    @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
@@ -241,6 +243,7 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeFeedRows()
         // The active team behind the list's teammate rows and New Message's To:, read again once
         // the launch restore signs in, on another account, on another active team, and when the
         // account's teams change.

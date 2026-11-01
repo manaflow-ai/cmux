@@ -57,6 +57,8 @@ public final class HomeStore {
     @ObservationIgnored var agentMessageRefreshes: Set<ConversationID> = []
     /// The agent-message folds the user expanded, by conversation (`toggleAgentMessages`).
     @ObservationIgnored var expandedAgentMessages: [ConversationID: Set<String>] = [:]
+    /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
+    @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
@@ -276,6 +278,10 @@ public final class HomeStore {
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
                                              expanded: expandedAgentMessages[id] ?? []) ?? items
+        if let feed = feedRows, feed.conversation == id,
+           let chief = summary(id)?.participants.first(where: \.isChief)?.id {
+            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief)
+        }
         transcriptCache[id] = (version, me, items)
         return items
     }

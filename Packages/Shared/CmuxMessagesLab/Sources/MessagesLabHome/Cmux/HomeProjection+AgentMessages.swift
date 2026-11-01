@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import Foundation
 
 /// The Chief's messages to its agents and their reports fold into one row per answer
 /// (HomeAgentMessages); a click on that row expands or collapses it. HomeStore keeps which
@@ -8,6 +9,12 @@ extension HomeProjection {
     func toggleAgentMessages(_ group: String) {
         guard !stopped else { return }
         homeStore.toggleAgentMessages(group, in: conversation)
+    }
+
+    /// What a click on Feed row `message` opens (``HomeFeedRow/url``); nil for every other row.
+    func feedRowURL(_ message: ID) -> URL? {
+        guard !stopped else { return nil }
+        return shown.first(where: { HomeMapping.id($0, aliases: aliases) == message })?.feedRow?.url
     }
 
     /// A click on a fold or notes row toggles its group; a click on any other row is not ours.
