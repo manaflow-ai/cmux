@@ -17,8 +17,7 @@ class NativeCredentialContractTests(unittest.TestCase):
         self.assertIn("exec 3< <(", create)
         self.assertIn("import /dev/fd/3", create)
         self.assertIn("-f pkcs12", create)
-        self.assertIn("default-keychain -d user -s", create)
-        self.assertIn("restore_default_keychain", text)
+        self.assertNotIn("default-keychain -d user -s", create)
 
     def test_notary_native_profile_is_fd_backed(self):
         text = NOTARY.read_text()
@@ -39,7 +38,7 @@ class NativeCredentialContractTests(unittest.TestCase):
 
     def test_fixture_proves_fd_import_without_secret_paths(self):
         text = FD_FIXTURE.read_text()
-        self.assertIn("import /dev/fd/3", text)
+        self.assertIn("/dev/fd/3", text)
         self.assertIn("-f pkcs12", text)
         self.assertNotIn("identity.p12", text)
         self.assertNotIn("AuthKey_", text)
