@@ -48,10 +48,10 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
     static let badAnswer = "bad_answer"
 
-    /// `cmux link sync push`: copies the working copy `local` to `remote` on
-    /// the machine whose daemon `socket` reaches.
-    func syncPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["link", "sync", "push", "--socket", socket, local, remote])
+    /// `cmux link seed push`: seeds `local` at `remote` on the machine `socket` reaches from its
+    /// GitHub remote plus one bundle, else copies it (`link sync push`), saying why.
+    func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
     /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
@@ -63,7 +63,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
     /// caller's own sync, so a chat moved mid-turn takes the turn's last changes with it.
     struct FrozenSync: Sendable, Equatable {
-        /// Pull from the machine (Bring Back Local) rather than push to it (Move to Cloud).
+        /// Pull from the machine (Bring Back Local) rather than seed it (Move to Cloud, `--since-last`).
         var pull: Bool
         /// The machine link socket `link sync` uses.
         var socket: String
@@ -87,7 +87,7 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// `agentMove`'s flags after `--cwd`.
     static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
-        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "push", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
+        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "seed", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
         return ["--interrupt"] + frozen + (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
             + (toPID.map { ["--to-pid", String($0)] } ?? [])
     }

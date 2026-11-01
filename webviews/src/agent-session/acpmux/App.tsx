@@ -8598,6 +8598,7 @@ function AcpmuxPane() {
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
             key={shownSessionId}
+            chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
             working={snapshot.isWorking}
@@ -11544,7 +11545,8 @@ function AcpmuxPane() {
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
     // Use Private Folder (or Keep) there gives the typed text back to the composer.
-    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
+    if (cwd && cwd !== inherited)
+      void requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
     else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
@@ -11704,7 +11706,7 @@ function AcpmuxPane() {
       onPick: chooseProject,
       onBrowse: (request?: BrowseRequest) =>
         callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+          if (result?.cwd && !request?.deferPick) void chooseProject(result.cwd);
           return result?.cwd;
         }),
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
@@ -12155,7 +12157,7 @@ function AcpmuxPane() {
         if (!result?.cwd) return;
         if (!request?.deferPick) {
           setChooseFolder(false);
-          chooseProject(result.cwd);
+          void chooseProject(result.cwd);
         }
         return result.cwd;
       })
@@ -12582,7 +12584,7 @@ function AcpmuxPane() {
                 : freshChat && !quick
                   ? (request?: BrowseRequest) =>
                       callNative<{ cwd?: string }>("project.browse").then((result) => {
-                        if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+                        if (result?.cwd && !request?.deferPick) void chooseProject(result.cwd);
                         return result?.cwd;
                       })
                   : undefined
