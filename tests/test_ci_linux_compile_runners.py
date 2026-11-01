@@ -110,6 +110,8 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-go.yml", "verify-versioned-go-module", "runs-on", SMALL),
 )
 
+FLEET_FIRST = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
+
 LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
@@ -231,6 +233,12 @@ class LinuxCompileRunners(unittest.TestCase):
                 job = doc["jobs"].get(job_id)
                 self.assertIsNotNone(job, f"{workflow} has no job {job_id!r}")
                 value = selector(job, where)
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertIn("cmux-fleet-linux-x64", value)
+                    self.assertIn(BIG, value)
+                    self.assertIn(SMALL, value)
+                    self.assertNotIn("vars.LINUX_RUNNER", value)
+                    continue
                 labels = LINUX_LABEL.findall(value)
                 self.assertTrue(labels, f"{workflow}:{job_id} {where} names no Blacksmith Ubuntu label: {value}")
                 self.assertEqual(labels[-1], label, f"{workflow}:{job_id} {where}: {value}")
@@ -248,6 +256,10 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertGreaterEqual(value.count("cmux-fleet-linux-x64"), 2, value)
+                    self.assertIn("inputs.runner", value)
+                    continue
                 self.assertEqual(value.count(trusted_fallback(label)), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
                     value, re.escape(trusted_fallback(label)) + r"\)? \}\}$",
@@ -260,6 +272,13 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertIn(
+                        OWNER + FORK_PULL_REQUEST.format(label=label),
+                        value,
+                        f"fork pull requests use {label}",
+                    )
+                    continue
                 self.assertEqual(value, expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
