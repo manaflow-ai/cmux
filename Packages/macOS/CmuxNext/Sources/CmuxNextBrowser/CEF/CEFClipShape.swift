@@ -80,7 +80,7 @@ nonisolated enum CEFClipShape {
     /// Whether `clip` leaves part of `bounds` out past one of its sides: the
     /// column strip's clip on a pane that scrolled under a docked column or
     /// past the strip's edge, or the rounded main pane's straight edge across a
-    /// page held wider than it through a sidebar slide (`MainPaneCardView.contentHold`),
+    /// page held at another width than it through a sidebar slide (`MainPaneCardView.contentHold`),
     /// whose corners may not reach the page. The page is a child window, so
     /// this layer mask never reaches it and the fork's visible-rect clip does
     /// not see masks.

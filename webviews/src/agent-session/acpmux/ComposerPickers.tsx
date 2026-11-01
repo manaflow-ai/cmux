@@ -45,6 +45,7 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
+import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -1014,7 +1015,17 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
+          {...(locked && fork
+            ? {
+                fork: {
+                  ready: fork.ready,
+                  to: forkTo,
+                  targets: new Set(
+                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
+                  ),
+                },
+              }
+            : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1619,6 +1630,7 @@ export function Picker({
   heading,
   tooltip,
   overBackdrop = false,
+  onOpen,
 }: {
   label: string;
   className: string;
@@ -1636,6 +1648,8 @@ export function Picker({
   /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
   /// frosts what is behind the composer instead of letting it show through sharp.
   overBackdrop?: boolean;
+  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
@@ -1697,6 +1711,7 @@ export function Picker({
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setLayer(overBackdrop ? backdropLayer(root.current) : null);
+    onOpen?.();
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.

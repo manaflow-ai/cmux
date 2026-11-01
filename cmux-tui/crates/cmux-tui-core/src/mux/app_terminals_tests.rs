@@ -225,3 +225,33 @@ fn a_never_viewed_terminal_closes_and_leaves_the_catalog() {
     let pane = f.pane("ws-1");
     assert!(!ok(&f.project(&pane, "p-1")), "a closed terminal cannot be projected");
 }
+
+/// A byte-backend shell can report its directory before its first view
+/// writes the durable record; the report stays pending until the terminal is
+/// running. The session snapshot used to publish pending reports on its
+/// first read; a read writes nothing now, so the first view publishes them
+/// once the terminal runs (review of #28289). An idle shell prints nothing
+/// that would.
+#[test]
+fn the_first_view_publishes_a_directory_the_shell_reported_before_it() {
+    let f = fixture("backend-terminal-early-cwd");
+    let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let dir_text = dir.to_string_lossy().into_owned();
+    let report = format!("\x1b]7;file://localhost{dir_text}\x07");
+    f.app_sends(FrameBody::Data { offset: report.len() as u64, bytes: report.into_bytes() });
+    until("the report parsed", || {
+        f.mux.surface(f.surface).is_some_and(|surface| surface.pwd().is_some())
+    });
+    let pane = f.pane("ws-1");
+    let first = f.project(&pane, "p-1");
+    assert!(ok(&first), "{first}");
+
+    let terminal_id = f.terminal_id.to_string();
+    until("the reported directory in the snapshot", || {
+        let snapshot = crate::resource_api::public_session_snapshot(&f.mux).unwrap();
+        snapshot["terminals"].as_array().into_iter().flatten().any(|terminal| {
+            terminal["id"] == terminal_id.as_str()
+                && terminal["cwd"].as_str() == Some(dir_text.as_str())
+        })
+    });
+}

@@ -177,6 +177,10 @@ export class SubagentFold {
   /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
   /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
   chat: string | undefined;
+  /// The acpmux session whose updates this folds (direct.ts sets the selected one). A Claude
+  /// subagent's lines stream under `<session>/<its Agent call>` (acpmux
+  /// claude_stdio/subagent_route.rs), which is also the id acpmux tags them with (``ownerOf``).
+  session: string | undefined;
   /// Every id a record named as a subagent, a parent or an owner (``names``).
   private readonly named = new Set<string>();
   /// The chat's harness (`claude`, `codex`, a profile such as `claude-sr2`), when the pane knows
@@ -284,7 +288,7 @@ export class SubagentFold {
     // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
     // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
     const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
-    const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    const tag = typeof mux?.subagent === "string" ? mux.subagent : this.ownerOf(event.msg?.params?.sessionId);
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
@@ -961,6 +965,22 @@ export class SubagentFold {
   /// under its own session, and acpmux used to record that as a spawn: the chat became its
   /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
   /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
+  /// The subagent an untagged update streams under, from its own `sessionId`: a known subagent's
+  /// id, or the chat's session with a subagent part (`<session>/<Agent call>`). acpmux tags a
+  /// subagent's lines with that id, but a hub that just adopted its host lost its subagent tree
+  /// until the subagent's next progress event, and the lines between came untagged. Folded as the
+  /// chat's own, a background subagent's call drew as a "Running grep …" row under the finished
+  /// turn and never ended there, since its end came tagged (Leo, 2026-11-01: "why does it say
+  /// you're still running grep"). Its own view and the running tray show it instead.
+  private ownerOf(sessionId: unknown): string | undefined {
+    if (typeof sessionId !== "string" || sessionId.length === 0 || this.isChat(sessionId)) return undefined;
+    if (this.agents.has(sessionId)) return sessionId;
+    const session = this.session;
+    return session && sessionId.length > session.length + 1 && sessionId.startsWith(`${session}/`)
+      ? sessionId
+      : undefined;
+  }
+
   private isChat(id: string): boolean {
     return id === this.chat || this.rootThreads.has(id);
   }

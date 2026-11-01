@@ -284,6 +284,17 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
 # one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
 NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
+# workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
+# workflow is already not watched) and only records the acknowledgement while main takes no merges.
+# tests/test_ci_owned_pool_sources.py accepts an entry from either copy.
+UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/backend.yml":
+        "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
+        "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
+        "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
+        "act on",
+}
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
     # and Blacksmith macOS on a re-run (stable-next.yml).
@@ -965,6 +976,9 @@ class Target:
     push_branch: str = ""
     # Preserve the triggering event for delivery workflows' failover policy.
     event: str = ""
+    # Shared workflows identify delivery runs in their API run title.
+    name: str = ""
+    display_title: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -983,7 +997,9 @@ def is_delivery_target(target: Target) -> bool:
         return True
     if target.path in (NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH):
         return not target.event or target.event not in {"pull_request", "pull_request_target", "merge_group"}
-    return target.e2e and target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
+    return (target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
+            and any(title.startswith("cmux NEXT DEV daily · ")
+                    for title in (target.name, target.display_title)))
 
 
 def never_fails_over(path: str, event: str | None) -> bool:
@@ -1028,20 +1044,24 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         push_branch = str(run.get("head_branch") or "") if kit_push else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
                       path=str(path), attempt_started_at=attempt_started, push_branch=push_branch,
-                      event=str(run.get("event") or ""))
+                      event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
-                      attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
         push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                  name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
 
 
 def recover_cmux_next_pull(client: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
@@ -1068,7 +1088,8 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""))
+                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""),
+                  name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
 
 
 def marker_name(target: Target) -> str:

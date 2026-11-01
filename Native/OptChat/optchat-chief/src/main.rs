@@ -330,6 +330,10 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::TRACE_FULL => {
                                     s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
                                 }
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE => {
+                                    s.cloud_auto_pause =
+                                        optchat_chief::chief_settings::parse_bool(value)?
+                                }
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?

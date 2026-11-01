@@ -33,10 +33,14 @@ final class QuitCoordinator {
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
-    /// Ends the process if the engine stop never returns (cx-ccjnn).
-    let deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)")
+    /// Ends the process if the engine stop never returns (cx-ccjnn), recording the agent panes' state
+    /// files still saving then (`AgentPaneStateLoss`). Tests replace it.
+    var deadline: QuitDeadline
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
+    /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave).
+    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait) }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -47,6 +51,7 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -173,7 +178,15 @@ final class QuitCoordinator {
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
-        await QuitSteps(
+        await quitSteps(choice).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
+        DebugTimings.markLaunch("quit.replied")
+        sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// The quit's steps after the decision `choice` (`QuitSteps.run`).
+    func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
+        let services = services
+        return QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
@@ -183,10 +196,11 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: { [steps] in
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates()) },
-                    agentImages: { await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages()) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
@@ -215,30 +229,33 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self, deadline = self.deadline] in
+            stopBrowserEngines: { [weak self] in
                 DebugTimings.markLaunch("quit.saved")
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays),
                 // and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
-                self?.watchdog?.endHangAssertions()
+                watchdog?.endHangAssertions()
                 #if DEBUG || CMUX_BENCH_HOOKS
-                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
+                if wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
                 #endif
-                // An app quit closes every page without its beforeunload
-                // (`cmux_shim_close_all` answers any question with Leave).
-                await services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait)
+                // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's shutdown watchdog can end
+                // the process; held to the time their close does not need) and after (a closing agent page saves its draft): that
+                // wait has no limit of its own; the deadline bounds it and records what was still saving.
+                let spare = deadline.timeLeft(margin: QuitDeadline.replyMargin + QuitDeadline.engineCloseWait) ?? .zero
+                await steps.run("state_files", limit: spare) { await services.stateFilesDrained() }
+                await closeEngines()
                 DebugTimings.markLaunch("quit.engines_stopped")
+                await services.stateFilesDrained()
             },
             limiter: steps, timeLeft: { [deadline] in deadline.timeLeft(margin: QuitDeadline.replyMargin) }
-        ).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
-        DebugTimings.markLaunch("quit.replied")
-        sender.reply(toApplicationShouldTerminate: true)
+        )
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.

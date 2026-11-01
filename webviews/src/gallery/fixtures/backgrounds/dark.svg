@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070b1f"/>
+      <stop offset=".55" stop-color="#161a4a"/>
+      <stop offset="1" stop-color="#0b2a3a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".78" cy=".28" r=".45">
+      <stop offset="0" stop-color="#5a6bff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#5a6bff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="aurora" cx=".22" cy=".82" r=".55">
+      <stop offset="0" stop-color="#1fc7a6" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#1fc7a6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ember" cx=".52" cy=".55" r=".25">
+      <stop offset="0" stop-color="#c2477a" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#c2477a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#night)"/>
+  <rect width="1600" height="1000" fill="url(#glow)"/>
+  <rect width="1600" height="1000" fill="url(#aurora)"/>
+  <rect width="1600" height="1000" fill="url(#ember)"/>
+  <path d="M0 820 L240 700 L420 790 L640 640 L860 780 L1080 690 L1320 800 L1600 700 V1000 H0 Z" fill="#05070f" opacity=".85"/>
+</svg>

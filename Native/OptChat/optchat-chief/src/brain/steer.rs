@@ -258,6 +258,8 @@ impl Brain {
     /// Another person's text delivered to a running turn keeps that turn's
     /// local effects refused until it ends.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
+        self.turn_agents
+            .extend(items.iter().filter_map(Queued::agent).map(str::to_owned));
         if items.iter().any(Queued::requires_approval) {
             self.turn_ask = true;
             self.last_turn_ask = true;

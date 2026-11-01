@@ -54,8 +54,14 @@ import Testing
     @Test func theOtherRememberedChoicesStillQuitAtOnce() {
         #expect(QuitPolicy.decide(.interactive, behavior: .endKeepLayout, facts: Self.facts) == .quit(.endKeepLayout))
         #expect(QuitPolicy.decide(.interactive, behavior: .keep, facts: Self.facts) == .quit(.keep))
-        #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: Self.facts) == .quit(.keep))
         #expect(QuitPolicy.decide(.powerOff, behavior: .endEverything, facts: Self.facts) == .quit(.keep))
         #expect(QuitPolicy.decide(.signal, behavior: .endEverything, facts: Self.facts) == .quit(.keep))
+        // Ask is not a remembered choice: with local terminals a person's quit asks how to quit, Keep the
+        // default (QUIT P0, #29984: Lawrence 2026-11-01 "cmd q needs to prompt for what type of quit").
+        guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .ask, facts: Self.facts) else {
+            Issue.record("Ask with local terminals quit with no question")
+            return
+        }
+        #expect(prompt.offersSessionChoice && prompt.defaultChoice == .keep && !prompt.confirmsEndEverything)
     }
 }

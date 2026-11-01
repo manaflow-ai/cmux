@@ -1,13 +1,13 @@
 // Session Info's Environment (Claude Code desktop's): where a running chat runs, the one place
-// that says so. The machine by its own name and kind (this Mac, an SSH machine, a Cloud machine),
-// never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
+// that says so. The machine by its own name, with its kind in words at the row's end (Local, SSH or
+// Cloud), never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
 // repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
 // Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
 import { useRef, useState, type ReactNode } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
@@ -24,6 +24,21 @@ const ROW_ICON = rowIconSize(12);
 /// Gallery alternatives: `branch`, the branch as a chip in the project's row, with no branch row;
 /// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
 export type ProjectRowLook = "name" | "branch" | "parent";
+
+/// Remote Control's row icon. Shipped: `computeruse.click`, a pointer, as Claude Code desktop marks its
+/// Remote Control row; Leo, 2026-11-01: "i think we should rethink what symbol we have for remote
+/// control at least" (it was `device.phone`, a bare phone outline). The gallery shows the others.
+export const REMOTE_CONTROL_ICON = "computeruse.click";
+
+/// Where the chat runs, in words beside the machine's name: Local, SSH or Cloud, the words the
+/// environment picker gives each kind (EnvironmentPicker.tsx KIND_LABELS). A name alone never said
+/// whether the chat was on this Mac (Leo, 2026-10-31: "WHY IS THERE NOTHING THAT
+/// TELLS ME IF IT'S LOCAL OR IF").
+export const MACHINE_KIND_LABELS: Readonly<Record<"local" | "ssh" | "cloud", StringKey>> = {
+  local: "composer.envLocal",
+  ssh: "composer.envSSH",
+  cloud: "composer.cloud",
+};
 
 /// Where the session runs, as the composer's computer chip names it (ComposerContext computerId):
 /// a peer or a Cloud host is another machine, else it is this Mac by its name. With no name known
@@ -75,7 +90,7 @@ function Row({
 }) {
   const content = (
     <>
-      <Icon name={icon} size={ROW_ICON} row />
+      <Icon name={icon} size={ROW_ICON} row fit />
       {children}
     </>
   );
@@ -118,6 +133,7 @@ export function EnvironmentSection({
   onSave,
   onOpenFolder,
   projectLook = "name",
+  remoteControlIcon = REMOTE_CONTROL_ICON,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -131,6 +147,7 @@ export function EnvironmentSection({
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   projectLook?: ProjectRowLook;
+  remoteControlIcon?: string;
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
@@ -173,9 +190,13 @@ export function EnvironmentSection({
           name={machine.icon}
           size={ROW_ICON}
           row
+          fit
           color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
         />
         <span className="acpmux-session-info-row__name">{machine.name ?? "—"}</span>
+        <span className="acpmux-session-info-row__end" data-machine-kind={machine.kind}>
+          {t(MACHINE_KIND_LABELS[machine.kind])}
+        </span>
         {save && (
           <button
             type="button"
@@ -218,7 +239,7 @@ export function EnvironmentSection({
       )}
       {remoteControl && (
         <li className="acpmux-session-info-row">
-          <Icon name="device.phone" size={ROW_ICON} row />
+          <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
             <input

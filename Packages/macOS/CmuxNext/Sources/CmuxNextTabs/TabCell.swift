@@ -160,8 +160,8 @@ final class TabCell {
     /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
     var closeButtonRect: CGRect?
 
-    /// Title font; the strip updates it when the chrome font size changes.
-    var titleFont = Typography.body {
+    /// Title font; the strip updates it when the tab or chrome font size changes.
+    var titleFont = Typography.tabTitle {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont
@@ -196,7 +196,7 @@ final class TabCell {
     private func buildLayers() {
         let root = layer
         root.masksToBounds = false
-        backgroundLayer.cornerCurve = .continuous
+        backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
         // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
@@ -437,9 +437,10 @@ final class TabCell {
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
         let marksOnIcon = !visibility.showsTitle
-        // On the icon, a working agent keeps its brand mark, with the spinner as a small badge on it.
+        // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
+        // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
-        let spinnerBadgesMark = spinnerOnIcon && { if case .agentMark = item.icon { true } else { false } }()
+        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { if case .agentMark = item.icon { true } else { false } }())
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
         iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)

@@ -479,10 +479,11 @@ extension WindowManager {
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
+        // So does one claimed for the launch window before the restore (`awaitsRestore`).
         let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        })
+        }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
         for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
