@@ -1,6 +1,6 @@
 /* ManagedBanner.tsx: one quiet line over the composer, centered on the conversation column, with a
    pill button, the way ChatGPT shows a chat its agent runs. */
-.acpmux-managed-banner{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 auto;padding:6px var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px;color:var(--agent-muted);font-size:13px;line-height:18px;min-width:0}
+.acpmux-managed-banner{display:flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;width:100%;max-width:760px;margin:0 auto;padding:4px 16px 8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);min-width:0}
 .acpmux-managed-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-managed-name{color:var(--agent-text);font-weight:600}
 button.acpmux-managed-name{border:0;padding:0;background:none;font:inherit;font-weight:600;cursor:pointer}

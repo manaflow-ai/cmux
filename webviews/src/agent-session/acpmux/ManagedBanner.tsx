@@ -21,7 +21,7 @@ export function ManagedBanner({
   const [before, after = ""] = t("managed.banner", { name: "\u0000" }).split("\u0000");
   const opens = manager.kind === "agent" && onOpenManager ? manager.sessionId : undefined;
   return (
-    <div className="acpmux-managed-banner" role="status" data-managed={manager.kind}>
+    <output className="acpmux-managed-banner" data-managed={manager.kind}>
       <span className="acpmux-managed-text">
         {before}
         {opens ? (
@@ -36,6 +36,6 @@ export function ManagedBanner({
       <button type="button" className="acpmux-managed-take-over" onClick={onTakeOver}>
         {t("managed.takeOver")}
       </button>
-    </div>
+    </output>
   );
 }
