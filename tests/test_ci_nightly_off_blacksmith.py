@@ -34,7 +34,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -96,13 +96,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                         self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
                         context["github.repository_owner"] = "fork-owner"
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
-            for kind, runner in (("linux", "cmux-fleet-linux-x64"),
-                                 ("mini", "glaeda-side-std-xcode-26.6")):
+            for runner in ("cmux-fleet-linux-x64", "glaeda-side-std-xcode-26.6"):
+                output = name.replace("cmux-", "").replace("-", "_")
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "1",
-                           f"needs.decide.outputs.early_{kind}_jobs": f" {name} ",
-                           f"needs.decide.outputs.early_{kind}_runner": runner}
+                           f"needs.decide.outputs.early_{output}_runner": runner}
                 self.assertEqual(evaluate(expression, context), runner)
 
     def test_fleet_linux_fallback_jobs_install_gh_before_their_gh_calls(self) -> None:
@@ -265,7 +264,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 # holding a secret takes the literal (the signing-keychain guard).
                 # The sign pick takes GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run
                 # (tests/test_nightly_trusted_routing.py, the signer route).
-                self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
+                self.assertTrue("needs.decide.outputs.early_" in runs_on
+                                and runs_on.endswith("|| 'cmux-fleet-linux-x64' }}")
+                                or "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
                                 or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on
                                 or name == "pick-nightly-sign-runner"
                                 and runs_on.endswith("github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"),
@@ -277,7 +278,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
-                    fleet_fallback = (name in {"resolve-nightly-cmux-tui-client", "find-nightly-next-recovery"}
+                    fleet_fallback = (name in {"resolve-nightly-cmux-tui-client", "find-nightly-next-recovery",
+                                                "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs"}
                                       and label == "cmux-fleet-linux-x64")
                     self.assertTrue(label in linux or LINUX_LABEL.fullmatch(label) or fleet_fallback,
                                     f"{name} can take {label!r}")
