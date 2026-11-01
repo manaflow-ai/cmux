@@ -10949,8 +10949,10 @@ function AcpmuxPane() {
     }
     // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
     // opens again where it left off.
-    // A harness other than Claude Code that lists its own /resume or /login keeps it, as before.
+    // A harness other than Claude Code that lists its own /resume or /login keeps it, as before. On
+    // New Tab the pane's last chat is not the one being started, so cmux's own command runs there.
     if (
+      !fresh &&
       (command.action === "resume" || command.action === "login") &&
       agentKey(snapshot.summary?.family ?? snapshot.summary?.harness) !== "claude" &&
       snapshot.commands?.some((own) => own.name.toLowerCase() === command.name)
