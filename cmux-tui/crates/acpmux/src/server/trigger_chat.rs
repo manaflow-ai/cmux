@@ -265,6 +265,18 @@ fn exact_session(hub: &Hub, id: &str) -> Result<Arc<crate::hub::Session>, RpcErr
     Ok(session)
 }
 
+fn bound_session(hub: &Hub, scope: &TriggerScope) -> Result<Arc<crate::hub::Session>, RpcError> {
+    let session = exact_session(hub, &scope.session)?;
+    let meta = session.meta();
+    if meta.cwd != PathBuf::from(&scope.cwd)
+        || meta.harness != scope.harness
+        || meta.workspace_id.as_deref() != Some(scope.workspace.as_str())
+    {
+        return Err(RpcError::new(-32001, "trigger session binding changed"));
+    }
+    Ok(session)
+}
+
 async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError> {
     if let Ok(session) = exact_session(hub, &scope.session) {
         let meta = session.meta();
@@ -304,7 +316,7 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
 }
 
 async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Value, RpcError> {
-    let session = exact_session(hub, &scope.session)?;
+    let session = bound_session(hub, scope)?;
     let prior = hub.trigger_delivery(&session, &scope.delivery);
     if prior.get("promptHash").and_then(Value::as_str).is_some_and(|hash| hash != scope.prompt_hash)
     {
@@ -358,7 +370,7 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
 }
 
 fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
-    let session = exact_session(hub, &scope.session)?;
+    let session = bound_session(hub, scope)?;
     let mut out = hub.trigger_delivery(&session, &scope.delivery);
     out["machine"] = Value::String(scope.machine.clone());
     out["workspace"] = Value::String(scope.workspace.clone());

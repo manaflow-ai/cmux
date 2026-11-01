@@ -80,7 +80,9 @@ impl Hub {
                     .pointer("/_meta/provenance/deliveryId")
                     .and_then(Value::as_str)
                     .or_else(|| rec.msg.get("promptId").and_then(Value::as_str));
-                if delivery_id == Some(delivery) {
+                let trigger = rec.msg.pointer("/_meta/provenance/kind").and_then(Value::as_str)
+                    == Some("trigger");
+                if delivery_id == Some(delivery) && trigger {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                     if let Some(text) = rec.msg.get("text").and_then(Value::as_str) {
                         prompt_hash = Some(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
@@ -95,16 +97,23 @@ impl Hub {
                 started = true;
             }
             let Some(id) = turn_id.as_deref() else { return true };
+            if started
+                && rec.kind == "turn_started"
+                && rec.msg.get("turnId").and_then(Value::as_str) != Some(id)
+            {
+                return false;
+            }
             if rec.kind == "turn_started"
                 && rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
             {
                 started = true;
             }
             if started
-                && rec.kind == "session/update"
+                && rec.kind == "agent_message_chunk"
                 && rec.dir == "in"
                 && rec.msg.pointer("/params/update/sessionUpdate").and_then(Value::as_str)
                     == Some("agent_message_chunk")
+                && rec.msg.pointer("/params/_meta/acpmux/subagent").is_none()
             {
                 if let Some(text) =
                     rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
@@ -119,6 +128,7 @@ impl Hub {
                 && matches!(rec.kind.as_str(), "turn_result" | "turn_error" | "turn_end")
             {
                 status = Some(rec.msg.clone());
+                return false;
             }
             true
         });
@@ -129,20 +139,16 @@ impl Hub {
         }
         if let Some(id) = turn_id {
             out.insert("turnId".into(), Value::String(id));
-            let state = if !session.pending_permissions().is_empty() {
-                "attention"
-            } else {
-                status
-                    .as_ref()
-                    .and_then(|v| v.get("status").and_then(Value::as_str))
-                    .map(|s| match s {
-                        "failed" | "error" => "failed",
-                        "attention" | "input_required" => "attention",
-                        _ => "completed",
-                    })
-                    .or_else(|| started.then_some("running"))
-                    .unwrap_or("queued")
-            };
+            let state = status
+                .as_ref()
+                .and_then(|v| v.get("status").and_then(Value::as_str))
+                .map(|s| match s {
+                    "failed" | "error" => "failed",
+                    "attention" | "input_required" => "attention",
+                    _ => "completed",
+                })
+                .or_else(|| started.then_some("running"))
+                .unwrap_or("queued");
             out.insert("state".into(), Value::String(state.into()));
         } else {
             out.insert("state".into(), Value::String("unknown".into()));
