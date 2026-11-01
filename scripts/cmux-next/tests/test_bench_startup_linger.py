@@ -43,7 +43,7 @@ class Linger(unittest.TestCase):
         return report, out.getvalue()
 
     def test_a_short_lived_helper_is_reported_with_its_exit_time(self):
-        p = self.start(0.6)
+        p = self.start(3)  # under LINGER_LIMIT_S; long enough that a loaded host (pgrep ~0.7 s) sees it at the quit
         report, text = self.watch()
         self.assertIn(p.pid, [r["pid"] for r in report["at_quit"]])
         self.assertLess(report["exit_s"][p.pid], bench_startup.LINGER_LIMIT_S)
