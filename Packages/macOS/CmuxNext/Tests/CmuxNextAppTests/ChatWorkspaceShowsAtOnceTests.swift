@@ -174,8 +174,10 @@ struct ChatWorkspaceShowsAtOnceTests {
         let window = try #require(services.windows.registry.value.mostRecentOpen().flatMap { services.windows.states[$0] }, "no open window")
         let space = ProfileID.generate()
         let made = try? await services.machines.local.connection?.createProfile(name: "Work", id: space, color: "blue", icon: nil, browserProfileID: nil)
+        try #require(made != nil, "the daemon made no space")
         await services.machines.local.store.mirrored(profile: space)
         services.windows.switchProfile(space, in: window)
+        let entered = window.profileID == space // read now: a stopped daemon's windows fall back to Default
         let store = services.daemon.store
         let key = WorkspaceKey.generate()
 
@@ -186,8 +188,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         let leftRow = PendingWorkspaceRows.shared.rows.first { $0.id == key.rawValue }
         await launched.stop()
 
-        try #require(made != nil, "the daemon made no space")
-        try #require(window.profileID == space, "the window did not enter the space")
+        try #require(entered, "the window did not enter the space")
         #expect(!shownAtOnce, "the stand-in showed in a window whose space never lists it")
         #expect(row == nil && leftRow == nil, "a pending row was drawn in a space that never lists the workspace: \(String(describing: row ?? leftRow))")
         #expect(failure == nil, "refused: \(failure ?? "")")
@@ -213,13 +214,14 @@ struct ChatWorkspaceShowsAtOnceTests {
         let work = try AgentSessionWorkspace.open(session: "s-switch", name: "lane", key: key, cwd: nil, services: services)
         let rowAtOnce = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
         services.windows.switchProfile(space, in: window) // before the daemon lists the workspace
+        let entered = window.profileID == space // read now: a stopped daemon's windows fall back to Default
         let failure = await work.value?.message
         let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue } }
         let left = PendingWorkspaceRows.shared.rows(in: window.id)
         await launched.stop()
 
         try #require(rowAtOnce, "the open showed no pending row in the Default space")
-        #expect(window.profileID == space)
+        try #require(entered, "the window did not enter the space")
         #expect(gone, "the pending row stayed in a space that never lists the workspace: \(left.map(\.id))")
         #expect(failure == nil, "refused: \(failure ?? "")")
     }
