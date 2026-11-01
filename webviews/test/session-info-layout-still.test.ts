@@ -212,8 +212,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             // pushes the chat left as it opens and back as it closes (Leo, 2026-11-01: "why does the
             // session info not push the layout left ever anymore"), and its content changing still
             // moves nothing.
-            if (width >= 1600)
-              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            if (width >= 1600) expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {
             await page.close();
