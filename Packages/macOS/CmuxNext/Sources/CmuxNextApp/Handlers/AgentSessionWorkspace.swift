@@ -94,8 +94,7 @@ enum AgentSessionWorkspace {
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the workspace the window shows, when it is
-        // in one (cx-caoh), then into the named `group`; without one, below the caller's own row when that is grouped.
+        // Placed like Cmd-N (`workspaces.newPlacement`, cx-caoh), then into the named `group`, else below the caller's grouped row.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
