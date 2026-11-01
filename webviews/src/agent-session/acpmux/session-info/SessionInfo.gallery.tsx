@@ -888,12 +888,12 @@ export default componentEntry<Props>({
     "cloud-empty": {
       note: "A Cloud chat before the agent reports usage or edits anything: Context and Outputs have no sections yet.",
       props: {
+        cloudRepositoryAvailable: true,
         summary: {
           ...local.summary!,
           cwd: "/workspace/atlas-web",
           host: "build-runner-2",
           hostKind: "cloud",
-          cloudRepositoryAvailable: true,
           branch: undefined,
           usage: undefined,
         },

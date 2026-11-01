@@ -201,7 +201,7 @@ export function EnvironmentSection({
       : undefined;
   const parent = project && homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
   useEffect(() => {
-    if (!canUseCloudRepositories) {
+    if (!cloudSession || !canUseCloudRepositories) {
       setAttachedRepos([]);
       setPendingRepos([]);
       setAttachedLoaded(false);
