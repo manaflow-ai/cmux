@@ -52,6 +52,15 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       return result;
     }
     case "_acpmux/events": {
+      // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its
+      // text, in one reply.
+      if (params.promptIndex === true) {
+        const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+        const prompts = events
+          .filter((event) => event.kind === "user_message" && event.seq < before)
+          .map((event) => ({ ...event, msg: { text: String((event.msg as { text?: string }).text ?? "") } }));
+        return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
+      }
       if (params.beforeSeq !== undefined) {
         const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq));
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
