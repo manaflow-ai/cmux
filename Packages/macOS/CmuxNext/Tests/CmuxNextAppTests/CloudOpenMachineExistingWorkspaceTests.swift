@@ -1,5 +1,5 @@
 import CmuxNextActions
-@testable import CmuxNextApp
+import CmuxNextCloud
 @testable import CmuxNextDaemon
 import Testing
 
@@ -9,10 +9,45 @@ import Testing
 /// that had one. The existing workspace is read once the tree is in.
 @MainActor @Suite(.serialized)
 struct CloudOpenMachineExistingWorkspaceTests {
+    static let notConnected = ActionFailure(message: "not connected")
+
+    /// Capture d143d61c: machines made from one image list the same key for their first workspace,
+    /// and the app finds a workspace by its id alone, so a chat start's chat opened in that workspace
+    /// was shown in another machine's: its page never loaded and its first message never went. A
+    /// workspace another tree lists is never the anchor; the machine gets a workspace of its own.
+    @Test func aWorkspaceAnotherMachineListsIsNotTheAnchor() async throws {
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-from-the-image"), name: "workspace-1"),
+        ]))
+        var calls: [String] = []
+        let result = try await CloudMachineWorkspace.first(in: store, notConnected: Self.notConnected,
+                                                           listedElsewhere: { $0 == "ws-from-the-image" },
+                                                           beforeCreate: { calls.append("proceed") }) {
+            calls.append("create")
+            return "ws-own"
+        }
+        #expect(result.id == "ws-own", "the chat was opened in a workspace another machine also lists")
+        #expect(result.created)
+        #expect(calls == ["proceed", "create"])
+    }
+
+    @Test func aLaterWorkspaceOfItsOwnIsTheAnchor() async throws {
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-from-the-image"), name: "workspace-1"),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-own"), name: "workspace-2"),
+        ]))
+        let id = try await CloudMachineWorkspace.existing(in: store, notConnected: Self.notConnected, listedElsewhere: { $0 == "ws-from-the-image" })
+        #expect(id == "ws-own")
+    }
+
     @Test func aTreeThatArrivesAfterTheConnectionIsReadNotReplaced() async throws {
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "first"), generationChanged: false))
-        let read = Task { @MainActor in try await CloudHandlers.existingWorkspace(in: store) }
+        let read = Task { @MainActor in try await CloudMachineWorkspace.existing(in: store, notConnected: Self.notConnected) }
         await Task.yield()
         store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-existing"), name: "workspace-1"),
@@ -30,7 +65,7 @@ struct CloudOpenMachineExistingWorkspaceTests {
         ]))
         _ = store.apply(.disconnected(reason: "paused"))
         _ = store.apply(.connected(DaemonIdentity(generation: "resumed"), generationChanged: false))
-        let read = Task { @MainActor in try await CloudHandlers.existingWorkspace(in: store) }
+        let read = Task { @MainActor in try await CloudMachineWorkspace.existing(in: store, notConnected: Self.notConnected) }
         await Task.yield()
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
         #expect(try await read.value == nil, "a stale nonempty tree must not suppress creation after live empty state")
@@ -46,7 +81,7 @@ struct CloudOpenMachineExistingWorkspaceTests {
         _ = store.apply(.connected(DaemonIdentity(generation: "new"), generationChanged: false))
         var calls: [String] = []
         let read = Task { @MainActor in
-            try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { calls.append("proceed") }) {
+            try await CloudMachineWorkspace.first(in: store, notConnected: Self.notConnected, beforeCreate: { calls.append("proceed") }) {
                 calls.append("create")
                 return "created"
             }
@@ -67,7 +102,7 @@ struct CloudOpenMachineExistingWorkspaceTests {
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
         var created = false
         await #expect(throws: ActionFailure.self) {
-            _ = try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { throw ActionFailure(message: "cancelled") }) {
+            _ = try await CloudMachineWorkspace.first(in: store, notConnected: Self.notConnected, beforeCreate: { throw ActionFailure(message: "cancelled") }) {
                 created = true
                 return "unexpected"
             }
@@ -82,7 +117,7 @@ struct CloudOpenMachineExistingWorkspaceTests {
         _ = store.apply(.disconnected(reason: "paused"))
         _ = store.apply(.connected(DaemonIdentity(generation: "new"), generationChanged: false))
         let read = Task { @MainActor in
-            try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { Issue.record("unexpected proceed") }) {
+            try await CloudMachineWorkspace.first(in: store, notConnected: Self.notConnected, beforeCreate: { Issue.record("unexpected proceed") }) {
                 Issue.record("unexpected create")
                 return nil
             }
@@ -103,7 +138,7 @@ struct CloudOpenMachineExistingWorkspaceTests {
         // A tree the store holds before any connection (the machine's launch snapshot): its epoch
         // is the store's, so only the connected state tells it is not this connection's.
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
-        let read = Task { @MainActor in try await CloudHandlers.existingWorkspace(in: store) }
+        let read = Task { @MainActor in try await CloudMachineWorkspace.existing(in: store, notConnected: Self.notConnected) }
         await Task.yield()
         _ = store.apply(.connected(DaemonIdentity(generation: "resumed"), generationChanged: false))
         store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
@@ -117,13 +152,13 @@ struct CloudOpenMachineExistingWorkspaceTests {
     @Test func aTreeThatNeverComesThrowsInsteadOfNone() async {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
-        await #expect(throws: ActionFailure.self) { _ = try await CloudHandlers.existingWorkspace(in: store, within: .milliseconds(50)) }
+        await #expect(throws: ActionFailure.self) { _ = try await CloudMachineWorkspace.existing(in: store, within: .milliseconds(50), notConnected: Self.notConnected) }
     }
 
     @Test func aLoadedEmptyTreeHasNone() async throws {
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
-        #expect(try await CloudHandlers.existingWorkspace(in: store) == nil)
+        #expect(try await CloudMachineWorkspace.existing(in: store, notConnected: Self.notConnected) == nil)
     }
 }
