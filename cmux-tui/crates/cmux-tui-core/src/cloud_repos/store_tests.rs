@@ -1,6 +1,6 @@
 use super::*;
 
-fn mux(name: &str) -> Mux {
+fn mux(name: &str) -> std::sync::Arc<Mux> {
     Mux::new_for_test(name, crate::SurfaceOptions::default())
 }
 fn repo(name: &str, source: &str) -> Value {
