@@ -490,14 +490,14 @@ extension LinkOpener {
         }
     }
 
-    /// `pane`'s width as the window shows it, nil until it is in a window: a pane view starts at its
-    /// 400 pt placeholder frame (PaneContentView) before any layout, which is no measure, so an unshown
-    /// pane sets no floor and is never taken for one too narrow to split (fleet runs of #28044 at
-    /// 8e520360 and caf8e69e: SideOpenStripTests' windowless pane opened its links in place).
+    /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
+    /// right reads (links, and agent opens through ``rightColumn(beside:)``). Not its view's bounds: right after a
+    /// split the source still shows its old width and the new pane a sliver, so a link opened at once in a narrow
+    /// window split below the pane on the right instead of a tab in it (review of #29787 at 29861047). Nil for a
+    /// pane its workspace has not laid out (its view's 400 pt placeholder is no measure, so it sets no floor:
+    /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
-        guard pane.view.window != nil else { return nil }
-        let width = pane.view.bounds.width
-        return width > 0 ? width : nil
+        pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
