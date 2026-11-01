@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use crate::cli::command::NewArgs;
+use crate::cli::errors;
 use crate::client::Client;
 use crate::rpc::method;
 
@@ -194,9 +195,11 @@ pub(crate) fn validate_group(group: &str) -> Result<()> {
         .any(|prefix| lower.starts_with(prefix));
     let uuid = uuid::Uuid::parse_str(label).is_ok();
     if label.is_empty() || id_prefix || uuid {
-        bail!(
-            "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group"
-        );
+        let message = "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group";
+        let data = json!({"reason": "usage.group_name", "group": group});
+        return Err(errors::AppError::new(errors::Code::Usage, "group_name", message)
+            .with_data(data)
+            .into());
     }
     Ok(())
 }
@@ -557,9 +560,16 @@ mod tests {
             "workspace_group:42",
             "550e8400-e29b-41d4-a716-446655440000",
         ] {
-            let error = validate_group(group).unwrap_err().to_string();
+            let refused = validate_group(group).unwrap_err();
+            let error = refused.to_string();
             assert!(error.contains("human label"), "{group:?}: {error}");
             assert!(error.contains("omit --group"), "{group:?}: {error}");
+            // A usage error (exit 2) the --json envelope names, before any session is made.
+            let app = crate::cli::errors::classify(&refused);
+            assert_eq!(app.exit_status(), 2, "{group:?}");
+            let envelope = app.envelope();
+            assert_eq!(envelope["error"]["detail"], "group_name", "{envelope}");
+            assert_eq!(envelope["error"]["data"]["reason"], "usage.group_name", "{envelope}");
         }
         assert!(validate_group("GUI push").is_ok());
     }

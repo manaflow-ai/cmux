@@ -363,14 +363,18 @@ impl Backend for Fake {
         self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
         let mut live = self.live.borrow_mut();
         live.settle();
-        let chat = live.daemon.as_ref()
+        let chat = live
+            .daemon
+            .as_ref()
             .or(self.daemon_snapshot.as_ref())
             .and_then(|daemon| daemon["chats"].as_array())
             .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
         match chat {
             Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
             None => Err(CallFailure::local(
-                FailureKind::NotRun, "selector.not_found", "no scoped acpmux chat",
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
             )),
         }
     }
