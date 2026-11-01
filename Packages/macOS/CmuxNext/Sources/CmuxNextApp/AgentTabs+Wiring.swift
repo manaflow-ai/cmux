@@ -243,6 +243,15 @@ extension AgentTabStore {
                 }
             }
         }
+        // The header's Terminal and Browser open on the chat's right by the same rule (Leo, 2026-10-31): a tab in
+        // the pane that holds that kind, else a split below the right pane, never a third column.
+        tabs.openTool = { [weak services] chat, kind, cwd in
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+            return services.linkOpener.open(from: source, besideChat: true, kind: kind) { target, placed in
+                guard kind == .browser else { target.newTerminalTab(cwd: cwd, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
+                return target.newBrowserTab(placementOwner: placed != nil, then: placed)
+            }
+        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
