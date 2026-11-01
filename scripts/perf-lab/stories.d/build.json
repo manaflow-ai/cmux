@@ -1,0 +1,18 @@
+{
+  "id": "build",
+  "tier": "builder",
+  "description": "The perf cron's build part: one bench build of the measured commit, kept in the host's app cache for the measuring parts. Its wall time is the series.",
+  "command": ["scripts/measure/split-spring.sh", "--build-only", "--config=bench"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "build\\.app\\.seconds", "unit": "s", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Build",
+  "perf_cron_part": "build"
+}

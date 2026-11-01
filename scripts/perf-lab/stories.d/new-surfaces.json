@@ -1,0 +1,33 @@
+{
+  "id": "new-surfaces",
+  "tier": "T0",
+  "description": "Cmd-T and Cmd-N through the real key path, key to the frame that shows the result and its dropped frames, and the Cmd-W after each Cmd-T, key to the frame that shows the close and its close-motion frames (instant-new-surfaces), light session; the T0 cut of new-surfaces-matrix.",
+  "command": ["scripts/cmux-next/instant-new-surfaces-bench.py", "--session", "light", "--phases", "idle",
+              "--commands", "new_tab,new_workspace", "--runs", "5"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "cmd_t\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
+     "target_ref": {"target": "new-surface-frames"}},
+    {"name": "cmd_n\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
+     "target_ref": {"target": "new-surface-frames"}},
+    {"name": "cmd_w\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
+     "target_ref": {"target": "new-surface-frames"}},
+    {"name": "cmd_n\\.light\\.key_to_frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_n\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_n\\..*/floor"}},
+    {"name": "cmd_t\\.light\\.key_to_frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_t\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_t\\..*/floor"}},
+    {"name": "cmd_w\\.light\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "cmd_w\\.light\\.frame", "unit": "ms", "better": "lower"},
+    {"name": "cmd_[tnw]\\.light\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 10,
+  "seconds": 330,
+  "needs": ["debug:debug.new_tab", "debug:debug.key", "debug:debug.frames", "debug:debug.action_budget"],
+  "hot_paths": ["new-tab"],
+  "owner": "PL-instant",
+  "component": "Tabs>Create"
+}

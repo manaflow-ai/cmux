@@ -1,0 +1,20 @@
+{
+  "id": "stalls",
+  "tier": "T2",
+  "description": "Main-thread stalls on the paths the user touches (bench-stalls.py, 3 cold launches): launch marks and time to interactive, the longest stall during launch, the first and second Command Palette open, and New Terminal Tab first and later, each with the worst stall's main-thread CPU time (debug.timings, debug.hangs at an 8 ms threshold).",
+  "command": ["scripts/cmux-next/bench-stalls.py", "--story", "stalls"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "stalls\\.launch\\.[a-z_]+", "unit": "ms", "better": "lower"},
+    {"name": "stalls\\.daemon\\.(login_env|ensure|handshake)", "unit": "ms", "better": "lower"},
+    {"name": "stalls\\.palette\\.open[12]_(frame|max_gap|stall_cpu)", "unit": "ms", "better": "lower"},
+    {"name": "stalls\\.tab\\.(first|later)_(max_gap|stall_cpu|surface)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 180,
+  "needs": ["debug:debug.timings", "debug:debug.hangs", "debug:debug.key", "debug:debug.focus"],
+  "owner": "Performance Lead",
+  "component": "Scheduler>MainThread"
+}

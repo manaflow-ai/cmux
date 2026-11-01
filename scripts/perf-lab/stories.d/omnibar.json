@@ -1,0 +1,20 @@
+{
+  "id": "omnibar",
+  "tier": "T1",
+  "description": "Omnibar typing, WebKit arm (F12): one key at a time into the omnibar of a WebKit tab, key to the commit of the edit, idle and under load (the omnibar surface of typing-frame-bench.py). The Chromium arm is the omnibar surface of the typing story (typing.json, task 050).",
+  "command": ["scripts/cmux-next/typing-frame-bench.py", "--story", "omnibar", "--sessions", "light", "--surfaces", "omnibar",
+              "--engine", "webkit", "--phases", "idle,load"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "omnibar\\.(idle|load)\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.omnibar", "debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs",
+            "debug:debug.timings", "debug:debug.view_churn", "debug:debug.agent_pane", "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["omnibar-key"],
+  "owner": "Performance Lead",
+  "component": "Browser>Omnibar"
+}

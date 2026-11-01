@@ -1,0 +1,23 @@
+{
+  "id": "launch-after-reboot",
+  "tier": "T2",
+  "description": "Launch after reboot, empty profile: the first launch since the host booted, with no purge, so it measures a cold launch on a host without the purge right too; process start to the first window frame and the first content (the first live terminal frame or the agent New Tab page, whichever draws first). The nightly runner reboots the host first; a host up too long, or one where the tag already ran, refuses with the reason.",
+  "command": ["scripts/cmux-next/bench-startup.py", "--profile", "empty", "--after-reboot", "--timeout", "60"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "launch\\.cold\\.first_window_frame_committed", "unit": "ms", "better": "lower",
+     "target_ref": {"target": "launch.cold"}},
+    {"name": "launch\\.cold\\.first_content", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.did_finish_launching_end", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.sidebar_rows_shown", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.[a-z_]+\\.missing_runs", "unit": "count", "better": "lower"},
+    {"name": "launch\\.cold\\.not_cold_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 60,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Launch"
+}

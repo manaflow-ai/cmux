@@ -1,0 +1,18 @@
+{
+  "id": "devtools-resize-live",
+  "tier": "T2",
+  "description": "Docked Chrome DevTools divider drag (devtools-resize-live.py --background, cx-d0d.45): a Chromium tab on a local page with DevTools docked, its divider dragged in the app (debug.mouse, the window not key) in two tabs and DevTools closed and reopened; how far each drag's new DevTools size is from the drag (points) and the failed checks (the drag resizes by about the drag, sizes stay per tab and across a reopen), light session.",
+  "command": ["scripts/cmux-next/devtools-resize-live.py", "--background", "--story", "devtools-resize-live"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "devtools_resize\\.synthesized\\.drag_error", "unit": "unitless", "better": "lower"},
+    {"name": "devtools_resize\\.synthesized\\.failed_checks", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.focus", "debug:debug.cef.devtools_layout", "debug:debug.mouse"],
+  "owner": "PL-cef-layer",
+  "component": "Browser>DevTools"
+}
