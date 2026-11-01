@@ -480,7 +480,7 @@ CUA_TOOLCHAIN_KEY="$(
 # toolchain cmux-tui pins, as cmux-tui-rust-check.sh does for its unpinned modes (#27363). A caller that sets
 # RUSTUP_TOOLCHAIN keeps its own.
 if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]] && command -v rustup >/dev/null 2>&1; then
-  cua_toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/cmux-tui/rust-toolchain.toml" 2>/dev/null | head -1)"
+  cua_toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/cmux-tui/rust-toolchain.toml" 2>/dev/null | head -1 || true)"
   if [[ -n "$cua_toolchain" ]]; then
     export RUSTUP_TOOLCHAIN="$cua_toolchain"
   fi

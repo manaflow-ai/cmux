@@ -372,6 +372,8 @@ def test_the_build_names_its_rust_toolchain(sha: str) -> None:
                 body = (bin_dir / tool).read_text()
                 head, rest = body.split("\n", 1)
                 write_executable(bin_dir / tool, f"{head}\n{no_default}{rest}")
+            argv_log = root / "cargo-argv.log"
+            environment["CUA_TEST_CARGO_ARGV_LOG"] = str(argv_log)
             environment.pop("RUSTUP_TOOLCHAIN", None)
             if caller:
                 environment["RUSTUP_TOOLCHAIN"] = caller
@@ -382,9 +384,13 @@ def test_the_build_names_its_rust_toolchain(sha: str) -> None:
                  "--cache-dir", str(root / "cache")],
                 env=environment, capture_output=True, text=True,
             )
-            assert result.returncode == 0, (
-                f"the build failed with no rustup default (caller toolchain {caller!r})\n"
-                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            # Not the exit code: the fake cargo's binary is a copy of /usr/bin/true, which macOS kills once
+            # the script signs it ad hoc and runs it (see use_plain_binary in
+            # test_cmux_cua_dev_helper_identity.py). What matters is that rustup and cargo ran, and with
+            # which toolchain; on the old script rustup fails before either writes a line.
+            assert argv_log.exists() and seen.exists(), (
+                f"build-cmux-cua.sh never reached cargo with no rustup default (caller toolchain {caller!r})\n"
+                f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
             )
             used = set(seen.read_text().split())
             assert used == {want}, f"rustup and cargo ran with toolchains {used}, want {{{want!r}}}"
