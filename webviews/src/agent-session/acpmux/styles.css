@@ -52,6 +52,9 @@
 .acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:14px;line-height:18px}
 .acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:28px;padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
+/* + is its glyph alone, as Claude desktop's: no plate at rest, under the pointer or while its menu is open; the glyph lights instead, and stays lit while the menu is open (Leo 2026-11-01, beside a + with no box). */
+.acpmux-composer-plus .acpmux-picker-button,.acpmux-composer-plus .acpmux-picker-button:is(:hover,:active,[aria-expanded=true]){background:none;box-shadow:none}
+.acpmux-composer-plus .acpmux-picker-button[aria-expanded=true]{color:var(--agent-text)}
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
    look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
