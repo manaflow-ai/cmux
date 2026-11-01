@@ -438,6 +438,23 @@ fn terminal_is_ephemeral(
         .is_some())
 }
 
+/// The public ids of the terminals created in workspace `workspace_id`
+/// (a public id), placed or not.
+pub(crate) fn workspace_terminal_public_ids(
+    connection: &Connection,
+    workspace_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT rt.public_id FROM resource_terminals AS rt
+         JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+         JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+         WHERE rw.public_id = ?1 AND rt.deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([workspace_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
 /// [`terminal_is_ephemeral`] by public terminal id; `None` for a terminal
 /// the session does not (yet) have.
 pub(crate) fn public_terminal_is_ephemeral(

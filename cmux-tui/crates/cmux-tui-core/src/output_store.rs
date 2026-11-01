@@ -669,8 +669,10 @@ impl OutputStore {
         self.memory_budget.forget(terminal_id);
         self.public.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         // An incognito terminal's files (none are written; this covers one
-        // marked after a write) go now, not at the next pass.
-        if self.private.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id) {
+        // marked after a write) go now, not at the next pass. It stays
+        // marked: its exit can be recorded after it left the session, when
+        // its workspace's flag is gone too.
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
             self.remove_files(terminal_id);
         }
         let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
