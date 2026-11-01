@@ -2,10 +2,20 @@ public import CmuxNextAgentPane
 public import CmuxNextDaemon
 
 /// Coordinates the keyed remote start handshake shared by tab hosts.
-public nonisolated enum AgentRemoteStartCoordinator {
-    public static func keyedStart<Started: Sendable>(
-        _ cwd: String?, _ harness: String?, _ model: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
-        updateMachine: (@Sendable () async -> Bool)? = nil,
+public nonisolated struct AgentRemoteStartCoordinator: Sendable {
+    private let approvals: AgentPaneRemoteApprovals?
+    private let servesKeyedReason: Bool
+    private let updateMachine: (@Sendable () async -> Bool)?
+
+    public init(approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
+                updateMachine: (@Sendable () async -> Bool)? = nil) {
+        self.approvals = approvals
+        self.servesKeyedReason = servesKeyedReason
+        self.updateMachine = updateMachine
+    }
+
+    public func keyedStart<Started: Sendable>(
+        _ cwd: String?, _ harness: String?, _ model: String?,
         proceed: @escaping @Sendable () async throws -> Void,
         start unchecked: @escaping @Sendable (String?, String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> Started
     ) async throws -> Started {

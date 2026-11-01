@@ -46,7 +46,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        try await AgentPaneCloudRepositoryForwarding.request(surface: surface, reconnect: reconnect, endpoint: endpoint,
+        try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
                                                               method: method, params: params, timeout: timeout)
     }
 
@@ -88,7 +88,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                let cloudRepository = AgentPaneCloudRepositoryForwarding.request(surface: surface, reconnect: reconnect, endpoint: endpoint)
+                let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository)
             }
         } else if let start, mode == .attach {
@@ -98,16 +98,16 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
-                        started = try await AgentRemoteStartCoordinator.keyedStart(cwd, harness, model, approvals: approvals,
-                                                            servesKeyedReason: servesKeyedReason, updateMachine: updateMachine,
-                                                            proceed: Self.proceedAlways, start: start)
+                        started = try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason,
+                                                                  updateMachine: updateMachine)
+                            .keyedStart(cwd, harness, model, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
-                cloudRepositoryStart: AgentPaneCloudRepositoryForwarding.startRequest(reconnect: reconnect, endpoint: endpoint))
+                cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint))
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -135,8 +135,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// try): its throw stops the start there, and what it threw is what this throws.
     func startNow(cwd: String?, harness: String, model: String? = nil, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
-        return try await AgentRemoteStartCoordinator.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason,
-                                         updateMachine: updateMachine, proceed: proceed, start: start)
+        return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine)
+            .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
 
 }

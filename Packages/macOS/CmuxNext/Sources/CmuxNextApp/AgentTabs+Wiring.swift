@@ -116,7 +116,7 @@ extension AgentTabStore {
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
-            return try await CloudRepositoryLocalRunner.run(services.daemon)
+            return try await services.daemon.cloudRepositoryLocal()
         }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the

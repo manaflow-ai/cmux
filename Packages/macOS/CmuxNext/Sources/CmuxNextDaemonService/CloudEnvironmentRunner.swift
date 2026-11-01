@@ -3,10 +3,9 @@ public import CmuxNextDaemon
 public import Foundation
 
 /// Runs the native Cloud environment request after the app supplies its signed-in token.
-public enum CloudEnvironmentRunner {
+extension AgentPaneCloudEnvironmentRequest {
     @MainActor
-    public static func run(
-        _ request: AgentPaneCloudEnvironmentRequest,
+    public func run(
         allowed: Bool,
         connection: DaemonConnection?,
         platform: URL?,
@@ -17,7 +16,7 @@ public enum CloudEnvironmentRunner {
         }
         do {
             let value = try await connection.request(
-                CloudEnvironmentRequest(action: request.action, params: request.params,
+                CloudEnvironmentRequest(action: action, params: params,
                                         platformOrigin: platform.absoluteString, accessToken: try await accessToken()),
                 timeout: .seconds(30))
             return AgentPaneReply.success(try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: [.fragmentsAllowed]))
