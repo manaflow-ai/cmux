@@ -625,6 +625,75 @@ fn two_copies_of_one_send_at_once_never_share_a_folder() {
     assert_ne!(seen[0], seen[1]);
 }
 
+/// A retry finds its unfinished copy's folder held by a copy still running
+/// (another process): it takes a folder of its own; once that copy is gone
+/// (its process ended), the next retry resumes the folder.
+#[test]
+fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let seen = RefCell::new(Vec::<String>::new());
+    let fails = |_: &Path, _: &Path, remote: &str| {
+        seen.borrow_mut().push(remote.to_string());
+        Err(("fs.failure".to_string(), "cut off".to_string()))
+    };
+    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
+    let place =
+        Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a")).unwrap().unwrap();
+    // A live copy holds it (its lease, as another process would).
+    let held = Lease::take(&path, &send(&copy.key), "vm-a", &place).unwrap();
+    assert!(Lease::take(&path, &send(&copy.key), "vm-a", &place).is_none());
+    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
+    drop(held);
+    let ok = |_: &Path, _: &Path, remote: &str| {
+        seen.borrow_mut().push(remote.to_string());
+        Ok(())
+    };
+    let done = copy.run(&path, &ok);
+    assert_eq!(done["copied"], json!(true), "{done}");
+    let seen = seen.borrow();
+    assert_eq!(seen.len(), 3);
+    assert_ne!(seen[1], seen[0], "a live copy's folder was shared");
+    // The second try's folder was left by a copy now gone, so the third
+    // resumes that one (the newest unfinished copy).
+    assert_eq!(seen[2], seen[1]);
+}
+
+/// The disk's root, the system's top folders and the home folder itself are
+/// never copied; a project below one is.
+#[test]
+fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
+    let home = Path::new("/Users/me");
+    for broad in [
+        "/",
+        "/System",
+        "/Library",
+        "/Applications",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/private",
+        "/etc",
+        "/var",
+        "/Volumes",
+        "/Volumes/",
+        "/Users/me",
+        "/Users/me/",
+    ] {
+        assert!(too_broad(broad, Some(home)), "{broad}");
+    }
+    for project in ["/Users/me/src/paint", "/Volumes/ssd/paint", "/usr/local/src/app", "/opt/proj"]
+    {
+        assert!(!too_broad(project, Some(home)), "{project}");
+    }
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let never = |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied") };
+    let answer = copy_of("/System", "").run(&path, &never);
+    assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
+}
+
 /// Router review at 83b8b35: the sends the App kept in its user defaults
 /// before cmux-tui did carry over on upgrade. A send in flight keeps its
 /// machine and its finished copy, and a creatorless machine stays the
@@ -977,73 +1046,4 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(kept.workspace_machine("ws-first", ACCOUNT), None);
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
-}
-
-/// A retry finds its unfinished copy's folder held by a copy still running
-/// (another process): it takes a folder of its own; once that copy is gone
-/// (its process ended), the next retry resumes the folder.
-#[test]
-fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
-    let dir = scratch();
-    let path = ledger_in(dir.path());
-    let copy = copy_of("/Users/me/src/paint", "");
-    let seen = RefCell::new(Vec::<String>::new());
-    let fails = |_: &Path, _: &Path, remote: &str| {
-        seen.borrow_mut().push(remote.to_string());
-        Err(("fs.failure".to_string(), "cut off".to_string()))
-    };
-    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
-    let place =
-        Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a")).unwrap().unwrap();
-    // A live copy holds it (its lease, as another process would).
-    let held = Lease::take(&path, &send(&copy.key), "vm-a", &place).unwrap();
-    assert!(Lease::take(&path, &send(&copy.key), "vm-a", &place).is_none());
-    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
-    drop(held);
-    let ok = |_: &Path, _: &Path, remote: &str| {
-        seen.borrow_mut().push(remote.to_string());
-        Ok(())
-    };
-    let done = copy.run(&path, &ok);
-    assert_eq!(done["copied"], json!(true), "{done}");
-    let seen = seen.borrow();
-    assert_eq!(seen.len(), 3);
-    assert_ne!(seen[1], seen[0], "a live copy's folder was shared");
-    // The second try's folder was left by a copy now gone, so the third
-    // resumes that one (the newest unfinished copy).
-    assert_eq!(seen[2], seen[1]);
-}
-
-/// The disk's root, the system's top folders and the home folder itself are
-/// never copied; a project below one is.
-#[test]
-fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
-    let home = Path::new("/Users/me");
-    for broad in [
-        "/",
-        "/System",
-        "/Library",
-        "/Applications",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/private",
-        "/etc",
-        "/var",
-        "/Volumes",
-        "/Volumes/",
-        "/Users/me",
-        "/Users/me/",
-    ] {
-        assert!(too_broad(broad, Some(home)), "{broad}");
-    }
-    for project in ["/Users/me/src/paint", "/Volumes/ssd/paint", "/usr/local/src/app", "/opt/proj"]
-    {
-        assert!(!too_broad(project, Some(home)), "{project}");
-    }
-    let dir = scratch();
-    let path = ledger_in(dir.path());
-    let never = |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied") };
-    let answer = copy_of("/System", "").run(&path, &never);
-    assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
