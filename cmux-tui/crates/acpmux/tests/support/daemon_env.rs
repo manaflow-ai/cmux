@@ -168,13 +168,11 @@ const _: Process = super::HERMETIC;
 pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     use std::os::unix::process::CommandExt;
     if std::env::var_os(ENTERED).is_some() {
+        remove_moved_scratch_at_exit();
         return;
     }
     // A folder an earlier process with this pid left is not this one's.
-    // Under Cargo's target tmp, not the temp directory: tests use the temp
-    // directory as a Web root, and a root that holds HOME is dropped.
-    let scratch =
-        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("amx-proc-{}", std::process::id()));
+    let scratch = scratch_base().join(format!("amx-proc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(home(&scratch)).unwrap();
     let mut env = vars(&scratch, process.agents, &[]);
@@ -211,6 +209,54 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     }
     let err = cmd.args(args).env_clear().envs(env).exec();
     panic!("start {} again with the hermetic environment: {err}", exe.display());
+}
+
+/// Where a test process keeps its scratch folder (and so its HOME): Cargo's target tmp, not the
+/// temp directory, because tests use the temp directory as a Web root and a root that holds HOME
+/// is dropped. But a folder the daemon guards (`protected_folders.rs`: another volume, as a fleet
+/// Mac's `/Volumes/ephemeral0` build disk) would make every test chat under HOME one whose
+/// restored queue waits for a person, so there the scratch goes to the boot volume's `/tmp`
+/// ([`moved_scratch_base`]) and is removed when the process exits.
+#[cfg(unix)]
+fn scratch_base() -> PathBuf {
+    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    if acpmux::protected_folders::refusal_in(&target, None).is_none() {
+        return target;
+    }
+    moved_scratch_base()
+}
+
+/// `/tmp/amx-<uid>` (`/private/tmp` on macOS, which `/tmp` links to, so the path is the same
+/// spelled and resolved). Not inside the temp directory, the tests' Web root, which on a Mac is
+/// the per-user folder or a fleet step's own one.
+#[cfg(unix)]
+fn moved_scratch_base() -> PathBuf {
+    let tmp = if cfg!(target_vendor = "apple") { "/private/tmp" } else { "/tmp" };
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    PathBuf::from(format!("{tmp}/amx-{uid}"))
+}
+
+/// In the hermetic process: when its scratch folder was moved out of Cargo's target tmp
+/// ([`scratch_base`]), removes it at exit, so a fleet host's `/tmp` does not fill with one folder
+/// per test process. A process that aborts leaves its folder; the next process with its pid
+/// removes it.
+#[cfg(unix)]
+fn remove_moved_scratch_at_exit() {
+    fn moved_scratch() -> Option<PathBuf> {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let scratch = home.parent()?;
+        scratch.starts_with(moved_scratch_base()).then(|| scratch.to_path_buf())
+    }
+    extern "C" fn remove() {
+        if let Some(scratch) = moved_scratch() {
+            let _ = std::fs::remove_dir_all(scratch);
+        }
+    }
+    if moved_scratch().is_some() {
+        // SAFETY: `remove` takes no arguments and only reads the environment and removes files.
+        unsafe { libc::atexit(remove) };
+    }
 }
 
 /// The readiness line a `daemon run --ready-fd 1` writes on `stdout`. The daemon's log shares
