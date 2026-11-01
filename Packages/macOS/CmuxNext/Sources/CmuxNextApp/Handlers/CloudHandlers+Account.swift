@@ -522,7 +522,7 @@ extension CloudHandlers {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
         let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
         guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
-                                               byPerson: invocation.origin == .user, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
+                                               byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
         else { return .thisMac(notice: nil) }
         switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {
         case .cloud: break
