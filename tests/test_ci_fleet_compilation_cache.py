@@ -104,6 +104,15 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", args)
         self.assertEqual(args[-1], "build")
 
+    def test_warmer_and_pr_release_use_the_same_cache_settings(self):
+        nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        warmer = nightly.split("      - name: Refresh universal nightly compilation cache\n", 1)[1].split("      - name:", 1)[0]
+        release = ci_macos.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
+        for step in (warmer, release):
+            self.assertIn("bash scripts/ci/fleet-compilation-cache.sh", step)
+            self.assertIn('"${fleet_cache_settings[@]}"', step)
+
     def _nightly_release_command(self):
         workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
@@ -144,6 +153,7 @@ class FleetCacheTests(unittest.TestCase):
     def test_nightly_release_retries_only_on_runtime_cas_diagnostic(self):
         for diagnostic in (
             "error: CAS error encountered during compilation",
+            "error: CAS error: No such file or directory",
             "error: remote service unavailable",
             "error: cache plugin failed",
         ):

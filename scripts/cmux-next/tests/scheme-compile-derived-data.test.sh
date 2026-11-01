@@ -140,7 +140,7 @@ SC_ARG="$cas_dd" run CMUX_NEXT_COMPILATION_CACHE=1 STUB_CAS_FAIL_ONCE=1 || fail 
 sed -n 2p "$TMP/args" | grep -q COMPILATION_CACHE_ENABLE_CACHING && fail "the retry still used the cache"
 [[ ! -e "$cas_dd/CompilationCache.noindex/v1.1/data" ]] || fail "the failing cache was kept"
 # Swift's own CAS diagnostics count as cache failures; a code error does not.
-for line in "error: CAS error encountered during compilation" "error: cannot create CAS filesystem: x" \
+for line in "error: CAS error encountered during compilation" "error: CAS error: No such file or directory" "error: cannot create CAS filesystem: x" \
     "error: failed to load input '/x/a.swift' from CAS" "/x/a.swift:1:2: error: CAS error encountered during x" \
     "error: failed to replay cached diagnostics: x" "error: cannot create cache key for compilation x: y"; do
   printf '%s\n' "$line" > "$TMP/caslog"
@@ -150,7 +150,7 @@ printf '%s\n' "error: cannot find 'CASE' in scope" "error: use of unresolved ide
 cmux_next_cas_failed "$TMP/caslog" && fail "a code error read as a cache failure"
 # The nightly fleet fallback uses the stricter runtime predicate: source
 # diagnostics that happen to mention CAS/cache must not trigger a second build.
-for line in "error: CAS error encountered during compilation" "error: cannot create CAS filesystem: x" \
+for line in "error: CAS error encountered during compilation" "error: CAS error: No such file or directory" "error: cannot create CAS filesystem: x" \
     "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x" \
     "error: remote service unavailable" "error: cache plugin failed"; do
   printf '%s\n' "$line" > "$TMP/caslog"
