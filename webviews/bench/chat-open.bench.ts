@@ -45,6 +45,59 @@ const answer = (method: string): unknown => {
   }
 };
 
+/// A bundle position back to its source file and line, from the build's source map (a VLQ decode, so
+/// the bench needs no source-map package).
+function sourceMapper(dir: string) {
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  type Mapped = { sources: string[]; lines: number[][][] };
+  const cache = new Map<string, Mapped | null>();
+  function load(file: string): Mapped | null {
+    const mapFile = path.join(dir, "assets", `${file}.map`);
+    if (!fs.existsSync(mapFile)) return null;
+    const raw = JSON.parse(fs.readFileSync(mapFile, "utf8")) as { sources: string[]; mappings: string };
+    let source = 0;
+    let line = 0;
+    let column = 0;
+    const lines = raw.mappings.split(";").map((segment) => {
+      let generated = 0;
+      return segment
+        .split(",")
+        .filter(Boolean)
+        .map((part) => {
+          const values: number[] = [];
+          let shift = 0;
+          let value = 0;
+          for (const char of part) {
+            const digit = B64.indexOf(char);
+            value += (digit & 31) << shift;
+            if (digit & 32) shift += 5;
+            else {
+              values.push(value & 1 ? -(value >> 1) : value >> 1);
+              value = 0;
+              shift = 0;
+            }
+          }
+          generated += values[0]!;
+          if (values.length > 1) {
+            source += values[1]!;
+            line += values[2]!;
+            column += values[3]!;
+          }
+          return [generated, source, line, column];
+        });
+    });
+    return { sources: raw.sources, lines };
+  }
+  return (file: string, lineNumber: number, columnNumber: number): string => {
+    if (!cache.has(file)) cache.set(file, load(file));
+    const map = cache.get(file);
+    const segments = map?.lines[lineNumber];
+    if (!map || !segments?.length) return `${file}:${lineNumber + 1}`;
+    let best = segments[0]!;
+    for (const segment of segments) if (segment[0]! <= columnNumber) best = segment;
+    return `${map.sources[best[1]!]?.replace(/^(\.\.\/)+/, "")}:${best[2]! + 1}`;
+  };
+}
 const releases: [string, () => unknown][] = [];
 const release = async () => {
   for (const [, stop] of releases.reverse()) await Promise.resolve(stop()).catch(() => undefined);
@@ -74,7 +127,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(process.env.PROFILE === "1" ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
+    },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -177,16 +234,19 @@ try {
     await page.waitForTimeout(500);
     const { profile } = (await cdp.send("Profiler.stop")) as {
       profile: {
-        nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+        nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
         samples: number[];
         timeDeltas: number[];
       };
     };
+    const mapper = sourceMapper(out);
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
     const self = new Map<string, number>();
     profile.samples.forEach((id, index) => {
       const frame = byId.get(id)!.callFrame;
-      const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-1)[0]}:${frame.lineNumber + 1}`;
+      const file = frame.url.split("/").slice(-1)[0] ?? "";
+      const where = file ? mapper(file, frame.lineNumber, frame.columnNumber) : "(native)";
+      const key = `${frame.functionName || "(anon)"} ${where}`;
       self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
     });
     const total = [...self.values()].reduce((a, b) => a + b, 0);
