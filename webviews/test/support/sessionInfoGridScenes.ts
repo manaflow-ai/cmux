@@ -88,8 +88,8 @@ export const sessionInfoGridScenes: GridScene[] = [
       ["made", "running"],
     ].map(([before, after]): GridLine => ({
       name: `${before} to ${after}: block gap`,
-      actual: point(`${p}-group[data-group="${after}"]`, "top"),
-      origin: point(`${p}-group[data-group="${before}"]`, "bottom"),
+      actual: point(`${p}-slot[data-run-start][data-group="${after}"]`, "top"),
+      origin: point(`${p}-slot[data-run-end][data-group="${before}"]`, "bottom"),
       expected: token("gap-block"),
     })),
   ]),
