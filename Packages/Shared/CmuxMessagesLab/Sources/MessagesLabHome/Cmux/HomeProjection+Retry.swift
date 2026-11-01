@@ -20,6 +20,26 @@ extension HomeProjection {
         Task { try? await homeStore.retry(item.key) }
     }
 
+    /// A committed person message in a one-to-one Chief conversation. The
+    /// owner's canonical message id is required: pending local sends have no
+    /// owner id and are handled by `canRetrySend` instead.
+    private func chiefTurnMessage(_ message: ID) -> TranscriptItem? {
+        guard shownSummary?.kind(me: me) == .chief,
+              let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == message }),
+              item.author == me, item.seq != nil, item.messageID != nil,
+              item.isRetracted == false else { return nil }
+        return item
+    }
+
+    func canRetryChiefTurn(_ message: ID) -> Bool {
+        onChiefRetry != nil && chiefTurnMessage(message) != nil
+    }
+
+    func retryChiefTurn(_ message: ID) {
+        guard let item = chiefTurnMessage(message), let canonical = item.messageID else { return }
+        onChiefRetry?(canonical)
+    }
+
     var canForward: Bool { onForward != nil }
 
     func forward(_ text: String) { onForward?(text) }

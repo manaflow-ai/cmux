@@ -50,6 +50,7 @@ mod side;
 mod spawns;
 mod steer;
 mod transcript;
+mod turn_actions;
 mod turns;
 mod wakes;
 mod watches;
@@ -673,6 +674,8 @@ impl Queued {
             Source::Message {
                 requires_approval: true,
                 ..
+            } | Source::OwnerAction {
+                requires_approval: true
             } | Source::Resume {
                 requires_approval: true,
                 ..
@@ -717,6 +720,8 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
@@ -1595,10 +1600,10 @@ impl Brain {
                 let _ = reply.send(self.owner_stop());
             }
             Input::Continue { reply } => {
-                let _ = reply.send(serde_json::json!({"continued": false}));
+                let _ = reply.send(self.owner_continue());
             }
-            Input::Retry { message: _, reply } => {
-                let _ = reply.send(serde_json::json!({"retried": false}));
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));

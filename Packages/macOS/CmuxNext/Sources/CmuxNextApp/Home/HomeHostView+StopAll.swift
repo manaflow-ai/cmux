@@ -14,7 +14,14 @@ extension HomeHostView {
     /// Option-click stops all agents of this Home's own Chief (never another
     /// Home's in the same window).
     func wireStopButton(_ registry: ActionRegistry) {
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        transcript.onStop = { [weak self] in
+            guard let self else { return }
+            if self.chiefControl.isHosted {
+                _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
+            } else {
+                self.turnActions.stop()
+            }
+        }
         transcript.onStopAll = { [weak self] in self?.stopAllAgents() }
         transcript.stopToolTip = HomeStopAllStrings.stopToolTip
     }
