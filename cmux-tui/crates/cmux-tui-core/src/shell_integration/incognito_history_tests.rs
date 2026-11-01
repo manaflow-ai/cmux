@@ -401,3 +401,23 @@ fn a_daemon_started_in_an_incognito_terminal_starts_normal_terminals_normal() {
     // A daemon started elsewhere removes nothing.
     assert!(inherited_keys_to_unset_from(&normal, &|_: &str| None).is_empty());
 }
+
+/// A respawned incognito shell is integrated before its host launch
+/// (`terminal_respawn/launch.rs`); the launch must not integrate it again,
+/// or a zsh would source its own integration wrapper as the user's
+/// `ZDOTDIR` and never start.
+#[test]
+fn an_integrated_incognito_shell_is_not_integrated_again_at_launch() {
+    for shell in ["/bin/zsh", "/usr/bin/bash", "/usr/bin/fish"] {
+        let mut env = vec![("HOME".to_string(), "/home/user".to_string())];
+        keep_no_history(&mut env);
+        let first = integrate_with(vec![shell.to_string()], env, &|_: &str| None);
+        if first.env.iter().all(|(key, _)| key != "ZDOTDIR" && key != "ENV" && key != "XDG_DATA_DIRS") {
+            eprintln!("skipped {shell}: the integration scripts could not be written here");
+            continue;
+        }
+        let again = shell_launch(Some(first.command.clone()), first.env.clone());
+        assert_eq!(again.command, first.command, "{shell}: integrated twice");
+        assert_eq!(again.env, first.env, "{shell}: integrated twice");
+    }
+}
