@@ -166,6 +166,9 @@ the cmux shim can register the actual Codex PID and inject hooks. For example:
 subcodex() { HTTPS_PROXY="$MY_CODEX_PROXY" codex --no-daemon "$@"; }
 ```
 
+cmux restores its Codex shim's PATH priority after loading the login profile, so
+profile changes such as Homebrew's `shellenv` do not bypass session tracking.
+
 An exact executable launcher-script path is also supported, including paths with
 spaces. Launcher scripts must likewise call `codex` through `PATH`. This setting
 selects a launcher, not a replacement final binary: a command that directly invokes

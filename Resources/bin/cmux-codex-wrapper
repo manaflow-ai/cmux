@@ -684,12 +684,17 @@ if [[ "$IN_CMUX" == "1" && -n "$cmux_codex_launch_command" ]]; then
         exec "$cmux_codex_launch_command" "$@"
     else
         launch_shell="${SHELL:-/bin/zsh}"
+        # Login files (path_helper, Homebrew, conda) can reorder PATH. Repair
+        # shim priority in the command body, after those files have run, so
+        # the function's Codex child still owns its hooks and real PID.
         case "${launch_shell##*/}" in
             fish)
-                exec "$launch_shell" -lic "$cmux_codex_launch_command \$argv" "$@"
+                cmux_codex_launch_path_guard='if test -x "$CMUX_CODEX_WRAPPER_SHIM"; set -gx PATH (dirname -- "$CMUX_CODEX_WRAPPER_SHIM") $PATH; end; '
+                exec "$launch_shell" -lic "$cmux_codex_launch_path_guard$cmux_codex_launch_command \$argv" "$@"
                 ;;
             *)
-                exec "$launch_shell" -lic "$cmux_codex_launch_command \"\$@\"" cmux-codex "$@"
+                cmux_codex_launch_path_guard='if [ -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]; then PATH="${CMUX_CODEX_WRAPPER_SHIM%/*}:$PATH"; export PATH; fi; '
+                exec "$launch_shell" -lic "$cmux_codex_launch_path_guard$cmux_codex_launch_command \"\$@\"" cmux-codex "$@"
                 ;;
         esac
     fi
