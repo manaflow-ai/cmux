@@ -328,7 +328,8 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let framed = agent_framed(&message, &text);
+            let sender = self.settings.membership.agent_sender(summary, &message);
+            let framed = agent_framed(sender.as_ref(), &text);
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
             self.queue_with_images(
@@ -338,10 +339,7 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    agent: cmux_conversation::agent_sender::of_client_msg_id(
-                        &message.client_msg_id,
-                    )
-                    .map(|sender| sender.name),
+                    agent: sender.as_ref().map(|s| s.name.clone()),
                     requires_approval: !self
                         .settings
                         .membership
@@ -433,12 +431,15 @@ impl Brain {
     }
 }
 
-/// The text of `message` as the Chief reads it: as is, or, for a message
-/// another agent sent through the CLI (`cmux_conversation::agent_sender`),
-/// with a line that names the agent and says it is not the user's word.
-pub(super) fn agent_framed(message: &Message, text: &str) -> String {
-    let Some(sender) = cmux_conversation::agent_sender::of_client_msg_id(&message.client_msg_id)
-    else {
+/// The text of a message as the Chief reads it: as is, or, for one another
+/// agent sent through the owner's CLI (`sender`, from
+/// `Membership::agent_sender`), with a line that names the agent and says it
+/// is not the user's word.
+pub(super) fn agent_framed(
+    sender: Option<&cmux_conversation::agent_sender::AgentSender>,
+    text: &str,
+) -> String {
+    let Some(sender) = sender else {
         return text.to_owned();
     };
     let thread = sender

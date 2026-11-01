@@ -229,8 +229,10 @@ impl Brain {
                 let action = field("action").unwrap_or("status");
                 let no_message = field("message").is_none_or(|m| m.trim().is_empty());
                 let deny = field("option").is_none_or(|o| o.eq_ignore_ascii_case("deny"));
+                // `sessions` shows other chats' last lines: only to a turn
+                // that answers an agent, never to another person's.
                 if action == "status"
-                    || action == "sessions"
+                    || (action == "sessions" && !self.turn_agents.is_empty())
                     || (action == "interrupt" && no_message)
                     || (action == "answer" && deny && no_message)
                 {

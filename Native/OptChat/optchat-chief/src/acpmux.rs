@@ -230,6 +230,9 @@ pub trait AgentPort: Send + Sync {
     fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
         Err("listing sessions is not supported".into())
     }
+    /// Stops routing `session`'s signals, leaving the session as it is (a
+    /// session the Chief only told, brain/session_tell.rs).
+    fn forget_route(&self, _session: &str) {}
     /// The session's recorded events after `after`, oldest first.
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
     /// Stops routing the session's signals and removes the session.
@@ -1282,6 +1285,13 @@ impl AgentPort for Acpmux {
 
     fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
         sessions(&*self.client()?)
+    }
+
+    fn forget_route(&self, session: &str) {
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session);
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {

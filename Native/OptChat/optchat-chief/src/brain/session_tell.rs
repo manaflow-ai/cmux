@@ -24,6 +24,9 @@ pub(super) const PREFIX: &str = "session:";
 pub(super) const FROM: &str = "chief";
 /// Most characters of a session's answer kept in the report.
 const REPLY_KEPT: usize = 8000;
+/// The harness of an agent chat whose agent is a Chief (`cmux chief acp`,
+/// `harness_gate::CHIEF_HARNESS_FAMILY`; its profiles are `chief` or `chief-*`).
+const CHIEF_HARNESS: &str = crate::harness_gate::CHIEF_HARNESS_FAMILY;
 /// Most sessions `control sessions` lists.
 const LISTED: usize = 60;
 
@@ -51,7 +54,27 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
             "tell: {name} is one of your subagents; tell it by its a<N> id"
         ));
     }
+    // An agent chat whose agent is a Chief (`cmux chief acp`): a tell would
+    // come back into a Chief's own conversation as a loop.
+    if session.harness == CHIEF_HARNESS || session.harness.starts_with("chief-") {
+        return Some(format!(
+            "tell: {name} runs a Chief (cmux chief acp); another Chief is chief:<name>"
+        ));
+    }
     None
+}
+
+/// Whether a `session/prompt` answer ends the turn: a steer into a running
+/// turn is answered `steered` at once, and the turn's answer comes later
+/// (acpmux `steer_end::ends_turn`).
+fn ends_turn(answer: &serde_json::Value) -> bool {
+    answer.get("stopReason").and_then(serde_json::Value::as_str) != Some("steered")
+}
+
+/// Whether the session's turn still runs.
+fn busy(session: Option<&SessionSummary>) -> bool {
+    use cmux_chief::acp::SessionStatus;
+    session.is_some_and(|s| matches!(s.status, SessionStatus::Running | SessionStatus::Waiting))
 }
 
 /// The prompt the session gets: who sends it and where the answer goes.
@@ -148,28 +171,42 @@ impl Brain {
         (self.log)(&format!("tell {PREFIX}{name}: sent"));
         let (forward, reply_name) = (self.tx.clone(), name.to_owned());
         std::thread::spawn(move || {
+            use crate::acpmux::TurnSignal;
+            let read = || match agents.events(&session, after) {
+                Ok(events) => cmux_chief::acp::last_reply(&events),
+                Err(e) => format!("(its answer could not be read: {e})"),
+            };
+            // Steered into a running turn: the answer is that turn's end,
+            // which its events say (no polling: each one wakes this).
+            let mut steered = false;
+            let mut text = None;
             while let Ok(signal) = rx.recv() {
-                let text = match signal {
-                    crate::acpmux::TurnSignal::Changed
-                    | crate::acpmux::TurnSignal::Noted
-                    | crate::acpmux::TurnSignal::Streamed => continue,
-                    crate::acpmux::TurnSignal::Done(Err(e)) => format!("(its turn failed: {e})"),
-                    crate::acpmux::TurnSignal::Done(Ok(_)) => {
-                        match agents.events(&session, after) {
-                            Ok(events) => cmux_chief::acp::last_reply(&events),
-                            Err(e) => format!("(its answer could not be read: {e})"),
-                        }
+                text = match signal {
+                    TurnSignal::Noted | TurnSignal::Streamed => continue,
+                    TurnSignal::Changed if !steered => continue,
+                    TurnSignal::Changed => match agents.session(&session) {
+                        Ok(now) if busy(now.as_ref()) => continue,
+                        _ => Some(read()),
+                    },
+                    TurnSignal::Done(Ok(answer)) if !ends_turn(&answer) => {
+                        steered = true;
+                        continue;
                     }
-                    crate::acpmux::TurnSignal::Lost => {
-                        "(the connection to acpmux was lost before it answered)".to_owned()
+                    TurnSignal::Done(Ok(_)) => Some(read()),
+                    TurnSignal::Done(Err(e)) => Some(format!("(its turn failed: {e})")),
+                    TurnSignal::Lost => {
+                        Some("(the connection to acpmux was lost before it answered)".to_owned())
                     }
                 };
-                let _ = forward.send(super::Input::SessionReply {
-                    name: reply_name,
-                    text,
-                });
-                return;
+                break;
             }
+            // This tell's route ends with it (the session is not the Chief's).
+            agents.forget_route(&session);
+            let text = text.unwrap_or_else(|| "(it never answered)".to_owned());
+            let _ = forward.send(super::Input::SessionReply {
+                name: reply_name,
+                text,
+            });
         });
         Ok(format!(
             "outcome: done. Sent to {PREFIX}{name} as the Chief; its answer comes back as a \
@@ -226,6 +263,11 @@ mod tests {
             json!({cmux_chief::rules::PARENT_TAG: super::super::PARENT}),
         );
         assert!(refusal(&sub).unwrap().contains("a<N>"));
+        let mut chief_chat = summary("leo-chief", json!({}));
+        chief_chat.harness = "chief".into();
+        assert!(refusal(&chief_chat).unwrap().contains("runs a Chief"));
+        assert!(!ends_turn(&json!({"stopReason": "steered"})));
+        assert!(ends_turn(&json!({"stopReason": "end_turn"})));
         let lane = summary("lane-a", json!({}));
         assert_eq!(refusal(&lane), None);
         let list = sessions_list(&[turn, sub, lane]);

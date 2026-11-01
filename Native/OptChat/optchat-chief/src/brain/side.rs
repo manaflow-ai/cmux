@@ -241,9 +241,10 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
+            let sender = self.settings.membership.agent_sender(summary, &message);
             let logged = super::files::logged_text(
                 &super::images::logged_text(
-                    &super::inbox::agent_framed(&message, &labelled),
+                    &super::inbox::agent_framed(sender.as_ref(), &labelled),
                     &images,
                 ),
                 &files,
@@ -259,10 +260,7 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    agent: cmux_conversation::agent_sender::of_client_msg_id(
-                        &message.client_msg_id,
-                    )
-                    .map(|sender| sender.name),
+                    agent: sender.as_ref().map(|s| s.name.clone()),
                     requires_approval: !self
                         .settings
                         .membership
