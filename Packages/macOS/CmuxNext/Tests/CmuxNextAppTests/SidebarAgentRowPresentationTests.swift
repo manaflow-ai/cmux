@@ -189,13 +189,16 @@ struct SidebarAgentRowPresentationTests {
         }
     }
 
+    /// #26719 (Fixes #26680): Cmd-N sends the `workspace-N` it shows, so a never-renamed
+    /// `workspace-N` is no one's choice whatever source the daemon recorded, with or without
+    /// the daemon's legacy-default compatibility. It takes the chat's title; a rename (below) wins.
     @MainActor
     @Test func legacyDefaultLookingUserNamesRespectDaemonCompatibility() throws {
         for legacy in [false, true] {
             let workspace = try fixture(name: "workspace-7", nameSource: .user, nameRevision: 0)
             let turns = turnStore(title: nil, generatedTitle: nil)
             #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
-                        allowsLegacyDefaults: legacy).title == (legacy ? "Review the release" : "workspace-7"))
+                        allowsLegacyDefaults: legacy).title == "Review the release")
         }
     }
 
