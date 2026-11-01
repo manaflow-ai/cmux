@@ -53,14 +53,18 @@ import CmuxNextTestSupport
     /// window) cannot, and no capture path can be checked on it.
     static func hostShowsWindows() -> Bool {
         _ = NSApplication.shared
-        guard NSScreen.main != nil else { return false }
+        let requireDisplay = ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"]
+            .contains { ProcessInfo.processInfo.environment[$0] == "1" }
+        guard NSScreen.main != nil else { return requireDisplay }
         let probe = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 8, height: 8), styleMask: [.borderless], backing: .buffered, defer: false)
         probe.isReleasedWhenClosed = false
         defer { probe.close() }
         probe.orderFrontRegardless()
+        CATransaction.flush()
         // A visible window is not enough on a worker without a window-server image.
-        // Display coverage is advisory, so skip this suite when capture is unavailable.
-        return probe.isVisible && probe.windowNumber > 0 && probe.compositedSnapshot() != nil
+        // Display coverage is advisory on the default path, but an explicitly routed display
+        // run must still exercise the capture and report a real failure.
+        return requireDisplay || (probe.isVisible && probe.windowNumber > 0 && probe.compositedSnapshot() != nil)
     }
 
     private struct Fixture {
