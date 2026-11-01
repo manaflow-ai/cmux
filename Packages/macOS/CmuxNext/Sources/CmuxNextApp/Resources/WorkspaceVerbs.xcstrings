@@ -2489,6 +2489,65 @@
           }
         }
       }
+    },
+    "workspaceVerbs.refusal.anchorElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the anchor must be another workspace in the same sidebar section"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor muss ein anderer Arbeitsbereich im selben Seitenleistenabschnitt sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor doit être un autre espace de travail de la même section de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون anchor مساحة عمل أخرى في قسم الشريط الجانبي نفسه"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor debe ser otro espacio de trabajo de la misma sección de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor 必須是同一側邊欄區段中的另一個工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor 必须是同一侧边栏分区中的另一个工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor는 같은 사이드바 섹션의 다른 작업 공간이어야 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor は同じサイドバーセクション内の別のワークスペースである必要があります"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

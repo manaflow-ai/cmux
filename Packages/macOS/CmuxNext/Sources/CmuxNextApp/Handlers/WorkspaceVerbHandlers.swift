@@ -58,6 +58,18 @@ enum WorkspaceVerbHandlers {
         ActionTargetTitles.set("workspace.moveToBottom", in: registry) { invocation in
             isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToBottomOfGroup : nil
         }
+        // Move Workspace Above/Below: next to the anchor row, in its group or loose, by the `.reorder` a row drag sends.
+        for (id, below) in [("workspace.moveAbove", false), ("workspace.moveBelow", true)] as [(ActionID, Bool)] {
+            registry.bindEffect(id) { invocation in
+                guard let workspace = try? context.workspace(invocation).model, let ref = invocation["anchor"]?.targetValue,
+                      let anchor = context.services.workspace(id: ref.id), let bridge = try? sidebar(showing: anchor, context),
+                      let position = WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections,
+                                                          onDocument: SidebarDocWiring.isActive)
+                else { return .refused(WorkspaceVerbStrings.anchorElsewhere) }
+                bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
+                return .done
+            }
+        }
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
             let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
@@ -204,17 +216,9 @@ enum WorkspaceVerbHandlers {
     @discardableResult
     static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
                       services: AppServices) -> Bool {
-        let sections = bridge.model.sections, anchor = SidebarWorkspaceID(workspace.id)
         guard services.machines.daemon(forWorkspace: workspace.id) != nil,
-              let home = SidebarEdits.locate(anchor, in: sections)?.section else { return false }
-        var moving = SidebarEdits.treeOrder(ids.map(SidebarWorkspaceID.init), in: sections).filter {
-            SidebarEdits.locate($0, in: sections)?.section == home
-        }
-        if moving.isEmpty { moving = [anchor] }
-        guard let position = slot.position(moving: Set(moving.map(\.rawValue)), besides: workspace.id, in: sections)
+              let (moving, position) = slot.reorder(ids, anchor: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive)
         else { return false }
-        // Pinned and custom sections move only on the sidebar document; off it, a reorder there would pin the rows.
-        if sections[home].machine == nil, !SidebarDocWiring.isActive { return false }
         bridge.handle(.reorder(moving, to: position))
         return true
     }
@@ -234,13 +238,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar group listing `workspace` in its window, if any.
     static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
-        for section in sections {
-            for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
-                return group
-            }
-        }
-        return nil
+        WorkspaceSlot.group(listing: workspace.id, in: try sidebar(showing: workspace, context).model.sections)
     }
 
     /// The directory of the workspace's focused terminal, else its first one.
