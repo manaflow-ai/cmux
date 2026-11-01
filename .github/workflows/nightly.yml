@@ -3024,8 +3024,9 @@ jobs:
           # commit, so the resolved commit must carry the same file: run
           # 37568319518 called a dSYM script its older build commit lacked.
           # Preserve Chief lockfile repairs too: run 37724899486 selected an
-          # older published revision and failed cargo build --locked.
-          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
+          # older published revision and failed cargo build --locked. The step
+          # scripts the workflow calls from that checkout must be the tip's (#30912).
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock scripts/ci/nightly-steps
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh
 
