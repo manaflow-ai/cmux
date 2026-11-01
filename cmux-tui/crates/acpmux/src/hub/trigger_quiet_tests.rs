@@ -185,6 +185,8 @@ async fn trigger_quiet_restart_cut_fails_instead_of_resuming_as_human() {
         }),
     );
     assert!(hub.log_restart_continuation(&session, "cut").is_none());
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
     hub.load_session_log(&session);
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let result = records.iter().find(|r| r.kind == "turn_result").unwrap();
