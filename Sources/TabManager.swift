@@ -2748,6 +2748,11 @@ class TabManager: ObservableObject {
                 workspaceGroupNameDidChange()
                 workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
+
+            // A close from the sidebar, a shortcut or an exiting shell posts no
+            // topology notification, so the socket's cached workspace.list
+            // would keep listing this workspace until an unrelated change.
+            TerminalController.shared.externalTopologyDidChange()
         }
         publishCmuxWorkspaceClosed(workspace)
     }
