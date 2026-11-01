@@ -6,6 +6,7 @@
 // An answer is kept for the page; a failed or empty one (an older host, the page not yet connected,
 // Home not read yet) is not.
 import { useEffect, useSyncExternalStore } from "react";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
 import { postNative } from "./native";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -69,10 +70,12 @@ export function loadChiefFace(chief: string): Promise<ChiefFace | undefined> {
 }
 
 /// Chief `chief`'s face once the host answers; undefined before then, and for no Chief.
+/// A read-only transcript (a shared chat's guest) asks the host nothing: the line keeps its plain name.
 export function useChiefFace(chief: string | undefined): ChiefFace | undefined {
-  const value = useSyncExternalStore(subscribe, () => (chief ? faces.get(chief) : undefined));
+  const readOnly = useTranscriptReadOnly();
+  const value = useSyncExternalStore(subscribe, () => (chief && !readOnly ? faces.get(chief) : undefined));
   useEffect(() => {
-    if (chief && !faces.has(chief)) void loadChiefFace(chief);
-  }, [chief]);
+    if (chief && !readOnly && !faces.has(chief)) void loadChiefFace(chief);
+  }, [chief, readOnly]);
   return value;
 }

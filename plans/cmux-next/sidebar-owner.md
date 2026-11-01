@@ -12,6 +12,14 @@
   the stats still count its work. Nothing is removed. Regression: `WorkspaceHoverCardRunningWorkTests`; acpmux
   `running_subagents_reach_the_summary_and_each_change_is_recorded`.
 
+- 2026-11-01: the opt-in content hold (`sidebar.slideHoldsContent`, Debug Settings) changes the content's frame once, to
+  where it lands, and leaves it still while the sidebar slides. Leo, verbatim: "when i toggle the sidebar on and off I
+  STILL SEE THE ENTIRE OTHER PART OF THE APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK". The hold kept the widest width
+  of the slide and rode the sidebar's moving edge: a show slid the old wide layout across and laid it out narrower at
+  the landing. It now takes the landing width at the start and pins the content to the card's far edge
+  (`ContentHold.pinsTrailingEdge`), still one layout per toggle. The default stays #29894's (the content follows the card
+  every frame). Regression: `SidebarSlideHoldsContentTests`; display-tick trace of both modes
+  `SidebarToggleContentTraceTests`.
 - 2026-11-01: a workspace row's machine mark sits in the trailing status column, a status mark's size, one neutral
   colour (#29833, fixing #22763's placement). Leo: "WHY ARE THE CLOUD ICONS LIKE THIS ON THE
   LEFT WHO DID THIS" / "I HATE HOW SMALL THEY ARE, I HATE THAT THEY'RE ON THE LEFT, I HATE THAT THEY'RE ON THE

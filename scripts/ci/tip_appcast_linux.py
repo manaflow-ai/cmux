@@ -132,11 +132,11 @@ def app_plist(archive: str, app_name: str) -> dict:
         return plistlib.loads(zf.read(name))
 
 
-def appcast(title: str, plist: dict, url: str, length: int, signature: str, notes_url: str, date: str, source_commit: str = "") -> str:
+def appcast(title: str, plist: dict, url: str, length: int, signature: str, notes_url: str, date: str) -> str:
     short = str(plist.get("CFBundleShortVersionString") or plist["CFBundleVersion"])
     lines = [
         '<?xml version="1.0" standalone="yes"?>',
-        '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:cmux="https://cmux.com/xml-namespaces/cmux" version="2.0">',
+        '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">',
         "    <channel>",
         f"        <title>{escape(title)}</title>",
         "        <item>",
@@ -146,8 +146,6 @@ def appcast(title: str, plist: dict, url: str, length: int, signature: str, note
         f"            <sparkle:version>{escape(str(plist['CFBundleVersion']))}</sparkle:version>",
         f"            <sparkle:shortVersionString>{escape(short)}</sparkle:shortVersionString>",
     ]
-    if source_commit:
-        lines.append(f"            <cmux:sourceCommit>{escape(source_commit)}</cmux:sourceCommit>")
     if plist.get("LSMinimumSystemVersion"):
         lines.append(f"            <sparkle:minimumSystemVersion>{escape(str(plist['LSMinimumSystemVersion']))}"
                      "</sparkle:minimumSystemVersion>")
@@ -184,12 +182,9 @@ def main(argv: list[str]) -> int:
     url = url_prefix + os.path.basename(dmg)
     date = email.utils.format_datetime(datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0))
     title = str(plist.get("CFBundleName") or app_name)
-    source_commit = os.environ.get("SOURCE_COMMIT", "").strip().lower()
-    if source_commit and (len(source_commit) < 7 or len(source_commit) > 40 or any(c not in "0123456789abcdef" for c in source_commit)):
-        sys.exit(f"error: SOURCE_COMMIT is not a commit SHA: {source_commit!r}")
     with open(out, "w", encoding="utf-8") as stream:
         stream.write(appcast(title, plist, url, os.path.getsize(dmg), base64.b64encode(signature).decode(),
-                             notes_url, date, source_commit))
+                             notes_url, date))
     print(f"appcast for build {build}: {url}, {os.path.getsize(dmg)} bytes, key {public_b64}")
     return 0
 

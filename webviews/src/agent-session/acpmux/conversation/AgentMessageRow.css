@@ -207,6 +207,6 @@ button.cv-agentmsg__name:focus-visible {
   overflow-wrap: anywhere;
 }
 /* Pressing a message row keeps the same readable text treatment as hover. */
-.cv-agentmsg__line:is(:hover, :active, :focus-within) {
+.cv-agentmsg__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
   color: var(--cv-text);
 }
