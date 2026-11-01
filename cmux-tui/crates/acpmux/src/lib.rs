@@ -50,6 +50,7 @@ pub mod daemon;
 pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
+pub mod frame_compress;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
@@ -73,6 +74,8 @@ pub mod local_stream;
 pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
+pub mod managed_codex;
+pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
@@ -132,6 +135,8 @@ pub mod subsession_worktree;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_stack;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
@@ -139,7 +144,9 @@ pub mod tui;
 pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
+pub mod watch_delta;
 pub mod web_modes;
+pub mod wire_size;
 pub mod wireguard;
 pub mod worktree_sessions;
 

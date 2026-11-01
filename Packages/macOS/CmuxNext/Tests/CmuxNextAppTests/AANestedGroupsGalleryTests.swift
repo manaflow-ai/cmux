@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// sidebar list views drawn offscreen with the shipped Soft Blue themes, written as PNGs under
 /// `nested-groups-gallery/` in the package and bundled to `nested-groups-gallery.tar` for `cmux-ci run
 /// --artifact`. The suite's file name sorts first so a 64-shard fleet step 1/64 runs it alone.
-@MainActor @Suite(.serialized) struct AANestedGroupsGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AANestedGroupsGalleryTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let repoRoot = packageRoot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

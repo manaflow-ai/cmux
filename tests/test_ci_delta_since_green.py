@@ -8,6 +8,7 @@ that merge commit, as actions/checkout leaves it in ci.yml's `changes` job.
 
 from __future__ import annotations
 
+import re
 import importlib.util
 import os
 import subprocess
@@ -534,6 +535,9 @@ class WorkflowTests(unittest.TestCase):
         condition = jobs["dogfood-build"]["if"]
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
+        # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.
+        condition = re.sub(r" && !\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
+                           r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*\)\) }}$", " }}", condition)
         trusted = {
             "github.event_name": "pull_request",
             "github.event.pull_request.base.ref": "main",

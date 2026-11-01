@@ -25,11 +25,16 @@ enum AgentPanePageHost {
     /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
-        if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
+        // In the view's scope, as `applyTheme` pushes it: a reloaded chat in a workspace with its own
+        // picture stays clear over it, not opaque from the app's backdrop (#28867).
+        if let theme = view.performWithTheme({ AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) }) {
+            events.append(theme)
+        }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
+        events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))
         if let link = view.model.machineLink { events.append(link.event(for: view)) }
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)

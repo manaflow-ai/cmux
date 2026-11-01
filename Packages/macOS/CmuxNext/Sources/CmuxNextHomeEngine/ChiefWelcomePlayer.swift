@@ -27,13 +27,14 @@ public final class ChiefWelcomePlayer {
     ///   - source: Home's local source (the dots and the fresh page go to the store through it).
     ///   - connection: The local Chief owner's connection; nil (not connected, or a cloud Chief) plays nothing.
     ///   - intro: The intro flags; the welcome is marked shown after delivery.
+    ///   - text: What Chief can do, with the person's current shortcuts; nil uses the introductory text.
     /// - Returns: False when nothing started (no connection, or a welcome already playing).
     @discardableResult
     public func play(in conversation: ConversationID, source: DaemonHomeSource, connection: DaemonConnection?,
-                     intro: ChiefIntroStore) -> Bool {
+                     intro: ChiefIntroStore, text: String? = nil) -> Bool {
         guard let connection else { return false }
         let owner = HomeChiefWelcomeOwner(conversation: conversation, source: source, connection: connection)
-        let welcome = ChiefWelcome(conversation: conversation.rawValue, owner: owner, showsTyping: Motion.home.animatesLoops)
+        let welcome = ChiefWelcome(conversation: conversation.rawValue, owner: owner, showsTyping: Motion.home.animatesLoops, text: text)
         return play(welcome) { intro.markShown(.welcome, for: conversation) }
     }
 

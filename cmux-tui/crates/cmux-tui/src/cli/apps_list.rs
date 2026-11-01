@@ -119,8 +119,10 @@ pub(super) fn info_text(detail: &Value) -> String {
         detail["summary"].as_str().unwrap_or(""),
         detail["tier"].as_str().unwrap_or(""),
     );
-    let targets: Vec<&str> = detail["deploy"]["targets"]
-        .as_array()
+    let targets: Vec<&str> = detail
+        .get("deploy")
+        .and_then(|deploy| deploy.get("targets"))
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)

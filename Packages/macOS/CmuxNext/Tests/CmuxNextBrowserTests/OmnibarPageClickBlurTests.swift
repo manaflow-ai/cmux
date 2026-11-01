@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// out over the whole page (`CEFTab.applyOcclusion`), so the press lands on the pane's own
 /// ``CEFHostView`` in the cmux window, not in Chromium's window. That view must end the edit as a
 /// press in the page window does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct OmnibarPageClickBlurTests {
     private func scene() -> (AddressBarView, CEFHostView, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
@@ -42,6 +43,7 @@ struct OmnibarPageClickBlurTests {
     @Test(arguments: [NSEvent.EventType.leftMouseDown, .rightMouseDown])
     func aPressOnTheNewTabPageEndsTheEditAndKeepsTheTypedText(_ type: NSEvent.EventType) throws {
         let (bar, host, window) = scene()
+        defer { window.closeAfterTest() }
         bar.debugType("goo")
         #expect(bar.isEditing)
         try press(type, on: host, in: window)
@@ -54,6 +56,7 @@ struct OmnibarPageClickBlurTests {
     /// the focus model to classify as the pane's content (`FocusResponderClassifier`, `.page`).
     @Test func aPressOnThePageMakesThePageTheResponder() throws {
         let (bar, host, window) = scene()
+        defer { window.closeAfterTest() }
         bar.debugType("goo")
         try press(.leftMouseDown, on: host, in: window)
         #expect(window.firstResponder === host)
@@ -61,7 +64,8 @@ struct OmnibarPageClickBlurTests {
 
     /// The host view never joins the keyboard loop (Tab never lands on it).
     @Test func theHostViewIsNotAKeyView() {
-        let (_, host, _) = scene()
+        let (_, host, window) = scene()
+        defer { window.closeAfterTest() }
         #expect(!host.canBecomeKeyView)
     }
 }
