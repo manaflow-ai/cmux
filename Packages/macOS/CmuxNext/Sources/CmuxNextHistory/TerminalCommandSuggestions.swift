@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A repeated, successful command that can be reviewed as a reusable action.
 public nonisolated struct TerminalCommandSuggestion: Hashable, Identifiable, Sendable {
@@ -127,8 +127,8 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
     }
 
     private static func actionName(_ raw: String) -> String? {
-        let slug = raw.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            .split(separator: "-").joined(separator: "-")
+        let slug = String(raw.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            .split(separator: "-").joined(separator: "-"))
         guard !slug.isEmpty else { return nil }
         return "suggested-\(slug.prefix(48))"
     }
