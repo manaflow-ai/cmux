@@ -68,7 +68,8 @@ impl Hub {
                     let closed_exact = by_key_exact(&full, query, &own);
                     if !closed_exact.is_empty() {
                         summaries = full;
-                        (None, closed_exact)
+                        let exact = by_key_exact(&summaries, query, &own);
+                        (None, exact)
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
