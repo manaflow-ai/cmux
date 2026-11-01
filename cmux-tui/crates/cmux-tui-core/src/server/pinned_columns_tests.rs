@@ -205,10 +205,11 @@ fn pinned_tab_cannot_close_through_the_socket_or_the_resource_api() {
 fn pinned_column_takes_no_new_tab_until_allow_tabs_is_on() {
     let (mut wire, panes) = Wire::home();
     let home = wire.tabs(panes[0])[0];
-    refused(&wire.send(json!({"cmd": "new-tab", "pane": panes[0]})));
+    // A terminal tab aimed at it opens in a new column right of it instead (FC-1); none enters it.
+    wire.ok(json!({"cmd": "new-tab", "pane": panes[0]}));
     let params =
         json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
-    refused(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
+    resource_ok(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
     assert_eq!(wire.tabs(panes[0]), vec![home], "no tab entered the pinned column");
 
     resource_ok(&wire.column_update(json!({"allow_tabs": true})));
@@ -458,11 +459,6 @@ fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
     let home = wire.tabs(panes[0])[0];
     let right = wire.tabs(panes[1])[0];
     wire.ok(json!({"cmd": "close-surface", "surface": right}));
-    let params =
-        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
-    refused(&resource(&wire.mux, "tab.create_terminal", params, Some("lone-terminal")));
-    assert_eq!(wire.tabs(panes[0]), vec![home], "no terminal entered the dock");
-
     wire.mux.focus_pane(panes[0]);
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine: "webkit".into(),
