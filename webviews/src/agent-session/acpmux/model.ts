@@ -1102,7 +1102,9 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
 /// the plain status gap above and below it.
 const NOTE_LINE = 20;
-const NOTE_GAP = 12;
+/// The room around a note (#30400's --cv-note-gap): 0 on the grid, where the run's block gap between
+/// its lines is the room (conversation.css `.cv-tool-note { margin: 0 }`, foldedRunSteps).
+const NOTE_GAP = 0;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
