@@ -196,7 +196,7 @@ final class TabCell {
     private func buildLayers() {
         let root = layer
         root.masksToBounds = false
-        backgroundLayer.cornerCurve = .continuous
+        backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
         // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
