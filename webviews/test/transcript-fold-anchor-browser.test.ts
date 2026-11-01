@@ -215,6 +215,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await show(page, [...done, ...live(1)]);
     await settle(page);
     expect(await atLatest(page)).toBe(true);
+    const aboveBefore = await page.locator('[data-row-id="live-user"]').evaluate((node) => {
+      (node as HTMLElement).dataset.aboveProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
 
     const opened = await clickAndWatch(page);
@@ -225,6 +229,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadAnimations).toBe(1);
     expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    await settle(page);
+    const aboveAfter = await page.locator("[data-above-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    expect(aboveAfter).toBeLessThan(aboveBefore - 1);
     expect(await atLatest(page)).toBe(true);
 
     const expandedEnd = await scrollHeight(page);
@@ -248,6 +255,35 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
+    await page.close();
+  });
+
+  test("away from the bottom a tool call expands downward without moving the earlier stack", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(1)]);
+    await settle(page);
+    await page.mouse.wheel(0, -220);
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    const before = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>('[data-row-id="t7-answer"]')!;
+      above.dataset.aboveProbe = "true";
+      return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, aboveTop: above.getBoundingClientRect().top };
+    });
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    const opened = await clickAndWatch(page);
+    await settle(page);
+    const after = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>("[data-above-probe]")!;
+      return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, aboveTop: above.getBoundingClientRect().top };
+    });
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(opened.threadAnimations).toBe(0);
+    expect(after.scrollTop).toBeCloseTo(before.scrollTop, 0);
+    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight);
+    expect(after.aboveTop).toBeCloseTo(before.aboveTop, 0);
     await page.close();
   });
 
