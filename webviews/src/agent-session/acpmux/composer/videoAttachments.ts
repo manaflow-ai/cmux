@@ -150,7 +150,9 @@ export function useVideoInfo(
           const video = parseVideoInfo(answer);
           if (!video) return;
           setAttachments((current) =>
-            current.includes(chip) ? current.map((staged) => (staged === chip ? { ...staged, video } : staged)) : current,
+            current.includes(chip)
+              ? current.map((staged) => (staged === chip ? { ...staged, video } : staged))
+              : current,
           );
         },
         () => {
