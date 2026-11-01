@@ -587,6 +587,41 @@ test("it floats while the right gutter holds it, and pushes the chat left where 
   paneWidth = 0;
 });
 
+test("a floating panel that would lie over the chat's text pushes the chat left, whatever the gutter's width", async () => {
+  // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". His panel
+  // floated over the transcript's text: the chat's column ran on under it. A 1600px pane's gutter holds
+  // a 320px panel by the model's numbers, so only the drawn rows can tell.
+  const container = installDom(true);
+  paneWidth = 1600;
+  await render(container, localChat);
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  const main = container.querySelector(".acpmux-main")!;
+  const row = document.createElement("div");
+  row.className = "acpmux-row";
+  const reach = (right: number) =>
+    (row.getBoundingClientRect = () =>
+      ({ left: right - 720, right, width: 720, top: 100, bottom: 140, height: 40, x: right - 720, y: 100 }) as DOMRect);
+  main.append(row);
+  // Text that stays inside the column (1600px: 400px each side): it keeps floating.
+  reach(1200);
+  await act(async () => {
+    paneWidth = 1601;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  // Text reaching into the right gutter, under where the panel floats (1272 to 1592): the chat moves left.
+  reach(1500);
+  await act(async () => {
+    paneWidth = 1600;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("push");
+  expect(sessionInfoPushes("overlay", { width: 1600, height: 700 }, 320, undefined, false, 300)).toBe(true);
+  expect(sessionInfoPushes("overlay", { width: 1600, height: 700 }, 320, undefined, false, 0)).toBe(false);
+  row.remove();
+  paneWidth = 0;
+});
+
 test("the right gutter holds the panel only in a wide pane", () => {
   // A 1600px pane's 400px gutter holds 320px and its two 8px margins: it floats beside the column.
   expect(sessionInfoOverChat(1600, 320)).toBe(false);

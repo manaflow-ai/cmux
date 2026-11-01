@@ -166,15 +166,40 @@ export const sessionInfoPopover = (paneHeight: number, overChat: boolean) =>
 /// cannot hold it, it takes its column and the chat moves left instead of lying under it (Leo,
 /// 2026-11-01: "why does the session info not push the layout left ever anymore"). A short pane keeps
 /// it a popover over the chat (POPOVER_BELOW_HEIGHT), and a handoff review's wider form never pushes.
+/// `overflow` is how far the chat's drawn content reaches past the column the model expects
+/// (chatContentOverflow): a panel that would lie over any row or the composer pushes, whatever the
+/// gutter's width says.
 export const sessionInfoPushes = (
   placement: SessionInfoPlacement,
   pane: { width: number; height: number },
   width: number,
   column?: ChatColumn,
   wide = false,
+  overflow = 0,
 ) =>
   pushes(placement) ||
-  (!wide && sessionInfoOverChat(pane.width, width, column) && !sessionInfoPopover(pane.height, true));
+  (!wide &&
+    sessionInfoOverChat(pane.width, width + Math.max(0, overflow), column) &&
+    !sessionInfoPopover(pane.height, true));
+
+/// The chat's content Session Info must never float over: the transcript's rows and the composer.
+const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
+
+/// How far the chat's drawn content reaches past the right end of the column the model expects
+/// (`paneWidth` less the transcript's gutter, from the shell's left edge); 0 when it stays inside.
+/// Read only while the panel floats, where the chat has the pane's full width, so the reading never
+/// depends on the push it decides.
+export function chatContentOverflow(shell: HTMLElement, paneWidth: number, column?: ChatColumn): number {
+  if (paneWidth <= 0) return 0;
+  const left = shell.getBoundingClientRect().left;
+  const end = paneWidth - gutterOf(paneWidth, column);
+  let reach = 0;
+  for (const element of shell.querySelectorAll<HTMLElement>(CHAT_CONTENT)) {
+    const { right, width } = element.getBoundingClientRect();
+    if (width > 0) reach = Math.max(reach, right - left);
+  }
+  return Math.max(0, Math.ceil(reach - end));
+}
 
 /// Whether Session Info shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
@@ -689,8 +714,20 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
-  const push = sessionInfoPushes(display.sessionInfo, { width: paneWidth, height: paneHeight }, width, column, wide);
-  const overChat = !push && sessionInfoOverChat(paneWidth, width, column, wide);
+  // How far the chat's content reaches past the column the model expects (chatContentOverflow),
+  // read while the panel floats: a panel that would lie over any of it pushes the chat left (Leo,
+  // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
+  // reading while pushed, and starts again at 0 each time the panel opens.
+  const [overflow, setOverflow] = useState(0);
+  const push = sessionInfoPushes(
+    display.sessionInfo,
+    { width: paneWidth, height: paneHeight },
+    width,
+    column,
+    wide,
+    overflow,
+  );
+  const overChat = !push && sessionInfoOverChat(paneWidth, width + overflow, column, wide);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
   // Over the chat in a taller pane, the card stops above the composer's stack: its height, followed
@@ -728,6 +765,18 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   useUnderSessionInfo(shell, drawn, push, FLOAT_MARGIN, sessionInfoTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
+  // Measured before paint, so a panel that would cover the chat never draws a frame over it. Again
+  // as the pane, the panel or the rows change while it floats.
+  const floating = drawn && !push;
+  useLayoutEffect(() => {
+    if (!drawn) {
+      setOverflow(0);
+      return;
+    }
+    if (!shell || !floating || wide) return;
+    const next = chatContentOverflow(shell, paneWidth, column);
+    setOverflow((current) => (next > current ? next : current));
+  }, [shell, drawn, floating, wide, paneWidth, side, width, column, rows.length]);
   const scopedAgent = scope?.agent;
   const summary = useMemo(
     () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
