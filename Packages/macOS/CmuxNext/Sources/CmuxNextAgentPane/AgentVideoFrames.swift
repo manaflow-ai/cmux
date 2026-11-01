@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreGraphics
-import Foundation
+// Public: `read` takes a `URL` (InternalImportsByDefault).
+public import Foundation
 
 /// Frames of a video file at the times an agent asks for, for the `video_info` and
 /// `video_frames` agent tools (`cmux mcp`, cmux-tui `video_tools.rs`), through the app method
