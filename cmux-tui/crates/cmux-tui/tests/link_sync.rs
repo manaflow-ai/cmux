@@ -203,6 +203,75 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
     assert_eq!(git(&remote, &status), git(&repo, &status));
 }
 
+/// A working copy whose objects live in other repositories, the way
+/// `git clone --shared` and worktree mirrors leave it: `app` borrows from
+/// `mid`, which borrows from `base` (by a relative path), and only `app`'s
+/// newest commit is its own. It arrives standing alone: every object goes,
+/// the alternates file (paths of this Mac) does not, and git on the machine
+/// finds the whole history with the borrowed repositories gone.
+#[test]
+fn a_repo_that_borrows_objects_arrives_standing_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let base = dirty_repo(&root);
+    git(&base, &["add", "-A"]);
+    git(&base, &["commit", "-q", "-m", "second"]);
+    git(&root, &["clone", "-q", "--shared", "app", "mid"]);
+    let mid = root.join("mid");
+    // `--shared` writes an absolute path; git also takes one relative to
+    // the object folder holding the alternates file.
+    std::fs::write(mid.join(".git/objects/info/alternates"), "../../../app/.git/objects\n")
+        .unwrap();
+    git(&mid, &["checkout", "-q", "-b", "work"]);
+    std::fs::write(mid.join("mid.txt"), "mid\n").unwrap();
+    git(&mid, &["add", "mid.txt"]);
+    git(&mid, &["commit", "-q", "-m", "mid"]);
+    git(&root, &["clone", "-q", "--shared", "--branch", "work", "mid", "copy"]);
+    let repo = root.join("copy");
+    std::fs::write(repo.join("own.txt"), "own\n").unwrap();
+    git(&repo, &["add", "own.txt"]);
+    git(&repo, &["commit", "-q", "-m", "own"]);
+    std::fs::write(repo.join("own.txt"), "own\nunstaged\n").unwrap();
+    assert!(repo.join(".git/objects/info/alternates").exists());
+
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("fs.sock");
+    serve_fs(&socket, &home);
+    let remote = home.join("work/copy");
+
+    let summary = push(&socket, &repo, &remote);
+    assert!(summary["written"].as_u64().unwrap_or(0) > 0, "{summary}");
+    assert!(
+        !remote.join(".git/objects/info/alternates").exists(),
+        "the alternates file (paths of this Mac) was synced"
+    );
+    let status = ["status", "--porcelain=v2", "--branch"];
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let history = git(&repo, &["log", "--format=%H %s", "--all"]);
+    let stash = git(&repo, &["stash", "list"]);
+    let local_status = git(&repo, &status);
+
+    // Nothing changed here: the second push writes nothing.
+    let again = push(&socket, &repo, &remote);
+    assert_eq!(again["written"].as_u64(), Some(0), "{again}");
+
+    // The machine's copy needs nothing of this Mac's repositories.
+    std::fs::remove_dir_all(&base).unwrap();
+    std::fs::remove_dir_all(&mid).unwrap();
+    git(&remote, &["fsck", "--full", "--no-dangling"]);
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&remote, &["log", "--format=%H %s", "--all"]), history);
+    assert_eq!(git(&remote, &["stash", "list"]), stash);
+    assert_eq!(git(&remote, &status), local_status);
+    assert_eq!(
+        git(&remote, &["cat-file", "-s", "HEAD~2:big.bin"]).trim(),
+        (13 * 1024 * 1024).to_string(),
+        "a blob only the farthest repository held is missing"
+    );
+}
+
 /// Every file below `dir`, by path, with its bytes.
 fn files_below(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut found = Vec::new();
