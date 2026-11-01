@@ -472,6 +472,14 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} on main"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
+    # Shared workflows carry DEV/promote delivery runs in their title (for
+    # example `cmux NEXT DEV daily · <sha>` on cmux-next.yml), so the path
+    # alone does not match PROTECTED_WORKFLOW.  Delivery runs are protected
+    # here as well as by the orphan pass: a lost or unclaimed job is a
+    # capacity problem, not a reason to cancel a run that may already have
+    # started its build, sign or publish work.
+    if delivers(run.get("path"), event, run.get("name"), run.get("display_title")):
+        return "nightly/DEV/promote delivery workflow"
     test_run = not is_delivery_event(event) and is_delivery_workflow(str(run.get("path") or ""))
     if (PULL_REQUEST_PROTECTED_WORKFLOW if test_run else PROTECTED_WORKFLOW).search(haystack):
         return "release/nightly/TestFlight/App Store workflow"

@@ -4456,6 +4456,15 @@ class DeliveryRunScopeTests(unittest.TestCase):
         self.assertIsNotNone(janitor.orphan_protected_reason(build))
         self.assertEqual(self.reserved(build), 1)
 
+    def test_shared_cmux_next_dev_dispatch_is_delivery_protected(self):
+        # DEV daily dispatches use the shared cmux-next.yml path and title;
+        # they must receive the same orphan/lost-assignment protection as the
+        # dedicated nightly workflow.
+        run = make_run(event="workflow_dispatch", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml",
+                       name="cmux NEXT DEV daily · aaa")
+        self.assertIsNotNone(janitor.protected_reason(run))
+        self.assertIsNotNone(janitor.orphan_protected_reason(run))
+
 
 class ReservedPoolWorkflowTests(unittest.TestCase):
     """Which runs' queued macOS jobs count as `reserved_queued`, the freshness work PR overflow stays off."""
