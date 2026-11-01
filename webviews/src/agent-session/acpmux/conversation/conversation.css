@@ -2748,6 +2748,9 @@ pre.cv-math-source {
   display: inline-flex;
   flex: none;
   align-items: center;
+  /* The line's height, never its 24px button's: the button centers on the line and overhangs it by
+     a pixel, so the sent line is as tall as every one-line row (`.acpmux-row--line`). */
+  height: var(--cv-tool-row-height);
   margin-inline-start: 4px;
   opacity: 0;
 }
