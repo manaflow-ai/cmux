@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxNotifications
@@ -78,6 +79,216 @@ private extension DockSplitStore {
 @Suite("Dock runtime parity", .serialized)
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
+
+    @Test("Dock tab buttons follow config before and after creation", arguments: [false, true])
+    func dockTabButtonsFollowConfig(createBeforeConfig: Bool) async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            var workspaceDock: DockSplitStore?
+            var windowDock: DockSplitStore?
+            if createBeforeConfig {
+                workspaceDock = try #require(workspace.dockSplit)
+                windowDock = manager.makeWindowDockStore(windowId: UUID())
+            }
+            manager.applySurfaceTabBarButtons(
+                [], sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            if !createBeforeConfig {
+                workspaceDock = try #require(workspace.dockSplit)
+                windowDock = manager.makeWindowDockStore(windowId: UUID())
+            }
+            let docks = [try #require(workspaceDock), try #require(windowDock)]
+            defer { docks.forEach { $0.closeAllPanels() } }
+            for dock in docks {
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+            }
+
+            // Resolved built-ins retain the user's order and metadata; custom
+            // commands and unsupported built-ins must not draw inert buttons.
+            let buttons: [CmuxSurfaceTabBarButton] = [
+                .builtIn(.splitDown, id: "down", tooltip: "Split below"),
+                CmuxSurfaceTabBarButton(id: "custom", action: .command("echo test")),
+                .builtIn(.copyScreen),
+                .builtIn(.newTerminal, id: "terminal")
+            ]
+            manager.applySurfaceTabBarButtons(
+                buttons, sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            for dock in docks {
+                Self.expectConfiguredDockButtons(dock, after: "applying the configured list")
+                // Both chrome refreshes rebuild the Bonsplit appearance; each
+                // must carry the configured list through on its own.
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                Self.expectConfiguredDockButtons(dock, after: "applyGhosttyChrome(from:)")
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                Self.expectConfiguredDockButtons(
+                    dock, after: "applyGhosttyChrome(from:windowAppearance:)"
+                )
+            }
+
+            // #27452: going back to `[]` while the Docks are open must clear
+            // the buttons they already draw, and a later refresh must not
+            // bring them back.
+            manager.applySurfaceTabBarButtons(
+                [], sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            for dock in docks {
+                #expect(
+                    dock.bonsplitController.configuration.appearance.splitButtons.isEmpty,
+                    "configured buttons survived a change back to []"
+                )
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                #expect(
+                    dock.bonsplitController.configuration.appearance.splitButtons.isEmpty,
+                    "a chrome refresh brought cleared buttons back"
+                )
+            }
+        }
+    }
+
+    @Test("Dock tab buttons skip a configured browser button while the browser is disabled")
+    func dockTabButtonsSkipUnavailableBrowser() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let defaults = UserDefaults.standard
+            let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            defer {
+                if let previousBrowserDisabled {
+                    defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+            }
+            let docks = [
+                try #require(workspace.dockSplit),
+                manager.makeWindowDockStore(windowId: UUID())
+            ]
+            defer { docks.forEach { $0.closeAllPanels() } }
+            let buttons: [CmuxSurfaceTabBarButton] = [
+                .builtIn(.newBrowser, id: "browser"),
+                .builtIn(.splitDown, id: "down")
+            ]
+            let apply = {
+                manager.applySurfaceTabBarButtons(
+                    buttons, sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                    terminalCommandSourcePaths: [:], workspaceCommands: [:]
+                )
+            }
+
+            // Control: with the browser available the Docks draw the button,
+            // so the disabled case below is not passing vacuously.
+            BrowserAvailabilitySettings.setDisabled(false)
+            if BrowserAvailabilitySettings.isEnabled() {
+                apply()
+                for dock in docks {
+                    let ids = dock.bonsplitController.configuration.appearance.splitButtons.map(\.id)
+                    #expect(ids == ["browser", "down"])
+                }
+            }
+
+            BrowserAvailabilitySettings.setDisabled(true)
+            apply()
+            for dock in docks {
+                let actual = dock.bonsplitController.configuration.appearance.splitButtons
+                #expect(actual.map(\.id) == ["down"], "a disabled browser left its button in the Dock")
+                #expect(!actual.contains { $0.action == .newBrowser })
+            }
+        }
+    }
+
+    @Test("A window Dock follows browser availability changes without a config re-apply")
+    func windowDockFollowsBrowserAvailabilityChanges() async throws {
+        try await withAppContext { _, manager, _, _ in
+            let defaults = UserDefaults.standard
+            let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            let previousPolicyOverride = BrowserAvailabilitySettings.managedPolicyOverrideForTesting
+            defer {
+                BrowserAvailabilitySettings.managedPolicyOverrideForTesting = previousPolicyOverride
+                if let previousBrowserDisabled {
+                    defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+            }
+            BrowserAvailabilitySettings.managedPolicyOverrideForTesting = false
+            // The app-wide monitor is what turns a settings write into the
+            // transition broadcast the managers observe.
+            BrowserAvailabilityMonitor.shared.activate()
+            BrowserAvailabilitySettings.setDisabled(true)
+            await Self.drainMainQueue()
+
+            manager.applySurfaceTabBarButtons(
+                [.builtIn(.newBrowser, id: "browser"), .builtIn(.splitDown, id: "down")],
+                sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            // Created while the browser is disabled, after configuration.
+            let dock = manager.makeWindowDockStore(windowId: UUID())
+            defer { dock.closeAllPanels() }
+            let ids = { dock.bonsplitController.configuration.appearance.splitButtons.map(\.id) }
+            #expect(ids() == ["down"])
+
+            // From here on only the real settings write and its notifications
+            // drive the Dock; nothing re-applies the configuration.
+            BrowserAvailabilitySettings.setDisabled(false)
+            await Self.drainMainQueue()
+            #expect(ids() == ["browser", "down"], "enabling the browser did not reach the window Dock")
+
+            BrowserAvailabilitySettings.setDisabled(true)
+            await Self.drainMainQueue()
+            #expect(ids() == ["down"], "disabling the browser did not reach the window Dock")
+        }
+    }
+
+    /// Lets main-queue notification delivery settle: the monitor re-reads the
+    /// gate in a main-actor task and its broadcast is delivered after that.
+    private static func drainMainQueue() async {
+        for _ in 0..<3 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
+    private static func expectConfiguredDockButtons(
+        _ dock: DockSplitStore,
+        after stage: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        let actual = dock.bonsplitController.configuration.appearance.splitButtons
+        #expect(
+            actual.map(\.id) == ["down", "terminal"],
+            Comment(rawValue: "ids after \(stage)"),
+            sourceLocation: sourceLocation
+        )
+        #expect(
+            actual.map(\.action) == [.splitDown, .newTerminal],
+            Comment(rawValue: "actions after \(stage)"),
+            sourceLocation: sourceLocation
+        )
+        #expect(
+            actual.first?.tooltip == "Split below",
+            Comment(rawValue: "tooltip after \(stage)"),
+            sourceLocation: sourceLocation
+        )
+    }
 
     @Test("Conversations reuses a live Dock terminal", arguments: [false, true])
     func conversationReusesLiveDockTerminal(windowDock: Bool) async throws {
