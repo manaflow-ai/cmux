@@ -42,7 +42,6 @@ import Testing
         #expect(invoked == ["review"])
     }
 
-
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let child = PaneTabRowMenuItem(id: "child", label: "Child")
@@ -123,6 +122,79 @@ import Testing
         #expect(!hidden.isEmpty)
         #expect(narrow.nativeOverflowItems().map(\.title) == hidden)
 
+    }
+
+    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlappingMore() {
+        DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
+            let tools = [
+                PaneTabRowTool(id: "first", symbol: "checkmark", label: "First"),
+                PaneTabRowTool(id: "second", symbol: "square", label: "Second"),
+            ]
+            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 60, height: 30))
+            view.show(more: true, lit: false, nativeItems: tools)
+            view.layoutSubtreeIfNeeded()
+
+            let visible = view.nativeButtons.filter { !$0.isHidden } + [view.moreButton]
+            for (index, button) in visible.enumerated() {
+                for other in visible.dropFirst(index + 1) {
+                    #expect(!button.frame.intersects(other.frame), "visible native controls must not overlap")
+                }
+            }
+            let hidden = zip(tools, view.nativeButtons).filter { $0.1.isHidden }.map(\.0.label)
+            #expect(!hidden.isEmpty, "a partial slot must move to overflow")
+            #expect(view.nativeOverflowItems().map(\.title) == hidden)
+        }
+    }
+
+    @Test func textToolGetsAWiderSlotAndIconOnlyToolsKeepTheirSlot() {
+        let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
+        let text = PaneTabRowTool(id: "text", symbol: "checkmark", label: "Text", text: "#123 ✓3/5")
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        view.show(more: false, lit: false, nativeItems: [icon, text])
+        view.layoutSubtreeIfNeeded()
+        #expect(view.nativeButtons[0].frame.width == TitlebarBandButton.side)
+        #expect(view.nativeButtons[1].frame.width > view.nativeButtons[0].frame.width)
+        #expect(view.nativeOverflowItems().isEmpty)
+    }
+
+    @Test func iconAndOverflowFitAtTheirIntrinsicWidth() {
+        let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
+        let view = PaneToolbarView(frame: .zero)
+        view.show(more: true, lit: false, nativeItems: [icon])
+        let width = view.intrinsicContentSize.width
+        view.frame.size.width = width
+        view.layoutSubtreeIfNeeded()
+        #expect(view.nativeButtons.first?.isHidden == false)
+        #expect(view.nativeOverflowItems().isEmpty)
+    }
+
+    @Test func menuURLOpensOnceAndStaleOwnerCannotInvokeIt() throws {
+        let url = "https://example.com/pull/123"
+        let item = PaneTabRowMenuItem(id: "open", label: "Open", url: url)
+        let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", menu: [item])
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        view.show(more: false, lit: false, nativeItems: [tool])
+        var owner = "first"
+        var opened: [URL] = []
+        var invoked: [(String, String?)] = []
+        view.openURL = { opened.append($0) }
+        view.onNativeToolURL = { id, menuID, openedURL in
+            guard owner == "first" else { return }
+            view.openURL(openedURL)
+            invoked.append((id, menuID))
+        }
+        let menu = try #require(view.nativeButtons.first?.pressMenu?())
+        let row = try #require(menu.items.first)
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(opened == [try #require(URL(string: url))])
+        #expect(invoked.map { [$0.0, $0.1 ?? ""] } == [["review", "open"]])
+
+        owner = "second"
+        view.show(more: false, lit: false,
+                  nativeItems: [tool])
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(opened.count == 1)
+        #expect(invoked.count == 1)
     }
 
     @Test func aLitMenuDrawsInTheAccent() {

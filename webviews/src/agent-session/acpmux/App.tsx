@@ -70,6 +70,7 @@ import {
   QueuedMessageCard,
   SteerWaitingActions,
   WaitingMessageMenu,
+  type HeldAnswer,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -986,6 +987,20 @@ const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { 
 const steerControls = (row: AcpmuxRow) =>
   row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
 
+/// A guest's queued prompt (held for the owner, or approved and waiting): a person's, drawn on its own.
+const isPersonQueuedRow = (row: AcpmuxRow) => Boolean(row.queuedMessage?.person || row.queuedMessage?.held);
+
+/// The owner's Approve or Decline of a guest's held prompt (conversation/QueuedMessageCard.tsx).
+const answerHeld = (promptId: string, approve: boolean, revision?: number): Promise<HeldAnswer> =>
+  callNative(approve ? "chat.queue.approve" : "chat.queue.decline", {
+    promptId,
+    ...(approve && revision !== undefined ? { revision } : {}),
+  }).then(
+    () => "ok",
+    (error: { reason?: unknown } | null) =>
+      error?.reason === "queue.stale" ? "stale" : error?.reason === "queue.not_found" ? "gone" : "failed",
+  );
+
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
@@ -1864,6 +1879,10 @@ const ReadOnlyPermissionRow = memo(
 const ReadOnlyQueuedMessageRow = memo(
   function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
     if (row.incoming?.kind !== "message") return null;
+    // A person's message (a guest's prompt) is drawn whole here too: its text is never read as a
+    // lane notice, so nothing it says is hidden from the read-only transcript either.
+    const person = row.queuedMessage?.person;
+    const whole = Boolean(person || row.queuedMessage?.held || row.queuedMessage?.declined || row.incoming.message.fromPerson);
     return (
       <div className="cv-incoming">
         <IncomingMessageLine
@@ -1873,6 +1892,8 @@ const ReadOnlyQueuedMessageRow = memo(
           images={row.images}
           onOpen={openSenderChat}
           githubRepository={githubRepository}
+          {...(person ? { person } : {})}
+          {...(whole ? { whole: true } : {})}
         />
       </div>
     );
@@ -5765,6 +5786,8 @@ function AcpmuxPane() {
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
+  // Automatic Cloud credential recovery survives turn-action memo rebuilds and is bounded per session.
+  const automaticCloudCredentialAttempts = useRef<Set<string>>(new Set());
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -6769,9 +6792,15 @@ function AcpmuxPane() {
   // none in a run come back as they are.
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
-    const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
+    // A guest's prompt is a person's, never another session's message: it draws on its own, held
+    // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
+    // the group.
+    const people = queuedRows.filter(isPersonQueuedRow);
+    const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
+    const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const shown = mergeInboxNotices(turnRowsShown);
+    const merged = mergeInboxNotices(turnRowsShown);
+    const shown = people.length ? [...merged, ...people] : merged;
     const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
@@ -7515,6 +7544,7 @@ function AcpmuxPane() {
         callNative,
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => directClient.current ?? undefined,
+        automaticCloudCredentialAttempts.current,
       ),
       // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
       // important"): its own login, never this Mac's. Its page opens as a link click does here.
@@ -8140,19 +8170,23 @@ function AcpmuxPane() {
       ].join("\u0000")
     : "";
   const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  // Session Info lists the subagent's rows as they stood when the reader started scrolling, until
+  // the scroll settles, as the chat's card does with `cardRows` (summary/heldWhileScrolling.ts,
+  // cmux#29639). Another subagent, or another chat, takes its rows at once.
+  const cardScopedRows = useHeldWhileScrolling(scopedRows, `${shownSessionId ?? ""}\u0000${shownSubagent ?? ""}`);
   const sessionInfoSubagent = useMemo((): SubagentScope | undefined => {
     if (!scopedAgent) return undefined;
     const parent = scopedAgent.parent;
     return {
       agent: scopedAgent,
-      rows: scopedRows ?? [],
+      rows: cardScopedRows ?? [],
       parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
       agents: descendants(chatAgents, scopedAgent.id),
       // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
       onBack: () => setSubagentView(parent ?? undefined),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
-  }, [scopedKey, scopedRows, chatName, chatAgents]);
+  }, [scopedKey, cardScopedRows, chatName, chatAgents]);
   // How many rows Session Info's Background tasks lists for the view on screen, read as it reads
   // them (sessionInfoLists drops a transcript shell the registry no longer lists): a subagent's view
   // from its own rows (none yet: empty) and processes, with how its shells ended in the chat's rows
@@ -8771,6 +8805,8 @@ function AcpmuxPane() {
   // Delete, Move up/down. Offered while disconnected too, as the queue row's were: a call then fails
   // and the card stays. The menu reads them as it opens.
   const sideChatOffered = Boolean(opensSideSessions && !isSideSession && snapshot.sessionId);
+  // A guest's held prompt offers Approve and Decline only where acpmux serves them.
+  const queueApproval = snapshot.queueApproval === true;
   const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
     () => ({
       steer: (promptId) => editQueued(promptId, { op: "send_now" }),
@@ -8790,12 +8826,13 @@ function AcpmuxPane() {
         return index < 0 ? undefined : { index, count: queue.length };
       },
       move: (promptId, index) => editQueued(promptId, { op: "move", index }),
+      ...(queueApproval && { answerHeld }),
       ...(sideChatOffered && {
         sideChat: (promptId: string, text: string) =>
           queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
       }),
     }),
-    [sideChatOffered, readQueuedImage],
+    [sideChatOffered, readQueuedImage, queueApproval],
   );
   // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
   queuedMessageActionsRef.current = queuedMessageActions;
@@ -10112,6 +10149,9 @@ function AcpmuxPane() {
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.queue.approve": ({ promptId, revision }) =>
+            client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
+          "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
           "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>

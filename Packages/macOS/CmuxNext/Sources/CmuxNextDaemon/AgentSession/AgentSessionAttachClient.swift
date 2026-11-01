@@ -131,7 +131,6 @@ public actor AgentSessionAttachClient {
     /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set(events)
         // One attach at a time: the daemon refuses a second attach of the tab while the first still
         // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
         // the remote wire asks two at once (the page's session list and its attach, sent together
@@ -141,6 +140,10 @@ public actor AgentSessionAttachClient {
         // task-owner: this attach; the next attach waits on it, and the caller's cancel cancels it
         let task = Task {
             await previous?.value
+            // A caller that cancelled while this attach waited gets nothing sent and keeps no
+            // handler: the earlier attach's pushes still go to its own.
+            try Task.checkCancellation()
+            self.handler.set(events)
             return try await self.call(command, params)
         }
         attachTail = Task { _ = await task.result }

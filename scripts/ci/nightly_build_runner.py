@@ -34,7 +34,7 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
   with). When the runners cannot be read (no routing token, or its API budget
-  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build and verify picks,
   only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
   the first watched label itself, so the build still queues on the owned pool
   before Blacksmith (unread_owned_route()). Empty when no label is one the

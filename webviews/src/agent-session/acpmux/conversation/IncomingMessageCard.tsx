@@ -55,6 +55,9 @@ import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useTranscriptReadOnly } from "./readOnly";
+import { Face } from "../multiplayer/Faces";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { isGuest, type Participant } from "../multiplayer/participants";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -148,6 +151,21 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   );
 }
 
+/// A person's name at a received line's start (a guest's held prompt, QueuedMessageCard.tsx): their
+/// face in the mark's column and their name, "<name> (guest)" for a link guest. A person is no chat.
+function PersonName({ person }: { person: Participant }) {
+  const t = useT();
+  const from = isGuest(person) ? t("multiplayer.guestName", { name: person.name }) : person.name;
+  return (
+    <span className="cv-received__sender">
+      <span className="cv-received__mark" aria-hidden="true">
+        <Face person={person} />
+      </span>
+      <span className="cv-received__from">{from}</span>
+    </span>
+  );
+}
+
 /// The messages whose reply is open, and the reply drafts, by the same key.
 const replying = new Set<string>();
 const replyDrafts = new Map<string, string>();
@@ -156,6 +174,9 @@ export function IncomingMessageLine({
   id,
   message,
   messageAt,
+  person,
+  whole = false,
+  files,
   images,
   onOpen,
   onReply,
@@ -167,6 +188,14 @@ export function IncomingMessageLine({
   message: IncomingMessage;
   /// The containing transcript row's epoch timestamp, used to date bare UTC times.
   messageAt?: number;
+  /// A person's message (a guest's held prompt, QueuedMessageCard.tsx): their face in the icon
+  /// column and their name, "<name> (guest)" for a link guest, in place of an agent's.
+  person?: Participant;
+  /// Drawn whole and open, its text as sent (no cut, no Minimal Mode fold, no signature or
+  /// reference rewriting): a guest's held message, which the owner approves as it is.
+  whole?: boolean;
+  /// The files the message sent (a recorded prompt's `inlineParts`), drawn as a sent prompt's.
+  files?: readonly FileAttachmentInfo[];
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
@@ -181,12 +210,15 @@ export function IncomingMessageLine({
   const t = useT();
   // Read only (a guest): nobody replies.
   const readOnly = useTranscriptReadOnly();
-  const notice = laneNotice(message);
+  // A person's message (drawn whole) is never a lane notice: what it looks like never hides any of
+  // the text the owner approves.
+  const notice = whole || person ? undefined : laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [open, setOpen] = useState(() => messageOpened(session, id));
+  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  const open = whole || opened;
   const show = (next: boolean) => {
     setMessageOpened(session, id, next);
     setOpen(next);
@@ -207,7 +239,7 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && foldFind(notice?.body ?? unsigned(message.text, message.name)).includes(needle));
+  const inText = Boolean(needle && foldFind(notice?.body ?? (whole ? message.text : unsigned(message.text, message.name))).includes(needle));
   const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -222,19 +254,29 @@ export function IncomingMessageLine({
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
   const name = (message.chief && chief?.name) || message.name;
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  // A person is never a chat: their name never finds one (a guest names themselves).
+  const sender = useSenderChat(
+    person || message.chief ? "" : message.name,
+    person ? undefined : message.sessionId,
+  );
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = notice?.body ?? unsigned(message.text, message.name);
+  const text = notice?.body ?? (whole ? message.text : unsigned(message.text, message.name));
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
-  const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
+  const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(() => notice?.preview ?? messagePreview(body), [body, notice]);
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
+  const from = person
+    ? isGuest(person)
+      ? t("multiplayer.guestName", { name: person.name })
+      : person.name
+    : message.relation
+      ? t(RELATION_LABEL[message.relation], { name })
+      : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
   const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
@@ -273,7 +315,7 @@ export function IncomingMessageLine({
       open={open}
       onOpenChange={toggled}
       animates={() => !notice && played.current}
-      leading={<SenderName message={message} onOpen={onOpen} />}
+      leading={person ? <PersonName person={person} /> : <SenderName message={message} onOpen={onOpen} />}
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
@@ -317,6 +359,13 @@ export function IncomingMessageLine({
         </div>
       </MessageScopeContext.Provider>
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
+      {files && files.length > 0 && (
+        <div className="cv-user__files cv-message__files">
+          {files.map((file, index) => (
+            <FileAttachment key={index} file={file} />
+          ))}
+        </div>
+      )}
       {raw !== undefined && (
         <div className="cv-received__details">
           <button

@@ -560,6 +560,9 @@ pub struct QueuedLaunch {
     /// account hit a usage limit); None: the engine of now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
+    /// The model its spawn chose (`spawn(model)`); None: the engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
