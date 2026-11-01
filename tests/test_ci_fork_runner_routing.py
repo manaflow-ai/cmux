@@ -615,8 +615,18 @@ def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | st
         return all(evaluate_runner_condition(child, context) for child in node[1])
     if kind == "not":
         return not evaluate_runner_condition(node[1], context)
-    if kind == "literal" and node[1].startswith("'"):
-        return node[1][1:-1].replace("''", "'")
+    if kind == "literal":
+        if node[1].startswith("'"):
+            return node[1][1:-1].replace("''", "'")
+        if node[1] == "true":
+            return True
+        if node[1] == "false":
+            return False
+        if node[1] == "null":
+            return None
+        if "." in node[1]:
+            return float(node[1])
+        return int(node[1])
     if kind == "ref":
         return context[node[1]]
     if kind == "cmp" and node[1] in ("==", "!="):
