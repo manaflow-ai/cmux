@@ -135,10 +135,13 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
+        "CmuxNextPalette",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxAgentBrands"
+      ]
     },
     "CmuxNextAgentPane": {
       "kind": "regular",
@@ -1487,7 +1490,8 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextSignposts"
       ],
       "packages": [
         "CmuxAgentBrands"
