@@ -1,5 +1,4 @@
-title: Sidebar views without the palette
-category: improved
-action: appStore.show | App Store
+title: Three new sidebar views in the App Store
+category: new
 
-Comfortable Sidebar and Expanded Sidebar are now cards in the App Store's Features tab, with a preview of their rows. A workspace's More ▸ Options menu offers them too.
+Open the App Store's Sidebar features to turn on Workspaces as Tabs (one line per workspace), Chrome-Style Groups, or Workspaces Side by Side (drag a row onto a pane's edge).

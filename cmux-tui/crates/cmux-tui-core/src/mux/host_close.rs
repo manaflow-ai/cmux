@@ -58,7 +58,7 @@ impl TerminalHostCloses {
     #[cfg(any(unix, windows))]
     fn enqueue(self: &Arc<Self>, close: PendingHostClose) {
         let spawn = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.queue.push_back(close);
             state.pending += 1;
             if state.workers < MAX_HOST_CLOSE_WORKERS {
@@ -87,7 +87,7 @@ impl TerminalHostCloses {
     fn work(self: Arc<Self>) {
         loop {
             let close = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 match state.queue.pop_front() {
                     Some(close) => close,
                     None => {
@@ -97,7 +97,7 @@ impl TerminalHostCloses {
                 }
             };
             let close = signal_host_close(close);
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.steps = state.steps.wrapping_add(1);
             self.idle.notify_all();
             if let Some(close) = close {
@@ -123,7 +123,7 @@ impl TerminalHostCloses {
                     .is_err()
                 {
                     let close = {
-                        let mut state = self.state.lock().unwrap();
+                        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                         state.wait_workers -= 1;
                         state.wait_queue.pop_back()
                     };
@@ -140,7 +140,7 @@ impl TerminalHostCloses {
     }
 
     fn complete(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.steps = state.steps.wrapping_add(1);
         state.pending -= 1;
         self.idle.notify_all();
@@ -149,7 +149,7 @@ impl TerminalHostCloses {
     fn wait_work(self: Arc<Self>) {
         loop {
             let close = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 match state.wait_queue.pop_front() {
                     Some(close) => close,
                     None => {
@@ -170,7 +170,7 @@ impl TerminalHostCloses {
     /// fixed deadline from the first enqueue made the hosts at the end of a
     /// large teardown miss it.
     pub(crate) fn wait_idle(&self, stall: Duration, ceiling: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let mut progress = (state.steps, Instant::now() + stall);
         while state.pending != 0 {
             if state.steps != progress.0 {
@@ -180,14 +180,15 @@ impl TerminalHostCloses {
             else {
                 return false;
             };
-            state = self.idle.wait_timeout(state, remaining).unwrap().0;
+            state =
+                self.idle.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner).0;
         }
         true
     }
 
     #[cfg(test)]
     pub(crate) fn pending(&self) -> usize {
-        self.state.lock().unwrap().pending
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending
     }
 }
 
