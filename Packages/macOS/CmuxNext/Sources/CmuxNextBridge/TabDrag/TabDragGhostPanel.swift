@@ -1,6 +1,5 @@
-import AppKit
-import CmuxNextBridge
-import CmuxNextWakeups
+package import AppKit
+package import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 import CmuxNextTabs
@@ -16,8 +15,8 @@ import CmuxNextTabs
 ///
 /// The panel has a fixed size (the largest card plus shadow room) and only
 /// moves, so a frame costs one window move and a few layer frames.
-final class TabDragGhostPanel {
-    let panel: NSPanel
+package final class TabDragGhostPanel {
+    package let panel: NSPanel
     private let root: GhostRootView
     private let glass: GlassPanelView
     private let tabLayer = CALayer()
@@ -34,11 +33,11 @@ final class TabDragGhostPanel {
     private let inset: CGFloat
     /// The tab image stands on the glass (a translucent window): the glass shows at every
     /// cardness, and the glass edge, not a shadow, lifts it.
-    let onGlass: Bool
+    package let onGlass: Bool
 
     /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
     ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
+    package init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
         self.onGlass = onGlass
         self.tabSize = tabSize
         self.grabOffset = grabOffset
@@ -96,32 +95,32 @@ final class TabDragGhostPanel {
     }
 
     /// The live content preview, when the snapshot arrives.
-    func setThumbnail(_ image: CGImage?) {
+    package func setThumbnail(_ image: CGImage?) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         thumbLayer.contents = image
         CATransaction.commit()
     }
 
-    func show() {
+    package func show() {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    func close() {
+    package func close() {
         panel.orderOut(nil)
     }
 
     /// A frame client of the ghost panel's own FrameScheduler (its screen,
     /// 120 Hz on ProMotion).
     /// `settle` lands the ghost when its panel goes out of sight (FrameScheduler gives it no frames).
-    func makeFrameClient(owner: String, settle: @escaping @MainActor () -> Void,
+    package func makeFrameClient(owner: String, settle: @escaping @MainActor () -> Void,
                          onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
         FrameClient(owner: owner, scheduler: { [weak root] in root.map(FrameScheduler.forView) ?? .app }, settle: settle,
                     onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.
-    func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
+    package func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
         TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: inset, grabOffset: grabOffset, tabSize: tabSize)
     }
 
@@ -129,7 +128,7 @@ final class TabDragGhostPanel {
     /// (`TabDragGhostLayout`): the card unfolds around the tab image, which
     /// never moves under the pointer, and a shrink pivots on the grabbed
     /// point.
-    func render(_ motion: TabDragGhostMotion) {
+    package func render(_ motion: TabDragGhostMotion) {
         let layout = layout(motion)
         let tab = layout.tab
         let c = layout.cardness
