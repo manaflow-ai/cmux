@@ -29,6 +29,7 @@ pub enum Action {
     Send,
     Steer,
     Cancel,
+    Retry,
     Stop,
     Delete,
     Rename,
@@ -334,6 +335,15 @@ impl App {
             Action::Send => self.send_prompt(false),
             Action::Steer => self.send_prompt(true),
             Action::Cancel => self.cancel(),
+            Action::Retry => {
+                if let Some(id) = sid {
+                    self.request_bg(
+                        method::MUX_RETRY,
+                        json!({"sessionId": id}),
+                        Some("retry sent".into()),
+                    );
+                }
+            }
             Action::Stop | Action::Delete => {
                 if let Some(id) = sid {
                     let purge = action == Action::Delete;

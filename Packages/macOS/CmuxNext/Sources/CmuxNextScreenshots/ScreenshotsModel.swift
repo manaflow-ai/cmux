@@ -42,14 +42,29 @@ public final class ScreenshotsModel {
     /// Above this many changed names in one batch, the source is read again.
     @ObservationIgnored private let rescanThreshold = 128
 
+    /// Whether the folders are read and watched (``startListing()``).
+    public private(set) var isListing: Bool
+
     /// Makes a model.
     ///
     /// - Parameters:
     ///   - reader: reads folders (default: the disk through CmuxNextFiles).
     ///   - watcher: reports changes (default: CmuxNextFiles' FSEvents ``FolderWatcher``).
-    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher()) {
+    ///   - listsAtOnce: read and watch the folders as soon as they are set; off (the default), nothing is read
+    ///     or watched until ``startListing()`` (macOS guards ~/Desktop, the default screenshot folder).
+    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher(),
+                listsAtOnce: Bool = false) {
         self.reader = reader
         self.watcher = watcher
+        isListing = listsAtOnce
+    }
+
+    /// Reads and watches the folders from now on (the page is on screen).
+    public func startListing() {
+        guard !isListing else { return }
+        isListing = true
+        for source in sources { scheduleRescan(source) }
+        syncWatches()
     }
 
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
@@ -124,7 +139,7 @@ public final class ScreenshotsModel {
     ///   - change: what CmuxNextFiles' watcher reported.
     ///   - folder: the watched folder.
     public func apply(_ change: FolderChange, in folder: URL) async {
-        guard let source = source(containing: folder.path) else { return }
+        guard isListing, let source = source(containing: folder.path) else { return }
         guard case .items(let names) = change, names.count <= rescanThreshold else { return scheduleRescan(source) }
         let known = Set(foldersBySource[source.id] ?? [])
         let depth = Self.depth(of: folder.path, below: source.folder.path)
@@ -171,6 +186,7 @@ public final class ScreenshotsModel {
     }
 
     private func scheduleRescan(_ source: ScreenshotSource) {
+        guard isListing else { return }
         scans[source.id]?.cancel()
         let reader = reader
         // task-owner: `scans[source.id]`; a newer read of the source or stop() cancels it
@@ -187,6 +203,7 @@ public final class ScreenshotsModel {
 
     /// Watches exactly the folders the sources' last reads covered.
     private func syncWatches() {
+        guard isListing else { return }
         let wanted = Set(sources.flatMap { foldersBySource[$0.id] ?? [$0.folder.path] })
         for (path, task) in watches where !wanted.contains(path) {
             task.cancel()

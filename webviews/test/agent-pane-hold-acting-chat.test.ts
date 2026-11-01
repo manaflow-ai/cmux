@@ -6,7 +6,7 @@
 // chat opening, and a grouped permission answer from the drawn chat must not leave an error on it.
 // #20930 review: a Use tools toggle (Sources +) during that hold goes to the chat on screen, and a
 // reply that comes back after the pane switched away and back does not overwrite the chat's tools.
-// #24272 review: an MCP server's Reconnect (the Inspector's Connectors) during that hold goes to the
+// #24272 review: an MCP server's Reconnect (Session Info's Connectors) during that hold goes to the
 // chat on screen, whose server it names, not the chat opening.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";

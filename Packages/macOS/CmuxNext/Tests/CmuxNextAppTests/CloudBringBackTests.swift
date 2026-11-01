@@ -145,7 +145,9 @@ struct CloudBringBackTests {
             let root = try #require(trip.services.cloud.move.workRoots.first)
             let call = try #require(uploads().first, "no upload ran")
             #expect(Array(call.prefix(7)) == ["link", "access", "upload", "--socket", trip.vmSocket, "--remote-root", root], "\(call)")
-            #expect(call.count == 8, "\(call)")
+            // Each file goes under an upload id of the app's own, so a failed or cancelled one is removed.
+            #expect(call.count == 10 && call[7] == "--upload-id", "\(call)")
+            #expect(call.count == 10 && call[8].utf8.count == 32 && call[8].utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }, "\(call)")
             let sent = try #require(call.last)
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"] ?? NSTemporaryDirectory()
             let pastes = URL(fileURLWithPath: temporary).appendingPathComponent("cmux-pastes").resolvingSymlinksInPath().path

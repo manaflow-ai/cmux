@@ -57,13 +57,13 @@ import Testing
             for hint in hints {
                 let plan = host.plan(.working, config, hint)
                 let label = "\(host) hint \(String(describing: hint))"
-                #expect(plan.animation == nil || plan.animation == .spin, "\(label): \(plan)")
+                #expect(plan.animation == nil || plan.animation == .step, "\(label): \(plan)")
                 let indicator = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 100 }, unixTime: { 1_000 }))
                 indicator.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
                 indicator.apply(plan, config: config)
                 #expect(Self.loops(under: indicator.layer) { $0 == "opacity" || $0?.contains("scale") == true } == [], "\(label)")
                 if host.description != "TabCell+StatusBadge" {
-                    #expect(plan.glyph == .arc && plan.animation == .spin, "\(label)")
+                    #expect(plan.glyph == .native && plan.animation == .step, "\(label)")
                     #expect(!Self.loops(under: indicator.layer) { $0 == "transform.rotation.z" }.isEmpty,
                             "\(label): the spinner must actually turn")
                 }

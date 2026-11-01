@@ -7088,5 +7088,27 @@
   "iphone.phone.transport.ios": {
     "class": "brand",
     "source": "%@ · cmux (iOS)"
+  },
+  "cloud.workspaceSetup.setupScriptPlaceholder": {
+    "class": "technical",
+    "source": "bun install"
+  },
+  "home.chatColors.text": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun for text; the translated entry remains required."
+    }
+  },
+  "home.compose.section.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the established German noun for a team; the translated entry remains required."
+    }
+  },
+  "settingsPage.cloudEnvironments.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name is the German noun for name; the translated entry remains required."
+    }
   }
 }
