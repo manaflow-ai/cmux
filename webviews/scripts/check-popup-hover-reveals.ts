@@ -49,6 +49,8 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more",
     "own-menu rule",
   ],
+  // A Shell block's Wrap lines is a pressed toggle (BlockParts.tsx WrapButton); it opens no menu.
+  ["agent-session/acpmux/conversation/conversation.css|.cv-shell:hover .cv-shell__wrap", "wrap toggle"],
   // The model star is a pressed toggle (QuickModelMenu.tsx); it opens no menu.
   [
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",

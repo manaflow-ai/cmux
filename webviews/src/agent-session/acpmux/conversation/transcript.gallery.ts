@@ -3121,6 +3121,31 @@ export default agentPaneEntry({
         );
       },
     },
+    "markdown-fence-pipes": {
+      note: "A reply that quotes Markdown in a four-backtick fence (its inner three-backtick fence stays text) and a table whose cell holds an escaped pipe (a literal pipe, not a column break).",
+      snapshot: chat(
+        [
+          user("Show me the fence and the table", 2),
+          assistant(
+            [
+              "Quoting a reply keeps its own fence:",
+              "",
+              "````md",
+              "```js",
+              "console.log(1);",
+              "```",
+              "````",
+              "",
+              "| command | note |",
+              "| --- | --- |",
+              "| `ls \\| head` | the pipe stays in its cell |",
+            ].join("\n"),
+            1,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
     queued: {
       note: "Prompts queued behind a running turn.",
       snapshot: chat([user(prompt, 2), assistant("Working on the policy type…", 1, { streaming: true })], {

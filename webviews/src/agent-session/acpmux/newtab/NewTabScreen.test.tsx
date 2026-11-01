@@ -761,3 +761,25 @@ test("a closed agent chat uses the semantic agent glyph and preserves its title"
   expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
   expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
+
+test("a project picked on the page is reported on its click (onProjectPicked), so Cloud can copy it", async () => {
+  const picked: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you"
+        environments
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onProjectPicked={(cwd) => picked.push(cwd)}
+      />,
+    );
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.textContent?.includes("cmux") && !row.hasAttribute("data-choose"),
+  );
+  expect(option).toBeTruthy();
+  await act(async () => option!.click());
+  expect(picked).toEqual(["/Users/you/src/cmux"]);
+});

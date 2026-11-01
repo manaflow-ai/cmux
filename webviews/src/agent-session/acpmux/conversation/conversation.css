@@ -2200,6 +2200,29 @@ pre.cv-math-source {
   gap: 2px;
   margin-right: -6px;
 }
+/* Wrap lines is every Shell block's one choice: it shows on the block's hover or keyboard focus,
+   never on every open block at rest (Verbose opens them all); the chat menu's Transcript view
+   submenu has it once. */
+.cv-shell__actions .cv-shell__wrap {
+  opacity: 0;
+}
+.cv-shell:hover .cv-shell__wrap,
+.cv-shell:focus-within .cv-shell__wrap {
+  opacity: 1;
+}
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly; keyboard focus
+   shows it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shell__actions .cv-shell__wrap {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-shell:hover .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-shell:focus-within .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 .cv-shell__title {
   display: flex;
   align-items: center;
@@ -2291,6 +2314,12 @@ pre.cv-math-source {
   flex-wrap: wrap;
   gap: 8px;
   margin: 4px 0 8px;
+}
+/* A call's images: the reply's fixed-shape thumbnail (chips.css .cv-thumb), narrower, so its
+ * height is held before the image loads and the image fits inside whole. */
+.cv-tool-images .cv-thumb {
+  width: min(100%, 320px);
+  margin: 0;
 }
 .cv-tool-images .cv-img {
   max-width: min(100%, 360px);
@@ -2646,6 +2675,16 @@ pre.cv-math-source {
 .cv-tool__meta {
   margin-left: auto;
 }
+/* The row grammar's trailing column (design/chat-transcript.md "One row grammar"): status, then
+   duration, in column 3, before the chevron's column 4, so every row's chevron and status line up
+   whether or not a row has them. */
+.cv-tool__trail {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: inherit;
+}
 .cv-command__bg-state {
   display: flex;
 }
@@ -2838,7 +2877,6 @@ pre.cv-math-source {
   color: var(--cv-activity-text);
 }
 .cv-received__from--open {
-  all: unset;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2869,14 +2907,12 @@ pre.cv-math-source {
   user-select: text;
   -webkit-user-select: text;
 }
-.cv-received:hover,
-.cv-received:focus-within {
+.cv-received:is(:hover, :active, :focus-within) {
   color: var(--cv-text);
 }
-.cv-received:hover .cv-received__from,
-.cv-received:focus-within .cv-received__from,
+.cv-received:is(:hover, :active, :focus-within) .cv-received__from,
 .cv-received:hover .cv-received__text,
-.cv-received:focus-within .cv-received__text {
+.cv-received:is(:hover, :active, :focus-within) .cv-received__text {
   color: var(--cv-text);
 }
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
@@ -3523,6 +3559,12 @@ a.cv-sha:focus-visible {
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
+  /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
+     visible transcript when a subagent or command arrives; the row's measured box is already in
+     the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
+  .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
   .acpmux-row__message-presentation {
     transform-origin: center bottom;
     animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
@@ -3651,13 +3693,6 @@ a.cv-sha:focus-visible {
   margin: 6px 0;
   border-radius: 8px;
 }
-/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
- * opacity so the image cannot introduce a second layout shift during decode. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-img--enter {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
-}
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {
   all: unset;
@@ -3686,11 +3721,24 @@ a.cv-sha:focus-visible {
   backdrop-filter: blur(24px);
   color: var(--agent-text);
   outline: none;
+  /* Image viewing is a direct response to a click: show the already decoded image in its final
+   * stage immediately. The dialog's close transition still uses its own token. */
+  --ui-popup-open: 0s;
+  --ui-dialog-open: 0s;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--layer-overlay);
+  --ui-popup-open: 0s;
+  --ui-dialog-open: 0s;
+}
+.acpmux-image-viewer[data-starting-style] {
+  opacity: 1;
+  scale: none;
+}
+.acpmux-image-viewer-backdrop[data-starting-style] {
+  opacity: 1;
 }
 .acpmux-image-viewer-body {
   position: relative;
