@@ -32,6 +32,8 @@ final class AgentPageChats {
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
+    var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
@@ -106,6 +108,13 @@ final class AgentPageChats {
         } else {
             view.model.onCloudStartChat = nil
         }
+        if let run = cloudRepick {
+            view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
+                await run(view, repick)
+            }
+        } else {
+            view.model.onCloudRepickChat = nil
+        }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -117,6 +126,7 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
