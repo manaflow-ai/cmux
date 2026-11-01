@@ -812,7 +812,7 @@ pub(super) fn handle_bound(
     })
 }
 
-fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
+pub(super) fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
     let runtime = mux.surface(surface)?;
     match mux.conversation_tab_of(&runtime)? {
         ConversationTabRecord::AgentSession { session: Some(session), .. } => Some(session),
