@@ -68,12 +68,14 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     const stub = Buffer.from(evalAgentStub(dir)).toString("base64");
     const q = JSON.stringify;
     const stubPath = join(dir, "bin", "cmux-eval-agent");
-    // setsid makes the daemon its own process group; its PID (the group's id) is kept beside the
-    // socket so the stop below signals that group, never a process found by name.
+    // setsid makes the daemon its own process group. The shell setsid starts writes its own PID
+    // (the new group's id) beside the socket and then execs the daemon, so the recorded PID is the
+    // daemon and the stop below signals that group, never a process found by name. ($! after the
+    // backgrounded && chain would be the wrapping subshell, not the daemon.)
     remotePidFile = `${socket}.pid`;
     // Fire and forget: the remote shell outlives its backgrounded daemon over Tailscale ssh, so
     // waiting on it never returned. The ready loop below waits for the daemon's socket.
-    launcher = spawn("ssh", [...SSH_OPTS, "-n", remote.host, `mkdir -p /tmp/cte ${q(work)} ${q(join(dir, "bin"))} ${q(join(dir, "markers"))} && echo ${stub} | base64 -d > ${q(stubPath)} && chmod +x ${q(stubPath)} && cd ${q(work)} && PATH=${q(join(dir, "bin"))}:$PATH setsid nohup ${remote.cli} daemon start --session ${name} --socket ${socket} --ephemeral --headless < /dev/null > /dev/null 2>&1 & echo $! > ${q(remotePidFile)}`], { stdio: "ignore", detached: true });
+    launcher = spawn("ssh", [...SSH_OPTS, "-n", remote.host, `mkdir -p /tmp/cte ${q(work)} ${q(join(dir, "bin"))} ${q(join(dir, "markers"))} && echo ${stub} | base64 -d > ${q(stubPath)} && chmod +x ${q(stubPath)} && cd ${q(work)} && PATH=${q(join(dir, "bin"))}:$PATH setsid nohup sh -c 'echo $$ > ${q(remotePidFile)} && exec ${remote.cli} daemon start --session ${name} --socket ${socket} --ephemeral --headless' < /dev/null > /dev/null 2>&1 &`], { stdio: "ignore", detached: true });
     launcher.unref();
     rmSync(socket, { force: true });
     daemon = spawn("ssh", [...SSH_OPTS, "-o", "StreamLocalBindUnlink=yes", "-N", "-L", `${socket}:${socket}`, remote.host], { stdio: "ignore", detached: true });

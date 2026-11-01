@@ -1343,6 +1343,9 @@ check_no_self_hosted_fleet_runners() {
   # startsWith(vars.X, 'glaeda-side-') checks a variable's shape; it names no runner.
   local owned_prefix_check="startsWith\\((vars|needs)\\.[A-Za-z0-9_.-]+, 'glaeda-[a-z-]+-'\\)"
   local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && '(blacksmith-(6|12)vcpu-macos-(15|26|latest))'"
+  # The line's value: an optional list dash or key, then `${{`, then only the
+  # hosted repository_owner short-circuit may precede the fork branch.
+  local fork_pr_first="^[[:space:]]*(-[[:space:]]+)?([A-Za-z0-9_-]+:[[:space:]]*)?\\\$\\{\\{[[:space:]]*(github\\.repository_owner != 'manaflow-ai' && '[a-z0-9.-]+' \\|\\|[[:space:]]*)?${fork_pr_branch}"
   # Workflows a pull request (or pull_request_target) can trigger.
   local pr_workflows
   pr_workflows="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
@@ -1368,8 +1371,12 @@ PYTHON
       printf '%s\n' "$text"; return
     fi
     if [[ "$pr" == 1 ]]; then
+      # The fork pull request branch must be the FIRST selector of the
+      # expression (after only the hosted repository_owner clause), so no
+      # earlier `||` operand (a picker output, a variable) can hand a fork
+      # head an owned Mac before the fork branch is evaluated.
       before="$(printf '%s\n' "$text" | sed -E "s/$owned_pool.*//")"
-      if ! printf '%s\n' "$before" | grep -Eq "$fork_pr_branch"; then
+      if ! printf '%s\n' "$before" | grep -Eq "$fork_pr_first"; then
         printf '%s\n' "$text"; return
       fi
     fi
@@ -1470,6 +1477,16 @@ PYTHON
     content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     if ! printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
       echo "FAIL: fleet-runner guard self-test let a direct or single-host fleet label through: $probe"
+      exit 1
+    fi
+  done
+  # The fork branch must come FIRST: an earlier picker/variable operand would
+  # resolve an owned runner for a fork before the fork branch is evaluated.
+  for probe in "runs-on: \${{ needs.untrusted.outputs.runner || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.X == '1' && 'glaeda-std-xcode-26.6' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ vars.CI_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'glaeda-std-xcode-26.6' }}"; do
+    if ! printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
+      echo "FAIL: fleet-runner guard self-test let a pull request reach an owned pool with a selector before the fork branch: $probe"
       exit 1
     fi
   done
