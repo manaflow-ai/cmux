@@ -214,23 +214,33 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
+        self.assertTrue(runs_on.endswith("'blacksmith-16vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
         their 14-16 minutes. Twelve 8 vCPU shards took 14.3 min: each paid a cold Vite
         warm-up. Four 32 vCPU shards run eight dev-server files at once on a shared warm
-        cache; Blacksmith runners are free and ran 256 jobs at 32 vCPU without queueing."""
+        cache. Blacksmith is a capped paid overflow now (2026-10-30), so the shards run at
+        16 vCPU: 14% slower at p50 than 32 for half the price. There, four shards ran their
+        dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
+        long pole from ask to merge for a webview fix, so they are eight. The base replay
+        (react-apps-base-check) takes one shard per head shard's results artifact."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 4)
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", block)
+        self.assertEqual(len(shards), 8)
+        self.assertIn("'blacksmith-16vcpu-ubuntu-2404' }}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
+        base_start = workflow.index("  react-apps-base-check:")
+        base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
+        base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
+        self.assertEqual([int(n) for n in re.findall(r"^          - shard: (\d+)$", base, re.MULTILINE)], shards)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
                      "Check PR-scoped webview rules"):

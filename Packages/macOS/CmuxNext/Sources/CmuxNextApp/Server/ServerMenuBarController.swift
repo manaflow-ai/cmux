@@ -76,7 +76,7 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         controller.view = view
         let pop = NSPopover()
         pop.behavior = .transient
-        pop.animates = Motion.overlays.animatesMovement
+        pop.animates = false
         pop.contentViewController = controller
         pop.contentSize = view.frame.size
         pop.delegate = self

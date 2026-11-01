@@ -97,11 +97,14 @@ public final class PulledBuildWatch {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
         let task = Task { [weak self] in
-            var read: [PulledBuild] = []
-            for url in urls {
-                guard let data = await fetch(url) else { continue }
-                read += PulledBuild.decode(data)
+            // Every list at once, so a read waits one request's time (a legacy feed has two).
+            let lists = await withTaskGroup(of: (Int, Data?).self) { group in
+                for (index, url) in urls.enumerated() { group.addTask { (index, await fetch(url)) } }
+                var lists = [Data?](repeating: nil, count: urls.count)
+                for await (index, data) in group { lists[index] = data }
+                return lists
             }
+            let read = lists.compactMap { $0 }.flatMap(PulledBuild.decode)
             guard let self else { return }
             self.refreshTask = nil
             // A pulled build stays pulled for the life of this process: a read that fails, in whole

@@ -21,9 +21,12 @@ extension PageWebView {
     /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
     /// clears its page while it waits for the page's first frame (loading state, move cover), and
     /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
+    /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
+    /// a prewarmed page waits there to paint before it is adopted.
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
+            && sequence(first: self as NSView, next: \.superview).dropFirst()
+                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking }
         chromiumSession?.page.setVisible(visible)
     }
 
@@ -31,10 +34,14 @@ extension PageWebView {
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
+        PageChromiumDocumentScripts.pageDropHandler,
     ]
 
     /// How long after a drag of files entered the page its drop may still open one in the host.
     static let chromiumDropWindow: TimeInterval = 120
+
+    /// How long after the native drop the page's drop message may still report its files.
+    static let chromiumDropConfirmation: TimeInterval = 10
 
     /// The engine `descriptor` made with `options` shows in now: the one decision every page view
     /// takes (``PageEnginePolicy``, with the app's ``chromiumHosting``).
@@ -77,7 +84,10 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else {
+        if let chromiumSession {
+            chromiumSession.questionKeys?.invalidate()
+            chromiumSession.page.load(url)
+        } else {
             // The host loaded a document itself: the crash notice's pending WebKit load is moot.
             webKitLoadsOnReload = false
             webView.load(URLRequest(url: url))
@@ -86,6 +96,7 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
@@ -99,6 +110,7 @@ extension PageWebView {
         traceMark(.chromiumStart)
         #endif
         webView.isHidden = true
+        chromiumFocusHost = hosting
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -137,6 +149,13 @@ extension PageWebView {
                                                                        documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
+            if descriptor.isAgentPage {
+                let descriptor = descriptor
+                let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                questionKeys.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
+                try await questionKeys.prepareDocumentGuard()
+                session.questionKeys = questionKeys
+            }
         } catch {
             session.end()
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
@@ -162,6 +181,7 @@ extension PageWebView {
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
+        page.setAnswersFileChooser(onFilesChosen != nil)
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
@@ -177,7 +197,10 @@ extension PageWebView {
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
-        if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
+        // The keys belong to the Chromium page now. A pane with a focus model re-applies it, so its
+        // record of the focused page and the window's first responder follow (a grant here alone left
+        // the hidden WebKit view first responder and the model's page unrecorded: W1, W4).
+        if chromiumFocusHost?.focusViewChanged(self) != true, shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
     }
 
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
@@ -193,6 +216,8 @@ extension PageWebView {
         chromiumSession = nil
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
+        chromiumDragged = nil
+        chromiumDropConfirmed = nil
         inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
@@ -200,6 +225,7 @@ extension PageWebView {
         router.reset()
         loaded = false
         if ended, !reloadsAfterCrash {
+            lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true
             onCrash?(self, false)
@@ -223,10 +249,12 @@ extension PageWebView {
         guard let chromiumSession else { return }
         switch event {
         case .devTools(let json):
+            if chromiumSession.questionKeys?.receive(json) == true { return }
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
         case .committed(let url):
+            chromiumSession.questionKeys?.invalidate()
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -240,17 +268,27 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            chromiumSession.questionKeys?.invalidate()
+            lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
         case .ended:
+            chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
+        case .dragEnded(let dropped):
+            chromiumDragEnded(dropped: dropped)
         case .userInput(let uptime):
             chromiumUserInput(at: uptime)
         case .contextMenu(let request):
             showChromiumMenu(request)
+        case .pasted:
+            chromiumPasted()
+        case .filesChosen(let urls):
+            noteTouch()
+            onFilesChosen?(urls)
         }
     }
 
@@ -264,6 +302,8 @@ extension PageWebView {
             ConsoleErrorCapture(page: descriptor.id).record(body)
         case PageChromiumDocumentScripts.hostDropHandler:
             hostDropped()
+        case PageChromiumDocumentScripts.pageDropHandler:
+            pageDropped()
         case PageChromiumDocumentScripts.navigateHandler:
             guard let object = body as? [String: Any], let text = object["url"] as? String, let url = URL(string: text) else { return }
             var modifiers: NSEvent.ModifierFlags = []
@@ -285,9 +325,48 @@ extension PageWebView {
     /// A drag of files from outside entered the Chromium page: the first one goes to the host when
     /// ``fileDrop`` takes it (as on the WebKit page), and the page script hands the drop over.
     private func filesDragged(_ urls: [URL]) {
+        chromiumDragged = urls.isEmpty ? nil : (urls, now())
+        chromiumDropConfirmed = nil
         let url = urls.first.flatMap { url in fileDrop.flatMap { $0.accepts(url) ? url : nil } }
         chromiumDragFile = url.map { ($0, now()) }
         chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))")
+    }
+
+    /// The drag that entered the page ended natively. A drop on the page (AppKit's
+    /// `performDragOperation` on the pane, with its event in dispatch) arms one page drop message;
+    /// a drag that left or was cancelled clears what it entered with, so a later message from page
+    /// script reports nothing.
+    private func chromiumDragEnded(dropped: Bool) {
+        guard dropped, chromiumDragged != nil else {
+            chromiumDragged = nil
+            chromiumDropConfirmed = nil
+            return
+        }
+        chromiumDropConfirmed = (now(), NSApp?.currentEvent)
+    }
+
+    /// The page's drop of files: the files of the real drag that entered it, once, and only right
+    /// after the pane's native drop of that drag (``chromiumDragEnded(dropped:)``). Page script can
+    /// post this message at any time but cannot name a file or make a native drop, so with no drop
+    /// the host saw (a drag still under way, left or cancelled), it reports nothing. A drop the host
+    /// took (``fileDrop``, ``hostDropped()``) is not the page's and is not reported here.
+    private func pageDropped() {
+        guard let dragged = chromiumDragged, let confirmed = chromiumDropConfirmed else { return }
+        chromiumDragged = nil
+        chromiumDropConfirmed = nil
+        guard chromiumDragFile == nil, now().timeIntervalSince(confirmed.at) < Self.chromiumDropConfirmation else { return }
+        droppedEnteredAt = dragged.at
+        droppedEvent = confirmed.event
+        defer { (droppedEnteredAt, droppedEvent) = (nil, nil) }
+        onFilesDropped?(dragged.urls)
+    }
+
+    /// The one entry of a paste into the Chromium page (its Cmd-V as `CEFRuntime.routeKey` sees it,
+    /// and our own menu's Paste): ``onPaste``, with the person's event in dispatch. A mouse click on
+    /// the menu bar's Edit > Paste goes to Chromium's view without passing here.
+    func chromiumPasted() {
+        guard chromiumSession != nil else { return }
+        onPaste?()
     }
 
     /// The page script handed a drop over. Only the file of a real drag the host took opens, once,

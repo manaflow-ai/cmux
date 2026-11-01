@@ -17,6 +17,12 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 /// it leaves the pinned column alone instead of being refused.
 pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 
+/// Split Down (`split` / `pane.split` toward `down`) of a pane in the agent
+/// chat dock adds a pane below it in the dock, as classic cmux's Cmd-Shift-D
+/// does (#29848); every other new pane there is still refused with
+/// `dock-column-agent-chat`.
+pub const DOCK_COLUMN_SPLIT_DOWN_CAPABILITY: &str = "dock-column-split-down-v1";
+
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
@@ -34,6 +40,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
+        capabilities.push("cloud-environments-v1");
     }
     if mux.host_replica().is_some_and(|replica| replica.running()) {
         capabilities.push(cloud_host_replica::CAPABILITY);
@@ -49,6 +56,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -63,11 +72,17 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_NO_CWD_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.serves_owner_cloud_start() {
+        capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -78,6 +93,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -177,7 +193,10 @@ pub fn build_capabilities() -> Vec<&'static str> {
     capabilities.retain(|capability| !host_dependent.contains(capability));
     #[cfg(unix)]
     capabilities.retain(|capability| {
-        *capability != crate::fs_ops::FS_CAPABILITY && *capability != BROWSER_RUNTIME_CAPABILITY
+        *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
@@ -211,6 +230,7 @@ pub(super) fn advertised_capabilities(
         PERMANENT_DOCK_CAPABILITY,
         PINNED_DOCK_CAPABILITY,
         PINNED_DOCK_ALONE_CAPABILITY,
+        DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
@@ -267,6 +287,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
+        WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -358,6 +379,7 @@ pub(super) fn advertised_capabilities(
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,
@@ -393,6 +415,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::git_seed::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

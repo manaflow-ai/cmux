@@ -309,6 +309,11 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.switch_build": (params) => {
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+        this.switchedTo = params.build as string;
+        return {};
+      },
       "cmux.settings.channels.update_machine": (params) => {
         this.updatedMachines.push(params.id as string);
         return {};
@@ -317,12 +322,21 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: setMockMenuLayout(menus, params.menu as string, (params.layout as MenuLayout | null) ?? null) });
+        if (menus)
+          this.setHost({
+            ...this.host,
+            context_menus: setMockMenuLayout(
+              menus,
+              params.menu as string,
+              (params.layout as MenuLayout | null) ?? null,
+            ),
+          });
         return {};
       },
       "cmux.settings.context_menus.show_item": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        if (menus)
+          this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
         return {};
       },
       "cmux.settings.voice_input.set": (params) => {
@@ -457,6 +471,7 @@ export class MockSettingsProvider {
         folder: "/Users/me/Library/Application Support/cmux/Backgrounds",
       }),
       "cmux.settings.backdrop.image.folder": () => ({ id: null }),
+      "cmux.settings.backdrop.image.screen_saver": () => ({ id: this.screenSaver, pending: false }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -562,6 +577,7 @@ export class MockSettingsProvider {
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
+      "cmux.settings.channels.switch_build",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -591,6 +607,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
       "cmux.settings.backdrop.image.folder",
+      "cmux.settings.backdrop.image.screen_saver",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",
@@ -818,6 +835,10 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The build the card's last Switch asked for. */
+  switchedTo: string | null = null;
+  /** The host's refusal of every Switch; null: Switch runs. */
+  switchRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
@@ -1025,6 +1046,8 @@ export class MockSettingsProvider {
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** The macOS screen saver as a background id (Use My Screen Saver); null: not an aerial. */
+  screenSaver: string | null = null;
   /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
   readonly agents = new MockAgents();
 

@@ -403,15 +403,27 @@ def check_wiring():
     _check('[[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue'
            in election, "the same-commit election never elects a cp/, lane/ or perf/ run")
 
+    owner_wait = all_jobs["tree-owner-wait"]
+    owner_steps = {s.get("id"): s for s in owner_wait["steps"]}
+    _check("read-token" in owner_steps, "owner-wait keeps its bounded status read on the routing App")
+    expected_token = "${{ steps.read-token.outputs.token || github.token }}"
+    _check(owner_steps["wait"]["env"]["GH_TOKEN"] == expected_token,
+           "owner-wait falls back to github.token only when the routing token cannot be minted")
+    recheck = next(s for s in owner_wait["steps"] if s.get("id") == "recheck")
+    _check(recheck["env"]["GH_TOKEN"] == expected_token,
+           "owner hand-off recheck stays off the shared workflow-token budget")
+    _check("environment" in owner_wait and owner_wait["environment"] == "ci-routing-agent",
+           "owner-wait's protected routing token stays in its environment")
+    for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
+        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
-    # Only the checkout and the read token's mint (the re-check's API reads go
-    # out as the glaeda-route App) come before it.
+    # The re-check uses the workflow token directly; the routing App is reserved
+    # for runner placement and must not spend its Actions quota here.
     before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
-    _check(before == ["actions/checkout", "read-token"], "the daemon tests re-check right after the checkout")
-    _check(str(steps[index - 1].get("if")) == "github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''",
-           "the re-check's read token is minted only for a push re-check")
+    _check(before == ["actions/checkout"], "the daemon tests re-check immediately after checkout")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
     for later in steps[index + 1:]:

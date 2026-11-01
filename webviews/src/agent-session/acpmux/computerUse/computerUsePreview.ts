@@ -7,9 +7,10 @@
 //
 // The card never covers the chat: while it shows, the column's end moves in by its room
 // (`COMPUTER_USE_PREVIEW_RESERVE`, `--cv-inset-end`), as the Codex app narrows its chat beside the
-// preview. A pane too narrow to give that room shows no card. With the Inspector open, the card sits
-// under the Inspector's card (inspector/underInspector.ts) and the column keeps no room for it: the
-// Inspector's own shift or push keeps the chat clear of both.
+// preview. A pane too narrow to give that room shows no card. With Session Info open, the card sits
+// under Session Info's card (session-info/underSessionInfo.ts). Floating, the column keeps its room, so
+// opening or closing Session Info never reflows the chat; Settings Push always's column keeps the
+// chat clear of both instead.
 import { useSyncExternalStore } from "react";
 
 /// The card's room at the chat's right: its 180px, 12px from the pane's edge, a 12px gap to the

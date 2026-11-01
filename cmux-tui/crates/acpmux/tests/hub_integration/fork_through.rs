@@ -29,6 +29,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// Claude Code's turns of its own, which the person did not start, which share these helpers too.
+#[path = "background_turns.rs"]
+mod background_turns;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;

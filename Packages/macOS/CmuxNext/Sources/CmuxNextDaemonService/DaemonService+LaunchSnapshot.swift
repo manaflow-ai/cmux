@@ -49,18 +49,21 @@ extension DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
+        return DaemonPrestart(launcher: launcher, configuration: launcher.handingOffIncompatibleOwners(localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift)))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
-    /// first-party app packages shipped in the app bundle (its default apps).
+    /// first-party app packages shipped in the app bundle (its default apps) and the App Store
+    /// examples (third-party packages the person may install).
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
     /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
-        var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path,
+                           // The App Store examples: listed, installed only by the person.
+                           "CMUX_APPS_DIRS": AppPlatformResources.storeExamples.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
         environment.merge(DaemonDiagnosticKnobs(processEnvironment: ProcessInfo.processInfo.environment).daemonEnvironment) { own, _ in own }
         return environment
@@ -99,6 +102,9 @@ extension DaemonService {
         // A stopped or wedged owner keeps its socket open: only the heartbeat
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
+        // The reconnect starts the daemon itself (`server ensure`): it never waits for an event only, since a
+        // start that failed for a full disk gets none when the space comes back (restore fuzz h2).
+        configuration.retry = .localReconnect
         configuration.echoesPlacementShift = echoesPlacementShift
         return configuration
     }

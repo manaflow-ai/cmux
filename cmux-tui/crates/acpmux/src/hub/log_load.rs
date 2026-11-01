@@ -113,11 +113,28 @@ impl Hub {
     /// reached it (immediate outside a deferred start, and once every log is read or the load
     /// failed).
     pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log_at(session, false).await;
+    }
+
+    /// [`Self::session_log`] for a chat being opened on screen: the read is what the person
+    /// is waiting on, so it runs ahead of agent work (`qos::on_screen`).
+    pub(crate) async fn session_log_on_screen(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log_at(session, true).await;
+    }
+
+    async fn session_log_at(self: &Arc<Self>, session: &Arc<Session>, on_screen: bool) {
         if self.session_log_loaded(session) {
             return;
         }
         let (hub, s) = (self.clone(), session.clone());
-        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_session_log(&s)).await {
+        let read = move || {
+            if on_screen {
+                crate::qos::on_screen(|| hub.load_session_log(&s))
+            } else {
+                hub.load_session_log(&s)
+            }
+        };
+        if let Err(e) = tokio::task::spawn_blocking(read).await {
             // It answers from the session list, as a failed load does (`LogsReady`).
             tracing::error!(session = %session.id, "reading the chat log failed: {e}");
         }
@@ -272,13 +289,18 @@ impl Hub {
         }
         // Scan the whole log: a long turn can stream far more records
         // than any fixed tail window after its `turn_started`.
-        let mut open: Option<(u64, Value)> = None;
+        let mut open: Option<(u64, Value, Value, bool)> = None;
         let kinds = ["turn_started", "turn_result"];
         self.store
             .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                        open = Some((
+                            e.seq,
+                            e.msg.get("turnId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("promptId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("trigger") == Some(&Value::Bool(true)),
+                        ))
                     }
                     "turn_result" => open = None,
                     _ => {}
@@ -286,10 +308,20 @@ impl Hub {
                 true
             })
             .ok()?;
-        let (seq, turn_id) = open?;
+        let (seq, turn_id, prompt_id, trigger) = open?;
         let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
-        let error = "the daemon restarted before this turn settled";
-        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+        let error = if trigger {
+            "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
+        } else {
+            "the daemon restarted before this turn settled"
+        };
+        if trigger {
+            self.append(session, "mux", super::background_turn::RECORD_KIND, json!({
+                "state":"ended", "id":format!("bg-trigger-{}", turn_id.as_str().unwrap_or_default()),
+                "trigger":"system", "quiet":false, "reason":"exit"
+            }));
+        }
+        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error}));
         self.save_meta(session);
         continued
     }

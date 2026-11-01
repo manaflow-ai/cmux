@@ -1,0 +1,43 @@
+{
+  "title": "Consent card of cmux apps install --deploy self-hosted",
+  "settings": {
+    "labs": {
+      "previewFeatures": true
+    }
+  },
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "App Store",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--focus",
+        "--tab",
+        "discover"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+    },
+    {
+      "title": "cmux apps install manaflow-ai/hello-deploy",
+      "cmux": [
+        "action",
+        "run",
+        "app.install",
+        "--no-wait",
+        "--app",
+        "manaflow-ai/hello-deploy",
+        "--deploy",
+        "self-hosted:ops@build-01.corp"
+      ],
+      "wait": 3,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppsStoreChange.swift"
+    }
+  ]
+}

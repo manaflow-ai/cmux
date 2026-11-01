@@ -23,9 +23,9 @@ so on an owned Mac it must have the mini to itself:
   and only one they all finish within DRAIN_HORIZON_SECONDS (DRAIN_BY_REMAINING_TIME, below). The slot listens
   however full its mini is, and the waiting signing job, a nightly job, stops every other admission and holds every
   other runner's gate there (glaeda FEED_FIRST): the running jobs finish, nothing new starts, and it takes the whole
-  mini within glaeda's SIGNING_DRAIN_WAIT_S (600 s), or is refused and the run's Blacksmith twin signs. The hold is
-  the waiting job's own marker, so it ends with the job and never strands the mini. With no such mini, nothing is
-  offered and the job signs on Blacksmith at once.
+  mini within glaeda's SIGNING_DRAIN_WAIT_S (3600 s since glaeda #1768), or is refused and the run's Blacksmith twin
+  signs. The hold is the waiting job's own marker, so it ends with the job and never strands the mini. With no such
+  mini, nothing is offered and the job signs on Blacksmith at once.
 - On the mini, glaeda's job-started hook gives every signing job the exclusive
   class (glaeda SIGNING_JOBS): every capacity unit and both fast tokens, so no
   other job starts beside it, and it waits at most 300 s for the mini to drain
@@ -37,15 +37,17 @@ so on an owned Mac it must have the mini to itself:
   `unverified` when no fresh pool snapshot backs them (nightly_sign_runner.place()).
 
 The workflow takes `owned` only on attempt 1; a re-run takes `alternate`, so a
-job an owned runner refused or left queued leaves the fleet. It never fails the
+job an owned runner refused or left queued leaves the fleet. With PICK_ON_RERUN=1
+(nightly.yml's legacy sign) a re-run that runs the picker again is offered an
+owned Mac too, and the workflow reads it only on that attempt. It never fails the
 job and never prints an empty `runner`:
 
     ENABLED=<vars.CI_SIGN_OWNED> ROUTE_TOKEN=<org runners: read> OWNED_LABELS='<a> <b>' \\
         SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> signing_runner.py
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
-`signing_runner.py owned` prints only `owned` (pick-nightly-sign-runner already
-prints the Blacksmith pair).
+`signing_runner.py owned` prints `owned` and its shared `owned_pool` label
+(pick-nightly-sign-runner already prints the Blacksmith pair).
 """
 
 from __future__ import annotations
@@ -70,7 +72,9 @@ ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
 SIGNING_JOBS = {
-    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy"),
+    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
+                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github",
+                    "publish-nightly-next-github-names"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
@@ -79,16 +83,25 @@ SIGNING_JOBS = {
 # whole, so each one held is a mini's worth of PR and nightly work sent elsewhere.
 MAX_OWNED_SIGNING = 1
 # DRAIN_BY_REMAINING_TIME: the mini a nightly signing job drains is chosen by when its busy runners finish, not by how
-# many there are. On 2026-10-30 cmux12s's nightly slot took 18 legacy signing jobs; 11 waited glaeda's whole 600 s
-# drain and were refused, because a PR job admitted just before (swift-test on its gui runner, 15 to 45 min) held 4
-# of its 14 units: "fewest busy runners" counted that mini as nearly free. Each futile drain also held every PR job
-# off the mini for 10 minutes. A busy runner's remaining time comes from the queue janitor's pool snapshot (which job
-# each owned runner runs and since when, `running`) and warm_distance's job lengths (remaining_seconds), the same
-# estimate pr_runner_pool's warm routing uses; no other GitHub read. A busy runner with no estimate (no snapshot entry,
-# a job the model has no length for, one past its p90, or a snapshot older than DRAIN_SNAPSHOT_MAX_MINUTES) keeps
-# its mini busy, and a mini is offered only when every busy runner on it finishes within DRAIN_HORIZON_SECONDS. With
-# none, the job takes Blacksmith now instead of a drain that cannot end inside the bound.
+# many there are. On 2026-10-30 cmux12s's nightly slot took 18 legacy signing jobs; 11 waited glaeda's whole drain
+# (600 s then; 3600 s since glaeda #1768) and were refused, because a PR job admitted just before (swift-test on its gui
+# runner, 15 to 45 min) held 4 of its 14 units: "fewest busy runners" counted that mini as nearly free. Each futile
+# drain also held every PR job off the mini for its whole drain. A busy runner's remaining time comes from the queue
+# janitor's pool snapshot (which job each owned runner runs and since when, `running`) and warm_distance's job lengths
+# (remaining_seconds), the same estimate pr_runner_pool's warm routing uses; no other GitHub read. A busy runner with no
+# estimate (no snapshot entry, a job the model has no length for, one past its p90, or a snapshot older than
+# DRAIN_SNAPSHOT_MAX_MINUTES) keeps its mini busy, and a mini is offered only when every busy runner on it finishes
+# within DRAIN_HORIZON_SECONDS. With none, the job takes Blacksmith now instead of a drain that cannot end inside the
+# bound.
 DRAIN_HORIZON_SECONDS = 120.0
+# DRAIN_ANYWAY: a caller that sets DRAIN_ANYWAY=1 (nightly.yml's legacy-identity sign) still drains a mini when none
+# frees up within the horizon, instead of signing on Blacksmith. Leo, 2026-10-30, when every legacy sign since #28555
+# queued on blacksmith-6vcpu-macos-26 (15 runners, all busy) and blacksmith-12vcpu-macos-26 (none online) while the
+# old feed sat a day behind: "JUST USE ONE OF THE EXISTING FUCKIBNG FLEET MINIS ... STOP FALLING ONLY TO A FUCKING
+# BLACKSMITH THAT ISN'T AVAILABLE". A waiting nightly job comes first on the fleet (the rulebook), so the mini whose
+# busy runners finish soonest (a known estimate first, then the fewest busy runners, then by name) is drained; glaeda
+# still gives the job the whole mini or refuses it, and a refusal still sends the Blacksmith twin.
+DRAIN_ANYWAY_VALUE = "1"
 # The oldest pool snapshot a drain is chosen from. The janitor writes one about every 10 minutes; an older one may list
 # a job that has since ended on a runner that now runs another, whose end it would put too soon. Older counts as none.
 DRAIN_SNAPSHOT_MAX_MINUTES = 15.0
@@ -100,8 +113,6 @@ DRAIN_SNAPSHOT_MAX_MINUTES = 15.0
 ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
 # A GitHub 5xx is retried this many times before the count gives up (run 40899583793's pick gave up on one 502).
 READ_RETRIES = 2
-
-
 def member(name: str) -> str:
     """The mini a glaeda runner runs on: its name before `-glaeda` (pool, gui, fast and dedicated runners alike)."""
     head, found, _ = (name or "").partition("-glaeda")
@@ -125,7 +136,7 @@ def drain_seconds(names: Sequence[str], running: Mapping[str, Any] | None, model
 
 def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], seed: str = "",
                    running: Mapping[str, Any] | None = None, model: Mapping[str, Any] | None = None,
-                   now: dt.datetime | None = None) -> tuple[str, str]:
+                   now: dt.datetime | None = None, drain_anyway: bool = False) -> tuple[str, str]:
     """(the JSON runs-on array for an idle runner on a mini with no busy runner, else one to drain, or "", why).
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
@@ -173,6 +184,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         weights = model if model is not None else warm_distance.load_model()
         waits: dict[str, float | None] = {}
         slots = []
+        anyway = []
         for mini, found in idle.items():
             for label, name in found:
                 if not NIGHTLY_SLOT_LABEL.fullmatch(label):
@@ -182,12 +194,21 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
                 wait = waits[mini]
                 if wait is not None and wait <= DRAIN_HORIZON_SECONDS:
                     slots.append((wait, mini, label, name))
+                # DRAIN_ANYWAY: known waits first (soonest), then unknown ones by fewest busy runners.
+                anyway.append((wait is None, wait or 0.0, busy[mini], mini, label, name))
         if slots:
             wait, mini, label, name = sorted(slots)[0]
             return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
                     f"`{name}` on {mini}, to drain: no mini is drained now, and glaeda holds every new job off "
                     f"{mini} while this one waits for its {busy[mini]} busy runner(s) to finish (about "
                     f"{wait:.0f} s)")
+        if anyway and drain_anyway:
+            unknown_wait, wait, count, mini, label, name = sorted(anyway)[0]
+            return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
+                    f"`{name}` on {mini}, to drain anyway (DRAIN_ANYWAY): no mini frees up within "
+                    f"{DRAIN_HORIZON_SECONDS:g} s, and glaeda holds every new job off {mini} while this one waits for "
+                    f"its {count} busy runner(s) to finish"
+                    + (" (remaining time unknown)" if unknown_wait else f" (about {wait:.0f} s)"))
         if waits:
             unknown = sorted(mini for mini, wait in waits.items() if wait is None)
             return "", (f"no mini with an idle nightly slot frees up within {DRAIN_HORIZON_SECONDS:g} s "
@@ -250,8 +271,11 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 jobs = every_page(read, f"/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
+                    labels = {str(label) for label in job.get("labels") or []}
+                    owned_route = any(label.startswith(pool.RUNNER_LABEL_PREFIX) or owned_label(label)
+                                      for label in labels)
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
-                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
+                            and owned_route):
                         count += 1
     return count
 
@@ -275,7 +299,10 @@ def owned_pick(env: Mapping[str, str],
                bounded_snapshot: Callable[[str, str], tuple[Any, str]] | None = None) -> tuple[str, str]:
     if (env.get("ENABLED") or "").strip() != ENABLED_VALUE:
         return "", "vars.CI_SIGN_OWNED is not 1, so signing stays off the owned Macs"
-    if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1"):
+    # A re-run signs on Blacksmith unless its workflow picks again on every attempt and reads the pick only on the
+    # attempt that made it (PICK_ON_RERUN=1, nightly.yml's legacy sign): a re-run of failed jobs keeps the old pick,
+    # and its runs-on then takes Blacksmith.
+    if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1") and (env.get("PICK_ON_RERUN") or "") != "1":
         return "", "a re-run signs on Blacksmith"
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if not (token and repo):
@@ -312,7 +339,19 @@ def owned_pick(env: Mapping[str, str],
                                           and (pool.snapshot_age_minutes(snapshot, moment) or 0.0)
                                           <= DRAIN_SNAPSHOT_MAX_MINUTES
                                           and isinstance(snapshot.get("running"), Mapping)) else None
-    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), running=running, now=moment)
+    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), running=running, now=moment,
+                          drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE)
+
+
+def owned_pool_label(owned: str) -> str:
+    """Return the shared pool label from an owned pick, never its per-runner label."""
+    if not owned:
+        return ""
+    try:
+        labels = json.loads(owned)
+    except (TypeError, ValueError):
+        return ""
+    return labels[0] if isinstance(labels, list) and labels and isinstance(labels[0], str) else ""
 
 
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
@@ -332,8 +371,14 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
         return kept[0]
 
     owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded)
+    # A shared pool label is only safe once the controller can prove every eligible listener has the
+    # exclusive-capable hook. That aggregate does not exist yet, so publication controls use their
+    # trusted Blacksmith fallback while the runner-specific signing pick remains unchanged.
+    owned_pool = ""
+    owned_pool_why = "shared owned-pool publication route withheld until the controller supplies hook evidence"
     if list(argv[:1]) == ["owned"]:
-        write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
+        write_output(env, {"owned": owned, "owned_pool": owned_pool},
+                     [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})"])
         return 0
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
@@ -348,9 +393,10 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     label, other, why, verified = blacksmith_picker.place(variable, snapshot, now, attempt, problem)
     if not verified:
         print(f"::warning title=signing runner::{why}")
-    write_output(env, {"owned": owned, "runner": label, "alternate": other,
+    write_output(env, {"owned": owned, "owned_pool": owned_pool, "runner": label, "alternate": other,
                        "placement": "verified" if verified else "unverified"},
-                 [f"owned: {owned or 'none'} ({owned_why})", f"blacksmith: {why}; a re-run takes `{other}`"])
+                 [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})",
+                  f"blacksmith: {why}; a re-run takes `{other}`"])
     return 0
 
 

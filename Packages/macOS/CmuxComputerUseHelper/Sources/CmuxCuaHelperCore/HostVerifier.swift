@@ -27,6 +27,7 @@ extension CmuxAppCodeCheck {
         "com.cmuxterm.app", // stable (cmux.xcodeproj Release; verify-app-bundle-channel-metadata.sh stable)
         "com.cmuxterm.app.nightly", // NIGHTLY (verify-app-bundle-channel-metadata.sh nightly)
         "com.cmuxterm.app.nightly.cmux-next", // cmux NEXT nightly (verify-app-bundle-channel-metadata.sh next)
+        "com.cmuxterm.app.nightly.cmux-next-stable", // cmux NEXT Stable (verify-app-bundle-channel-metadata.sh next-stable)
         "com.cmuxterm.app.rc", // RC (verify-app-bundle-channel-metadata.sh rc)
         "com.cmuxterm.app.debug", // DEV, untagged (cmux.xcodeproj Debug; scripts/reload.sh)
         "com.cmuxterm.app.staging", // staging, untagged (scripts/reloads.sh)

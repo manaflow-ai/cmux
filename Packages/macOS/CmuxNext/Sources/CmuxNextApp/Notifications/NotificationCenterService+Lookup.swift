@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
@@ -39,7 +40,7 @@ extension NotificationCenterService {
 
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
-        guard let services, NSApp.isActive else { return false }
+        guard let services, services.appActiveSource() else { return false }
         return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
@@ -95,7 +96,8 @@ extension NotificationCenterService {
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },
                 begin: { try await connection().request(FeedLocalHandoffBeginRequest(item: $0)).item },
-                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item }),
+                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item },
+                abort: { try await connection().request(FeedLocalHandoffAbortRequest(item: $0)).item }),
             owner: { path, body in try await principal.call(path, body) },
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
@@ -116,12 +118,23 @@ extension NotificationCenterService {
 
     /// The handoff rules under the current settings. Muted workspaces are
     /// matched by durable key and by public id (`ws_…`, an item's context).
+    /// Only the workspaces in normal windows now (not `WindowManager.isIncognito`)
+    /// hand off, matched by key, public id or terminal (#31210).
     func feedHandoffPolicy() -> FeedHandoffPolicy {
-        var muted = preferences.mutedWorkspaces
-        for workspace in services?.daemon.store.workspaces ?? [] where muted.contains(workspace.id) {
-            if let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+        var muted = preferences.mutedWorkspaces, normal = Set<String>()
+        for workspace in services?.daemon.store.workspaces ?? [] {
+            if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+            guard services?.windows.isIncognito(workspace: workspace.id) == false else { continue }
+            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
+            normal.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted)
+        // Classified once the windows restored (crash leftovers discarded, ephemeral flags awaited) and the flags are known.
+        let classified = services.map { services in
+            (services.windows.restored || services.windows.restoreGaveUp)
+                && (services.daemon.connection?.mirrorsSessionState != true || services.daemon.store.session.known)
+        } ?? true
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, normalWindows: services == nil ? nil : normal,
+                                 classified: classified)
     }
 
     static func seconds(_ duration: Duration) -> Double {

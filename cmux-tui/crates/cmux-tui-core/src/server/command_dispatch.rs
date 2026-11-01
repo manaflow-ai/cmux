@@ -10,6 +10,40 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // A move out of an incognito workspace can make another incognito
+    // workspace; its app owns it (incognito_orphans). Every move command
+    // takes part, so none commits outside the serialized moves.
+    let moves = matches!(
+        cmd,
+        Command::MoveTabToNewWorkspace { .. }
+            | Command::MoveTabGroupToNewWorkspace { .. }
+            | Command::MoveScreen { .. }
+            | Command::MoveScreenGroup { .. }
+            | Command::MoveTabToWorkspace { .. }
+            | Command::MoveTab { .. }
+            | Command::MoveTabToSplit { .. }
+            | Command::MoveTabGroup { .. }
+            | Command::MoveTabGroupToSplit { .. }
+            | Command::MoveTabGroupToColumn { .. }
+            | Command::MoveTerminal { .. }
+    );
+    let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    let result = dispatch_command(mux, client, cmd, writer, cancellation);
+    if let Some(claim) = claim
+        && result.is_ok()
+    {
+        claim.finish(mux, client);
+    }
+    result
+}
+
+fn dispatch_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
     // Who a durable legacy command acts as (P8): read once per command.
     let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
@@ -210,7 +244,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
+            cmd_terminal_io::wait_for(mux, writer, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             cmd_terminal_io::run(
@@ -618,6 +652,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
+        Command::CloudEnvironment(params) => cloud_conversations::environment(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }

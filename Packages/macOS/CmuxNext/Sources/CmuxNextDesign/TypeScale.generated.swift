@@ -29,31 +29,48 @@ public nonisolated struct TypeScale: Sendable {
     }
 
     /// Shortcuts, badges, counters, tooltips, group labels.
-    public static let caption: CGFloat = 11
-    public static let captionLineHeight: CGFloat = 14
+    @MainActor public static var caption: CGFloat { Base.caption * Typography.userScale }
+    @MainActor public static var captionLineHeight: CGFloat { Base.captionLineHeight * Typography.userScale }
     public static let captionTracking: CGFloat = 0.0048
     /// Secondary lines, metadata, section headers, footer rows.
-    public static let detail: CGFloat = 12
-    public static let detailLineHeight: CGFloat = 16
+    @MainActor public static var detail: CGFloat { Base.detail * Typography.userScale }
+    @MainActor public static var detailLineHeight: CGFloat { Base.detailLineHeight * Typography.userScale }
     public static let detailTracking: CGFloat = 0.0005
     /// Chrome text: labels, rows, menus, controls, settings.
-    public static let body: CGFloat = 13
-    public static let bodyLineHeight: CGFloat = 18
+    @MainActor public static var body: CGFloat { Base.body * Typography.userScale }
+    @MainActor public static var bodyLineHeight: CGFloat { Base.bodyLineHeight * Typography.userScale }
     public static let bodyTracking: CGFloat = -0.0032
     /// The browser address bar's text.
-    public static let field: CGFloat = 14
-    public static let fieldLineHeight: CGFloat = 18
+    @MainActor public static var field: CGFloat { Base.field * Typography.userScale }
+    @MainActor public static var fieldLineHeight: CGFloat { Base.fieldLineHeight * Typography.userScale }
     public static let fieldTracking: CGFloat = -0.0062
     /// Card and panel titles, search fields.
-    public static let title: CGFloat = 15
-    public static let titleLineHeight: CGFloat = 20
+    @MainActor public static var title: CGFloat { Base.title * Typography.userScale }
+    @MainActor public static var titleLineHeight: CGFloat { Base.titleLineHeight * Typography.userScale }
     public static let titleTracking: CGFloat = -0.0088
     /// Page headings.
-    public static let heading: CGFloat = 20
-    public static let headingLineHeight: CGFloat = 26
+    @MainActor public static var heading: CGFloat { Base.heading * Typography.userScale }
+    @MainActor public static var headingLineHeight: CGFloat { Base.headingLineHeight * Typography.userScale }
     public static let headingTracking: CGFloat = -0.0167
 
-    /// Every step, small to large.
+    /// Reference sizes for off-main probes and surfaces that apply their own text scale.
+    public nonisolated struct Base: Sendable {
+        public init() {}
+        public static let caption: CGFloat = 11
+        public static let captionLineHeight: CGFloat = 14
+        public static let detail: CGFloat = 12
+        public static let detailLineHeight: CGFloat = 16
+        public static let body: CGFloat = 13
+        public static let bodyLineHeight: CGFloat = 18
+        public static let field: CGFloat = 14
+        public static let fieldLineHeight: CGFloat = 18
+        public static let title: CGFloat = 15
+        public static let titleLineHeight: CGFloat = 20
+        public static let heading: CGFloat = 20
+        public static let headingLineHeight: CGFloat = 26
+    }
+
+    /// Unscaled token values, small to large. The named steps follow Interface Size live.
     public static let sizes: [CGFloat] = [11, 12, 13, 14, 15, 20]
 
     /// Everything by default.

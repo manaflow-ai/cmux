@@ -325,12 +325,15 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
         let tasks: Vec<Value> = (0..n).map(|i| task(&format!("Task {i}"))).collect();
         json!({"name": "suggest_tasks", "arguments": {"tasks": tasks}})
     };
+    // A title over the limit in the second task: the first is not offered either.
+    let long = json!({"name": "suggest_tasks", "arguments": {"tasks": [task("Fine"), task(&"a".repeat(81))]}});
     let requests = [
-        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2099-01-01"}}),
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
         json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": call(3)}),
         json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": call(6)}),
         json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": call(0)}),
+        json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": long}),
     ];
     for r in &requests {
         stdin.write_all(format!("{r}\n").as_bytes()).await.unwrap();
@@ -354,6 +357,12 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     assert_eq!(replies[&3]["result"]["isError"], false, "{}", replies[&3]);
     assert_eq!(replies[&4]["result"]["isError"], true, "six tasks: {}", replies[&4]);
     assert_eq!(replies[&5]["result"]["isError"], true, "no task: {}", replies[&5]);
+    let refused = &replies[&6]["result"];
+    assert_eq!(refused["isError"], true, "long title: {refused}");
+    let text = refused["content"][0]["text"].as_str().unwrap();
+    assert_eq!(text, "task 2 title must be 1 to 80 characters (none was offered)");
+    // A version we do not speak is answered with our newest, not echoed.
+    assert_eq!(replies[&1]["result"]["protocolVersion"], "2025-06-18");
 
     let events = hub.events(&id, 0, 10_000).unwrap();
     let offers: Vec<&Value> =

@@ -1,7 +1,14 @@
 #!/bin/bash
 # cmux pre-push hook, installed by scripts/install-git-hooks.sh as a clone-local
 # copy outside the checkout.
-# 0. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
+# 0. Clone-local extras (opt-in, off when unset): each absolute path in `git config --get-all cmux.prePushExtra`
+#    (any config scope, `~` expanded) runs first, in order, from the top of the pushing worktree, as
+#    `<path> <remote> <url>` with git's pushed-refs lines on stdin; a non-zero exit refuses the push. For a
+#    clone's own rule (a merge freeze on a long-lived branch), so no one edits this installed copy: an edited
+#    copy is never feat-cmux-next's, and the gate warns on every push. Add one with
+#    `git config --add cmux.prePushExtra /abs/path/to/check` (it must be executable); remove them with
+#    `git config --unset-all cmux.prePushExtra`. A relative path is refused (it would run from the checkout).
+# 0b. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
 #    CMUX_WEB_LINT_SKIP_REASON="<the failing check and the base SHA where it also fails>".
@@ -35,6 +42,35 @@ trap 'rm -f "$REFS_FILE"' EXIT
 printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
 PUSHED_REMOTE="${1:-origin}"
 CHECKS="$HOOK_DIR/cmux-next-checks"
+
+# Clone-local extras first (header, step 0): a clone's own rule refuses before the slower checks run.
+EXTRAS_STATUS=0
+EXTRAS="$(git config --path --get-all cmux.prePushExtra)" || EXTRAS_STATUS=$?
+if (( EXTRAS_STATUS > 1 )); then  # 1 is "not set"; anything else is a config git cannot read
+    echo "pre-push: cannot read cmux.prePushExtra (git config exit $EXTRAS_STATUS); fix this clone's git config." >&2
+    exit 1
+fi
+if [[ -n "$EXTRAS" ]]; then
+    # Read from a printf process, never a here-string: bash writes those into a pipe it reads itself (above).
+    while IFS= read -r EXTRA; do
+        [[ -n "$EXTRA" ]] || continue
+        if [[ "$EXTRA" != /* ]]; then
+            echo "pre-push: cmux.prePushExtra '$EXTRA' is not an absolute path; refusing the push." >&2
+            exit 1
+        fi
+        if [[ ! -f "$EXTRA" || ! -x "$EXTRA" ]]; then
+            echo "pre-push: cmux.prePushExtra '$EXTRA' is not an executable file (chmod +x it, or" \
+                "git config --unset-all cmux.prePushExtra); refusing the push." >&2
+            exit 1
+        fi
+        EXTRA_STATUS=0
+        "$EXTRA" "$@" < "$REFS_FILE" || EXTRA_STATUS=$?
+        if (( EXTRA_STATUS != 0 )); then
+            echo "pre-push: cmux.prePushExtra $EXTRA refused the push (exit $EXTRA_STATUS)." >&2
+            exit "$EXTRA_STATUS"
+        fi
+    done < <(printf '%s\n' "$EXTRAS")
+fi
 
 # The checks copy is refreshed from the fetched feat-cmux-next before a push to it (refresh_checks.py says why);
 # it never refuses a push.

@@ -72,13 +72,30 @@ struct CloudAppLinkOwnerAnswerTests {
         #expect(await link.ownerLink == nil)
     }
 
+    @Test func mobileSnapshotDoesNotConsumeTheEndpointAndIsWithdrawnWithItsLink() async throws {
+        let link = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
+        #expect(await link.currentLinkSocket == nil)
+        let ticket = try await link.connect(origin: .user)
+        let snapshot = try #require(await link.currentLinkSocket)
+        #expect(snapshot.callerOwnsVM)
+        #expect(snapshot.key == Self.key)
+        #expect(try await link.endpoint(ticket) == snapshot.path)
+        #expect(await link.currentLinkSocket == snapshot)
+        _ = await link.apply(CloudLinkChange(key: Self.key, state: .revoked, generation: 3, reason: "removed"))
+        #expect(await link.currentLinkSocket == nil)
+
+        let teammate = CloudLinkSession(key: Self.key, resolver: Self.resolver("team"))
+        _ = try await teammate.connect(origin: .user)
+        #expect(await teammate.currentLinkSocket?.callerOwnsVM == false)
+    }
+
     /// The closure the tab's chat start and trust calls read (AgentTabs+Wiring): the app link's own
     /// answer. AgentSessionAttachClient sends the owner word only when its two reads (before the
     /// connection, as the call goes out) give the same non-nil id (AgentSessionStartOwnerLinkTests),
     /// so a reconnect or a revoke between them refuses the call.
     @Test func theTabsOwnerClosureFollowsTheAppLinkAcrossAReconnectAndARevoke() async throws {
         let appLink = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
-        let ownerLink = AgentTabRemoteHost.ownerLink(appLink: appLink, link: nil)
+        let ownerLink = CloudMachineLinks(appLink: appLink, link: nil).ownerLink
         #expect(await ownerLink() == nil, "not connected: refused")
         _ = try await appLink.connect(origin: .user)
         let before = try #require(await ownerLink())
@@ -90,7 +107,7 @@ struct CloudAppLinkOwnerAnswerTests {
 
         let team = CloudLinkSession(key: Self.key, resolver: Self.resolver("team"))
         _ = try await team.connect(origin: .user)
-        #expect(await AgentTabRemoteHost.ownerLink(appLink: team, link: nil)() == nil, "a teammate: refused")
+        #expect(await CloudMachineLinks(appLink: team, link: nil).ownerLink() == nil, "a teammate: refused")
     }
 
     @Test func aConnectThatDoesNotSayOwnerGivesNoOwnerAnswer() async throws {

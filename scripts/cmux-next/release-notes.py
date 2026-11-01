@@ -599,7 +599,9 @@ def build(args):
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
-    added = set(p for p in added if p.endswith(".md"))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    from digest import surviving_highlights
+    added = surviving_highlights(args.head, added)
     again = reannounced(args.since, args.head, added)
     for path in sorted(added | set(again)):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))

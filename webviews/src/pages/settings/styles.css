@@ -170,6 +170,26 @@ mark {
   gap: 1px;
 }
 
+/* A titled run of categories (Look and Feel, AI, ...); the space above each header separates the
+   runs, so no divider line is needed. */
+/* Its links keep the list's own rhythm: the section is a column with no gap of its own. */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section + .sidebar-section { margin-top: 14px; }
+
+.sidebar-section-title {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
 .section-link {
   display: flex;
   align-items: center;
@@ -887,7 +907,7 @@ mark {
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
@@ -994,10 +1014,14 @@ mark {
   padding: 4px 0 0;
 }
 
+.accounts-row {
+  --accounts-mark-width: 20px;
+}
+
 .accounts-mark {
   display: inline-flex;
   flex: none;
-  width: 20px;
+  width: var(--accounts-mark-width);
 }
 
 .accounts-status {
@@ -1031,7 +1055,7 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
   padding: 6px 0 0 40px;
 }
 
@@ -1813,14 +1837,14 @@ mark {
 .menus-editor {
   display: grid;
   grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
-  gap: 18px;
+  gap: var(--ds-space-4);
   align-items: start;
 }
 
 .menus-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--ds-space-2);
   position: sticky;
   top: 0;
 }
@@ -1828,7 +1852,6 @@ mark {
 .menus-area {
   display: flex;
   flex-direction: column;
-  gap: 1px;
 }
 
 .menus-area-title {
@@ -1841,10 +1864,10 @@ mark {
 .menus-list-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   width: 100%;
   min-height: 24px;
-  padding: 2px 8px;
+  padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1907,7 +1930,7 @@ mark {
 }
 
 .menu-preview {
-  padding: 5px;
+  padding: var(--ds-space-1);
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
@@ -1920,14 +1943,17 @@ mark {
 .menu-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-height: 24px;
-  padding: 0 4px 0 2px;
+  padding: 0 var(--ds-space-1);
   border-radius: 5px;
   position: relative;
 }
 
-.menu-row:hover,
+/* A row lights on hover, but never while the pointer is on one of its own buttons: then only that
+   button lights (a hover covers only its control). The exclusion sits in :where() so the rule keeps
+   .menu-row:hover's weight and a dragged row's opaque fill (below) still wins. */
+.menu-row:where(:hover:not(:has(.icon-button:hover))),
 .menu-row:focus-within {
   background: var(--input-bg);
 }
@@ -1948,12 +1974,12 @@ mark {
 }
 
 .menu-row[data-dragging] {
-  z-index: 2;
+  z-index: var(--layer-raised);
   /* Opaque: the rows it passes never show through its title. */
   background: var(--surface-popup);
   box-shadow:
     inset 0 0 0 100vmax var(--accent-soft),
-    var(--ui-popup-drop);
+    var(--elevation-2);
   cursor: grabbing;
 }
 
@@ -2004,12 +2030,12 @@ button.menu-disclosure {
 
 .menu-row-actions {
   display: inline-flex;
-  gap: 1px;
   opacity: 0;
 }
 
 .menu-row:hover .menu-row-actions,
-.menu-row:focus-within .menu-row-actions {
+.menu-row:focus-within .menu-row-actions,
+.menu-row:has([data-popup-open]) .menu-row-actions {
   opacity: 1;
 }
 
@@ -2025,7 +2051,7 @@ button.menu-disclosure {
   flex: 1;
   min-width: 0;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .menu-row[data-hidden] .menu-row-body > :not(.menu-row-actions):not(.menu-row-grip) {
@@ -2034,7 +2060,7 @@ button.menu-disclosure {
 
 .menu-row-badge {
   flex: none;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   border-radius: 4px;
   background: var(--input-bg);
   color: var(--muted-text);
@@ -2044,7 +2070,7 @@ button.menu-disclosure {
 button.menu-disclosure {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
 }
 
 .menu-twisty {
@@ -2068,10 +2094,9 @@ button.menu-disclosure {
 .menus-move-picker {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   margin-top: 8px;
   max-width: 420px;
-  padding: 5px;
+  padding: var(--ds-space-1);
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: var(--surface-popup);
@@ -2094,4 +2119,12 @@ button.menu-disclosure {
   margin: 0 0 10px;
   color: var(--danger);
   font-size: var(--text-detail);
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
 }

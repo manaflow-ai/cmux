@@ -97,7 +97,7 @@ impl Hub {
         };
         let recipe = recipes::recipe_for(&name, &profile)?;
         let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await;
-        let ms = started.elapsed().as_millis() as u64;
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
                 agent = %name,
@@ -150,7 +150,7 @@ impl Hub {
         let failed = |detail: String| CompleteError::Failed { harness: name.to_owned(), detail };
         let timed_out = || CompleteError::Timeout {
             harness: name.to_owned(),
-            ms: req.timeout.as_millis() as u64,
+            ms: u64::try_from(req.timeout.as_millis()).unwrap_or(u64::MAX),
         };
         // The profile's env with its bound route (claude-sr, claude-cr, a route file).
         let mut env = profile.env.clone();

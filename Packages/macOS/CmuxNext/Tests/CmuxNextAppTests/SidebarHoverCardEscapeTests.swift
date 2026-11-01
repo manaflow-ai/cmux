@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -10,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 /// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
 /// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
 /// going down past the row lets it go, and leaving both the row and the card dismisses it.
-@MainActor @Suite(.serialized) struct SidebarHoverCardEscapeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverCardEscapeTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...4).map {
@@ -60,6 +61,7 @@ import CmuxNextWakeupsTestSupport
     @Test func theCardsTopLinesUpWithItsRow() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         #expect(abs(card.maxY - row.maxY) <= 0.5, "the card's top \(card.maxY) is \(row.maxY - card.maxY) pt below its row's top \(row.maxY)")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
@@ -69,6 +71,7 @@ import CmuxNextWakeupsTestSupport
     @Test func theCardFollowsTheHoverToTheNextRow() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         try #require(rows.count >= 3)
         _ = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         guard case .workspace(let id) = rows[2].key, let next = list.hoverCardAnchor(for: id) else {
@@ -88,6 +91,7 @@ import CmuxNextWakeupsTestSupport
     @Test func theCardTouchesItsWorkspaceRowBeforeTheDragThumb() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         let edge = window.convertToScreen(list.convert(list.bounds, to: nil)).maxX
         let pixel = 1 / max(window.backingScaleFactor, 1)
@@ -103,6 +107,7 @@ import CmuxNextWakeupsTestSupport
     @Test func movingDownPastTheRowsRightEndDismissesTheCard() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         coordinator.pointerMoved(to: CGPoint(x: row.maxX - 2, y: row.minY + 3))
         let shown = try #require(coordinator.machine.shownTarget, "the card went on the row itself")
@@ -121,6 +126,7 @@ import CmuxNextWakeupsTestSupport
     @Test func thePathFromTheRowIntoTheCardKeepsIt() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         let shown = try #require(coordinator.machine.shownTarget)
         // The row's lower half, below the card's top edge (the screen may have moved the card).
@@ -141,6 +147,7 @@ import CmuxNextWakeupsTestSupport
     @Test func leavingBothTheRowAndTheCardDismissesTheCard() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (_, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
         coordinator.pointerMoved(to: CGPoint(x: card.maxX + 40, y: card.midY))

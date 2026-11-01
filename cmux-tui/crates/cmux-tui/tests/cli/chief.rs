@@ -6,6 +6,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_acp.rs"]
+mod acp;
 #[path = "chief_adopt.rs"]
 mod adopt;
 #[path = "chief_autostart.rs"]

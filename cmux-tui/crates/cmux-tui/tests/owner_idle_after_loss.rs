@@ -3,7 +3,9 @@
 //! macOS, its executable's volume being force-removed ends it at once
 //! (headless.rs `fatal_faults_end_the_owner`) instead of leaving its threads
 //! faulting on their own code pages at about 100% system time each, as the
-//! two leaked owners did.
+//! two leaked owners did; and once its socket and state directory are
+//! removed with no client connected, it stops (headless/lost_paths.rs)
+//! instead of running for days where nothing can reach it.
 
 #![cfg(any(target_vendor = "apple", target_os = "linux"))]
 
@@ -21,6 +23,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// handler installed it never exits.
 #[cfg(target_os = "macos")]
 const EXIT_BOUND: Duration = Duration::from_secs(10);
+
+/// How long an owner may take to stop once its socket and state directory
+/// are gone and its last client left: well inside the 30 s reap grace it
+/// was started with. The stop is event-driven (a vnode or inotify watch and
+/// the client registry), so it takes milliseconds; the rest is room for a
+/// loaded runner.
+const LOSS_EXIT_BOUND: Duration = Duration::from_secs(10);
 
 /// CPU an owner may use in a window where it should be idle or exiting. An
 /// idle owner uses next to nothing (idle_wakeups.rs); a spinning thread uses
@@ -171,6 +180,48 @@ fn orphaned_owner_stays_idle_after_its_clients_go_away() {
     std::thread::sleep(Duration::from_secs(5));
     let used = cpu(owner.pid()).expect("the owner outlives its clients").saturating_sub(before);
     assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU in 5 s after its clients left");
+}
+
+/// The probe's case on aws-m4pro-5: `server ensure` started the owner
+/// (passing it the readiness pipe, `--owner-ready-fd`) and exited, the
+/// harness that ran it died without stopping it (no `--exit-with-pid`), and
+/// the harness's temporary root, which held the owner's socket and state
+/// directory, was removed later. Nothing can reach that owner again, so it
+/// stops once no client is connected; while one still is, it keeps serving.
+#[test]
+fn orphaned_owner_exits_when_its_socket_and_state_are_removed() {
+    let root = scratch("removed");
+    fs::create_dir_all(&root).unwrap();
+    let owner = Owner::ensure(&root, Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &root);
+    // An answered request proves the owner registered this client before
+    // its root goes (a bare connect is only queued in the kernel).
+    let mut client = UnixStream::connect(&owner.socket).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .map_while(Result::ok)
+        .any(|line| line.contains("\"id\":1"));
+    assert!(answered, "the owner never answered identify");
+    let before = cpu(owner.pid()).expect("the owner is running");
+    fs::remove_dir_all(&root).unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(
+        cpu(owner.pid()).is_some(),
+        "the owner stopped while a client was still connected to it"
+    );
+    drop(client);
+    let deadline = std::time::Instant::now() + LOSS_EXIT_BOUND;
+    let mut used = Duration::ZERO;
+    while let Some(now) = cpu(owner.pid()) {
+        used = now.saturating_sub(before);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the owner outlived its removed socket and state directory by {LOSS_EXIT_BOUND:?} \
+             after its last client left, using {used:?} of CPU"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU before it exited");
 }
 
 /// A disk image this test attached at `mount`. Dropped after the owner

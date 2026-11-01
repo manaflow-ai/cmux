@@ -147,8 +147,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           })),
           dir: "rtl",
           // RTL inherits the document; a local LTR line must keep its own endpoints.
+          // Specific enough to win over a reply's kept room (conversation.css `.acpmux-row--reply-room`).
           css:
-            '.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
+            'article.acpmux-row.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
             (lineDirection === "ltr" ? ".cv-md p { direction: ltr; }" : ""),
         });
         try {
@@ -253,9 +254,12 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {
           const page = await open(name, above, below);
           // Integration-fixture spacing only: leave real row renderers and controls intact while
-          // making a positive gap outside both article boxes. Production does not use this margin.
-          await page.addStyleTag({
-            content: '[data-row-id="lower"], [data-row-id="after"] { margin-top: 32px; }',
+          // adding a positive gap outside both article boxes without replacing fractional placement.
+          await page.evaluate(() => {
+            for (const id of ["lower", "after"]) {
+              const row = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+              row.style.marginTop = `${(Number.parseFloat(row.style.marginTop) || 0) + 32}px`;
+            }
           });
           await paint(page);
           const box = await geometry(page);

@@ -36,6 +36,15 @@ def git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
+def surviving_highlights(head, paths, report=lambda line: print(line, file=sys.stderr)):
+    """History may name an added highlight that was reverted before this build."""
+    present = set(git("ls-tree", "-r", "--name-only", "-z", head, "--", HIGHLIGHTS).split("\0"))
+    candidates = {path for path in paths if path.endswith(".md")}
+    for path in sorted(candidates - present):
+        report(f"skipped {path}: absent from source tree {head}")
+    return candidates & present
+
+
 def parse(path, text):
     """One highlight file as a digest entry (raises ValueError on a bad file)."""
     head, _, body = text.partition("\n\n")
@@ -92,7 +101,7 @@ def build(version, date, head, since="", report=lambda line: print(line, file=sy
     span = f"{since}..{head}" if since else head
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     entries = []
-    for path in sorted({p for p in [*added, *also] if p.endswith(".md")}):
+    for path in sorted(surviving_highlights(head, [*added, *also], report)):
         try:
             entry = parse(path, git("show", f"{head}:{path}"))
         except ValueError as error:

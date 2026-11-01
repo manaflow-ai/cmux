@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
 
@@ -101,14 +102,14 @@ extension DeviceIdentity {
     /// This app's identity: the device id and the Secure Enclave key blobs in
     /// the Keychain under `<bundleIdentifier>.device-hub`, created on first
     /// use. A missing or unreadable part makes a new identity (a new device).
-    public static func forApp(bundleIdentifier: String) throws -> DeviceIdentity {
-        try load(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub"))
+    public static func forApp(bundleIdentifier: String, loginKeychain: LoginKeychain) throws -> DeviceIdentity {
+        try load(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain))
     }
 
     /// Forgets this app's identity and makes a new one: the hub refused the old
     /// id (`device_removed`, `device_key_mismatch`), so this is a new device.
-    public static func renew(bundleIdentifier: String) throws -> DeviceIdentity {
-        let keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub")
+    public static func renew(bundleIdentifier: String, loginKeychain: LoginKeychain) throws -> DeviceIdentity {
+        let keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain)
         for account in [idAccount, signingAccount, agreementAccount] { try keychain.delete(account) }
         return try load(keychain: keychain)
     }

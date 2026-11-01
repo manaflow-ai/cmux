@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// where each pane is outlined (Panes, Card Outlined), the first tab starts on the outline's left
 /// line, the line drawn right under it. The trailing end follows the same rule: the "…" button
 /// keeps as much room to the trailing edge as above it.
-@MainActor @Suite(.serialized) struct PaneChromeEvenInsetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,

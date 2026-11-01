@@ -44,6 +44,10 @@ const MAX_SNAPSHOT_FILE_BYTES: u64 = 16 * 1024 * 1024;
 struct WriterState {
     /// When the pending changes are due; `None` while nothing changed.
     due: Option<Instant>,
+    /// A terminal's history grew by a step: its measurement (and a budget
+    /// pass when the total is over the trigger) is due now
+    /// (`memory_budget.rs`), apart from `due`.
+    memory_due: bool,
     stop: bool,
 }
 
@@ -77,6 +81,18 @@ impl Writer {
         }
     }
 
+    /// A terminal's history grew by a step: measure it at once. Requests
+    /// coalesce until the writer wakes, so a flood asks for one pass at a
+    /// time.
+    pub(super) fn request_memory_pass(&self) {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.memory_due {
+            state.memory_due = true;
+            changed.notify_all();
+        }
+    }
+
     pub(super) fn stop(&self) {
         {
             let (lock, changed) = &*self.state;
@@ -96,11 +112,21 @@ impl Writer {
 fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
     let (lock, changed) = state;
     loop {
-        {
+        let memory_only = {
             let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if guard.stop {
                     return;
+                }
+                // A due snapshot pass goes first (it measures too), so a
+                // stream of measurement requests never starves snapshots.
+                if guard.due.is_some_and(|due| Instant::now() >= due) {
+                    guard.due = None;
+                    guard.memory_due = false;
+                    break false;
+                }
+                if std::mem::take(&mut guard.memory_due) {
+                    break true;
                 }
                 match guard.due {
                     None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
@@ -108,7 +134,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                         let now = Instant::now();
                         if now >= due {
                             guard.due = None;
-                            break;
+                            break false;
                         }
                         guard = changed
                             .wait_timeout(guard, due - now)
@@ -117,10 +143,23 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                     }
                 }
             }
-        }
+        };
         let Some(mux) = mux.upgrade() else { return };
-        write_pass(&mux, &mux.output_store);
+        if memory_only {
+            memory_pass(&mux, &mux.output_store);
+        } else {
+            write_pass(&mux, &mux.output_store);
+        }
     }
+}
+
+/// Between write passes: measure the terminals whose history grew, and run
+/// the budget pass when the total is over its trigger; the snapshots keep
+/// their own interval.
+fn memory_pass(mux: &Arc<Mux>, store: &OutputStore) {
+    let policy = store.cached_policy().unwrap_or_else(|| PersistencePolicy::current(mux));
+    let _pass = store.lock_pass();
+    super::memory_budget::measure_due(mux, store, policy.memory_total_bytes);
 }
 
 /// Write the snapshot of every terminal that printed since the last pass and
@@ -148,7 +187,21 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     let _pass = store.lock_pass();
     let full = policy.mode == PersistenceMode::Full;
     store.full.set_enabled(full);
-    let dirty = store.take_dirty();
+    if !full {
+        // Unflushed bytes belong to full mode only.
+        for log in store.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.pending = Vec::new();
+            state.pending_start = state.next_offset();
+            // The files miss this stretch: back in full mode, the first
+            // flush writes whatever the screen shows.
+            state.segment_digest = None;
+        }
+        // Segment files go once full mode is off: their stored ends must not
+        // place a terminal's stream later (Full -> other -> Full).
+        store.segment_resume.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+    let dirty = store.without_private(mux, store.take_dirty());
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
     if !dirty.is_empty() {
         // Memory grows only when terminals print.
@@ -215,8 +268,10 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         }
         digests.push((log, Some(digest)));
     }
-    if full {
-        super::segments::flush_logs(directory, &digests, policy, quitting);
+    // A failed segment write tries again at the next flush, output or not
+    // (a terminal gone idle still gets its bytes stored).
+    if full && super::segments::flush_logs(&store.full, directory, &digests, policy, quitting) {
+        store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
@@ -254,6 +309,11 @@ fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
         .unwrap_or(MAX_SNAPSHOT_REPLAY_BYTES)
         .min(MAX_SNAPSHOT_REPLAY_BYTES);
     estimate.clamp(MIN_SNAPSHOT_REPLAY_BYTES.min(cap), cap)
+}
+
+/// Remove terminal `terminal_id`'s snapshot (an incognito terminal).
+pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
+    let _ = fs::remove_file(path(directory, terminal_id));
 }
 
 fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {

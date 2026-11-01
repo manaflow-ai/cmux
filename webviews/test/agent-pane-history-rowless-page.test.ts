@@ -203,8 +203,9 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
   client.close();
 });
 
-test("one ask reads a bounded number of pages; a run of rows that draw nothing loads across asks", async () => {
-  // Twelve prompts queued with 300 KB pastes in a row: twelve pages that draw no row.
+test("one ask reads past a run of rows that draw nothing to the turn before it, in a bounded number of pages", async () => {
+  // Twelve prompts queued with 300 KB pastes in a row: twelve pages that draw no row. One ask reads on past them
+  // (direct.ts OLDER_PAGES_PER_ASK) instead of stopping after eight with nothing new to draw.
   const history = records([
     ...turn(1),
     ...ask(2),
@@ -217,7 +218,9 @@ test("one ask reads a bounded number of pages; a run of rows that draw nothing l
   const before = daemon.olderReads();
   await client.loadOlder();
   await settle();
-  expect(daemon.olderReads() - before).toBeLessThanOrEqual(8);
+  expect(daemon.olderReads() - before).toBeGreaterThan(8);
+  expect(daemon.olderReads() - before).toBeLessThanOrEqual(128);
+  expect(questions(snapshot().rows)).toContain("Question 2");
 
   await scrollToTop(client, snapshot);
   expect(questions(snapshot().rows)).toEqual(["Question 1", "Question 2", "Question 3"]);

@@ -98,6 +98,8 @@ final class HandoffNotices {
                     self.follower.refresh(handoff.id, changed: Date(timeIntervalSince1970: updatedAt / 1_000), running: handoff.isRunning)
                 }
             }
+            // An incognito hand-off that closed while the app was stopped is neither followed nor open: its saved id goes (#31208).
+            self.follower.keepIncognito(listed: Set(handoffs.filter(\.isOpen).map(\.id)))
         }
     }
 
@@ -106,7 +108,9 @@ final class HandoffNotices {
     func watch(handoff id: String, session: String, host: String?) {
         guard let user = currentUser() else { return }
         let handoff = CloudHandoff(id: id, sessionId: session, status: "starting", summary: nil, createdAt: Date().timeIntervalSince1970 * 1_000, version: nil)
-        follower.watch(Self.record(handoff, user: user, host: host))
+        var record = Self.record(handoff, user: user, host: host)
+        record.incognito = tab(showing: session).map { services?.cache.browserTabs.isIncognitoTab($0) == true } == true ? true : nil
+        follower.watch(record)
     }
 
     /// The record of a hand-off found in the person's list at `seen`: followed from where the list
@@ -148,7 +152,7 @@ final class HandoffNotices {
         let tab = tab(showing: end.record.key)
         if let tab, center.isViewed(tab) { return center.note("handoff \(end.record.id) \(end.outcome.rawValue) viewed") }
         var arrival = NotificationPolicy.Arrival(source: .agent)
-        arrival.appActive = NSApp.isActive
+        arrival.appActive = services?.appActiveSource() ?? false
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .needsYou ? .message : .error
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -161,7 +165,8 @@ final class HandoffNotices {
         if decision.desktop {
             // One banner per hand-off: its end replaces the needs-you banner it posted before.
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
-                                workspace: nil, defaultSound: decision.sound == "default")
+                                workspace: nil, defaultSound: decision.sound == "default", incognito: end.record.incognito == true
+                                    || tab.map { services?.cache.browserTabs.isIncognitoTab($0) == true } == true)
             if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
         } else if let sound = decision.sound {
             center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
@@ -202,6 +207,8 @@ final class HandoffNotices {
         let id = String(banner.dropFirst(Self.bannerPrefix.count))
         guard let record = follower.endedRun(id)?.record ?? follower.following.first(where: { $0.id == id }) else { return true }
         if let tab = tab(showing: record.key), services.revealTab(tab) { return true }
+        // An incognito chat's hand-off never opens outside its window.
+        if record.incognito == true { return true }
         // A hand-off found in the list names no host this app knows: the chat stays where it is, and
         // the app comes forward. (The composer's hand-off passes its host to watch(handoff:session:host:).)
         guard let host = record.host else {

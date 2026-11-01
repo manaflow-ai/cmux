@@ -4,13 +4,10 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
 # busy the run would wait for it indefinitely. This workflow watches such a run
-# and, when one of its jobs has waited past the five-minute queue alarm (or the
-# longer configured allowance for a picker-managed pool), cancels the run and
-# re-runs it. For cmux-next, the retry is admitted through fast checks, a free
-# owned Mac, then Blacksmith macOS; other workflows keep their existing retry
-# policy. A job an owned runner refused at job start
-# (it failed in seconds, before any step succeeded) gets its failed jobs re-run
-# instead, which moves them to the picker's retry_runner on Blacksmith.
+# and reports a queue alarm when the pool is full or starts no work. Active
+# current-head PR runs remain intact: Actions cannot re-run them yet. Completed
+# runner refusals retry failed jobs; eligible non-PR runs retain the cancel and
+# re-run policy. Placement for new runs chooses free owned Macs, then Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
 #
 # One sweeper watches the busy sources (SWEEP=1, owned_pool_rescue.sweep()).
@@ -60,6 +57,7 @@ on:
       - Nightly macOS build
       - CI
       - iOS simulator tests
+      - cmux-next-ios kit tests
       - Iroh release gate
       - cmux NEXT DEV daily
       # Side lanes can create a gated Mac job after workflow_run(requested).
@@ -69,6 +67,7 @@ on:
       - Auth and session lifecycle
       - cmux-next base autofix
       - cmux-next batch queue
+      - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
       - cmux-next PR autofix
@@ -105,6 +104,7 @@ on:
 permissions: {}
 
 env:
+  CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.
@@ -113,12 +113,14 @@ env:
     .github/workflows/nightly.yml
     .github/workflows/ci.yml
     .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
     .github/workflows/iroh-release-gate.yml
     .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/agent-brands.yml
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml
     .github/workflows/cmux-next-batch.yml
+    .github/workflows/stable-next.yml
     .github/workflows/cmux-next-frame-pacing.yml
     .github/workflows/cmux-next-media.yml
     .github/workflows/cmux-next-pr-autofix.yml

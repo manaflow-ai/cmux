@@ -54,6 +54,19 @@ struct LaunchPolishVisibilityTests {
         #expect(InternalPageTabStore.isPreviewPage(InternalPageID.appStore.rawValue))
     }
 
+    /// Leo 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
+    /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES". The palette's and Help menu's What's New
+    /// (`updates.whatsNew`) is available with Labs off, the default; the App Store stays a Labs preview.
+    @Test func whatsNewActionIsAvailableWithLabsOff() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        #expect(services.settings?.snapshot.previewFeatures != true)
+        #expect(services.registry.unavailableReason(for: "updates.whatsNew") == nil,
+                "What's New in the palette and Help menu is still behind Labs")
+        #expect(services.registry.settingOffReason("appStore.show") != nil, "the App Store stays a Labs preview")
+    }
+
     /// The update this launch came from, as the old build recorded it.
     static let lastUpdate = WhatsNewLastUpdate(fromVersion: "0.9.0", fromBuild: "90", toVersion: "1.0.0", toBuild: "100",
                                                stagedAt: Date(timeIntervalSince1970: 0),
@@ -70,8 +83,8 @@ struct LaunchPolishVisibilityTests {
 
     /// The "cmux Updated!" card's See What's New opens the changelog for the update's span
     /// through the updater, as the update island's does, not through the palette's
-    /// `updates.whatsNew` (a Labs entry, unavailable with Labs off, which left the card's
-    /// button doing nothing).
+    /// `updates.whatsNew` (a Labs entry until 2026-10-30, unavailable with Labs off then, which left
+    /// the card's button doing nothing).
     @Test func updatedCardSeeWhatsNewOpensTheUpdatesSpanWithoutThePaletteAction() throws {
         let suite = "launch-polish-see-whats-new-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
