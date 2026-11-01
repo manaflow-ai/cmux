@@ -183,6 +183,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // while the owner capability payload remains private to Cloud clients.
         untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
         untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
+        // Scoped Cloud trigger chat operations.
+        untyped(method::TRIGGER_CHAT_ENSURE, Request),
+        untyped(method::TRIGGER_CHAT_SEND, Request),
+        untyped(method::TRIGGER_CHAT_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
