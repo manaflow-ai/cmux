@@ -62,13 +62,14 @@ import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, useNow } from "./SubagentGroup";
+import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
@@ -480,6 +481,11 @@ export const SubagentTray = memo(function SubagentTray({
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           onOpen={() => onOpen(item.agent.id)}
+          after={
+            stop &&
+            item.agent.state === "running" &&
+            !item.agent.command && <StopButton agent={item.agent} stop={stop} />
+          }
         />,
         // An agent a shell call started stops with that call, not through the harness.
         stop &&
@@ -524,6 +530,17 @@ export const SubagentTray = memo(function SubagentTray({
                       onOpenCommand(item.command);
                     }
                   : undefined
+              }
+              after={
+                stopProcess &&
+                processId && (
+                  <ProcessStopButton
+                    id={processId}
+                    name={item.command.command}
+                    label={t("tray.stopCommand")}
+                    stop={stopProcess}
+                  />
+                )
               }
             />,
             stopProcess &&
