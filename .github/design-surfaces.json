@@ -110,7 +110,7 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/TurnRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
         "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
