@@ -7,7 +7,7 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::task::BriefsCmd;
 
 #[derive(Parser)]
-#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
+#[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
@@ -147,6 +147,16 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
+    #[command(name = "trigger-chat", hide = true)]
+    TriggerChat {
+        /// Exact wire protocol required by the guest bridge.
+        #[arg(long, default_value = "trigger-chat-v1")]
+        protocol: String,
+        /// Read the guest principal envelope from this file descriptor (fd 0 only).
+        #[arg(long = "principal-fd", default_value_t = 0)]
+        principal_fd: i32,
+    },
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,

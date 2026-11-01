@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 import Darwin
@@ -17,22 +18,29 @@ public struct CloudMachineIO: Sendable {
     /// long as the one machine IO the app's Cloud service makes and injects into its machines client
     /// (copies of the client share it); a test passes its own.
     let probes: Probes
+    /// The app's blocking-work lanes: every file call of a call (the probe's stats, the answer's temp file and
+    /// its read) runs on `.files`, never on the cooperative pool (threading-model.md).
+    let work: BackgroundWork
 
-    public init(binary: URL, cacheDirectory: URL) {
-        self.init(binary: binary, cacheDirectory: cacheDirectory, probes: Probes())
+    public init(binary: URL, cacheDirectory: URL, work: BackgroundWork) {
+        self.init(binary: binary, cacheDirectory: cacheDirectory, probes: Probes(), work: work)
     }
 
-    init(binary: URL, cacheDirectory: URL, probes: Probes) {
+    init(binary: URL, cacheDirectory: URL, probes: Probes, work: BackgroundWork) {
         self.binary = binary
         self.cacheDirectory = cacheDirectory
         self.probes = probes
+        self.work = work
     }
 
-    /// The app's: `binary` is the bundled cmux (nil when this build has none, so no machine IO) and its
-    /// client sessions go in `cloudRoot/client-sessions`.
-    public init?(binary: URL?, cloudRoot: URL) {
-        guard let binary else { return nil }
-        self.init(binary: binary, cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true))
+    /// The app's: the bundled cmux at `bundleResources/bin/cmux` and its client sessions in `cloudRoot/client-sessions`.
+    /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
+    /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
+    /// call over HTTP.
+    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork) {
+        guard let resources = bundleResources else { return nil }
+        self.init(binary: resources.appendingPathComponent("bin/cmux"),
+                  cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true), work: work)
     }
 
     /// The probe answers, by binary path and modification date.
@@ -61,15 +69,15 @@ public struct CloudMachineIO: Sendable {
     /// operation may have run and a change must not be sent a second time.
     struct NoAnswer: Error { var dispatched: Bool }
 
-    /// Off the caller's actor (`@concurrent`): the app calls the machine routes from main-actor handlers, and the
-    /// probe's stat, the temp file, the answer's read and its parse are blocking work.
+    /// Off the caller's actor (`@concurrent`): the app calls the machine routes from main-actor handlers. The file
+    /// calls (the probe's stats, the temp file and its read) go on `work`'s files lane; the answer's parse runs here.
     @concurrent func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
         // A bundled cmux from before `machine-io` never runs the call: it goes over HTTP.
         guard try await speaksMachineIO() else { throw NoAnswer(dispatched: false) }
         var request = request
         request["cache_dir"] = cacheDirectory.path
         let input = try JSONSerialization.data(withJSONObject: request)
-        let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout)
+        let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout, work: work)
         guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
               let status = object["status"] as? Int, let route = object["route"] as? String else { throw NoAnswer(dispatched: true) }
@@ -80,14 +88,24 @@ public struct CloudMachineIO: Sendable {
 
     /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
     /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
-    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept.
+    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept. A build
+    /// without the binary speaks none, and that is kept.
     @concurrent func speaksMachineIO() async throws -> Bool {
-        let modified = (try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let binary = binary
+        // Both stats in one trip to the files lane: the modification date keys the cache.
+        let (modified, executable) = try await work.run(.userVisible, mayBlock: .files) {
+            ((try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+             FileManager.checked.isExecutableFile(atPath: binary.path))
+        }
         let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
         if let known = probes[key] { return known }
+        guard executable else {
+            probes[key] = false
+            return false
+        }
         let output: Data
         do {
-            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10))
+            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10), work: work)
         } catch is NoAnswer {
             return false
         }
@@ -100,9 +118,12 @@ public struct CloudMachineIO: Sendable {
 
     /// Runs the child with `stdin` written through a pipe after launch (a file write's request is
     /// larger than a pipe buffer) and its stdout in an unlinked temp file. Past `timeout` the child is
-    /// killed and this throws ``NoAnswer``; so does a child that cannot start.
-    @concurrent static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration) async throws -> Data {
+    /// killed and this throws ``NoAnswer``; so does a child that cannot start. The temp file is made and read on
+    /// `work`'s files lane; a lane that refuses (quit) throws `CancellationError`, before the launch or after the exit.
+    @concurrent static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration,
+                                work: BackgroundWork) async throws -> Data {
         try Task.checkCancellation()
+        let output = try await work.run(.userVisible, mayBlock: .files) { try TemporaryOutput() }
         let process = Process()
         process.executableURL = binary
         process.arguments = arguments
@@ -115,7 +136,6 @@ public struct CloudMachineIO: Sendable {
         // A child that exits before reading it all makes the write fail (EPIPE), never SIGPIPE the app.
         _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
         process.standardInput = input
-        let output = try TemporaryOutput()
         process.standardOutput = output.handle
         process.standardError = FileHandle.nullDevice
         // From here on only the child's lock touches the process.
@@ -158,7 +178,7 @@ public struct CloudMachineIO: Sendable {
         guard child.started else { throw NoAnswer(dispatched: false) }
         try Task.checkCancellation()
         guard status != nil else { throw NoAnswer(dispatched: true) }
-        return output.contents()
+        return try await work.run(.userVisible, mayBlock: .files) { output.contents() }
     }
 }
 
@@ -207,7 +227,7 @@ private final class Child: Sendable {
 }
 
 /// An unlinked temp file for the child's stdout: a large answer cannot fill a pipe and stall it.
-private struct TemporaryOutput {
+private struct TemporaryOutput: Sendable {
     let handle: FileHandle
 
     init() throws {
@@ -219,7 +239,7 @@ private struct TemporaryOutput {
     }
 
     func contents() -> Data {
-        // concurrency-allow: a local temp file read once after the child exited, inside the @concurrent run (never the main actor)
+        // concurrency-allow: a local temp file read once after the child exited, on the BackgroundWork files lane (run)
         (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.blockingReadToEnd() } ?? Data()
     }
 }

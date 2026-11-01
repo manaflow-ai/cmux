@@ -63,8 +63,8 @@ enum TopPages {
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
         // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
-        let automations = AutomationsPageHost(local: { [cli = LocalServerSource.bundledCLI()] in
-            guard let cli else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
+        let automations = AutomationsPageHost(local: { [bundled = services.bundledCLI] in
+            guard let cli = await bundled.resolve() else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
             let listed = try await ProcessRunner.run(executable: cli, arguments: ["--json", "automation", "list"], environment: nil, timeout: .seconds(10), clock: ContinuousClock())
             guard listed.status == 0 else { throw AutomationsPageHost.SourceError(code: "cli_failed", message: String(decoding: listed.stderr, as: UTF8.self)) }
             return listed.stdout

@@ -179,6 +179,8 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if ("ok" in m) return m
       if (host.operations.busy(host, m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
       if (m.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
+      // A boot's machine has no journal: it is provisioning, with nothing pending, until its VM binds.
+      if (m.status === "provisioning") return refused("mutation.indeterminate", "the machine is still provisioning", true)
       // The provider's own answer decides "already there": the row takes the target size as soon as a
       // resize is accepted, so it cannot tell a finished grow from one still running.
       const actual = await host.resources(m).catch(() => null)
@@ -192,11 +194,14 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       // above answer every retry of an accepted resize.
       const k = `platform-env:resize:${m.id}:${crypto.randomUUID()}`
       const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } }, k)
-      if (r?.t === "reject") return r.code === "cloud.machine.busy" ? indeterminate : fromReject(r)
+      // The ledger first: submit answers a failed provider call with a generic cloud.provider.unavailable,
+      // while the ledger keeps the provider's own code (cloud.provider.refused, say).
       const l = host.ledger(ledgerKey(p.identity, k))
-      if (!l || l.state === "pending") return r?.t === "result" ? indeterminate : fromReject(r)
-      if (l.state !== "done") return refused(l.error?.code ?? "cloud.provider.unavailable", l.error?.message ?? "the machine resize failed", false)
-      return host.operations.metadata(host, m.id)
+      if (l?.state === "pending") return indeterminate
+      if (l?.state === "done") return host.operations.metadata(host, m.id)
+      if (l) return refused(l.error?.code ?? "cloud.provider.unavailable", l.error?.message ?? "the machine resize failed", false)
+      if (r?.t === "reject") return r.code === "cloud.machine.busy" ? indeterminate : fromReject(r)
+      return r?.t === "result" ? indeterminate : fromReject(r)
     }
     case "find": {
       const l = host.ledger(ledgerKey(p.identity, key("boot", call.name)))
