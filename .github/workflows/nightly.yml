@@ -6244,22 +6244,20 @@ jobs:
     # failing verdict, or mode `invalid`. A recovered build was judged when it was continued.
     if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
-    # CI_NIGHTLY_ONLY_RUNNER stays off until every eligible m4pro slot is registered with the exclusive claim hook.
-    # The first claim step below proves that capability before any release token is read.
-    runs-on: &nightly-publication-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
       # The appcasts this track publishes (decide): one on nightly-next, four on main.
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      NIGHTLY_FEEDS: &pub-feeds ${{ needs.decide.outputs.feeds }}
       NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
+      CHANNEL: &pub-channel ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_DMG_PREFIX: &pub-dmg ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: &pub-tag ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       # Publication tooling from this workflow's own commit (see the step below).
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: &pub-tooling ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       - name: Select the build to publish
         id: source
@@ -6768,19 +6766,19 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
-    runs-on: *nightly-publication-runner
+    runs-on: *pub-runner
     timeout-minutes: 150
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
       asset_names: ${{ steps.publish_assets.outputs.asset_names }}
       newest: ${{ steps.order.outputs.newest }}
     env:
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_FEEDS: *pub-feeds
+      CHANNEL: *pub-channel
+      CHANNEL_DMG_PREFIX: *pub-dmg
+      CHANNEL_RELEASE_TAG: *pub-tag
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: *pub-tooling
     steps:
       - name: Checkout publish ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6894,15 +6892,15 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
-    runs-on: *nightly-publication-runner
+    runs-on: *pub-runner
     timeout-minutes: 90
     env:
-      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
-      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_FEEDS: *pub-feeds
+      CHANNEL: *pub-channel
+      CHANNEL_DMG_PREFIX: *pub-dmg
+      CHANNEL_RELEASE_TAG: *pub-tag
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+      PUBLISH_TOOLING: *pub-tooling
     steps:
       - *checkout-publication-tooling-a
 
