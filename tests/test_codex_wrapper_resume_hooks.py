@@ -36,7 +36,9 @@ def run_wrapper(
     inject_args_available: bool = True,
     subrouter_marker: str | None = None,
     launch_command: str | None = None,
-    launcher_reenters_shim: bool = False,
+    in_cmux: bool = True,
+    nested_launch: bool = False,
+    launcher_preflight: bool = False,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -50,6 +52,9 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        (wrapper_dir / "codex").symlink_to(wrapper)
+        launcher_script = tmp / "launcher with spaces"
+        make_executable(launcher_script, '#!/bin/sh\nexec codex "$@"\n')
 
         real_args_log = tmp / "real-args.log"
         real_env_log = tmp / "real-env.log"
@@ -76,7 +81,11 @@ done
   printf 'CMUX_CODEX_HEADLESS=%s\\n' "${CMUX_CODEX_HEADLESS-__UNSET__}"
   printf 'FAKE_PROVIDER=%s\\n' "${FAKE_PROVIDER-__UNSET__}"
   printf 'CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=%s\\n' "${CMUX_CODEX_LAUNCH_COMMAND_ACTIVE-__UNSET__}"
+  printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
+if [[ "${FAKE_NESTED_ONCE:-0}" == "1" ]]; then
+  FAKE_NESTED_ONCE=0 "$FAKE_WRAPPER" exec nested-prompt
+fi
 """,
         )
 
@@ -119,7 +128,7 @@ exit 1
             test_socket.bind(str(socket_path))
 
         env = os.environ.copy()
-        env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["PATH"] = f"{wrapper_dir}:{real_dir}:/usr/bin:/bin"
         env["HOME"] = str(tmp / "home")
         home = Path(env["HOME"])
         home.mkdir()
@@ -128,22 +137,31 @@ exit 1
         env["SHELL"] = "/bin/zsh"
         env["FAKE_TEST_PATH"] = env["PATH"]
         env["FAKE_LAUNCHER_CALLS"] = str(tmp / "launcher-calls")
-        env["FAKE_CUSTOM_BINARY"] = str(wrapper if launcher_reenters_shim else real_dir / "codex")
+        env["FAKE_WRAPPER"] = str(wrapper)
+        env["FAKE_NESTED_ONCE"] = "1" if nested_launch else "0"
         (home / ".zshrc").write_text(
             'export PATH="$FAKE_TEST_PATH"\n'
             'subcodex() {\n'
             '  printf "called\\n" >> "$FAKE_LAUNCHER_CALLS"\n'
             '  export FAKE_PROVIDER=custom\n'
-            '  "$FAKE_CUSTOM_BINARY" "$@"\n'
+            + ('  command codex --no-daemon --version >/dev/null || return\n' if launcher_preflight else '')
+            +
+            '  codex "$@"\n'
             '}\n', encoding="utf-8",
         )
         env.pop("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE", None)
         if launch_command is None:
             env.pop("CMUX_CODEX_LAUNCH_COMMAND", None)
         else:
-            env["CMUX_CODEX_LAUNCH_COMMAND"] = launch_command
+            env["CMUX_CODEX_LAUNCH_COMMAND"] = {
+                "__script__": str(launcher_script),
+                "__shim__": str(wrapper_dir / "codex"),
+            }.get(launch_command, launch_command)
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        if not in_cmux:
+            env.pop("CMUX_SURFACE_ID", None)
+            env.pop("CMUX_WORKSPACE_ID", None)
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
@@ -195,33 +213,32 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
 
 
 def test_custom_launch_command(failures: list[str]) -> None:
-    for reentry in (False, True):
-        for argv in (
-            ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"],
-            ["resume", SESSION_ID, "literal $(printf injected); 'quoted'"],
-            ["--version"], [],
-        ):
-            code, actual, calls, env, stderr = run_wrapper(
-                socket_state="stale", argv=argv, launch_command="subcodex",
-                launcher_reenters_shim=reentry,
-            )
-            label = f"custom-command/reentry={reentry}/{argv}"
-            expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
-            expect(env.get("FAKE_PROVIDER") == "custom", f"{label}: shell function was bypassed", failures)
-            expect(env.get("launcher_calls") == "1", f"{label}: launcher must run exactly once", failures)
-            if reentry:
-                expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
-                       f"{label}: re-entry guard leaked into Codex", failures)
-            if argv == ["--version"]:
-                expect(actual == argv, f"{label}: non-session args changed: {actual}", failures)
-                expect(not calls, f"{label}: hooks injected into --version", failures)
-            else:
-                expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
-                       f"{label}: SessionStart must be injected exactly once: {actual}", failures)
-                expect(env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
-                       f"{label}: surface tracking was lost", failures)
-                if argv:
-                    expect(all(a in actual for a in argv), f"{label}: resume ID/options lost: {actual}", failures)
+    for argv in (
+        ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"],
+        ["resume", SESSION_ID, "literal $(printf injected); 'quoted'"],
+        ["--version"], [],
+    ):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=argv, launch_command="subcodex",
+        )
+        label = f"custom-command/{argv}"
+        expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
+        expect(env.get("FAKE_PROVIDER") == "custom", f"{label}: shell function was bypassed", failures)
+        expect(env.get("launcher_calls") == "1", f"{label}: launcher must run exactly once", failures)
+        expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+               f"{label}: re-entry guard leaked into Codex", failures)
+        if argv == ["--version"]:
+            expect(actual == argv, f"{label}: non-session args changed: {actual}", failures)
+            expect(not calls, f"{label}: hooks injected into --version", failures)
+        else:
+            expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+                   f"{label}: claimed PID is not the real Codex PID", failures)
+            expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+                   f"{label}: SessionStart must be injected exactly once: {actual}", failures)
+            expect(env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+                   f"{label}: surface tracking was lost", failures)
+            if argv:
+                expect(all(a in actual for a in argv), f"{label}: resume ID/options lost: {actual}", failures)
 
     for command in ("", "  \n  "):
         code, actual, _, env, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command=command)
@@ -230,6 +247,51 @@ def test_custom_launch_command(failures: list[str]) -> None:
 
     code, actual, _, _, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command="false")
     expect(code != 0 and not actual, "a failed custom command must not fall back to ordinary Codex", failures)
+
+    for command in ("__script__", "__shim__"):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=["resume", SESSION_ID], launch_command=command,
+        )
+        expect(code == 0 and env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+               f"{command}: executable handoff must retain the actual Codex PID: {stderr}", failures)
+        expect(SESSION_ID in actual and sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+               f"{command}: executable launcher must not recurse or duplicate hooks: {actual}", failures)
+        expect(sum("hooks codex inject-args" in call for call in calls) == 1,
+               f"{command}: injection must run exactly once", failures)
+
+    code, actual, calls, env, _ = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID], launch_command="subcodex", hooks_disabled=True,
+    )
+    expect(code == 0 and actual == ["resume", SESSION_ID] and not calls and env.get("FAKE_PROVIDER") == "custom",
+           "disabling hooks must preserve the chosen launcher without injecting hooks", failures)
+
+    code, actual, calls, env, _ = run_wrapper(
+        socket_state="stale", argv=["--version"], launch_command="subcodex", in_cmux=False,
+    )
+    expect(code == 0 and actual == ["--version"] and not calls and env.get("launcher_calls") == "0",
+           "outside cmux the launcher override must not apply", failures)
+
+    code, actual, calls, env, stderr = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID], launch_command="subcodex",
+        nested_launch=True,
+    )
+    expect(code == 0 and env.get("launcher_calls") == "2",
+           f"nested Codex must use the configured launcher again: {stderr}", failures)
+    expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID") and env.get("CMUX_CODEX_HEADLESS") == "1",
+           "nested Codex must establish its own real PID and headless identity", failures)
+    expect(actual[-2:] == ["exec", "nested-prompt"] and sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+           f"nested Codex must retain exactly one hook set: {actual}", failures)
+    expect(sum("hooks codex inject-args" in call for call in calls) == 2,
+           "outer and nested Codex must each request hooks once", failures)
+
+    code, actual, calls, env, stderr = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID, "--no-daemon"], launch_command="subcodex",
+        launcher_preflight=True,
+    )
+    expect(code == 0 and env.get("REAL_PID") == env.get("CMUX_CODEX_PID") and env.get("launcher_calls") == "1",
+           f"a launcher version preflight must not consume the resume handoff: {stderr}", failures)
+    expect(SESSION_ID in actual and "--no-daemon" in actual and sum("hooks codex inject-args" in call for call in calls) == 1,
+           "version preflight must preserve resume arguments and one injection", failures)
 
 
 # cmux-launched Codex always disables the native `computer_use` provider before

@@ -177,6 +177,7 @@ enum SettingsSearchIndex {
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.automation, "codex-command", String(localized: "settings.search.codexLaunchCommand", defaultValue: "Codex Launch Command"), "codex shell function wrapper resume command"),
         setting(
             .automation,
             "workspace-auto-naming",
@@ -385,6 +386,7 @@ enum SettingsSearchIndex {
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.piIntegration": settingID(for: .automation, idSuffix: "pi"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.codexLaunchCommand": settingID(for: .automation, idSuffix: "codex-command"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),

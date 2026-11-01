@@ -216,6 +216,7 @@ extension CmuxSettingsFileStore {
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "piIntegration": IntegrationsCatalogSection().piHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexLaunchCommand": "",
                     "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,

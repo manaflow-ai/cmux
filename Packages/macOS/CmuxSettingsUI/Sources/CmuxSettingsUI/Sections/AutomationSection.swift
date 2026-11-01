@@ -12,6 +12,7 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var codexLaunchCommandModel: DefaultsValueModel<String>
     @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
@@ -53,6 +54,10 @@ public struct AutomationSection: View {
         self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         self.socketPolicyResolver = socketPolicyResolver
+        _codexLaunchCommandModel = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.automation.codexLaunchCommand
+        ))
         _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
@@ -141,7 +146,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, codexLaunchCommandModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -372,6 +377,20 @@ public struct AutomationSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsCodexHooksToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("automation.codexLaunchCommand"),
+                String(localized: "settings.automation.codex.launchCommand", defaultValue: "Codex Launch Command", bundle: .module),
+                subtitle: String(localized: "settings.automation.codex.launchCommand.subtitle", defaultValue: "Custom command for new and restored Codex terminals. Runs in your login shell. Leave empty to use PATH.", bundle: .module)
+            ) {
+                TextField(
+                    String(localized: "settings.automation.codex.launchCommand.placeholder", defaultValue: "e.g. subcodex", bundle: .module),
+                    text: Binding(get: { codexLaunchCommandModel.current }, set: { codexLaunchCommandModel.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsCodexLaunchCommand")
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
