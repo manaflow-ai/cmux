@@ -258,12 +258,12 @@ fn connect(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
 }
 
 fn exchange(stream: &mut UnixStream, deadline: Instant) -> io::Result<Vec<u8>> {
-    let mut sent = 0;
-    while sent < REQUEST.len() {
+    let mut pending = REQUEST;
+    while !pending.is_empty() {
         stream.set_write_timeout(Some(remaining(deadline)?))?;
-        match stream.write(&REQUEST[sent..]) {
+        match stream.write(pending) {
             Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-            Ok(n) => sent += n,
+            Ok(n) => pending = pending.get(n..).ok_or(io::ErrorKind::InvalidData)?,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
@@ -279,12 +279,13 @@ fn exchange(stream: &mut UnixStream, deadline: Instant) -> io::Result<Vec<u8>> {
         if count == 0 {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
+        let read = chunk.get(..count).ok_or(io::ErrorKind::InvalidData)?;
         let before = bytes.len();
-        bytes.extend_from_slice(&chunk[..count]);
+        bytes.extend_from_slice(read);
         if bytes.len() > 1024 * 1024 + 1 {
             return Err(io::ErrorKind::InvalidData.into());
         }
-        if let Some(relative) = chunk[..count].iter().position(|b| *b == b'\n') {
+        if let Some(relative) = read.iter().position(|b| *b == b'\n') {
             let end = before + relative;
             if end + 1 != bytes.len() {
                 return Err(io::ErrorKind::InvalidData.into());

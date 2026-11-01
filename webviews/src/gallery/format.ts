@@ -183,6 +183,8 @@ export type AgentPaneVariant = VariantBase & {
   mockStart?: { delayMs?: number; error?: string; startMode?: boolean };
   /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
   mockCapabilities?: string[];
+  /** With `ready.transport: "mock"`: `session/new` refuses with `trust.pending` until a folder is trusted. */
+  mockTrustPending?: boolean;
   /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
   mockSessionAuth?: {
     state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
