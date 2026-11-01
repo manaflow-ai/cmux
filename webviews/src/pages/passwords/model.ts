@@ -8,14 +8,22 @@ export interface SiteGroup {
   rows: SavedPassword[];
 }
 
-/** Lowercased tokens of a query; every token must match. */
+/**
+ * Lowercase for matching. `İ` lowercases to `i` plus a combining dot, which no plain `i` query
+ * matches, so it folds to `i` first.
+ */
+function fold(text: string): string {
+  return text.replace(/\u0130/g, "i").toLowerCase();
+}
+
+/** Folded tokens of a query; every token must match. */
 export function tokens(text: string): string[] {
-  return text.toLowerCase().split(/\s+/).filter(Boolean);
+  return fold(text).split(/\s+/).filter(Boolean);
 }
 
 function matches(fields: string[], query: string[]): boolean {
   if (query.length === 0) return true;
-  const haystack = fields.join(" ").toLowerCase();
+  const haystack = fold(fields.join(" "));
   return query.every((token) => haystack.includes(token));
 }
 
