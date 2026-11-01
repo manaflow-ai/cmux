@@ -1395,7 +1395,7 @@ fn pack_with(
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut tar = std::process::Command::new(program)
+    let mut tar = tar_command(program)
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
@@ -1496,9 +1496,14 @@ fn pack_with(
     }
 }
 
+/// The local `tar` command every sync and pull runs.
+fn tar_command(program: &str) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
 /// `tar --version`'s text; a tar that cannot say what it is is not run.
 fn tar_version(program: &str) -> Result<String, CliError> {
-    let output = std::process::Command::new(program)
+    let output = tar_command(program)
         .arg("--version")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -1614,7 +1619,7 @@ fn gunzipped_len(bytes: &[u8], limit: u64) -> Result<u64, CliError> {
 }
 
 fn tar_with_stdin(args: &[&str], bytes: &[u8], dir: &Path) -> Result<Vec<u8>, CliError> {
-    let mut child = std::process::Command::new("tar")
+    let mut child = tar_command("tar")
         .current_dir(dir)
         .args(args)
         .stdin(Stdio::piped())
