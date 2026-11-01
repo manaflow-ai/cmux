@@ -104,14 +104,13 @@ if [[ -z "$app" ]]; then
   # reload.sh keeps its own log in /tmp/cmux-reload-<tag>.log and prints nothing while xcodebuild runs: follow that
   # log into this step's output, so a hang or a long build names its step (FC-1: cmux-austin-mini-1 step 9e972777
   # stopped after 45 min with no output after "reload starting").
+  # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
+  # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
   follow_log "/tmp/cmux-reload-$tag.log"
   trap 'unfollow_log' EXIT
-  trap 'unfollow_log; exit 143' TERM
-  trap 'unfollow_log; exit 130' INT
-  trap 'unfollow_log; exit 129' HUP
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
   unfollow_log
-  trap - EXIT TERM INT HUP
+  trap - EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
