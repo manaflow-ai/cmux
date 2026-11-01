@@ -1,8 +1,10 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// Older turns fade in as the reader first sees them (cx-2lv1k): a page of older history lands above
-// the view while the reader scrolls up, and each of its rows fades in once, the first time it comes
-// into view at the top edge. The rows the chat opened with, rows already seen, and live rows (which
-// keep their own entrance) never take that fade, and Reduce Motion draws older rows in full ink at once.
+// Older turns draw at once as the reader scrolls up (Leo 2026-10-31: no fade-in "unless it's the worst
+// case", be optimistic). Older pages load ahead of the reader, so their rows mount above the view
+// and draw in full ink; only a row whose first copy mounts inside the view (the reader there before
+// its page, conversation/olderRowFade.ts) fades, once (cx-2lv1k). The rows the chat opened with,
+// rows already seen, and live rows (which keep their own entrance) never take that fade, and Reduce
+// Motion draws older rows in full ink at once.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -242,7 +244,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     throw new Error(`never scrolled to a turn before ${turn}`);
   }
 
-  test("rows of an older page fade in once as they come into view; opened and live rows do not", async () => {
+  test("rows of an older page loaded ahead of the reader draw at once with no fade; opened and live rows do not fade", async () => {
     const page = await open("no-preference");
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -256,9 +258,10 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     await animationsDone(page);
     const fades = await olderFades(page);
     const turns = fades.map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
-    // Rows from older pages faded as they came in, and only those.
-    expect(turns.some((turn) => turn < openedFrom)).toBe(true);
-    expect(turns.filter((turn) => turn >= openedFrom)).toEqual([]);
+    // The reader scrolled into rows from older pages, which loaded ahead of it: none of them faded,
+    // and no row the chat opened with did either.
+    expect(target).toBeLessThan(openedFrom);
+    expect(turns).toEqual([]);
     // The fade is opacity only, and settles to full ink.
     const settled = await page.evaluate(() => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
