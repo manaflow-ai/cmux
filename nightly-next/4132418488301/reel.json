@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4132418488301",
+  "notes": "notes/4132418488301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31005,
+      "title": "base red: strings tables are not touched when already current (agent pane dev servers full-reloaded mid-test)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31017,
+      "title": "base red: sync CmuxNextApps scopes.json with cmux-app-host's generated policy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30967,
+      "title": "base red: the recap card's footer test sizes the pane with the transcript's rest room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31098,
+      "title": "Chats: Claude desktop sessions show with the desktop's title, marked Claude Desktop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31107,
+      "title": "composer: Tab with nothing focused goes to the prompt, not the folder and machine chips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31065,
+      "title": "base red: tooling-tests, test_ci_overflow_pick_reads_pool.py (#30878) registered as linux-guard becomes manual",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30958,
+      "title": "test(cmux-next): BrowserPageNativeInputTests waits for the page's load event, and a failed setup closes its window",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31087,
+      "title": "Cloud start: copy again on the machine's new link after updating it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30957,
+      "title": "test(cmux-next): git suites build their repository once per process, not per test",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31048,
+      "title": "Cloud start: read the cached Claude login with security, not a prompting SecItemCopyMatching",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30953,
+      "title": "Cloud: re-land repository picker and recovery UI (code in packages, no as!, design tokens)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30994,
+      "title": "fix(composer): a key right after an arrow key sees the caret the arrow moved",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30982,
+      "title": "fix(cmux-tui): end terminal hosts within the macOS close bound",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
