@@ -76,8 +76,9 @@ export function pointInside(zone: Element | null | undefined, x: number, y: numb
 }
 
 /// The overlay's step for one drag event (the drop contract's `onActiveChange`): the next state,
-/// and, for a refused drag, the event's `dropEffect` set to `none` so the pointer shows no drop and
-/// the drop never fires. `zone` is the chat column; a point outside it arms the overlay only.
+/// and the event's `dropEffect`: `copy` for a drag the chat takes, so the pointer carries the system's
+/// copy + (Leo 2026-10-23: "claude has blue ring and the apple +"), `none` for a refused one, so the
+/// pointer shows no drop and the drop never fires. `zone` is the chat column; a point outside it arms the overlay only.
 export function stepDropOverlay(
   current: DropOverlayState,
   active: boolean,
@@ -90,7 +91,7 @@ export function stepDropOverlay(
   // A dragenter's point is where the drag came in; a dragover's is the pointer.
   const inside = event ? pointInside(zone, event.clientX, event.clientY) : true;
   const next = dragOverlayState(summary, inside);
-  if (next.phase === "refused" && event?.dataTransfer) event.dataTransfer.dropEffect = "none";
+  if (event?.dataTransfer) event.dataTransfer.dropEffect = next.phase === "refused" ? "none" : "copy";
   return sameDropState(current, next) ? current : next;
 }
 

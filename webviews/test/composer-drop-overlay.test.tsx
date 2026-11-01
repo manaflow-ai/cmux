@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixtures.
 // The agent pane's drop overlay (Lawrence 2026-10-21: "make sure dropping files/photos has super
-// beautiful well designed responsive indicator too"). A file drag over the pane lays a glass sheet
-// over the chat that says what the drag holds, lifts while the pointer is over the chat, refuses
-// what the chat cannot take (the pointer shows no drop), and on a drop flies into the composer.
+// beautiful well designed responsive indicator too"; Leo 2026-10-23: "i think we could do claude +
+// themed ring?"). A file drag rings the composer's box in the accent and the pointer carries the
+// copy +; the ring is faint until the pointer is over the chat, a refusal turns it the danger color
+// with its reason (the pointer shows no drop), and on a drop it fades as the files land.
 // These run the overlay's states through the pane's one drop contract (installFileDropLifecycle)
 // and render the overlay for each.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -70,7 +71,7 @@ const pdf = { kind: "file", type: "application/pdf" };
 const text = { kind: "file", type: "text/plain" };
 
 function transfer(items: Item[], types: string[] = ["Files"]) {
-  return { types, items, dropEffect: "copy", files: [] as File[] };
+  return { types, items, dropEffect: "move", files: [] as File[] };
 }
 
 function dragEvent(type: string, items: Item[], at: { x: number; y: number } = { x: 50, y: 50 }) {
@@ -147,6 +148,15 @@ describe("the overlay through the pane's drop contract", () => {
     expect(first.phase !== "hidden" && first.summary).toEqual({ count: 3, kind: "photos", refused: false });
   });
 
+  test("a drag the chat takes carries the copy + on the pointer", () => {
+    const { remove, doc } = run(true);
+    const over = dragEvent("dragover", [pdf]);
+    doc.body.dispatchEvent(dragEvent("dragenter", [pdf]).event);
+    doc.body.dispatchEvent(over.event);
+    remove();
+    expect(over.data.dropEffect).toBe("copy");
+  });
+
   test("a refused drag says so and shows no drop on the pointer", () => {
     const { states, remove, doc } = run(false);
     const over = dragEvent("dragover", [photo]);
@@ -157,7 +167,7 @@ describe("the overlay through the pane's drop contract", () => {
     expect(over.data.dropEffect).toBe("none");
   });
 
-  test("a drop lands: the sheet flies into the composer instead of vanishing", () => {
+  test("a drop lands: the ring fades as the files land instead of vanishing", () => {
     const { remove, doc, current } = run(true);
     doc.body.dispatchEvent(dragEvent("dragenter", [pdf]).event);
     doc.body.dispatchEvent(dragEvent("drop", [pdf]).event);
@@ -167,12 +177,12 @@ describe("the overlay through the pane's drop contract", () => {
 });
 
 describe("the overlay drawn", () => {
-  async function render(state: DropOverlayState, onLanded = () => {}) {
+  async function render(state: DropOverlayState, onLanded = () => {}, landingTarget?: () => Element | null) {
     const doc = dom.window.document;
     const host = doc.createElement("div");
     doc.body.appendChild(host);
     const root: Root = createRoot(host);
-    await act(async () => root.render(<DropOverlay state={state} onLanded={onLanded} />));
+    await act(async () => root.render(<DropOverlay state={state} onLanded={onLanded} landingTarget={landingTarget} />));
     return { host, root, doc };
   }
 
@@ -191,12 +201,14 @@ describe("the overlay drawn", () => {
     await act(async () => root.unmount());
   });
 
-  test("over the chat: Drop to attach, what it holds, lifted", async () => {
+  test("over the chat: the ring alone, no pill, no dashed frame; its label says what it holds", async () => {
     const { doc, root } = await render({ phase: "over", summary: { count: 3, kind: "photos", refused: false } });
     const sheet = doc.querySelector(".acpmux-drop-overlay")!;
     expect(sheet.getAttribute("data-phase")).toBe("over");
-    expect(sheet.textContent).toContain("Drop to attach");
-    expect(sheet.textContent).toContain("3 photos");
+    expect(sheet.querySelector(".acpmux-drop-ring")).not.toBeNull();
+    expect(sheet.querySelector(".acpmux-drop-refusal, .acpmux-drop-pill, .acpmux-drop-frame")).toBeNull();
+    expect(sheet.textContent).toBe("");
+    expect(sheet.getAttribute("data-label")).toBe("Drop to attach · 3 photos");
     // It never takes the pointer: the drag's events stay the page's (the drop contract counts them).
     expect(sheet.getAttribute("aria-hidden")).toBe("true");
     await act(async () => root.unmount());
@@ -204,11 +216,29 @@ describe("the overlay drawn", () => {
 
   test("one PDF reads PDF; files of mixed kinds read their count", async () => {
     const pdfOne = await render({ phase: "over", summary: { count: 1, kind: "pdfs", refused: false } });
-    expect(pdfOne.doc.querySelector(".acpmux-drop-hint")?.textContent).toBe("PDF");
+    expect(pdfOne.doc.querySelector(".acpmux-drop-overlay")?.getAttribute("data-label")).toBe("Drop to attach · PDF");
     await act(async () => pdfOne.root.unmount());
     const mixed = await render({ phase: "armed", summary: { count: 2, kind: "files", refused: false } });
-    expect(mixed.doc.querySelector(".acpmux-drop-hint")?.textContent).toBe("2 files");
+    expect(mixed.doc.querySelector(".acpmux-drop-overlay")?.getAttribute("data-label")).toBe(
+      "Drop to attach · 2 files",
+    );
     await act(async () => mixed.root.unmount());
+  });
+
+  test("the ring goes around the composer's box, measured from the overlay", async () => {
+    const composer = dom.window.document.createElement("div");
+    composer.getBoundingClientRect = () =>
+      ({ left: 24, top: 210, right: 376, bottom: 290, width: 352, height: 80 }) as DOMRect;
+    const { doc, root } = await render(
+      { phase: "over", summary: { count: 1, kind: "files", refused: false } },
+      () => {},
+      () => composer,
+    );
+    const overlay = doc.querySelector<HTMLElement>(".acpmux-drop-overlay")!;
+    expect(overlay.getAttribute("data-target")).toBe("composer");
+    expect(overlay.style.getPropertyValue("--acpmux-drop-ring-y")).toBe("210px");
+    expect(overlay.style.getPropertyValue("--acpmux-drop-ring-w")).toBe("352px");
+    await act(async () => root.unmount());
   });
 
   test("refused: a clear refusal, not the drop prompt", async () => {

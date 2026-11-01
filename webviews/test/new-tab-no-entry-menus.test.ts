@@ -50,7 +50,7 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     dialog: `<div class="ui-backdrop" data-starting-style></div><div class="ui-dialog" data-starting-style>Dialog</div>`,
     "notice from an edge": `<div data-enter="top">Notice</div>`,
     "card with presence": `<div data-enter="bottom" data-presence="from">Card</div>`,
-    "drop sheet": `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-pill">Drop</div></div></div>`,
+    "drop sheet": `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-ring"></div></div><div class="acpmux-drop-refusal">Drop</div></div>`,
   };
 
   let browser: Browser;
@@ -153,12 +153,12 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
   }
 
   /// A file dropped on the page: the overlay mounted in `over` turns `landing` (attachmentIntake.tsx
-  /// landDropOverlay), and the sheet flies into the composer. What runs on the sheet and the pill
+  /// landDropOverlay), and the ring fades. What runs on the sheet and the refusal line
   /// once it lands, by animation name.
   async function landing(page: Page): Promise<{ sheet: string[]; pill: string[] }> {
     return page.evaluate(async () => {
       const root = document.getElementById("root")!;
-      root.innerHTML = `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-pill"><span class="acpmux-drop-mark"></span></div></div></div>`;
+      root.innerHTML = `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-ring"></div></div><div class="acpmux-drop-refusal"><span class="acpmux-drop-mark"></span></div></div>`;
       const overlay = root.querySelector<HTMLElement>(".acpmux-drop-overlay")!;
       [...root.querySelectorAll<HTMLElement>("*")].map((element) => getComputedStyle(element).animationName).join();
       // raf-read: reads the running animations, not layout; paint timing does not matter.
@@ -175,14 +175,14 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
           )
           .map((animation) => (animation as CSSAnimation).animationName ?? "transition")
           .sort();
-      return { sheet: running(".acpmux-drop-sheet"), pill: running(".acpmux-drop-pill") };
+      return { sheet: running(".acpmux-drop-sheet"), pill: running(".acpmux-drop-refusal") };
     });
   }
 
   // The sheet's exit is the page's own: the same with the New Tab's mark as without it (under
   // Reduce Motion desktop.css cuts it to 0.01ms in either case).
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
-    test(`on a New Tab, a dropped file's pill does not enter again as the sheet lands (${reducedMotion})`, async () => {
+    test(`on a New Tab, a drop's refusal line does not enter again as the sheet lands (${reducedMotion})`, async () => {
       const marked = await open(reducedMotion, true);
       const unmarked = await open(reducedMotion, false);
       try {

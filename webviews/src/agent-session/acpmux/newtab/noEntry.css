@@ -14,11 +14,10 @@
   --ui-enter-duration: 0s;
 }
 /* Popups and menus open in one frame on every page (ui/popupSurface.css). The drop sheet runs on
-   tokens of its own, so this names its open animation directly. The drop pill only ever enters, so
-   it is stopped in every phase: a drop turns the mounted overlay `landing`, and a rule that let go
-   of the pill there replayed its entrance under the sheet's exit. The sheet's landing (its exit into
-   the composer) keeps its motion. */
-:root[data-new-tab] .acpmux-drop-pill,
+   tokens of its own, so this names its open animation directly. The refusal line only ever enters,
+   so it is stopped in every phase: a rule that let go of it in another phase would replay its
+   entrance there. The sheet's landing (the ring's fade as the files land) keeps its motion. */
+:root[data-new-tab] .acpmux-drop-refusal,
 :root[data-new-tab] .acpmux-drop-overlay:not([data-phase="landing"]) .acpmux-drop-sheet {
   animation: none;
 }
