@@ -1,4 +1,6 @@
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// What made a stand-in pane, by which the daemon's pane that takes it over is found.
 enum StandInOrigin: Hashable {
@@ -9,40 +11,11 @@ enum StandInOrigin: Hashable {
     case workspace(WorkspaceKey)
 }
 
-/// A create waiting in ``DaemonStore/daemonTarget(_:)`` for the daemon's pane of a stand-in whose own create is in
-/// flight. The store resumes it from the reconcile that resolves it (``DaemonStore/resolveStandInWaits()``): every
-/// event, snapshot, settlement and rejection passes there, so no timer is needed, and the wait is bounded by the
-/// stand-in's own create (its reply, its failure or its connection's end).
-struct StandInWait {
-    /// Where a stand-in target stands.
-    enum State: Equatable {
-        /// The daemon's pane took the stand-in over.
-        case adopted(PaneID)
-        /// Its create is still in flight: the target is valid, the create waits.
-        case opening
-        /// Its create failed or was closed: the target was never made.
-        case notCreated
-    }
-
-    let handle: PaneID
-    let origin: StandInOrigin?
-    let continuation: CheckedContinuation<PaneID, any Error>
-
-    /// Where stand-in `handle` (made by `origin`) stands in `store` now.
-    @MainActor static func state(of handle: PaneID, origin: StandInOrigin?, in store: DaemonStore) -> State {
-        guard let origin else { return .notCreated }
-        if let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: store), pane.rawValue < ProvisionalPane.firstHandle {
-            return .adopted(pane)
-        }
-        return ProvisionalSplit.createInFlight(origin, in: store) ? .opening : .notCreated
-    }
-}
-
 extension DaemonStore {
     /// Waits until the daemon's pane takes stand-in `handle` over (``StandInWait``), off the caller's turn. A cancelled
     /// caller is resumed with the rest, when the stand-in's own create ends (that bounds the wait), and then stops.
     func waitForDaemonPane(of handle: PaneID, origin: StandInOrigin?) async throws -> PaneID {
-        let pane = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PaneID, any Error>) in
+        let pane = try await withOnceThrowingContinuation { (continuation: OnceContinuation<PaneID, any Error>) in
             standInWaits.append(StandInWait(handle: handle, origin: origin, continuation: continuation))
         }
         try Task.checkCancellation()
