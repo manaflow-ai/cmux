@@ -619,6 +619,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   returnTaken = false;
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
+                  // Browser editing shortcuts must remain reliable in literal New Tab input.
+                  // ProseMirror's keymap can be bypassed while the field is being reconfigured
+                  // from rich to plain mode, so handle select-all at the composer boundary too.
+                  if (plainInputNow.current && event.key.toLowerCase() === "a" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    selectAll(_view.state, _view.dispatch);
+                    return true;
+                  }
                   // A Return an input method or Dictation passed on (keyCode 229) never reaches
                   // ProseMirror's keymap, which reads its key as Enter and splits the paragraph: in
                   // Leo's chat that line was all a dictated prompt's Return did (2026-10-21). The
