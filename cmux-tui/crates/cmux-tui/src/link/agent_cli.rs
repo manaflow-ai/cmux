@@ -145,7 +145,7 @@ struct Failed {
     /// The daemon the failure is about, when it is one side's.
     side: Option<&'static str>,
     /// `sync_conflict`: the paths changed on both sides (boxed: `Failed` is every call's error).
-    conflicts: Option<Box<Vec<String>>>,
+    conflicts: Option<Box<[String]>>,
 }
 
 impl Failed {
@@ -479,7 +479,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 error = format!("{error} ({})", reasons.join("; "));
             }
             Err(Failed {
-                conflicts: Some(Box::new(conflicts)),
+                conflicts: Some(conflicts.into_boxed_slice()),
                 ..Failed::new("sync_conflict", error)
             })
         }
