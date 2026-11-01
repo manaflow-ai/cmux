@@ -74,6 +74,10 @@ struct SidebarSelectionBatchCloseTests {
             // Shells at their prompt (OSC 133) leave at the press; a host whose shells report none keeps the
             // rows for the terminals' process-info answer (WorkspaceCloseFlow).
             let instant = !Self.keepsRows(ids, services)
+            // What a parallel run does: the host's cores are busy (other tests' daemons and renderers), so the
+            // daemon commits each close slower. Three spinning threads per core for 20 s.
+            let load = CPULoad(seconds: 20)
+            defer { load.stop() }
             let pressed = ContinuousClock.now
             sidebar.send(.close(sidebar.orderedSelection))
             let pressHeld = ContinuousClock.now - pressed
@@ -400,4 +404,24 @@ struct SidebarSelectionBatchCloseTests {
         let crop = CGRect(x: 0, y: CGFloat(base.height) - min(top, bounds.height) * 2, width: min(right, bounds.width) * 2, height: min(top, bounds.height) * 2)
         return ctx.makeImage()?.cropping(to: crop)
     }
+}
+
+/// Spinning threads that take the host's cores, as a parallel run of the whole target does (evidence only).
+private final class CPULoad: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = true
+
+    init(seconds: Double) {
+        let end = Date().addingTimeInterval(seconds)
+        for _ in 0..<(ProcessInfo.processInfo.activeProcessorCount * 3) {
+            Thread.detachNewThread { [self] in
+                var x = 0.0
+                while self.isRunning, Date() < end { x += 1 }
+                _ = x
+            }
+        }
+    }
+
+    private var isRunning: Bool { lock.withLock { running } }
+    func stop() { lock.withLock { running = false } }
 }
