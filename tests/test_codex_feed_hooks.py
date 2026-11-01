@@ -1010,7 +1010,7 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
     cases = [
         (True, None, False), (False, None, False), (None, None, False),
         (1, None, False), ("true", None, False), (True, False, False),
-        (True, False, True),
+        (True, False, True), (False, True, True),
     ]
     for index, (recorded_network, explicit_network, compact_override) in enumerate(cases):
         case = root / f"codex-network-policy-{index}"

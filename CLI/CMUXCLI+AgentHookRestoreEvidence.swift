@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
@@ -30,6 +31,10 @@ extension CMUXCLI {
                codexConfigOverridesPermissions(arguments[index + 1]) {
                 return true
             }
+            if argument.hasPrefix("-c"), argument.count > 2,
+               codexConfigOverridesPermissions(String(argument.dropFirst(2))) {
+                return true
+            }
             if argument.hasPrefix("-c=") || argument.hasPrefix("--config=") {
                 let components = argument.split(
                     separator: "=",
@@ -49,6 +54,7 @@ extension CMUXCLI {
         let key = value.split(separator: "=", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
+            || key == "sandbox_workspace_write.network_access"
     }
 
     /// Whether an OMP hook has no launch candidate to publish or invalidate.
@@ -379,7 +385,8 @@ extension CMUXCLI {
             return nil
         }
         let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
-        let sandboxMode = (payload["sandbox_policy"] as? [String: Any]).flatMap {
+        let sandboxPolicy = payload["sandbox_policy"] as? [String: Any]
+        let sandboxMode = sandboxPolicy.flatMap {
             normalizedHookValue($0["type"] as? String)
         }
         if approvalPolicy == "never", sandboxMode == "danger-full-access" {
@@ -395,6 +402,16 @@ extension CMUXCLI {
         if let sandboxMode,
            ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
             arguments.append(contentsOf: ["-s", sandboxMode])
+        }
+        // JSON numbers also bridge to Bool. Replay only an actual recorded Boolean,
+        // preserving both true and false without inventing a missing policy.
+        if sandboxMode == "workspace-write",
+           let networkAccess = sandboxPolicy?["network_access"] as? NSNumber,
+           CFGetTypeID(networkAccess) == CFBooleanGetTypeID() {
+            arguments.append(contentsOf: [
+                "-c",
+                "sandbox_workspace_write.network_access=\(networkAccess.boolValue ? "true" : "false")",
+            ])
         }
         return arguments.isEmpty ? nil : arguments
     }
