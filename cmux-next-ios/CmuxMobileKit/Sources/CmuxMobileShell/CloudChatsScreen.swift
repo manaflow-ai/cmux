@@ -84,9 +84,12 @@ struct CloudChatsScreen: View {
                 do {
                     let listed = try await live.cloudMachines(on: macID)
                     try Task.checkCancellation()
-                    machines = listed.filter { machine in
-                        attention.map { $0.teamID == machine.teamID && $0.machineID == machine.machineID } ?? true
-                    }
+                    // A push carries Cloud's own team id. Resolve it only
+                    // against the freshly authenticated paired-Mac directory;
+                    // Stack team ids are a different namespace and are never
+                    // compared here. A stale or other-account push therefore
+                    // has no machine to open.
+                    machines = CloudChatDirectory.scopedMachines(listed, attention: attention)
                     loading = false
                     if attention != nil, machines.count == 1 { selectedMachine = machines[0] }
                 } catch {

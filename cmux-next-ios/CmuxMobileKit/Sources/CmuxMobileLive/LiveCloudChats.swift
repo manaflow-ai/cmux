@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -150,8 +151,19 @@ extension LiveCoordinator {
 
 /// A directory is a single JSON document followed by EOF. The deadline closes
 /// its channel so a disappeared Mac cannot leave a refresh suspended forever.
-enum CloudChatDirectory {
+public enum CloudChatDirectory {
     struct Reply: Decodable { let machines: [CloudChatMachine] }
+
+    /// Narrows a push to the fresh, authenticated Cloud directory. Cloud's
+    /// `team_id` is intentionally matched only with another Cloud directory
+    /// entry; it has no relationship to Stack's team UUID.
+    public static func scopedMachines(_ machines: [CloudChatMachine], attention: CloudChatAttention?) -> [CloudChatMachine] {
+        machines
+            .filter { machine in
+                attention.map { $0.teamID == machine.teamID && $0.machineID == machine.machineID } ?? true
+            }
+            .sorted { $0.id < $1.id }
+    }
 
     static func read(_ channel: any LinkChannel) async throws -> [CloudChatMachine] {
         try await withTaskCancellationHandler {

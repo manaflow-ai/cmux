@@ -286,8 +286,12 @@ final class ShellModel {
     /// Mac inside it, every Mac on the Workspaces list and the Feed, none on
     /// Home and Settings (their links close after `MacLinkPolicy.idleAfter`).
     func updateShownMacs() {
-        if cloudChats != nil, let cloudMacID {
-            live?.showing(macIDs: [cloudMacID])
+        if cloudChats != nil {
+            // The Cloud sheet may be opened while Workspaces or the Feed has
+            // links to other Macs. Keep the full directory shown while the
+            // sheet is up; narrowing this to the selected Cloud Mac makes the
+            // link policy evict the other Macs from its bounded set.
+            live?.showing(macIDs: nil)
             return
         }
         guard let live else { return }

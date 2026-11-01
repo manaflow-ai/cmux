@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -74,6 +75,22 @@ import Testing
         try JSONDecoder().decode(CloudChatMachine.self, from: JSONSerialization.data(withJSONObject: [
             "machine_id": id, "team_id": team, "name": id,
         ]))
+    }
+
+    @Test func directoryScopeRejectsOtherCloudTeamsAndSortsByStableID() throws {
+        let listed = [
+            try machine("vm-b", team: "cloud-team-b"),
+            try machine("vm-a", team: "cloud-team-a"),
+            try machine("vm-z", team: "cloud-team-a"),
+        ]
+        let attention = try #require(CloudChatAttention(userInfo: ["cmux": ["cloud": [
+            "kind": "question", "event_id": "e", "machine_id": "vm-z", "session_id": "s", "team_id": "cloud-team-a",
+        ]]]))
+        let scoped = CloudChatDirectory.scopedMachines(listed, attention: attention)
+        #expect(scoped.map(\.id) == ["cloud-team-a\u{1}vm-z"])
+        #expect(CloudChatDirectory.scopedMachines(listed, attention: nil).map(\.id) == [
+            "cloud-team-a\u{1}vm-a", "cloud-team-a\u{1}vm-z", "cloud-team-b\u{1}vm-b",
+        ])
     }
 
     @Test func historyAndSendStayOnTheSelectedCloudMachine() async throws {
