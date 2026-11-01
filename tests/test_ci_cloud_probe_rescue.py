@@ -38,7 +38,7 @@ class RescueTests(unittest.TestCase):
     def test_cancel_settle_reruns_and_returns_next_label(self):
         api = mock.Mock()
         api.jobs.side_effect = [[watch()], [watch()]]
-        api.run.side_effect = [run(), run(), {"status": "cancelled"}]
+        api.run.side_effect = [run(), run(), {"status": "cancelled", "run_attempt": 1, "path": r.WORKFLOW_PATH}]
         decision = r.rescue_control(api, run(), now=lambda: NOW, sleep=lambda _: None)
         self.assertEqual(decision.next_label, r.WATCH_LABELS[1])
         api.cancel.assert_called_once_with(9)
@@ -64,7 +64,8 @@ class RescueTests(unittest.TestCase):
         api = mock.Mock()
         api.jobs.return_value = [watch()]
         api.run.return_value = {"status": "in_progress", "run_attempt": 1, "path": r.WORKFLOW_PATH}
-        clock = iter([NOW, NOW, NOW + dt.timedelta(seconds=r.CANCEL_WAIT_SECONDS)])
+        clock = iter([NOW, NOW, NOW, NOW + dt.timedelta(seconds=r.CANCEL_WAIT_SECONDS),
+                      NOW + dt.timedelta(seconds=r.CANCEL_WAIT_SECONDS)])
         result = r.rescue_control(api, run(), now=lambda: next(clock), sleep=lambda _: None)
         self.assertEqual(result.action, "noop")
         api.rerun.assert_not_called()
