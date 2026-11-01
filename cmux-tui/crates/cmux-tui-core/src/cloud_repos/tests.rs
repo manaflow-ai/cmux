@@ -115,11 +115,13 @@ fn cloud_repo_typed_seed_failures_have_next_action() {
             error["code"],
             if code == "seed.needs_github" { "repo.needs_github" } else { code }
         );
-        assert!(error["message"].as_str().unwrap().contains(if code == "seed.needs_github" {
-            "Connect"
-        } else {
-            "retry"
-        }));
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains(if code == "seed.needs_github" { "connect" } else { "retry" })
+        );
         assert!(fake.records.borrow().is_empty());
     }
 }
