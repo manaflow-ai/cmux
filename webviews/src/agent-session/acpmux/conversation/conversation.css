@@ -4395,6 +4395,17 @@ a.cv-sha:focus-visible {
   border: 0;
   background: transparent;
 }
+/* A reply's HTML or SVG fence previewed inline (InlinePreview.tsx): the render card's look, and a
+   text action (Code, Preview, Run) in the code card's header row. */
+.cv-inline-preview .acpmux-render-card-head .cv-codeblock__actions {
+  display: flex;
+  align-items: center;
+}
+.cv-codeblock__action.cv-codeblock__action--text {
+  width: auto;
+  padding: 0 8px;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
 
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */
 .cv-unrendered__note {

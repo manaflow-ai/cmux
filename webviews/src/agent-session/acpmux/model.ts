@@ -10,6 +10,7 @@ import type { AgentQuestion } from "./question/model";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
+import type { SessionUsageStats } from "./usageStats";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
@@ -747,6 +748,9 @@ export type AcpmuxSnapshot = {
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
     /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
+    /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
+    /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
+    usageStats?: SessionUsageStats;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
