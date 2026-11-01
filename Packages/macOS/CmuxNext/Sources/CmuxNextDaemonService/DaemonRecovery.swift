@@ -1,29 +1,32 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextWakeups
 public import Observation
 import os
 
 /// The local daemon's recovery while it cannot be reached (cx-jniyz.1): the
-/// launch window and the App Store's disconnected banner offer Retry Now and,
-/// only after a plain `server ensure` failed as a stuck owner makes it fail
-/// (``offersRestart``), Restart cmux-tui. Remote machines have no launcher,
-/// so they offer neither. An owner whose ensures keep failing that way for a sustained window
-/// restarts without the button (``UnresponsiveOwnerWatch``, once per owner process) unless
+/// launch window offers Retry Now and, once a plain `server ensure` failed or the
+/// connected daemon stopped answering (``offersRestart``), Restart cmux-tui, with
+/// why the start failed (``startFailure``: a full disk is told apart, restore fuzz
+/// h2). A window that shows content offers it in a notice (`DaemonRecoveryNotice`).
+/// Remote machines have no launcher, so they offer neither. An owner whose ensures
+/// keep failing as a stuck owner makes them fail for a sustained window restarts
+/// without the button (``UnresponsiveOwnerWatch``, once per owner process) unless
 /// ``restartsUnresponsiveOwner`` says no.
 @MainActor
 @Observable
 public final class DaemonRecovery {
-    /// The last `server ensure` failed as a stuck owner makes it fail (the
-    /// restore bound passed, or no answer), or the connected daemon leaves its
-    /// heartbeat unanswered (``daemonNotAnswering``): `--replace-unresponsive`
-    /// cannot tell a stuck owner from a slow restore, so it is offered only then.
+    /// The last `server ensure` failed (``startFailure``: no daemon could be reached or
+    /// started, whatever the cause), or the connected daemon leaves its heartbeat unanswered
+    /// (``daemonNotAnswering``). Every failed start offers it, so the person always has a way
+    /// out while no daemon runs (restore fuzz h2: a start that failed on a full disk offered
+    /// nothing); `--replace-unresponsive` with no owner running only starts one.
     public private(set) var offersRestart = false
+    /// Why the last `server ensure` failed; nil after one that worked.
+    public private(set) var startFailure: DaemonStartFailure?
     /// The connected daemon leaves its heartbeat unanswered while its process is alive (stopped or wedged):
     /// its connection stays open and its requests keep waiting (P0 2026-10-30), and Restart is offered.
     public private(set) var daemonNotAnswering = false
-    /// The launcher's last ensure looked stuck (``DaemonLauncher/EnsureOutcome/ownerLooksStuck``).
-    @ObservationIgnored private var ensureLooksStuck = false
     /// The `server ensure` a not-answering daemon's heartbeat started (``noteDaemonAnswering(_:)``); nil when none runs.
     @ObservationIgnored private var ownerProbe: Task<Void, Never>?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
@@ -68,13 +71,9 @@ public final class DaemonRecovery {
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
-            ensureLooksStuck = outcome.ownerLooksStuck
-            // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
-            if !ensureLooksStuck { restartFailure = nil }
-            updateOffer()
+            noteStart(outcome.failure)
         }
-        ensureLooksStuck = outcome.ownerLooksStuck
-        updateOffer()
+        noteStart(outcome.failure)
     }
 
     /// The connected daemon answers its heartbeat (true) or left one more ask unanswered while its connection stays
@@ -111,9 +110,18 @@ public final class DaemonRecovery {
         ownerProbe = nil
     }
 
-    /// Restart is offered while an ensure looked stuck or the connected daemon does not answer, and a launcher is known.
+    /// The launcher's last ensure ended: `failure` nil when it worked.
+    private func noteStart(_ failure: DaemonStartFailure?) {
+        if startFailure != failure { startFailure = failure }
+        // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
+        if failure == nil { restartFailure = nil }
+        updateOffer()
+    }
+
+    /// Restart is offered while the last ensure failed or the connected daemon does not answer, and a launcher is known.
     private func updateOffer() {
-        offersRestart = launcher != nil && (ensureLooksStuck || daemonNotAnswering)
+        let offers = launcher != nil && (startFailure != nil || daemonNotAnswering)
+        if offersRestart != offers { offersRestart = offers }
     }
 
     /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so

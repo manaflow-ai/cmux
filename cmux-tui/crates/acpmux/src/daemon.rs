@@ -35,6 +35,7 @@ mod cloud_handoff;
 mod handover;
 mod home_watch;
 mod notify;
+pub(crate) mod owner_exit;
 mod persist_retry;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
@@ -547,7 +548,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         &socket_path(),
     ));
     let _home_watch = AbortOnDrop(home_gone.abort_handle());
-    // Unused for its grace on a home of its own: a normal stop (`daemon/unused_exit.rs`).
+    // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
+    // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
     // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
@@ -1768,6 +1770,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let cwd = std::env::current_dir().context("this command's folder")?;
     let socket = std::env::var_os("ACPMUX_SOCKET");
     cmd.env_remove("ACPMUX_SOCKET");
+    // A daemon a command starts has no owner app: only the app's launcher names one
+    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
+    // to the app that started an older one.
+    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
     for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
         cmd.env(key, value);
     }

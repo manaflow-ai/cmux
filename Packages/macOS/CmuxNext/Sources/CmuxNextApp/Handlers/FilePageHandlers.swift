@@ -119,11 +119,11 @@ enum FilePageHandlers {
         services.pages.storeKey(of: id) ?? id
     }
 
-    /// The file a file page tab shows (Reveal in Finder, Open With), nil for any other tab.
+    /// The local file a file page tab shows (Reveal in Finder, Open With), nil for remote files or other tabs.
     static func file(ofTab id: String, _ services: AppServices) -> URL? {
         let key = providerKey(id, services)
         return FilePageKind.allCases.lazy.compactMap { kind in
-            LocalPageTab.page(of: key) == kind.page ? service(kind, services).file(key) : nil
+            LocalPageTab.page(of: key) == kind.page ? service(kind, services).localFile(key) : nil
         }.first
     }
 

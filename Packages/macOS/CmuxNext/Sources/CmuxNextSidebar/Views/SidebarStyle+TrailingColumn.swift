@@ -8,11 +8,15 @@ extension SidebarStyle {
     /// The column slot's side: a row control's (the chevron's) size.
     static var trailingSlotSide: CGFloat { controlSize }
 
-    /// Additional inset from the fill edge to the control slot. Search can be wider than the
-    /// slot: reserve its overhang for every row, rather than shifting Search off the column.
+    /// Inset from the fill edge to the control slot's end: the larger of the row's own inset and the
+    /// resize clearance. The slot never ends outside the row's inset (Lawrence: the hover close is the
+    /// row's × at the end of the title's line, inside the row's inset), and never nearer the edge than
+    /// the resize band's reach plus Search's overhang (#27954: Search can be wider than the slot, and
+    /// a trailing click must not grab the resize edge). Comfortable rows' 8 pt inset is the larger;
+    /// compact rows' 6 pt inset gives way to the 7 pt clearance.
     static var trailingColumnInset: CGFloat {
-        Metrics.space1 + SidebarResizeBand.contentInset +
-            max(0, (searchHeight - trailingSlotSide) / 2)
+        max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
+            max(0, (searchHeight - trailingSlotSide) / 2))
     }
 
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the width up to

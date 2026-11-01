@@ -182,6 +182,8 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
     public var nodes: [SidebarNode]
     /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
     public var isHostGroup = false
+    /// The remote group draws as one sidebar group (``wrappedAsHostGroup()``), not under a section header.
+    public var drawsAsGroup = false
 
     public init(kind: Kind, isCollapsed: Bool = false, nodes: [SidebarNode]) {
         self.kind = kind

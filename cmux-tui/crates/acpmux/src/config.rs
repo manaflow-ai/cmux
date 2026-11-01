@@ -1162,6 +1162,19 @@ pub struct Config {
     /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
+    /// `queueMaxPrompts`: the most prompts one chat holds waiting for their turn (`hub/queue.rs`).
+    /// One more is refused with `queue.full` before anything is copied or written, so a client
+    /// that sends faster than the agent runs cannot grow the queue, its log and every later
+    /// restore without bound (manaflow-ai/cmuxterm-hq#2930). Default 1000; 0 is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max_prompts: Option<u64>,
+    /// `queueMaxBytes`: the most bytes of prompt content one chat's waiting prompts hold
+    /// (`hub/queue.rs`); a prompt that would pass it is refused with `queue.bytes`. An uploaded
+    /// image small enough to go inline for the model counts with its bytes; any other uploaded
+    /// file goes by its path and counts only that (`prompt_uploads.rs`). Default 268435456
+    /// (256 MiB); 0 is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max_bytes: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
     /// length is how many attempts run, a chain of daemon restarts included. Default

@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_ci_fleet_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_ota_publication_contract.py"
 lane = "linux-guard"
 
@@ -85,6 +89,10 @@ serial = true
 
 [[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1424,6 +1432,14 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_admission_receipt.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -1731,10 +1747,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2252,6 +2264,10 @@ path = "tests/test_ci_blacksmith_linux_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
 lane = "linux-guard"
 
@@ -2374,3 +2390,8 @@ reason = "Shell-script unit test (no app, no network): run it with python3 -I be
 [[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tree_source_marker.py"
+lane = "manual"
+reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."

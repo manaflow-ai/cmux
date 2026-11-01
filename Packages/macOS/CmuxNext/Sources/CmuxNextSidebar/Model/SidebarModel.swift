@@ -377,7 +377,10 @@ public final class SidebarModel {
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.
     public func send(_ intent: SidebarIntent) {
-        if let onIntent { onIntent(intent) } else { apply(intent) }
+        guard let onIntent else { return apply(intent) }
+        // A remote group (`SidebarSection.wrappedAsHostGroup`) is no document group: its daemon takes the machine's.
+        let end = { [sections] (machine: MachineID) in sections.first { $0.id == .machine(machine) }?.documentNodeCount ?? 0 }
+        if let resolved = intent.resolvingHostGroup(end: end) { onIntent(resolved) }
     }
 
     /// Applies an intent to local state. Call from `onIntent` for optimistic

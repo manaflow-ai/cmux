@@ -45,7 +45,12 @@ pub(in crate::hub) fn mark(accepted: &mut Value, replaced: Option<&Vec<String>>)
 }
 
 /// Whether the queued prompt `q` is `sender`'s under `key`, waiting, and not `by` itself.
-fn superseded(q: &QueuedPrompt, key: &str, sender: Option<&str>, by: &str) -> bool {
+pub(in crate::hub) fn superseded(
+    q: &QueuedPrompt,
+    key: &str,
+    sender: Option<&str>,
+    by: &str,
+) -> bool {
     !q.steer
         && q.prompt_id != by
         && q.run.supersede.as_deref() == Some(key)
