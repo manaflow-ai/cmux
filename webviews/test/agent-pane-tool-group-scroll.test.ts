@@ -78,6 +78,15 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     expect(inline.max).toBeLessThanOrEqual(4.5);
 
     const transcript = page.locator(".acpmux-scroll");
+    // The wheel can only scroll a transcript taller than its pane: the open run must overflow it.
+    const outer = await transcript.evaluate((node) => ({
+      scrollHeight: node.scrollHeight,
+      clientHeight: node.clientHeight,
+    }));
+    if (outer.scrollHeight - outer.clientHeight <= 40) {
+      console.warn(`transcript does not overflow: ${JSON.stringify(outer)}`);
+    }
+    expect(outer.scrollHeight - outer.clientHeight).toBeGreaterThan(40);
     await transcript.evaluate((node) => {
       node.scrollTop = 0;
     });

@@ -2863,7 +2863,7 @@
     "agent-pane.transcript#turn-error-unreachable": [],
     "agent-pane.transcript#turn-error-with-pdf": [],
     "agent-pane.transcript#turn-stopped": [
-      "icon-column:row turnSummary-575"
+      "icon-column:row turnSummary-583"
     ],
     "agent-pane.transcript#turn-stopped-then-continued": [],
     "agent-pane.transcript#vega-lite-chart": [],
