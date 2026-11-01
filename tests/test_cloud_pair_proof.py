@@ -57,6 +57,27 @@ class ManifestTests(unittest.TestCase):
             with self.assertRaises(proof.ProofFailure):
                 proof.allowlist_public_cloud_artifact(directory)
 
+    def test_export_cli_success_and_failure_keep_only_safe_zip_entries(self):
+        module = Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_cloud_pair_proof.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "raw.log").write_text("machine and assistant reply")
+            (root / "cloud-ui-proof.json").write_text("{\"reply_copied_from_assistant\":true}\n")
+            success = subprocess.run(["python3", str(module), "--export-out", directory, "--status", "0"], capture_output=True)
+            self.assertEqual(success.returncode, 0)
+            import zipfile
+            with zipfile.ZipFile(root / "evidence.zip") as archive:
+                self.assertEqual(set(archive.namelist()), {"cloud-ui-proof.json", "SUMMARY.md"})
+            self.assertFalse((root / "raw.log").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "raw.log").write_text("machine and assistant reply")
+            failure = subprocess.run(["python3", str(module), "--export-out", directory, "--status", "143"], capture_output=True)
+            self.assertEqual(failure.returncode, 1)
+            with zipfile.ZipFile(root / "evidence.zip") as archive:
+                self.assertEqual(archive.namelist(), ["SUMMARY.md"])
+            self.assertFalse((root / "raw.log").exists())
+
     def test_runner_input_cannot_enter_the_artifact_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(proof.ProofFailure):
@@ -121,8 +142,7 @@ class UIProofTests(unittest.TestCase):
     def test_simulator_export_boundary_allowlists_cloud_mode(self):
         script = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh").read_text()
         self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
-        self.assertIn("allowlist_public_cloud_artifact", script)
-        self.assertIn('(cd "$out" && rm -f evidence.zip && zip -q evidence.zip cloud-ui-proof.json)', script)
+        self.assertIn('cmux_next_cloud_pair_proof.py --export-out "$out" --status', script)
         self.assertIn('if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
         self.assertIn('else\n  # The app log goes through the pairing redactor', script)
 

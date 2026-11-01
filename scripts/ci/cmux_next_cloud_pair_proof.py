@@ -15,6 +15,7 @@ import secrets
 import stat
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 
 
@@ -69,6 +70,40 @@ def allowlist_public_cloud_artifact(out):
             path.unlink(missing_ok=True)
     if not receipt.is_file():
         raise ProofFailure("Cloud proof ended without a sanitized receipt")
+
+
+def export_cloud_artifact(out, status):
+    """Sanitize and create the receipt-only archive on success, failure, or signal cleanup."""
+    root = Path(out)
+    receipt = root / "cloud-ui-proof.json"
+    try:
+        allowlist_public_cloud_artifact(out)
+    except ProofFailure:
+        receipt = root / "cloud-ui-proof.json"
+    summary = root / "SUMMARY.md"
+    if receipt.is_file():
+        line = "- Cloud proof: sanitized receipt exported; raw captures and logs omitted"
+    else:
+        line = f"- Cloud proof: no sanitized receipt (step status {int(status)})"
+    summary.write_text(line + "\n")
+    archive = root / "evidence.zip"
+    archive.unlink(missing_ok=True)
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        if receipt.is_file():
+            bundle.write(receipt, receipt.name)
+        bundle.write(summary, summary.name)
+    return receipt.is_file()
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--export-out")
+    parser.add_argument("--status", type=int, default=0)
+    options = parser.parse_args()
+    if options.export_out is None:
+        raise SystemExit("--export-out is required")
+    raise SystemExit(0 if export_cloud_artifact(options.export_out, options.status) else 1)
 
 
 FIELDS = frozenset(("owner_user_id", "stack_project_id", "machine_id", "team_id",
