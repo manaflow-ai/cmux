@@ -238,3 +238,32 @@ fn a_stash_only_change_is_exported() {
     let fetched = fetch_bundle(&world, &bundle);
     assert_eq!(git(&fetched, &["rev-parse", "refs/cmux-back/stash"]), stash);
 }
+
+/// Only a seed's folder exports: a repository with no seed record is
+/// refused even when it has the commits. Once an export recorded a stash, a
+/// second export of the same state is unchanged (the newest record wins),
+/// and dropping that stash sends nothing either.
+#[test]
+fn an_export_compares_with_the_newest_record() {
+    let (world, folder, first) = seeded("export-record");
+    let service = world.service();
+    let copy = world.home.join("copy");
+    git(&world.home.path, &["clone", "-q", world.mac.to_str().unwrap(), copy.to_str().unwrap()]);
+    git(&copy, &["fetch", "-q", "origin", "+refs/cmux-seed/*:refs/kept/*"]);
+    let refused = export(&service, &export_params(&copy, &first, &world.home.join("x.bundle")));
+    assert_eq!(refused["error_code"], "seed.since_mismatch", "{refused}");
+
+    write(&folder.join("b"), "b\nunpushed\nstashed on the machine\n");
+    git(&folder, &["stash", "push", "-q", "--", "b"]);
+    let status = export(&service, &export_params(&folder, &first, &world.home.join("one.bundle")));
+    assert_eq!(status["unchanged"], false, "{status}");
+    let again = export(&service, &export_params(&folder, &first, &world.home.join("two.bundle")));
+    assert_eq!(again["unchanged"], true, "the newest record has this stash: {again}");
+    git(&folder, &["stash", "drop", "-q"]);
+    git(&folder, &["stash", "clear"]);
+    let dropped =
+        export(&service, &export_params(&folder, &first, &world.home.join("three.bundle")));
+    assert_eq!(dropped["unchanged"], true, "{dropped}");
+    assert!(!world.home.join("three.bundle").exists());
+    assert_eq!(dropped["stash"], Value::Null);
+}

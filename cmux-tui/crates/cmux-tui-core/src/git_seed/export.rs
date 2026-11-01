@@ -107,6 +107,18 @@ impl Export {
             let code = if failure.disk_full() { "seed.disk_full" } else { "seed.export_failed" };
             failed(code, failure.message())
         };
+        // Only a seed's folder exports. `since` need not be its newest
+        // record: an export the Mac could not merge (a conflict) moved the
+        // back record, and the Mac pulls again from its own base.
+        if self
+            .read(&["rev-parse", "--verify", "--quiet", "refs/cmux-seed/work^{commit}"])
+            .is_none()
+        {
+            return Err(failed("seed.since_mismatch", "the folder is not a seed"));
+        }
+        let recorded_stash = self.record_of_since().and_then(|record| {
+            self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/stash")])
+        });
         for (name, sha) in
             [("since_work", &self.params.since_work), ("since_head", &self.params.since_head)]
         {
@@ -129,14 +141,19 @@ impl Export {
         let index = commit(&snapshot.index, &head, snapshot::INDEX_MESSAGE).map_err(wrap)?;
         let work = commit(&snapshot.work, &index, snapshot::WORK_MESSAGE).map_err(wrap)?;
         let stash = self.read(&["rev-parse", "--verify", "--quiet", "refs/stash^{commit}"]);
-        // Unchanged only when WORK and the stash are the record's whose WORK
-        // is `since_work` (the last seed or export): a stash-only change
-        // still needs its objects sent.
-        let unchanged = work == self.params.since_work && stash == self.recorded_stash();
+        // Unchanged only when WORK and the stash are the record's: a
+        // stash-only change still needs its objects sent.
+        let same_work = work == self.params.since_work;
+        let mut unchanged = same_work && stash == recorded_stash;
         let mut bundle_bytes = 0;
         if !unchanged {
             self.record(&head, &index, &work, stash.as_deref()).map_err(wrap)?;
-            bundle_bytes = self.bundle(stash.is_some())?;
+            // Only the stash went: the record moved, but no object is new.
+            if same_work && stash.is_none() {
+                unchanged = true;
+            } else {
+                bundle_bytes = self.bundle(stash.is_some())?;
+            }
         }
         let answer = json!({
             "head_ref": head_ref,
@@ -154,15 +171,23 @@ impl Export {
         Ok(())
     }
 
-    /// The stash of the folder's record (`refs/cmux-seed/*` or
-    /// `refs/cmux-back/*`) whose WORK is `since_work`; None when there is
-    /// none. No record also counts as no stash, and a stash then is a change.
-    fn recorded_stash(&self) -> Option<String> {
-        let record = ["refs/cmux-seed", "refs/cmux-back"].into_iter().find(|record| {
-            self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/work")]).as_deref()
-                == Some(self.params.since_work.as_str())
-        })?;
-        self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/stash")])
+    /// The folder's record (`refs/cmux-back`, the newer, before
+    /// `refs/cmux-seed`) whose WORK is `since_work` and whose HEAD is
+    /// `since_head`; None when neither is (then a stash counts as a
+    /// change).
+    fn record_of_since(&self) -> Option<&'static str> {
+        ["refs/cmux-back", "refs/cmux-seed"].into_iter().find(|record| {
+            let read = |name: &str| {
+                self.read(&[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("{record}/{name}^{{commit}}"),
+                ])
+            };
+            read("work").as_deref() == Some(self.params.since_work.as_str())
+                && read("head").as_deref() == Some(self.params.since_head.as_str())
+        })
     }
 
     /// `refs/cmux-back/*` name exactly this export's commits.
