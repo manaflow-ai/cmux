@@ -94,22 +94,18 @@ enum AgentSessionWorkspace {
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`. Without one, an agent's spawn goes below its own
-        // workspace when that one is in a group (Leo, 2026-10-30: "you didnt do these groups well").
+        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the workspace the window shows, when it is
+        // in one (cx-caoh), then into the named `group`; without one, below the caller's own row when that is grouped.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        var slot: WorkspaceSlot?
         if let group {
             join = { id, sidebar in
                 guard let sidebar = sidebar as? SidebarBridge else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
-        } else if let parent,
-                  let own = AgentSessionParents.workspace(of: parent, in: services.machines.allWorkspaces.map { $0.0 }) {
-            slot = windows.controllers.lazy.compactMap { WorkspaceSlot.belowGrouped(own, in: $0.sidebar.model.sections) }.first
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: slot == nil ? NewWorkspacePlacements.rule(for: nil, in: windows) : nil,
+        let own = group == nil ? AgentSessionParents.workspace(of: parent, in: services.machines.allWorkspaces.map { $0.0 }) : nil
+        let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
