@@ -778,11 +778,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
     [config, shownSource],
   );
+  const [machineUnavailable, setMachineUnavailable] = useState<string>();
   const filesChanged = useDiffFreshness(
     readFingerprint,
     state.renderGeneration,
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
+    setMachineUnavailable,
   );
 
   return (
@@ -887,9 +889,9 @@ export function App({ config, initialStatus }: ConfigProps) {
             <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           </span>
         ) : null}
-        {filesChanged && (
-          <output className="diff-files-changed">
-            <span>{label("filesChangedSinceLoad")}</span>
+        {(filesChanged || machineUnavailable) && (
+          <output className="diff-files-changed" aria-live="polite">
+            <span>{machineUnavailable ?? label("filesChangedSinceLoad")}</span>
             <button type="button" className="file-review-load" onClick={refresh}>
               {label("refresh")}
             </button>

@@ -3,10 +3,8 @@ import CmuxNextDesign
 import CoreGraphics
 import Testing
 
-/// An expanded group with no workspaces (user 9757, "if group has no workspaces, we need better empty
-/// space"): under its header the list keeps one quiet row, as tall and as far in as a member row, so
-/// the group reads as open and empty, and a workspace dragged over that row drops into the group.
-/// A collapsed empty group stays a header alone.
+/// An empty group keeps only its header. Creation stays on the header's hover +,
+/// and dropping a workspace on that header still inserts it into the group.
 @MainActor struct SidebarEmptyGroupTests {
     private let scratch = GroupID("g_scratch"), perf = GroupID("g_perf")
     private let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -34,18 +32,13 @@ import Testing
         return next.group == group ? next : nil
     }
 
-    @Test func anOpenEmptyGroupKeepsOneMemberSizedRowUnderItsHeader() throws {
+    @Test func anOpenEmptyGroupKeepsOnlyItsHeader() throws {
         let layout = layout(sections())
         let header = try #require(layout.row(for: .group(scratch)))
-        let placeholder = try #require(rowUnderHeader(layout, scratch), "the empty group shows a row under its header")
-        let memberHeight = SidebarLayoutMetrics.standard.height(for: WorkspaceRowContent())
-        #expect(placeholder.height == memberHeight, "as tall as a one-line member row")
-        #expect(placeholder.depth == header.depth + 1, "one level in, as a member")
-        #expect(placeholder.y == header.maxY + SidebarLayoutMetrics.standard.rowSpacing)
-        #expect(placeholder.isLastInGroup)
-        // The next group starts one row gap after the empty row, not right under the header.
+        #expect(rowUnderHeader(layout, scratch) == nil)
+        #expect(layout.row(for: .emptyGroup(scratch)) == nil)
         let next = try #require(layout.row(for: .group(perf)))
-        #expect(next.y == placeholder.maxY + SidebarLayoutMetrics.standard.rowSpacing)
+        #expect(next.y == header.maxY + SidebarLayoutMetrics.standard.rowSpacing)
     }
 
     @Test func aCollapsedEmptyGroupStaysAHeaderAlone() {
@@ -93,12 +86,12 @@ import Testing
         #expect(unfolded.totalHeight == open.totalHeight)
     }
 
-    /// A loose workspace dragged over the empty row drops into the empty group, at its start.
-    @Test func aDropOnTheEmptyRowGoesIntoTheGroup() throws {
+    /// A loose workspace dragged over the empty header drops into the group, at its start.
+    @Test func aDropOnTheEmptyHeaderGoesIntoTheGroup() throws {
         let sections = sections()
         let layout = layout(sections)
-        let placeholder = try #require(rowUnderHeader(layout, scratch))
-        let y = placeholder.y + placeholder.height / 2
+        let header = try #require(layout.row(for: .group(scratch)))
+        let y = header.y + header.height / 2
         let resolved = try #require(DropResolver.resolveDrag(centreY: y, leadingY: y, gapY: nil, gapHeight: 0,
                                                              payload: .workspaces([WorkspaceID("loose")]), base: layout, sections: sections))
         let section = try #require(sections.first?.id)

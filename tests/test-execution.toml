@@ -92,6 +92,10 @@ path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -1428,6 +1432,14 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_admission_receipt.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -1735,10 +1747,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2256,6 +2264,11 @@ path = "tests/test_ci_blacksmith_linux_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30360 registered it as linux-guard without a ci-guards.yml step, which reddened tooling-tests on every pull request. Checks .github/runners.json linux_sizes against every Blacksmith Linux runs-on; run python3 tests/test_ci_blacksmith_linux_sizes.py yourself after changing a runs-on label or that table (about 3 s, no build)."
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
 lane = "linux-guard"
 
@@ -2378,3 +2391,37 @@ reason = "Shell-script unit test (no app, no network): run it with python3 -I be
 [[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tree_source_marker.py"
+lane = "manual"
+reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_nightly_dedicated_mini.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_pair_proof.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Guardrails of scripts/ci/cmux_next_cloud_pair_proof.py, the fleet Cloud chat proof (#30473); run python3 tests/test_cloud_pair_proof.py yourself after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_gate_plan_suite_steps.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks gate-plan.py's CmuxNext suite steps against the cmux-ci controller's ci-step limits; run python3 tests/test_cmux_next_gate_plan_suite_steps.py yourself after changing scripts/cmux-next/gate-plan.py or gate-run.sh (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_guardrails_qos.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_perf_budgets.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."

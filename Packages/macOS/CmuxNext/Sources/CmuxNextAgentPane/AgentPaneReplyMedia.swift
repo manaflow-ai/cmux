@@ -7,7 +7,7 @@ import Foundation
 /// asks `media.load` with the path from the reply, and the host checks it like a reply image.
 /// Web media (an https link: a GitHub user attachment, a CI artifact) follows the reply image
 /// setting and network rules; bytes that are video or audio (``sniff(_:)``) are kept as a private
-/// copy in ``cacheFolder`` and played like a file.
+/// copy in its process-owned cache and played like a file.
 final class AgentPaneMediaGrants {
     static let shared = AgentPaneMediaGrants()
 
@@ -22,8 +22,11 @@ final class AgentPaneMediaGrants {
     static let maximumGrants = 256
     static let pathPrefix = "/__media/"
 
-    /// Where web media copies live; one is removed when its grant goes.
-    nonisolated static let cacheFolder = FileManager.default.temporaryDirectory.appending(path: "cmux-agent-media", directoryHint: .isDirectory)
+    private let cache: AgentPaneMediaCache
+
+    init(cache: AgentPaneMediaCache = AgentPaneMediaCache(root: FileManager.default.temporaryDirectory.appending(path: "cmux-agent-media", directoryHint: .isDirectory))) {
+        self.cache = cache
+    }
 
     private var files: [String: URL] = [:]
     private var tokens: [URL: String] = [:]
@@ -58,9 +61,8 @@ final class AgentPaneMediaGrants {
                 if let gone = files.removeValue(forKey: oldest) {
                     tokens[gone] = nil
                     links = links.filter { !$0.value.hasSuffix("/" + oldest) }
-                    if gone.deletingLastPathComponent().standardizedFileURL == Self.cacheFolder.standardizedFileURL {
-                        try? FileManager.default.removeItem(at: gone)
-                    }
+                    // task-owner: finite eviction; the cache rejects files it does not own.
+                    Task { await cache.remove(gone) }
                 }
             }
         }
@@ -88,15 +90,9 @@ final class AgentPaneMediaGrants {
         return nil
     }
 
-    /// Writes a web media copy (readable by this user only) and returns its file.
-    @concurrent nonisolated static func store(_ data: Data, ext: String) async -> URL? {
-        let fm = FileManager.default
-        // concurrency-allow: @concurrent, so this write never runs on the main actor
-        guard (try? fm.createDirectory(at: cacheFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])) != nil
-        else { return nil }
-        let file = cacheFolder.appending(path: UUID().uuidString.lowercased() + "." + ext)
-        guard fm.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return nil }
-        return file.resolvingSymlinksInPath()
+    /// Writes a private copy off the main actor, protected from other processes' orphan sweeps.
+    func store(_ data: Data, ext: String) async -> URL? {
+        await cache.store(data, ext: ext)
     }
 
     /// The granted file a media URL names, nil for any other URL.
@@ -145,7 +141,7 @@ extension AgentPaneModel {
         case .failure(let error):
             return Self.replyFailure(error)
         case .success(let data):
-            guard let ext = AgentPaneMediaGrants.sniff(data), let file = await AgentPaneMediaGrants.store(data, ext: ext) else {
+            guard let ext = AgentPaneMediaGrants.sniff(data), let file = await grants.store(data, ext: ext) else {
                 return Self.replyFailure(.mediaRefused)
             }
             return AgentPaneReply.success(["src": grants.grant(file, for: url)])

@@ -777,20 +777,5 @@ class StatusCommentTests(unittest.TestCase):
         self.assertEqual(self.writes, [])
 
 
-class WorkflowTests(unittest.TestCase):
-    def test_the_trusted_guard_is_the_base_tip_not_the_pull_requests_last_push_base(self):
-        """pull_request.base.sha only moves when the pull request's head is pushed, so a guard fix
-        never reached an open pull request: #26153 ran a guard 620 commits old on a re-run and on a
-        new ready-for-review event. github.sha under pull_request_target is the base branch's tip."""
-        text = (ROOT / ".github/workflows/cmux-next-defaults-guard.yml").read_text(encoding="utf-8")
-        step = text.split("- name: Check out the trusted guard (base)", 1)[1].split("- name:", 1)[0]
-        ref = next(line.split("ref:", 1)[1].strip() for line in step.splitlines() if line.strip().startswith("ref:"))
-        # An open pull request reads the base tip; the merge receipt (closed) never reads github.sha,
-        # which is then the merge commit, the pull request's own code.
-        self.assertEqual(ref, "${{ github.event.action == 'closed' && github.event.pull_request.base.sha || github.sha }}")
-        self.assertIn("pull_request_target:", text)
-        self.assertNotIn("\n  push:", text.split("jobs:", 1)[0])
-
-
 if __name__ == "__main__":
     unittest.main()

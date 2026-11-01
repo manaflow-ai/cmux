@@ -31,8 +31,12 @@ extension WorkspaceTabsSource {
     /// The pane's name, else "Pane 2".
     public func title(of pane: WorkspaceLayout.Pane) -> String { layout?.title(of: pane) ?? "Pane" }
 
-    /// The listed tabs of `pane`, in its order.
-    public func tabs(of pane: WorkspaceLayout.Pane) -> [WorkspaceTab] { pane.tabIDs.compactMap(workspaceTab) }
+    /// The tabs of `pane`, in its order, read from the workspace (observed: the Panes page
+    /// redraws when a tab changes; `workspaceTab` is the unobserved listed copy).
+    public func tabs(of pane: WorkspaceLayout.Pane) -> [WorkspaceTab] {
+        let tabs = workspace?.tabs ?? []
+        return pane.tabIDs.compactMap { id in tabs.first { $0.id == id } }
+    }
 
     /// Runs one pane action on the Mac; a refusal shows in the toast ("Couldn't zoom Pane 2.").
     private func onMac(_ verb: String, _ title: String, _ body: @MainActor (any WorkspacePaneBackend, Workspace) async throws -> Void) async {

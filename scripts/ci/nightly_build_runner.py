@@ -378,6 +378,21 @@ def main(env: Mapping[str, str] = os.environ,
     repo = env.get("GITHUB_REPOSITORY", "")
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
     labels = (env.get("OWNED_LABELS") or "").split()
+    # A separately enrolled all-nightly mini is an explicit reservation, not an
+    # idle-capacity guess. Its first-attempt route survives routing-App quota
+    # failures and a busy preceding nightly job. Retries keep the existing picker.
+    nightly_only = (env.get("NIGHTLY_ONLY_LABEL") or "").strip()
+    if (not argv and repo == "manaflow-ai/cmux" and attempt == "1"
+            and env.get("GITHUB_REF") == "refs/heads/nightly-next"
+            and env.get("GITHUB_EVENT_NAME") in {"push", "workflow_dispatch"}
+            and nightly_only == "glaeda-nightly-only-m4pro"):
+        blacksmith, _ = blacksmith_route((env.get("CANDIDATE") or "").strip(), None, now,
+                                         (env.get("EXCLUDE") or "").strip())
+        write_output(env, {"dedicated": nightly_only, "trusted": "", "owned": nightly_only,
+                           "blacksmith": blacksmith, "runner": nightly_only,
+                           "helper": nightly_only, "attempt": attempt},
+                     ["the explicitly reserved all-nightly mini takes the app and helper"])
+        return 0
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
     only_verify = list(argv[:1]) == ["verify"]

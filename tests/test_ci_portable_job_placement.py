@@ -68,16 +68,39 @@ class Decide(unittest.TestCase):
         self.assertEqual(result.linux_jobs, ("control", "signer-build"))
         self.assertEqual(result.mini_jobs, ())
 
-    def test_early_nightly_unread_capacity_keeps_portable_controls_on_fleet(self):
+    def test_early_nightly_unknown_capacity_uses_blacksmith_overflow(self):
         config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
-                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
         for runners, snap in ((None, None), (idle(2), None),
                               (idle(2), snapshot(age_minutes=120))):
             with self.subTest(runners=runners, snapshot=snap):
                 placed = placement.decide(config, runners, snap, NOW)
-                self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("control",)))
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
                 self.assertEqual(placed.linux_jobs, ())
-                self.assertIn("capacity unknown", placed.why)
+                self.assertIn("Blacksmith", placed.why)
+
+    def test_offline_runner_without_snapshot_does_not_queue_all_owned_jobs(self):
+        config = env(JOBS="prepare-one prepare-two prepare-three prepare-four", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, idle(4), None, NOW)
+        self.assertEqual(placed.mini_jobs, ())
+        self.assertEqual(placed.mini_runner, "")
+        self.assertIn("Blacksmith", placed.why)
+
+    def test_live_only_nightly_picker_waits_without_emitting_an_unverified_pool(self):
+        config = env(JOBS="pick-nightly-build-runner", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        for runners, snap in ((None, None), (idle(2), None),
+                              (idle(2), snapshot(age_minutes=120)), ([], snapshot())):
+            with self.subTest(runners=runners, snapshot=snap):
+                placed = placement.decide(config, runners, snap, NOW)
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
+        with mock.patch.object(placement, "read", return_value=(None, None)), \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 180]), \
+             mock.patch.object(placement, "write") as write:
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(write.call_args.args[0].mini_runner, "")
+        placed = placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ("pick-nightly-build-runner",))
 
     def test_unknown_nightly_capacity_does_not_bypass_runner_eligibility(self):
         for overrides in ({"SIDE_LABEL": ""}, {"SIDE_LABEL": "blacksmith-16vcpu-ubuntu-2404"},
@@ -255,22 +278,17 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
         self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
-        self.assertEqual(step["env"]["LINUX_ONLY"], "signer-build")
+        self.assertNotIn("signer-build", step["env"]["JOBS"].split())
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
                 route = job["runs-on"]
                 self.assertIn("decide", job["needs"])
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
-                linux = route.index("needs.decide.outputs.early_linux_runner")
-                overflow = route.index("'blacksmith-")
-                self.assertLess(linux, overflow)
-                if name == "signer-build":
-                    self.assertNotIn("early_mini_runner", route)
-                else:
-                    mini = route.index("needs.decide.outputs.early_mini_runner")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, overflow)
+                selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
+                self.assertIn(selected, route)
+                self.assertLess(route.index(selected), route.index("'blacksmith-16vcpu-ubuntu-2404'"))
+                self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
 

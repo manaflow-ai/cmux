@@ -13,6 +13,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.NewColumnKeepsWidthJourneyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertBurstTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertWhileDisplayAsleepTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewHomeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewWindowTests
