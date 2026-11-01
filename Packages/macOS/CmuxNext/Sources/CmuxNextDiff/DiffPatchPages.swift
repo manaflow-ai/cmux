@@ -8,9 +8,10 @@ nonisolated enum DiffPatchPages {
     /// The most bytes one side of a file may have, as the local viewer's sidecar
     /// (`Native/DiffSidecar` `MAX_FILE_SIDE_BYTES`): a larger file answers `tooLarge`.
     static let maximumSideBytes = 2 * 1024 * 1024
-    /// The most bytes of one file's patch a read joins: its two sides at the side limit, each
-    /// line with its `+`, `-` or ` ` and the headers. A larger patch is a file too large to show.
-    static let maximumFilePatchBytes = 2 * maximumSideBytes + maximumSideBytes / 2
+    /// The most bytes of one file's patch a read joins: its two sides at the side limit, where a
+    /// side of empty lines doubles in the patch (each line gets its `+`, `-` or ` `), and the
+    /// headers. A larger patch is a file the local viewer could not show either.
+    static let maximumFilePatchBytes = 4 * maximumSideBytes + maximumSideBytes / 2
 
     /// The joined patch, or nil when it is larger than ``maximumFilePatchBytes`` (no page past
     /// the first is read then).
