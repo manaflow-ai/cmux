@@ -19,6 +19,7 @@ VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
 EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
          "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
          "build-nightly-ghostty-cli-helper")
+VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
@@ -109,6 +110,33 @@ class DedicatedMini(unittest.TestCase):
 
     def test_linux_elf_signer_does_not_take_the_mac_reservation(self):
         self.assertNotIn(VARIABLE, DOC["jobs"]["signer-build"]["runs-on"])
+
+    def test_sign_picker_prefers_reservation_for_secret_free_mac_consumers(self):
+        output = DOC["jobs"]["pick-nightly-sign-runner"]["outputs"]["owned"]
+        expression = parse_expression(output.removeprefix("${{").removesuffix("}}"))
+        valid = context(**{"github.ref_name": "nightly-next",
+                            "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"})
+        self.assertEqual(evaluate(expression, valid), LABEL)
+        self.assertEqual(evaluate(expression, {**valid, "github.event_name": "workflow_dispatch"}), LABEL)
+        # A bad variable, fork, other track or retry falls through to the normal
+        # owned picker (or an empty output); it can never widen the reservation.
+        self.assertEqual(evaluate(expression, {**valid, VARIABLE: "glaeda-unregistered"}),
+                         "glaeda-side-std-xcode-26.6")
+        for changes in ({VARIABLE: "", "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"},
+                        {"github.run_attempt": 2},
+                        {"github.repository": "other/cmux", "github.repository_owner": "other"},
+                        {"github.ref_name": "main"}):
+            with self.subTest(changes=changes):
+                self.assertNotEqual(evaluate(expression, {**valid, **changes}), LABEL)
+
+        for job in VERIFY_OWNED:
+            source = DOC["jobs"][job]["runs-on"]
+            selected_job = evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")),
+                                     {**valid,
+                                      "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                                      "needs.pick-nightly-sign-runner.outputs.owned": LABEL,
+                                      "vars.CI_PR_POOL_OWNED": "1"})
+            self.assertEqual(selected_job, LABEL, job)
 
 
 if __name__ == "__main__":

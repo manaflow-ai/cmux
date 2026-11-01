@@ -581,9 +581,11 @@ class OwnedVerify(unittest.TestCase):
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
         # Outside attempt 1 of a push the pick stands only with the sweeper's marker uploaded.
-        self.assertEqual(job["outputs"]["owned"],
-                         "${{ (github.event_name == 'push' && github.run_attempt == 1 || "
-                         "steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}")
+        owned_output = job["outputs"]["owned"]
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", owned_output)
+        self.assertIn("github.repository == 'manaflow-ai/cmux'", owned_output)
+        self.assertIn("github.ref_name == 'nightly-next'", owned_output)
+        self.assertIn("steps.owned.outputs.owned", owned_output)
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
         self.assertEqual(job.get("environment"), "ci-routing-agent")

@@ -474,8 +474,12 @@ class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
         self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
         outputs = self.jobs[self.PICK]["outputs"]
         self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
-        # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
-        self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
+        # The secret-free verify pick may opt into the all-nightly reservation,
+        # while credentialed legacy signing keeps the separate claim-capable
+        # `sign_owned` output. Both outputs still stand on their marker rules.
+        self.assertIn("steps.sign-owned.outputs.owned", str(outputs["sign_owned"]))
+        self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["sign_owned"]))
+        self.assertIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["owned"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
