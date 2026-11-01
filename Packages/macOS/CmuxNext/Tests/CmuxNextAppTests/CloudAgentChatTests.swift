@@ -103,30 +103,31 @@ struct CloudAgentChatTests {
         }
     }
 
-    /// On a team machine the machine refuses the start (its own identity decides, hq-84), and the
-    /// page gets that refusal in the person's words; no agent runs there.
-    @Test func aTeamMachineRefusesTheChatAndSaysSo() async throws {
-        try await Self.withMachine(hostKind: "team-vm") { world in
+    /// The Cloud API gives the creator an owner answer on a team machine too (#28788). Its
+    /// own work folder needs no trust question (#29556), so the owner's first send starts there.
+    @Test func aTeamMachinesOwnerStartsTheChatInItsWorkFolder() async throws {
+        try await Self.withMachine(hostKind: "team-vm", workFolder: "work") { world in
             let chat = try await world.openChat()
             let wire = try #require(try await world.page(chat.key).wire)
             let frames = try await Frames.open(wire)
-            let refused = try await frames.call(wire, "session/new", ["cwd": world.work.path, "mcpServers": [Any](),
+            let started = try await frames.call(wire, "session/new", ["cwd": world.work.path, "mcpServers": [Any](),
                                                                       "_meta": ["acpmux": ["harness": "sample"]]])
-            #expect(refused.errorCode == "agent_session.team_vm_blocked", "\(refused.raw)")
-            #expect(refused.errorMessage == AgentRemoteStartRefusal(code: "agent_session.team_vm_blocked", machine: "Move VM").userMessage)
-            #expect(world.agentSessions().isEmpty)
-            let tab = try #require(world.machineTab(chat.surface), "the machine's store does not list the chat")
-            #expect(tab.agentSession?.session == nil)
+            let session = try #require(started.result?["sessionId"] as? String, "the owner's chat did not start: \(started.raw)")
+            #expect(world.agentSessions() == [session])
+            let bound = await world.until { world.machineTab(chat.surface)?.agentSession?.session == session }
+            #expect(bound, "the machine's store did not bind its owner's chat")
             wire.cancel(code: 1000, reason: "test")
         }
     }
 
-    /// A Cloud machine whose link gave no owner answer (a team machine, the API said nothing, or
-    /// no link runs): the app sends no start there, whatever the machine's own record says (#26323),
+    /// A Cloud machine whose link gave no owner answer (the API said nothing, or no link runs):
+    /// the app sends no start there, whatever the machine's own record says (#26323),
     /// and the page says the machine could not be confirmed. No agent runs there.
-    @Test func noOwnerAnswerOnTheLinkStartsNoChat() async throws {
-        // The machine's daemon allows any start here (no Cloud kind), so only the app refuses it.
-        try await Self.withMachine(hostKind: nil, ownerLink: false) { world in
+    @Test(arguments: [nil, "team-vm"] as [String?])
+    func noOwnerAnswerOnTheLinkStartsNoChat(hostKind: String?) async throws {
+        // On a plain host the daemon allows any start, so only the app refuses it. A team
+        // machine without an owner answer must also stay idle, regardless of its own record.
+        try await Self.withMachine(hostKind: hostKind, ownerLink: false) { world in
             let chat = try await world.openChat()
             let wire = try #require(try await world.page(chat.key).wire)
             let frames = try await Frames.open(wire)
@@ -290,7 +291,7 @@ struct CloudAgentChatTests {
     /// `ownerLink`: the machine's link runs and its attach answer says the signed-in caller owns the
     /// machine (`vmKind: "owner"`), as the Cloud API answers for a person's own machine; false, no
     /// link runs (no owner answer).
-    private static func withMachine(hostKind: String? = "unknown-cloud", ownerLink: Bool = true, _ body: (World) async throws -> Void) async throws {
+    private static func withMachine(hostKind: String? = "unknown-cloud", ownerLink: Bool = true, workFolder: String = "project", _ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         var repo = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { repo.deleteLastPathComponent() }
@@ -301,7 +302,9 @@ struct CloudAgentChatTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let macHome = root.appendingPathComponent("mac-home", isDirectory: true)
         let home = root.appendingPathComponent("vm-home", isDirectory: true)
-        let work = home.appendingPathComponent("work", isDirectory: true)
+        // HOME/work is automatically trusted for an owner. A project folder keeps the first
+        // two tests on the explicit trust path; the owner-on-team test selects work itself.
+        let work = home.appendingPathComponent(workFolder, isDirectory: true)
         let acpmuxHome = root.appendingPathComponent("vm-acpmux", isDirectory: true)
         try FileManager.default.createDirectory(at: macHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
