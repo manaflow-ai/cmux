@@ -35,6 +35,9 @@ mod agent_pairs;
 mod auto_resume;
 #[path = "hub_integration/carried_turns.rs"]
 mod carried_turns;
+#[cfg(unix)]
+#[path = "hub_integration/codex_full_access_pending.rs"]
+mod codex_full_access_pending;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -75,6 +78,8 @@ mod protocol_serve;
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
 #[path = "hub_integration/run_parent.rs"]

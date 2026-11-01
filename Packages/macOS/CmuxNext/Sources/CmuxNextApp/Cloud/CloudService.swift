@@ -63,6 +63,10 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
+    /// sizes and the rates the server gave listed machines of the same size. Read from the list
+    /// itself, so a machine this Mac could not connect to still gives its size a rate.
+    private(set) var planSizes: [CloudWorkspaceSetupWizard.SizeOption] = []
     /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
@@ -133,6 +137,8 @@ final class CloudService {
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
+    /// Staged uploads into ssh-peer chats, beside the Cloud ones (``AgentPeerUploads``).
+    @ObservationIgnored let peerUploads = AgentPaneStagedUploads<AgentPeerUploads.Target>(owner: "AgentPeerUploads.stageExpiry")
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).
@@ -141,7 +147,7 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, authCaptureFixture: Bool = false) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
@@ -158,7 +164,7 @@ final class CloudService {
         let identity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
             transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -247,6 +253,18 @@ final class CloudService {
     func localDeviceID() throws -> String { try deviceID.loadNow() }
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
     func installID() async throws -> String { try await deviceID.load() }
+
+    /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
+    /// broker's target reads it: the classic attach answer's `vmKind == "owner"` (#28788 gives a team
+    /// machine's creator that), or a Worker machine's owner link on the app server link. A personal
+    /// harness login goes only to such a machine (``CloudCredentialTransfer``).
+    func callerOwnsVM(_ machineID: String) async throws -> Bool {
+        guard configuration.linkSource == .appServer else {
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+        }
+        guard let link = machines.session(machineID)?.appLink else { return false }
+        return await link.ownerLink != nil
+    }
     @ObservationIgnored private let deviceID: CloudDeviceID
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -477,6 +495,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
+            planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
@@ -658,6 +677,7 @@ final class CloudService {
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]
         machines.cloudLimits = nil
+        planSizes = []
         hasLoadedMachines = false
         listLoadedAt = nil
     }

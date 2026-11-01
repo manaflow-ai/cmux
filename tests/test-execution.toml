@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_ci_fleet_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_ota_publication_contract.py"
 lane = "linux-guard"
 
@@ -251,6 +255,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
@@ -510,6 +522,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_src_worktree_prune.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1412,6 +1428,10 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -1719,6 +1739,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2354,3 +2378,7 @@ reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it wit
 path = "tests/test_cef_cache_key_checkout_independent.py"
 lane = "manual"
 reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"

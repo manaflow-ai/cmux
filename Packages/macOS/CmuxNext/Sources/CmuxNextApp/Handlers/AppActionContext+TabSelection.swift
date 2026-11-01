@@ -13,7 +13,7 @@ extension AppActionContext {
         if let list = invocation["tabs"]?.stringValue {
             var found: [(TabModel, PaneModel)] = []
             for id in list.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !id.isEmpty {
-                guard let hit = services.locateTab(id) ?? notFound(RefusalStrings.noTab(id)) else { return nil }
+                guard let hit = targetTab(id, invocation) ?? notFound(RefusalStrings.noTab(id)) else { return nil }
                 found.append(hit)
             }
             guard let pane = found.first?.1 ?? refuse(RefusalStrings.noTab(list)) else { return nil }

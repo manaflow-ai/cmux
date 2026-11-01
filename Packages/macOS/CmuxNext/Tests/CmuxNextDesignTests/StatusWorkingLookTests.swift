@@ -18,7 +18,7 @@ import CmuxNextDesignTokens
     @Test func workBreathesAsAnAccentDot() {
         #expect(Self.plan(.working, look: .breathe) == StatusIndicatorPlan(glyph: .dot, animation: .breathe, tint: .working))
         #expect(Self.plan(.working, look: .shimmer) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
-        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner))
+        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .native, animation: .step, tint: .spinner))
     }
 
     @Test func aHiddenOrStillRowHoldsTheDotStill() {
