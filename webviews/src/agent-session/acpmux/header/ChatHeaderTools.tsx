@@ -54,7 +54,7 @@ import {
 } from "./quickActions";
 
 /// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and the Inspector toggle included.
+/// them, the Needs you inbox and Session Info toggle included.
 export const HEADER_GLYPH = 16;
 
 export { HEADER_ACTIONS } from "./headerActions";
@@ -165,7 +165,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  inspector,
+  sessionInfo,
   inbox,
   nativeRowTools,
 }: {
@@ -215,9 +215,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// Session Info's toggle (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
-  inspector?: ReactNode;
+  sessionInfo?: ReactNode;
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
@@ -382,7 +382,7 @@ export function ChatHeaderTools({
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
-      {!native && inspector}
+      {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
       {inbox}
       {buttons ? (
@@ -589,7 +589,7 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
-  // A row's letter (`accelerator`, never drawn) picks it, as Claude Code desktop's R, F, A; never a
+  // A row's letter (`accelerator`, never drawn) picks it, as the title menu's R, F, A, D; never a
   // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
   const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;

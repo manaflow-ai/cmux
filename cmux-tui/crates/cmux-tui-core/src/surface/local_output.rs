@@ -257,7 +257,7 @@ impl OutputPublisher {
             if let Some((offset, at_bottom)) = scroll_changed {
                 pty.frame_requests.defer_scroll(offset, at_bottom);
             }
-            pty.request_frame(generation);
+            pty.request_frame_from_reader(generation);
             // Mux events take `Mux::state`; publish them only after
             // the terminal lock is released (see PtyTerminalRuntime).
             self.pending_bells.publish(mux, surface.id);
