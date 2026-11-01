@@ -405,7 +405,8 @@ mod tests {
             BufReader::new(server.try_clone().unwrap()).read_until(b'\n', &mut rest).unwrap();
             let line = [head, rest].concat();
             let request: Value = serde_json::from_slice(&line).unwrap();
-            let answer = json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
+            let answer =
+                json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
             heard
         });
@@ -414,8 +415,9 @@ mod tests {
         let mut progress = || {
             let _ = tick.send(());
         };
-        let revision =
-            remote.write_with_progress("/work/f.bin", &mut data.as_slice(), 0o600, &mut progress).unwrap();
+        let revision = remote
+            .write_with_progress("/work/f.bin", &mut data.as_slice(), 0o600, &mut progress)
+            .unwrap();
         assert_eq!(revision, "r1");
         assert!(machine.join().unwrap(), "no progress while the part was in flight");
     }
