@@ -301,7 +301,7 @@ fn a_mirror_under_steady_output_gets_its_resize_replay_after_the_earlier_frames(
                 return;
             }
             Ok(AttachFrame::Output(bytes)) => {
-                seen.push(String::from_utf8_lossy(&bytes).into_owned())
+                seen.push(String::from_utf8_lossy(&bytes).into_owned());
             }
             Ok(other) => panic!("unexpected frame {other:?}"),
             Err(error) => panic!("the mirror ran dry without a replay: {error:?}"),

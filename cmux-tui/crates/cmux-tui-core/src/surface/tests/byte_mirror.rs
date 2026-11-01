@@ -336,8 +336,7 @@ fn resize_burst_terminal_lock_hold_bench() {
     if std::env::var("CMUX_RESIZE_BURST_BENCH").as_deref() != Ok("1") {
         return;
     }
-    let artifacts =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts");
+    let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
     let mut out = std::fs::OpenOptions::new()
         .create(true)
@@ -348,7 +347,7 @@ fn resize_burst_terminal_lock_hold_bench() {
     let mut report = |line: String| {
         let line = format!("RESIZE-BURST-BENCH {profile} {line}");
         eprintln!("{line}");
-        std::io::Write::write_all(&mut out, format!("{line}\n").as_bytes()).unwrap();
+        out.write_all(format!("{line}\n").as_bytes()).unwrap();
     };
     const BURSTS: u16 = 5;
     const STEP_INTERVAL: Duration = Duration::from_millis(8);
