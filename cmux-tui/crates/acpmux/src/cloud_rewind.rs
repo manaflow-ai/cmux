@@ -80,6 +80,8 @@ impl CloudTurnClient {
         let machine = machine.into();
         valid_component("workspace", &workspace)?;
         valid_component("machine", &machine)?;
+        // The workspace's reqwest builds on rustls with no provider of its own (`mesh_http.rs`).
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))

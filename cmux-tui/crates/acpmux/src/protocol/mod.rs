@@ -304,6 +304,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
         untyped(method::MUX_SET_TURN_CAP, Request),
+        // A Cloud turn's preparation and its release (`cloud_rewind.rs`, agent-session-turn-rewind-v1).
+        untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
+        untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
         untyped(method::MUX_INBOX_THREADS, Request),
         untyped(method::MUX_INBOX_THREAD, Request),
         untyped(method::MUX_INBOX_REPLY, Request),
