@@ -20,7 +20,8 @@ internal import Security
 /// Use it for items cmux itself creates and reads without the user asking (keys, salts, seals). Do
 /// not use it where the prompt is the consent (reading another app's item on the user's request,
 /// such as a browser's Safe Storage key during an import).
-public enum LoginKeychain {
+public struct LoginKeychain {
+    public init() {}
     private struct State {
         var depth = 0
         var previous = true
