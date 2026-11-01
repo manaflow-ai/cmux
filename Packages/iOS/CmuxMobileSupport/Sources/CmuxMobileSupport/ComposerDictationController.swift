@@ -43,7 +43,7 @@ public final class ComposerDictationController {
     private let recognizer: SFSpeechRecognizer?
 
     /// Pure merger that combines the captured base text with speech partials.
-    private let textMerger: ComposerDictationTextMerger
+    private var textMerger: ComposerDictationTextMerger
 
     /// Owns the `AVAudioEngine` + shared `AVAudioSession` lifecycle on its own
     /// serial queue so the synchronous `setActive`/`engine.start`/`engine.stop`
@@ -170,6 +170,7 @@ public final class ComposerDictationController {
             return
         }
         baseText = existingText
+        textMerger.reset()
         self.onText = onText
 
         // iOS 26 trap avoidance (the real mic-tap crash): when speech + mic
@@ -414,7 +415,7 @@ public final class ComposerDictationController {
             failStart(reason: .recognizerUnavailable)
             return
         }
-        task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler())
+        task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler(token: token))
         state = .listening
         onDiagnosticEvent(.started)
     }
@@ -440,7 +441,7 @@ public final class ComposerDictationController {
     /// hops to the main actor via `Task { @MainActor in }` before touching any
     /// actor-isolated state; `self` is weak so the task does not retain the
     /// controller.
-    private nonisolated func makeRecognitionResultHandler()
+    private nonisolated func makeRecognitionResultHandler(token: Int)
         -> @Sendable (SFSpeechRecognitionResult?, Error?) -> Void {
         // `@Sendable` so the closure is its own isolation region (not main-actor):
         // Speech invokes it off-main, where a main-actor closure traps. It captures
@@ -448,11 +449,15 @@ public final class ComposerDictationController {
         // snapshots from the non-Sendable result/error PARAMETERS, then hops to the
         // main actor. This mirrors the authorization completion pattern above.
         return { [weak self] result, error in
-            let transcript = result?.bestTranscription.formattedString
+            let transcription = result?.bestTranscription
+            let transcript = transcription?.formattedString
+            let startTime = transcription?.segments.first?.timestamp
+            let endTime = transcription?.segments.last.map { $0.timestamp + $0.duration }
             let isFinal = result?.isFinal ?? false
             let failed = error != nil
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.startToken == token,
+                      self.state == .listening || self.state == .stopping else { return }
                 // Only apply a NON-EMPTY transcript. On stop, the recognizer can
                 // deliver a final result with an empty transcript; merging that
                 // (`merged(base, "")` -> `base`) would wipe the words the partials
@@ -465,7 +470,9 @@ public final class ComposerDictationController {
                     }
                     self.onText?(self.textMerger.merged(
                         base: self.baseText,
-                        transcript: transcript
+                        transcript: transcript,
+                        startTime: startTime,
+                        endTime: endTime
                     ))
                 }
                 // A final result or an error (end-of-stream, recognition failure)

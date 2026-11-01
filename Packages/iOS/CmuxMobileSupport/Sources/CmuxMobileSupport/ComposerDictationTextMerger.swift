@@ -68,21 +68,49 @@ public enum ComposerDictationState: Equatable {
 /// Pure text merger for live dictation, factored out so it is host-testable
 /// without Speech / AVFoundation.
 ///
-/// At start the controller captures the composer's existing text as the
-/// `base`. Every partial transcription then replaces the live tail, so the
-/// composer always reads `base` + the latest transcript and never accumulates
-/// stale partials. The base is preserved verbatim so text the user typed before
-/// starting is never clobbered.
+/// The two-argument merge joins a draft and transcript. The timed overload also
+/// keeps earlier utterances when Speech resets its partial transcript after a
+/// pause. Overlapping results revise the same utterance; a cumulative final can
+/// replace several utterances. Timing comes from SFTranscription segments, not
+/// text comparisons, so repeated words and recognizer corrections are preserved.
 public struct ComposerDictationTextMerger: Sendable {
+    private struct Phrase: Sendable {
+        var text: String
+        var endTime: Double?
+    }
+
+    private var phrases: [Phrase] = []
+
     /// Reset speech history when starting a new recording.
-    public mutating func reset() {}
+    public mutating func reset() {
+        phrases.removeAll(keepingCapacity: true)
+    }
 
     /// Merge a Speech result whose timestamps are relative to the recording.
     /// Non-overlapping phrases must survive a recognizer transcript reset.
     public mutating func merged(
-        base: String, transcript: String, startTime: TimeInterval?, endTime: TimeInterval?
+        base: String, transcript: String, startTime: Double?, endTime: Double?
     ) -> String {
-        merged(base: base, transcript: transcript)
+        guard !transcript.allSatisfy(\.isWhitespace) else {
+            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        }
+        let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
+            && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
+        if validTiming, let startTime {
+            // Retain only phrases wholly before this result. Speech may send a
+            // cumulative final covering multiple previously separate phrases.
+            while let last = phrases.last, last.endTime.map({ $0 > startTime }) ?? true {
+                phrases.removeLast()
+            }
+        } else if !phrases.isEmpty {
+            // Without usable timing this is a correction of the current phrase,
+            // not evidence that a new phrase began. Keep its known boundary.
+            let previousEnd = phrases.removeLast().endTime
+            phrases.append(Phrase(text: String(transcript.drop(while: \.isWhitespace)), endTime: previousEnd))
+            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        }
+        phrases.append(Phrase(text: String(transcript.drop(while: \.isWhitespace)), endTime: validTiming ? endTime : nil))
+        return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
     }
 
     /// Creates a merger.
