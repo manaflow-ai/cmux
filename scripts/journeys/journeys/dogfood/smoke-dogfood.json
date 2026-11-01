@@ -136,7 +136,7 @@
     {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
-       {"frame_text": "documentation examples"}
+       {"smoke_frame_any": {"texts": ["documentation examples", "ejemplos de documentaci", "exemples de documentation", "примерах документации", "文档示例", "أمثلة التوثيق"]}}
      ]},
     {"do": "smoke_snapshot", "name": "before_cmdt"},
     {"do": "smoke_key", "key": "t", "modifiers": ["cmd"], "mark": "cmdt"},
@@ -155,7 +155,7 @@
        {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
        {"smoke_panes": {"line": "d2-${nonce}-42", "count": 7}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
-       {"frame_text": "documentation examples"}
+       {"smoke_frame_any": {"texts": ["documentation examples", "ejemplos de documentaci", "exemples de documentation", "примерах документации", "文档示例", "أمثلة التوثيق"]}}
      ]},
     {"do": "smoke_make_key"},
     {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws4"},
@@ -183,7 +183,7 @@
     {"do": "expect", "title": "close all: the journey's workspaces are gone from the app and the window", "since": "closed", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 0}},
-       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42", "w4-${nonce}-42"]}}
+       {"smoke_frame": {"lacks": ["documentation examples", "ejemplos de documentaci", "exemples de documentation", "примерах документации", "文档示例", "أمثلة التوثيق", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42", "w4-${nonce}-42"]}}
      ]},
     {"do": "smoke_no_key_gaps"}
   ],
