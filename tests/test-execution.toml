@@ -521,6 +521,10 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_build_src_worktree_prune.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
