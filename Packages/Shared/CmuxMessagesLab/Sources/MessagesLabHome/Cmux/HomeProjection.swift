@@ -109,7 +109,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
-    /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
+    /// Tree threads: permalink paging and Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
     let streamPacer = HomeStreamPacer()
@@ -189,8 +189,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
         passStep("liveLine", &mark)
         revealIfLoaded()
-        refreshThreadHeader()
-        passStep("reveal+threadHeader", &mark)
+        passStep("reveal", &mark)
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -289,7 +288,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
-        installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded
             // parser; no system preview provider or unguarded subresource loader runs.

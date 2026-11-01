@@ -83,6 +83,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
         lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
             && lhs.gapShift == rhs.gapShift && lhs.rowSpacing == rhs.rowSpacing
+            && lhs.pinnedChatsY == rhs.pinnedChatsY && lhs.earlierChatsY == rhs.earlierChatsY
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -92,6 +93,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         hasher.combine(gapHeight)
         hasher.combine(gapShift)
         hasher.combine(rowSpacing)
+        hasher.combine(pinnedChatsY)
+        hasher.combine(earlierChatsY)
     }
 
     /// Replaces a workspace row's content in place, keeping its frame
@@ -137,6 +140,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
+        // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
+        let sections = Self.listingEachWorkspaceOnce(sections)
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?

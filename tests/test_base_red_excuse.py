@@ -288,6 +288,48 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "Build package and tests"):
             self.judge()
 
+    def test_chromium_currency_same_failed_step_is_excused_without_log_error(self):
+        """Blacksmith exposes only a generic exit annotation for this deterministic check."""
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = github.logs[2] = ""
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_chromium_currency_diagnostic_still_compares_errors(self):
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check raised ValueError")
+        github.logs[2] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check failed: three milestones behind")
+        with self.assertRaisesRegex(excuse.Refused, "ValueError"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_chromium_currency_missing_head_diagnostics_do_not_hide_base_diagnostics(self):
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = ""
+        github.logs[2] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check failed: three milestones behind")
+        with self.assertRaisesRegex(excuse.Refused, "no failing test or error line"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
     def test_a_compile_error_not_on_the_base_blocks(self):
         self.gh.jobs[1] = failed_job(1, 10, HEAD, name=SCHEME, step="Compile the cmux scheme")
         self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=SCHEME, step="Compile the cmux scheme")
@@ -576,6 +618,32 @@ class Excusing(unittest.TestCase):
                 self.assertIn("run 40", text)
                 self.assertFalse([route for route in self.gh.routes if "/runs/50" in route and "/jobs?" in route])
 
+    def test_cancelled_base_tier_runs_are_skipped_unread(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts
+        # (cmux_next_base_tier.py cancel_superseded). Ahead of the run with the verdict, more of them than the
+        # lookup reads must not hide it.
+        self.base_tier_setup(SCHEME)
+        cancelled = [{"id": 7000 + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                      "status": "completed", "conclusion": "cancelled",
+                      "display_title": "cmux-next base tier · " + f"{offset:x}" * 40}
+                     for offset in range(excuse.TIP_SUITE_JOB_READS + 2)]
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "display_title": "cmux-next base tier · " + "e" * 40,
+                 "created_at": "2026-10-31T09:48:29Z"}
+        self.gh.base_runs = copy.deepcopy(cancelled)
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": copy.deepcopy(cancelled) + [copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
         # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
@@ -609,6 +677,39 @@ class Excusing(unittest.TestCase):
         self.gh.jobs[1]["steps"] = []
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
+
+    def test_generated_shared_build_no_verdict_reruns_its_prerequisite(self):
+        """A cancelled-before-start Swift host leaves the dependent check without evidence.
+
+        The workflow intentionally keeps generated-verdict fail-closed.  Its diagnostic is a request to
+        rerun the host and dependent together, not a test or compile failure that can be compared with base.
+        The shell source echoes the same error branch, so the classifier must read the live annotation only.
+        """
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        no_verdict = "swift-test (cancelled) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run swift-test."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        echoed = [
+            '##[group]Run case "$VERDICT" in',
+            'echo "::error::swift-test ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, r"no generated files verdict.*re-run its prerequisite and this dependent"):
+            self.judge()
+
+    def test_generated_shared_build_real_stale_error_is_still_compared(self):
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        stale = "Generated cmux-next files are stale. swift-test's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        self.gh.logs[1] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.assertTrue(self.judge())
 
     def test_a_cancelled_or_timed_out_job_is_never_excused(self):
         for conclusion in ("cancelled", "timed_out"):

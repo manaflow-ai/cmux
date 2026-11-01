@@ -18,7 +18,8 @@ public struct ProcessResult: Sendable {
 /// `progressIdle`: the child also fails when its stdout stays silent that
 /// long. A child that reports progress on stdout (`server ensure --restore-progress`
 /// while the owner restores) is bounded by its own progress, not by a fixed
-/// timeout shorter than the work; `timeout` stays the hard cap.
+/// timeout shorter than the work. `timeout` stays the hard cap when supplied; nil selects an
+/// idle-only deadline and requires `progressIdle`. Existing callers retain their elapsed deadlines.
 public struct ProcessRunner {
     public init() {}
     public static func run(
@@ -26,10 +27,15 @@ public struct ProcessRunner {
         arguments: [String],
         environment: [String: String]?,
         stdin: Data? = nil,
-        timeout: Duration,
+        timeout: Duration?,
         progressIdle: Duration? = nil,
+        // Opt-in diagnostic/reply retention, independent of the child's upload/file size. Both
+        // streams are bounded; nil preserves the complete-output contract for existing callers.
+        outputTailBytes: Int? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
+        guard timeout != nil || progressIdle != nil else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
+        if let outputTailBytes, outputTailBytes <= 0 { throw DaemonError.launchFailed("output tail must be positive") }
         // A caller cancelled before the child starts gets no child (its `onCancel` runs at once,
         // before anything launched).
         try Task.checkCancellation()
@@ -88,22 +94,8 @@ public struct ProcessRunner {
                     }
                 }
                 group.addTask {
-                    guard let progressIdle, let progress else {
-                        // wakeup-allow: one-shot deadline (child process timeout)
-                        try await clock.sleep(for: timeout)
-                        return Int32.min
-                    }
-                    var seen = progress.count
-                    var waited = Duration.zero
-                    while waited < timeout {
-                        let window = min(progressIdle, timeout - waited)
-                        // wakeup-allow: one wake per idle window (no stdout progress = timeout), bounded by the hard cap
-                        try await clock.sleep(for: window)
-                        waited += window
-                        let now = progress.count
-                        if now == seen { return Int32.min }
-                        seen = now
-                    }
+                    try await waitForDeadline(timeout: timeout, progressIdle: progressIdle, clock: clock,
+                                              progress: progress.map { counter in { @Sendable in counter.count } })
                     return Int32.min
                 }
                 defer { group.cancelAll() }
@@ -123,8 +115,32 @@ public struct ProcessRunner {
         } onCancel: {
             box.cancel()
         }
-        return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
+        return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
+
+    /// The production watchdog, shared with deterministic clock/progress regressions. Returning
+    /// means the caller must stop/reap its child; cancellation removes the pending clock sleep.
+    static func waitForDeadline(timeout: Duration?, progressIdle: Duration?, clock: any Clock<Duration>,
+                                progress: (@Sendable () -> Int)?) async throws {
+        guard let progressIdle, let progress else {
+            guard let timeout else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
+            // wakeup-allow: one-shot deadline, cancelled when the child exits or its caller cancels.
+            try await clock.sleep(for: timeout)
+            return
+        }
+        var seen = progress()
+        var waited = Duration.zero
+        while timeout.map({ waited < $0 }) ?? true {
+            let window = timeout.map { min(progressIdle, $0 - waited) } ?? progressIdle
+            // wakeup-allow: one idle window, stopped on child exit/cancel; progress permits the next window.
+            try await clock.sleep(for: window)
+            waited += window
+            let now = progress()
+            if now == seen { return }
+            seen = now
+        }
+    }
+
 }
 
 /// `Process` is not Sendable; it is only touched from the group tasks above.

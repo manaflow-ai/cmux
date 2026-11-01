@@ -631,6 +631,11 @@ pub struct ChildAgent {
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
+    /// by the start that spawned it; unset for a harness another daemon started.
+    run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its harness was put in `run_class` (once).
+    run_class_entered: std::sync::atomic::AtomicBool,
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
@@ -725,12 +730,19 @@ impl ChildAgent {
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
-        // From the harness's own env: its profile's value as resolved.
+        // Never at background class while it starts; its class, from the harness's own env (its
+        // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
-        crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-            .apply(&mut cmd);
+        let run_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        crate::cpu_class::start_at_normal(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
+        // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
+        // the child is held and not reaped, so its pid is its own.
+        if let Some(pid) = child.id() {
+            crate::cpu_class::clear_running(pid);
+        }
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -772,6 +784,8 @@ impl ChildAgent {
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
+            run_class: std::sync::OnceLock::from(run_class),
+            run_class_entered: std::sync::atomic::AtomicBool::new(false),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
@@ -1667,6 +1681,47 @@ impl ChildAgent {
         })
     }
 
+    /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`): the
+    /// start that attached a hosted harness sets it (a direct one has it from its spawn). Only
+    /// the first value counts.
+    pub fn set_run_class(&self, class: crate::cpu_class::CpuClass) {
+        let _ = self.run_class.set(class);
+    }
+
+    /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
+    /// True when this call lowered it. A harness with no class set (another daemon started it)
+    /// or one that ended is left alone.
+    pub async fn enter_run_class(&self) -> bool {
+        let Some(class) = self.run_class.get().copied() else { return false };
+        if self.run_class_entered.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
+    }
+
+    /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
+    pub async fn harness_seen(&self) -> crate::cpu_class::HarnessSeen {
+        use crate::cpu_class::HarnessSeen;
+        match self.with_live_harness(crate::cpu_class::harness_state).await {
+            None => HarnessSeen::Ended,
+            Some(None) => HarnessSeen::Unread,
+            Some(Some(state)) => HarnessSeen::Running(state),
+        }
+    }
+
+    /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped
+    /// (its slot locked across `f`, so no reap can free the pid meanwhile), or a hosted one its
+    /// host has not reported ended. None otherwise.
+    async fn with_live_harness<T>(&self, f: impl FnOnce(u32) -> T) -> Option<T> {
+        let pid = self.pid?;
+        if self.hosted.is_some() {
+            return self.is_alive().await.then(|| f(pid));
+        }
+        let mut guard = self.child.lock().await;
+        let child = guard.as_mut()?;
+        matches!(child.try_wait(), Ok(None)).then(|| f(pid))
+    }
+
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
@@ -1849,6 +1904,8 @@ impl ChildAgent {
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
+            run_class: std::sync::OnceLock::new(),
+            run_class_entered: std::sync::atomic::AtomicBool::new(false),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
