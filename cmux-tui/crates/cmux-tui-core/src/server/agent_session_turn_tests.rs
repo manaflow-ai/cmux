@@ -1,15 +1,47 @@
 fn configure_turns(mux: &Mux) {
-    mux.set_cloud_turn_config(CloudTurnConfig::from_lookup(|key| {
-        Some(
-            match key {
-                "CMUX_PLATFORM_ORIGIN" => "https://platform.test",
-                "CMUX_PLATFORM_WORKSPACE_ID" => "ws_one",
-                "CMUX_PLATFORM_MACHINE_ID" => "vm_logical",
-                _ => return None,
-            }
-            .into(),
+    mux.set_cloud_turn_config(
+        CloudTurnConfig::from_lookup(|key| {
+            Some(
+                match key {
+                    "CMUX_PLATFORM_ORIGIN" => "https://platform.test",
+                    "CMUX_PLATFORM_WORKSPACE_ID" => "ws_one",
+                    "CMUX_PLATFORM_MACHINE_ID" => "vm_logical",
+                    _ => return None,
+                }
+                .into(),
+            )
+        })
+        .unwrap(),
+    );
+}
+
+#[test]
+fn cloud_turn_partial_or_invalid_configuration_cannot_become_unconfigured() {
+    assert!(CloudTurnConfig::from_lookup(|_| None).unwrap().is_none());
+    assert!(
+        CloudTurnConfig::from_lookup(
+            |key| (key == "CMUX_PLATFORM_ORIGIN").then(|| "https://platform.test".into())
         )
-    }));
+        .unwrap()
+        .is_none()
+    );
+    for origin in [None, Some("http://platform.test"), Some("https://user:secret@platform.test")] {
+        assert!(
+            CloudTurnConfig::from_lookup(|key| match key {
+                "CMUX_PLATFORM_WORKSPACE_ID" => Some("ws_one".into()),
+                "CMUX_PLATFORM_MACHINE_ID" => Some("vm_one".into()),
+                "CMUX_PLATFORM_ORIGIN" => origin.map(str::to_owned),
+                _ => None,
+            })
+            .is_err()
+        );
+    }
+    assert!(
+        CloudTurnConfig::from_lookup(
+            |key| (key == "CMUX_PLATFORM_MACHINE_ID").then(|| "vm_one".into())
+        )
+        .is_err()
+    );
 }
 
 fn turn_capability() -> Value {

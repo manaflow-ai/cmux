@@ -12,19 +12,32 @@ pub struct CloudTurnConfig {
 
 impl CloudTurnConfig {
     /// Startup configuration only; never read from a prompt or session environment.
-    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Option<Self> {
-        let origin = url::Url::parse(&get("CMUX_PLATFORM_ORIGIN")?).ok()?;
-        let workspace = get("CMUX_PLATFORM_WORKSPACE_ID")?;
-        let machine = get("CMUX_PLATFORM_MACHINE_ID")?;
-        (origin.scheme() == "https"
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, &'static str> {
+        let workspace = get("CMUX_PLATFORM_WORKSPACE_ID");
+        let machine = get("CMUX_PLATFORM_MACHINE_ID");
+        // The origin alone is also used by ordinary Cloud CLI clients. A workspace or machine
+        // scope opts this daemon into fenced turns; partial configuration must never disable it.
+        if workspace.is_none() && machine.is_none() {
+            return Ok(None);
+        }
+        let invalid = "incomplete or invalid Cloud turn configuration";
+        let workspace = workspace.ok_or(invalid)?;
+        let machine = machine.ok_or(invalid)?;
+        let origin =
+            url::Url::parse(&get("CMUX_PLATFORM_ORIGIN").ok_or(invalid)?).map_err(|_| invalid)?;
+        if origin.scheme() == "https"
             && origin.host_str().is_some()
             && origin.username().is_empty()
             && origin.password().is_none()
             && origin.query().is_none()
             && origin.fragment().is_none()
             && valid_id(&workspace)
-            && valid_id(&machine))
-        .then_some(Self { workspace, machine })
+            && valid_id(&machine)
+        {
+            Ok(Some(Self { workspace, machine }))
+        } else {
+            Err(invalid)
+        }
     }
 }
 
