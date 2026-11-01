@@ -751,5 +751,37 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "agent_hold for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": false
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "agent_hold for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "b",
+    "held": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]
