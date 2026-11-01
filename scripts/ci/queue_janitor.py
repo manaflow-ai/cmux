@@ -11,7 +11,9 @@ jobs queued on a pool they hold exceeds a threshold:
 
   a. push-triggered experiment workflows on ``exp/*`` branches;
   b. pull request runs whose PR is closed or merged, or whose head SHA is no
-     longer the PR head (superseded);
+     longer the PR head (superseded), whether or not they hold a macOS job
+     (a run holding none has its own cap, DEFAULT_MAX_LINUX_STALE_CANCELS,
+     and a run created after its PR closed is post-merge work, never stale);
   c. full-suite CI runs whose PR no longer carries the ``full-ci`` label, once
      a newer CI run for that PR is already waiting to replace them and the old
      run's compile admission is not mid-flight (ci.yml deliberately lets that
@@ -239,6 +241,14 @@ from delivery_workflows import dev_publish_published, dev_publish_source, dev_pu
 API = "https://api.github.com"
 DEFAULT_THRESHOLD = 6
 DEFAULT_MAX_CANCELS = 10
+# Category b for a run that holds no macOS job (a Linux or Blacksmith Linux run of a merged, closed or superseded
+# pull request) has a cap of its own, so it never spends the shared cap the Mac categories need. Until 2026-11-01
+# category b judged only runs holding a macOS job: a pull request's concurrency group ends a superseded head's run
+# at the next push, but nothing ended a merged or closed pull request's Linux runs, and at 07:02Z that day about
+# 2,520 jobs were queued on Blacksmith, the oldest for 54 minutes. Each cancel is two REST requests (a fresh read,
+# then the cancel), so 50 a sweep at about 6 sweeps an hour is about 600 requests an hour at most.
+DEFAULT_MAX_LINUX_STALE_CANCELS = 50
+MAX_LINUX_STALE_CANCELS_LIMIT = 200
 # The in-flight run listing pages each status until an empty page, up to MAX_RUN_PAGES pages a status
 # (4,000 runs). Until 2026-10-30 it stopped at 3 pages: with 1,138 runs queued that day the sweep saw
 # 300 of them, and the pool snapshot read every other one's jobs as nothing queued. A filtered
@@ -1221,14 +1231,18 @@ def classify(
     pull_request_policy: str,
     now: dt.datetime,
 ) -> tuple[str, str] | None:
-    """Return (category, reason) for a wasteful run, or None to leave it alone."""
-    if usage.held == 0 or protected_reason(run):
+    """Return (category, reason) for a wasteful run, or None to leave it alone.
+
+    Category b (stale-pr) judges every pull request run, whether or not it holds a macOS job: a merged, closed or
+    superseded pull request's Linux run burns Blacksmith Linux and fleet Linux time nobody reads. Every other
+    category judges only a run holding a macOS job."""
+    if protected_reason(run):
         return None
     event = run.get("event")
     branch = run.get("head_branch") or ""
 
     if event == "push":
-        if branch.startswith(EXPERIMENT_BRANCH_PREFIXES):
+        if usage.held and branch.startswith(EXPERIMENT_BRANCH_PREFIXES):
             return "experiment", f"push-triggered experiment on {branch}"
         return None
 
@@ -1237,14 +1251,24 @@ def classify(
 
     number = pr.get("number")
     state = pr.get("state")
-    if state == "MERGED":
-        return "stale-pr", f"PR #{number} is merged"
-    if state == "CLOSED":
-        return "stale-pr", f"PR #{number} is closed"
+    if state in ("MERGED", "CLOSED"):
+        # A run the close itself started (a `pull_request: types: [closed]` workflow, such as the defaults guard's
+        # merge leg) is post-merge work, not a stale run: only a run created before the pull request closed is
+        # cancelled. The run listing names no event action, so the close time decides; a run holding no macOS
+        # job is left alone when it is unknown (the Mac categories keep their earlier reading).
+        closed = parse_time(pr.get("closedAt"))
+        created = parse_time(run.get("created_at"))
+        if closed is not None and created is not None and created >= closed:
+            return None
+        if usage.held == 0 and (closed is None or created is None):
+            return None
+        return "stale-pr", f"PR #{number} is {'merged' if state == 'MERGED' else 'closed'}"
     if state != "OPEN":
         return None
     if pr.get("headRefOid") and pr.get("headRefOid") != run.get("head_sha"):
         return "stale-pr", f"superseded: PR #{number} head is now {str(pr.get('headRefOid'))[:9]}"
+    if usage.held == 0:
+        return None
 
     if (
         run.get("path") == CI_WORKFLOW_PATH
@@ -2413,8 +2437,12 @@ def build_plan(
     branch_heads: Mapping[str, str] | None = None,
     app_rerun: bool = False,
     cmux_bot_rerun: bool = False,
+    max_linux_stale_cancels: int = DEFAULT_MAX_LINUX_STALE_CANCELS,
 ) -> Plan:
     """Decide every category's candidates under the shared cap.
+
+    A stale pull request run that holds no macOS job (category b on Linux) has its own cap,
+    `max_linux_stale_cancels`, and never spends the shared one.
 
     Category e (lost, classify_lost()) is judged first, so a run holding a
     lost job is cancelled as one, never gated on a backed-up pool; a run it
@@ -2530,6 +2558,7 @@ def build_plan(
     decisions: list[Decision] = []
     projected = dict(queued_by_pool)
     cancels = 0
+    linux_stale_cancels = 0
     for candidate in candidates:
         backed_up = {pool for pool, count in projected.items() if count > threshold}
         # Nobody reads a merged, closed or superseded PR's results, so that run
@@ -2543,6 +2572,14 @@ def build_plan(
             if not backed_up.intersection(candidate.usage.held_by_pool):
                 decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
                 continue
+        if candidate.category == "stale-pr" and candidate.usage.held == 0:
+            if linux_stale_cancels >= max_linux_stale_cancels:
+                decisions.append(Decision(
+                    candidate, "skip", f"per-sweep cap of {max_linux_stale_cancels} stale Linux runs reached"))
+                continue
+            decisions.append(Decision(candidate, "cancel"))
+            linux_stale_cancels += 1
+            continue
         if cancels >= max_cancels:
             decisions.append(Decision(candidate, "skip", f"per-sweep cap of {max_cancels} reached"))
             continue
@@ -2560,10 +2597,11 @@ def branches_to_resolve(
     runs: Iterable[Mapping[str, Any]],
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
 ) -> list[str]:
-    """PR branches worth one GraphQL lookup: PR runs and experiment pushes that hold macOS jobs.
+    """PR branches worth one GraphQL lookup: every PR run, and experiment pushes that hold macOS jobs.
 
-    An experiment push (category a) is looked up so that one at an open pull
-    request's head is never cancelled (open_pr_at_head()).
+    A PR run is looked up whether or not it holds a macOS job, since category b (classify()) cancels a merged,
+    closed or superseded pull request's Linux runs too. An experiment push (category a) is looked up so that
+    one at an open pull request's head is never cancelled (open_pr_at_head()).
     """
     branches = set()
     for run in runs:
@@ -2571,13 +2609,15 @@ def branches_to_resolve(
             EXPERIMENT_BRANCH_PREFIXES)
         if (run.get("event") != "pull_request" and not experiment) or protected_reason(run):
             continue
-        if macos_usage(jobs_by_run.get(run["id"], ())).held and run.get("head_branch"):
+        if not run.get("head_branch"):
+            continue
+        if run.get("event") == "pull_request" or macos_usage(jobs_by_run.get(run["id"], ())).held:
             branches.add(str(run["head_branch"]))
     return sorted(branches)
 
 
 PR_FIELDS = """
-        number state headRefOid url
+        number state headRefOid url closedAt
         headRepositoryOwner { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
@@ -3354,8 +3394,13 @@ def cancel_plan(
     sweep's inventory); one whose jobs cannot be read again is left alone."""
     results: dict[int, str] = {}
     failures = 0
+    limited: RateLimited | None = None
     for candidate in candidates:
         run_id = candidate.run["id"]
+        if limited is not None:
+            # Out of budget: every further request is refused too, so the rest wait for the next sweep.
+            results[run_id] = f"skipped (out of API budget: {limited})"
+            continue
         try:
             # The inventory is seconds old; drop anything that finished, moved
             # to a new head or was re-run (a new attempt) in between.
@@ -3369,6 +3414,10 @@ def cancel_plan(
             if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
                 results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
                 continue
+        except RateLimited as error:
+            limited = error
+            results[run_id] = f"skipped (out of API budget: {error})"
+            continue
         except RuntimeError as error:
             failures += 1
             results[run_id] = f"failed: {error}"
@@ -3402,6 +3451,10 @@ def cancel_plan(
         try:
             github.cancel(run_id)
             results[run_id] = "cancelled"
+        except RateLimited as error:
+            limited = error
+            results[run_id] = f"skipped (out of API budget: {error})"
+            continue
         except RuntimeError as error:
             if not _cancel_refused(error):
                 failures += 1
@@ -4204,6 +4257,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     parser.add_argument("--pull-request-policy", default=os.environ.get("CI_PULL_REQUEST_SUITE", ""))
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
+    parser.add_argument("--max-linux-stale-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--branch-workflows", action="append", metavar="BRANCH=DIR",
@@ -4243,6 +4297,15 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     if orphan_minutes < MIN_ORPHAN_MINUTES or not 0 <= max_orphan_cancels <= MAX_ORPHAN_CANCELS_LIMIT:
         print(f"queue-janitor: orphan minutes must be >= {MIN_ORPHAN_MINUTES} and max orphan cancels "
               f"within 0..{MAX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
+    try:
+        max_linux_stale_cancels = (args.max_linux_stale_cancels if args.max_linux_stale_cancels is not None
+                                   else env_int("MAX_LINUX_STALE_CANCELS", DEFAULT_MAX_LINUX_STALE_CANCELS))
+    except ValueError:
+        print("queue-janitor: MAX_LINUX_STALE_CANCELS must be an integer", file=sys.stderr)
+        return 2
+    if not 0 <= max_linux_stale_cancels <= MAX_LINUX_STALE_CANCELS_LIMIT:
+        print(f"queue-janitor: max Linux stale cancels within 0..{MAX_LINUX_STALE_CANCELS_LIMIT}", file=sys.stderr)
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
@@ -4436,7 +4499,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
-        app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(),
+        app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(), max_linux_stale_cancels=max_linux_stale_cancels,
     )
 
     results: dict[int, str] = {}

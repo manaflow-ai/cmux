@@ -1,8 +1,9 @@
 name: CI queue janitor
 
 # Pull request macOS jobs share a few small runner pools. Every sweep cancels
-# macOS runs for closed, merged or superseded pull request heads, whose results
-# nobody will use. When more than CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
+# runs for closed, merged or superseded pull request heads, whose results
+# nobody will use: macOS runs under the shared cap, and runs holding no macOS
+# job (Linux and Blacksmith Linux) under their own cap of 50. When more than CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
 # queued on one pool, it also cancels the runs holding that pool whose results
 # are waste: exp/* experiment pushes, full-suite runs whose PR dropped `full-ci`
 # once a replacement run is waiting, and last, CI runs whose required
