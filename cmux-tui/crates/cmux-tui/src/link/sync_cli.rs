@@ -232,7 +232,7 @@ pub(super) fn pull_back(
     }
 }
 
-/// The error code of a failed push ([`push_failure`]).
+/// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     push_failure(error).0
 }
