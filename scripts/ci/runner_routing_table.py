@@ -392,6 +392,52 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
 
 
 
+def action_expressions(text: str) -> Iterable[str]:
+    """GitHub expressions, whose quoted strings may contain the closing token."""
+    offset = 0
+    while (start := text.find("${{", offset)) >= 0:
+        index, quoted = start + 3, False
+        while index < len(text):
+            if text[index] == "'":
+                if quoted and text[index:index + 2] == "''":
+                    index += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and text[index:index + 2] == "}}":
+                yield text[start + 3:index]
+                offset = index + 2
+                break
+            index += 1
+        else:
+            raise ValueError("unterminated GitHub expression")
+
+
+def referenced_secrets(value: Any) -> set[str]:
+    """Literal secret references in expressions; reject dynamic/context-wide access."""
+    if isinstance(value, dict):
+        return set().union(*(referenced_secrets(v) for v in value.values())) if value else set()
+    if isinstance(value, list):
+        return set().union(*(referenced_secrets(v) for v in value)) if value else set()
+    if not isinstance(value, str):
+        return set()
+    names: set[str] = set()
+    for expression in action_expressions(value):
+        # Keep quoted literals whole so text that merely says secrets.NAME is
+        # not a credential access. GitHub escapes a quote by doubling it.
+        tokens = re.findall(r"'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]", expression)
+        for index, token in enumerate(tokens):
+            if token.lower() != "secrets" or index > 0 and tokens[index - 1] == ".":
+                continue
+            tail = tokens[index + 1:]
+            if len(tail) >= 2 and tail[0] == "." and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tail[1]):
+                names.add(tail[1].upper())
+            elif len(tail) >= 3 and tail[0] == "[" and tail[2] == "]" and re.fullmatch(r"'[A-Za-z_][A-Za-z0-9_]*'", tail[1]):
+                names.add(tail[1][1:-1].upper())
+            else:
+                raise ValueError("secret references must name one literal declared secret")
+    return names
+
+
 def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> tuple[list[str], list[str]]:
     """Validate the central light-job exception and emit exact shell-guard lines.
 
@@ -429,6 +475,23 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 issue = "cannot authorize release/signing or credentialed publication routes"
             if issue:
                 problems.append(f"hosted_light_jobs[{key!r}] {issue}")
+                continue
+            permitted = entry.get("allowed_secrets", [])
+            if (not isinstance(permitted, list)
+                    or any(not isinstance(secret, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", secret)
+                           for secret in permitted)):
+                problems.append(f"hosted_light_jobs[{key!r}] allowed_secrets must list literal secret names")
+                continue
+            try:
+                used = referenced_secrets([workflow.get("env", {}), job])
+            except ValueError as error:
+                problems.append(f"hosted_light_jobs[{key!r}] {error}")
+                continue
+            if any(re.match(r"(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)", secret) for secret in used):
+                problems.append(f"hosted_light_jobs[{key!r}] cannot authorize release/signing credentials")
+                continue
+            if used - set(permitted):
+                problems.append(f"hosted_light_jobs[{key!r}] references undeclared secrets: {', '.join(sorted(used - set(permitted)))}")
                 continue
             route = job.get("runs-on", "")
             expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
