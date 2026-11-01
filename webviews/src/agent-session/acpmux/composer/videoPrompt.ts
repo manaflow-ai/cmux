@@ -8,6 +8,7 @@
 // (`withoutVideoFrames`), before acpmux's echo and after a reload alike.
 import type { ComposerAttachment, PromptBlock } from "../attachments";
 import type { PromptContentPart, PromptImage } from "../model";
+import type { VideoFrame, VideoInfo } from "./videoAttachments";
 
 /// A time in a video as the note and each frame's name say it: `m:ss.d`, or `h:mm:ss.d` from an hour.
 export function frameTime(ms: number): string {
@@ -45,6 +46,39 @@ export function isVideoFrameName(name: string | undefined): boolean {
 export function frameLabel(video: string, atMs: number, scene: boolean): string {
   // l10n-allow: text for the agent, sent in the prompt, not UI.
   return scene ? `${frameName(video, atMs)} (new scene)` : frameName(video, atMs);
+}
+
+/// A `m:ss[.d]` or `h:mm:ss[.d]` time in milliseconds, or undefined.
+function timeMs(text: string): number | undefined {
+  const parts = text.split(":").map(Number);
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part))) return undefined;
+  return Math.round(parts.reduce((total, part) => total * 60 + part, 0) * 1000);
+}
+
+/// The video a sent prompt's saved frames make again (for Retry and Edit after a reload, whose file
+/// part keeps no `video`): its frames note (`framesNote`) gives its length and size, each frame's
+/// image name (`frameName`) its time, and its label whether a scene starts there. Undefined without
+/// the note or a frame.
+export function videoFromFrames(
+  note: string | undefined,
+  frames: readonly { name: string; data: string; scene: boolean }[],
+): VideoInfo | undefined {
+  const head = note?.match(/^Frames from the video .+ \((\d[\d:]*), (\d+)×(\d+)\), in order, at: /);
+  const durationMs = head ? timeMs(head[1]!) : undefined;
+  if (!head || durationMs === undefined) return undefined;
+  const kept = frames.flatMap((frame): VideoFrame[] => {
+    const at = frame.name.match(/ frame at (\d+(?::\d{2}){1,2}\.\d)$/);
+    const atMs = at ? timeMs(at[1]!) : undefined;
+    return atMs === undefined ? [] : [{ atMs, data: frame.data, ...(frame.scene ? { scene: true as const } : {}) }];
+  });
+  if (!kept.length) return undefined;
+  return {
+    durationMs,
+    width: Number(head[2]),
+    height: Number(head[3]),
+    poster: `data:image/jpeg;base64,${kept[0]!.data}`,
+    frames: kept,
+  };
 }
 
 /// A matcher for the text a prompt carried for the agent only, given the names of the prompt's images:

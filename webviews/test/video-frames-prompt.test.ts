@@ -214,7 +214,7 @@ test("a video placed mid-text: its note and labels leave Copy and Edit wherever 
   expect(withoutVideoFrames({ ...row, pasted: [{ start: 0, end: 6 }] } as AcpmuxRow).text).toBe(row.text);
 });
 
-test("Edit after a reload rebuilds the video's chip, never its frames, note or labels", async () => {
+test("Retry and Edit after a reload rebuild the video's chip with its saved frames, never the note or labels as text", async () => {
   const note = "Frames from the video clip.mov (0:04, 640×360), in order, at: 0:01.0.";
   const row = {
     id: "user-3",
@@ -226,15 +226,26 @@ test("Edit after a reload rebuilds the video's chip, never its frames, note or l
       { kind: "text", text: "look " },
       { kind: "file", name: "clip.mov", uri: "file:///tmp/clip.mov", placed: true },
       { kind: "text", text: note },
-      { kind: "text", text: "clip.mov frame at 0:01.0" },
+      { kind: "text", text: "clip.mov frame at 0:01.0 (new scene)" },
       { kind: "image", id: "d".repeat(64), mimeType: "image/jpeg", name: "clip.mov frame at 0:01.0" },
     ],
   } as AcpmuxRow;
-  let reads = 0;
-  const restored = await restoreInline(row, "look", async () => (reads++, { mimeType: "image/jpeg", data: "x" }));
-  expect(reads).toBe(0);
+  const restored = await restoreInline(row, "look", async () => ({ mimeType: "image/jpeg", data: "eA==" }));
   expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["link", "clip.mov"]]);
   expect(restored.input).not.toContain("Frames from the video");
+  expect(restored.input).not.toContain("frame at");
+  const video = restored.attachments[0]!.video!;
+  expect([video.durationMs, video.width, video.height]).toEqual([4000, 640, 360]);
+  expect(video.frames).toEqual([{ atMs: 1000, data: "eA==", scene: true }]);
+  // Sent again, the agent gets the same note, label and frame.
+  const blocks = promptBlocks(restored.input, restored.attachments) as Block[];
+  expect(blocks.filter((block) => block.type === "image").map((block) => block.name)).toEqual([
+    "clip.mov frame at 0:01.0",
+  ]);
+  expect(blocks.some((block) => block.type === "text" && block.text === note)).toBe(true);
+  expect(blocks.some((block) => block.type === "text" && block.text === "clip.mov frame at 0:01.0 (new scene)")).toBe(
+    true,
+  );
 });
 
 test("the person's own words that only read like a frame's label or note stay, in the bubble, Copy and Edit", async () => {

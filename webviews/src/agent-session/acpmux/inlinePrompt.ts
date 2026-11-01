@@ -12,7 +12,7 @@ import {
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
-import { frameTextOf, isVideoFrameName, rowImageNames } from "./composer/videoPrompt";
+import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -229,10 +229,24 @@ export async function restoreInline(
   const attachments: ComposerAttachment[] = [];
   let input = "";
   const isFrame = frameTextOf(rowImageNames(row));
+  // A video's frames, note and labels go back on its chip, not in the draft (composer/videoPrompt.ts):
+  // each video's note and its frames as read back, by the video's name.
+  const saved = new Map<string, { note?: string; frames: { name: string; data: string; scene: boolean }[] }>();
+  const of = (video: string) => saved.get(video) ?? saved.set(video, { frames: [] }).get(video)!;
+  let scene = false;
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
-    // A video's frames, note and labels: its chip carries its frames again (composer/videoPrompt.ts).
-    if (part.kind === "text" && isFrame(part.text)) continue;
-    if (part.kind === "image" && isVideoFrameName(part.name)) continue;
+    if (part.kind === "text" && isFrame(part.text)) {
+      const note = isFramesNote(part.text) ? part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/) : null;
+      if (note) of(note[1]!).note = part.text;
+      scene = part.text.endsWith(" (new scene)");
+      continue;
+    }
+    if (part.kind === "image" && isVideoFrameName(part.name)) {
+      const data = await read(part.id).catch(() => undefined);
+      if (data) of(part.name!.replace(/ frame at [\d:.]+$/, "")).frames.push({ name: part.name!, data: data.data, scene });
+      scene = false;
+      continue;
+    }
     if (part.kind === "text") {
       input += part.text;
       continue;
@@ -291,6 +305,11 @@ export async function restoreInline(
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
+  }
+  for (const [index, chip] of attachments.entries()) {
+    const frames = chip.kind === "link" && !chip.video ? saved.get(chip.name) : undefined;
+    const video = frames && videoFromFrames(frames.note, frames.frames);
+    if (video) attachments[index] = { ...chip, video };
   }
   if (text === (row.resend ?? row.text)) return { input, attachments };
   return { input: carryInline(input, text, attachments), attachments: attachments.filter((a) => a.kind !== "pasted") };
