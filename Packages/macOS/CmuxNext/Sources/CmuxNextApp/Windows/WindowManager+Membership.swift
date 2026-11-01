@@ -332,13 +332,13 @@ extension WindowManager {
         return controller
     }
 
-    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
-    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
-    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
-    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes, screens, workspaces,
+    /// workspace groups): `ids` in a new window beside the window they left, stepped on from every open window's frame,
+    /// on screen yet or not (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of that
+    /// window's workspaces, the window itself moves there: none opens, none is left empty.
     func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
         let source = origin.window.flatMap(controller(for:))
-        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite, avoiding: controllers.compactMap { $0.window?.frame }) }
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
@@ -479,10 +479,11 @@ extension WindowManager {
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
+        // So does one claimed for the launch window before the restore (`awaitsRestore`).
         let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        })
+        }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
         for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).

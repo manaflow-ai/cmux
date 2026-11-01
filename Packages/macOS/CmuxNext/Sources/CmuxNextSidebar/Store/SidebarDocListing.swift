@@ -22,7 +22,7 @@ extension SidebarDocProjection {
         let elsewhere = projection.bandGroupsListedElsewhere(drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
-            var section = section
+            var section = section.unwrappedHostGroup()
             section.nodes.removeAll { node in
                 guard case .group(let group) = node, bandIDs.contains(group.id.rawValue) else { return false }
                 // A group whose members sit on more than one machine comes once per machine: one group again.
@@ -38,6 +38,8 @@ extension SidebarDocProjection {
                 section.nodes = Self.machineNodes(section, projection, drag: drag)
                 // A machine section the person made a remote group keeps its header in one list.
                 section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
+                // It draws as one group (user 2026-10-31, Chief msg 19277).
+                if section.isHostGroup { section = section.wrappedAsHostGroup() }
             }
             return section
         }

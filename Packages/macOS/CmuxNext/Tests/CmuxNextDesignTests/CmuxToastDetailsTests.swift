@@ -98,30 +98,33 @@ struct CmuxToastDetailsTests {
         }
     }
 
-    /// A window that shrinks after Details showed caps the detail again and asks the center to
-    /// size the toast, so the row with Details and close stays on screen.
+    /// A window that shrinks after Details showed caps the detail again and the center sizes the
+    /// toast, so the row with Details and close stays on screen. Shown as the app shows it (the
+    /// center on the window's overlay host): the host's one observer of the window tells the toast,
+    /// which keeps no window observer of its own.
     @Test func aShorterWindowCapsTheShownDetailAgain() throws {
         let long = (1...200).map { "line \($0): ssh build-box: install exited 1" }.joined(separator: "\n")
-        let view = CmuxToastView(toast: CmuxToast(id: "daemon-update.failures", message: "Couldn't update lab-mini",
-                                                  detail: long, action: .details("Details"), duration: CmuxToast.untilClosed))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 1000), styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: true)
+        let center = CmuxToastCenter(host: CmuxToastOverlayHost())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 1000), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
         defer { window.closeWithOverlayHost() }
-        window.contentView?.addSubview(view)
-        var resized = 0
-        view.onResize = { resized += 1 }
-        view.setShowsDetails(true)
+        let handle = center.show(CmuxToast(id: "daemon-update.failures", message: "Couldn't update lab-mini",
+                                           detail: long, action: .details("Details"), duration: CmuxToast.untilClosed), in: window)
+        let view = try #require(WindowOverlayHost.host(for: window).handles.lazy.compactMap { $0.content as? CmuxToastView }.first)
+        #expect(center.runAction(id: "daemon-update.failures", in: window))
         view.layoutSubtreeIfNeeded()
         let scroll = try #require(view.detailScroll)
         #expect(abs(scroll.frame.height - 240) < 0.5, "\(scroll.frame.height)")
-        resized = 0
+        let tall = view.frame.height
+
         window.setContentSize(NSSize(width: 800, height: 300))
         view.layoutSubtreeIfNeeded()
-        let cap = CmuxToastView.detailCap(windowHeight: window.contentLayoutRect.height)
-        #expect(cap < 240)
+        let cap = CmuxToastView.detailCap(windowHeight: view.window?.contentLayoutRect.height)
+        #expect(cap < 240, "the toast's window did not follow the shorter window: \(cap)")
         #expect(scroll.frame.height <= cap + 0.5, "the detail kept its old cap: \(scroll.frame.height) > \(cap)")
-        #expect(resized == 1, "the center was not asked to size the toast again")
-        view.removeFromSuperview()
+        #expect(view.frame.height < tall - 1, "the center did not size the toast again: \(view.frame.height)")
+        #expect(abs(view.frame.height - view.fittingSize.height) < 0.5, "\(view.frame.height) \(view.fittingSize.height)")
+        handle.dismiss()
     }
 
     /// The cap is 240 pt, or 40% of a shorter window's height.
