@@ -35,6 +35,7 @@ mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
+pub(crate) mod owner_exit;
 mod persist_retry;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
@@ -545,7 +546,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         &socket_path(),
     ));
     let _home_watch = AbortOnDrop(home_gone.abort_handle());
-    // Unused for its grace on a home of its own: a normal stop (`daemon/unused_exit.rs`).
+    // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
+    // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
     // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
