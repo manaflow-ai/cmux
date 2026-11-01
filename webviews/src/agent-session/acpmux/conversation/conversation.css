@@ -382,7 +382,7 @@
   color: var(--agent-text);
 }
 
-/* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last two fading out
+/* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last one fading out
    under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
    text button whose hover brightens its text. model.ts estimates the same heights: change them together. */
 /* Drawn whole, the text is no box of its own: the bubble's padding alone insets it, as before. */
@@ -404,8 +404,8 @@
   overflow: hidden;
 }
 .cv-user__text.is-faded {
-  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height) * 2), transparent);
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height) * 2), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
 .cv-user__more {
   display: block;
