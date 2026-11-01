@@ -215,9 +215,9 @@ struct SidebarSlideHoldsContentTests {
             root.sidebar.widthConstraint.constant = sidebar
             root.sidebar.isWidthAnimating = false
             let finalWidth = root.contentHost.bounds.width
-            #expect(!content.resizedWidths.isEmpty)
-            #expect(content.resizedWidths.allSatisfy { abs($0 - finalWidth) < 0.5 },
-                    "content visited stale widths before landing: \(content.resizedWidths), final \(finalWidth)")
+            #expect(content.resizedWidths.isEmpty,
+                    "settlement performed an unnecessary width correction: \(content.resizedWidths)")
+            #expect(abs(content.frame.width - finalWidth) < 0.5)
             #expect(content.child.settledWidths.allSatisfy { abs($0 - finalWidth) < 0.5 })
             let writes = content.resizedWidths
             root.layoutSubtreeIfNeeded()
