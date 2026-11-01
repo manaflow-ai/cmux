@@ -90,7 +90,7 @@ jobs:
     # release at parse time (#12149). A release call and an App Store upload
     # always keep MACOS_RUNNER_IOS. A capture an owned Mac leaves queued or
     # refuses is re-run by ci-owned-pool-rescue.yml on retry_runs_on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       label: ${{ steps.pool.outputs.label }}
