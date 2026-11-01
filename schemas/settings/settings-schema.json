@@ -588,10 +588,7 @@
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.priorityView.enabled",
-              "sidebar.priorityView.shown",
-              "sidebar.workspacesAsTabs",
-              "sidebar.chromeGroups",
-              "sidebar.sideBySide"
+              "sidebar.priorityView.shown"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarWorkspaces",
@@ -600,6 +597,18 @@
           },
           {
             "key" : "appearance.10",
+            "rows" : [
+              "sidebar.workspacesAsTabs",
+              "sidebar.chromeGroups",
+              "sidebar.sideBySide"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarLayout",
+              "text" : "Sidebar Layout"
+            }
+          },
+          {
+            "key" : "appearance.11",
             "rows" : [
               "sidebar.showSpaces",
               "sidebar.spacesPosition",
@@ -618,7 +627,7 @@
             }
           },
           {
-            "key" : "appearance.11",
+            "key" : "appearance.12",
             "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
@@ -636,7 +645,7 @@
             }
           },
           {
-            "key" : "appearance.12",
+            "key" : "appearance.13",
             "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
@@ -718,7 +727,7 @@
             }
           },
           {
-            "key" : "appearance.16",
+            "key" : "appearance.17",
             "rows" : [
               "appearance.surfaces.sidebar.color",
               "appearance.surfaces.sidebar.opacity",
@@ -737,7 +746,7 @@
             }
           },
           {
-            "key" : "appearance.17",
+            "key" : "appearance.18",
             "rows" : [
               "appearance.surfaces.diff.color",
               "appearance.surfaces.diff.opacity",
