@@ -6,10 +6,12 @@ import Testing
 
 @MainActor
 struct CloudCredentialRecoveryTests {
-    @Test func credentialRecoveryAvailabilityReturnsAfterSignInAndStaysDisabledForAppServer() {
+    /// cmux-platform#89: a Worker machine (the app server link) reaches its exec and file routes on
+    /// the Worker machines origin, so recovery is on there too once signed in.
+    @Test func credentialRecoveryAvailabilityReturnsAfterSignInOnEitherLink() {
         #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: false))
         #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: true))
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: true))
+        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: true))
         #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: false))
     }
 
@@ -35,6 +37,8 @@ struct CloudCredentialRecoveryTests {
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
+        // cloud.startChat's first-login confirm caches and installs a year-long login: only the person says Set Up.
+        #expect(DebugDialog.userOnly.contains(CloudPresenter.firstLoginIdentifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {

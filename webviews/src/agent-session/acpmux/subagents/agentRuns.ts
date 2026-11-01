@@ -1,6 +1,7 @@
-// A shell call that starts another agent (`codex exec …`, `claude -p …`, `acpmux run …`), read
-// from its command so the transcript draws it as a subagent (subagentFold.ts, AgentRunCard.tsx)
-// rather than as a long "Command" row. The command is read with a shell tokenizer (quotes,
+// Command syntax for possible agent invocations (`codex exec …`, `claude -p …`, `acpmux run …`).
+// This parser supplies no session identity: Bash stays a shell row even when it executes one.
+// subagentFold.ts uses a parent-session command only to match an explicit child-session record.
+// The command is read with a shell tokenizer (quotes,
 // escapes, `;`/`&&`/`|`, `{ … }`, heredocs and `<` redirections), never by searching its text:
 // a heredoc that mentions `codex exec`, a `grep "codex exec"` or a `codex exec --help` starts no
 // agent. Wrappers that only run the next words (`timeout 600`, `nohup`, `env X=1`, `sr`, the

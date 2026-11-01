@@ -6,8 +6,7 @@
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
 // default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
-// reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
-// takes a column), hides a section with nothing in it, and shows five pull
+// moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
 
@@ -25,7 +24,7 @@ import { resetChangesStatuses } from "../src/agent-session/acpmux/inspector/chan
 import {
   ChatInspector,
   inspectorTopOffset,
-  inspectorChatShift,
+  inspectorOverChat,
   pushedWidth,
   pushes,
   useChatInspector,
@@ -125,23 +124,31 @@ function Pane({
   snapshot,
   onOpenOutput,
   sessions,
+  onPanelRender,
+  rerenderOnScroll = false,
 }: {
   snapshot: AcpmuxSnapshot;
   onOpenOutput: (path: string) => void;
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onPanelRender?: () => void;
+  rerenderOnScroll?: boolean;
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  const [scrollFrame, setScrollFrame] = useState(0);
   const inspector = useChatInspector({
     snapshot,
     machineName: "Studio",
     shell,
     onOpenOutput,
+    onRender: onPanelRender,
     sessions,
   });
   reveal = inspector.reveal;
   return (
     <section
       className="acpmux-shell"
+      data-scroll-frame={scrollFrame}
+      onScroll={rerenderOnScroll ? () => setScrollFrame((frame) => frame + 1) : undefined}
       ref={(element) => {
         if (element && element !== shell) {
           Object.defineProperty(element, "clientWidth", {
@@ -285,6 +292,24 @@ test("file Sources use native editor fallback and show a transient failure", asy
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
   expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
   expect(inspectorTopOffset(28)).toBe("28px");
+});
+
+test("Session Info does not render when the transcript scrolls", async () => {
+  const container = installDom(true);
+  let renders = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane snapshot={localChat} onOpenOutput={noop} rerenderOnScroll onPanelRender={() => renders++} />);
+  });
+  const beforeScroll = renders;
+  const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
+  for (let frame = 0; frame < 20; frame++) {
+    await act(async () => {
+      shell.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true }));
+    });
+  }
+  expect(shell.dataset.scrollFrame).toBe("20");
+  expect(renders).toBe(beforeScroll);
 });
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
@@ -486,43 +511,30 @@ test("it floats outside the chat's layout in every pane, and pushes only with Se
   paneWidth = 0;
 });
 
-test("the chat shifts left only when the chat and the panel both fit that way", () => {
-  // Leo, 2026-10-24: "except in the case when both would fit if only the agent pane shifted left".
-  // A 1600px pane's 400px gutter holds 320px and its two 8px margins: nothing moves.
-  expect(inspectorChatShift(1600, 320)).toBe(0);
-  // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
-  expect(inspectorChatShift(1200, 320)).toBe(111);
-  // The rail's 36px box may overlap the text by 8px, so the usable gutter is 28px. In a 1100px
-  // pane the column moves by all 146px it lacks and leaves 44px for the rail.
-  expect(inspectorChatShift(1100, 320)).toBe(146);
-  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 28px.
-  expect(inspectorChatShift(1140, 320)).toBe(126);
-  // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
-  // lacks 146px, and the form moves left by all of it, keeping 44px.
-  expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
-  // It keeps its own 18px from the pane's edge (HANDOFF_FORM_EDGE): at 1114px its 177px gutter lacks
-  // 159px and keeps exactly 18px; at 1112px moving 160px would keep 16px, and at 1100px 4px, so
-  // nothing moves and the panel floats over the form.
-  expect(inspectorChatShift(1114, 320, undefined, true)).toBe(159);
-  expect(inspectorChatShift(1112, 320, undefined, true)).toBe(0);
-  expect(inspectorChatShift(1100, 320, undefined, true)).toBe(0);
-  // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
-  expect(inspectorChatShift(720, 320)).toBe(0);
-  expect(inspectorChatShift(0, 320)).toBe(0);
-  // A wider column (the user's Text Width) leaves a 250px gutter: it moves left by the 86px it lacks.
-  expect(inspectorChatShift(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(86);
-  // A handoff review's 760px form: the shift is measured against the form, so the panel lies over
-  // neither the form nor its fields (1200px: a 220px gutter lacks 116px).
-  expect(inspectorChatShift(1200, 320, undefined, true)).toBe(116);
-  expect(inspectorChatShift(1600, 320, undefined, true)).toBe(0);
-  expect(inspectorChatShift(720, 320, undefined, true)).toBe(0);
+test("the panel lies over the chat only when the right gutter cannot hold it; the chat never moves for it", () => {
+  // Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the fucking layout". A
+  // 1600px pane's 400px gutter holds 320px and its two 8px margins: it floats beside the column.
+  expect(inspectorOverChat(1600, 320)).toBe(false);
+  // 1200px: a 225px gutter cannot hold it, and the column stays put: it floats over the chat.
+  expect(inspectorOverChat(1200, 320)).toBe(true);
+  expect(inspectorOverChat(720, 320)).toBe(true);
+  // Unmeasured, it is nowhere yet.
+  expect(inspectorOverChat(0, 320)).toBe(false);
+  // A wider column (the user's Text Width) leaves a 250px gutter.
+  expect(inspectorOverChat(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
+  // A handoff review's 760px form: measured against the form's own gutter.
+  expect(inspectorOverChat(1600, 320, undefined, true)).toBe(false);
+  expect(inspectorOverChat(1200, 320, undefined, true)).toBe(true);
 });
 
-test("the overlay handoff honors the app's reduced-motion policy", () => {
+test("opening Session Info moves no part of the chat", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
-  expect(css).toContain("var(--agent-motion-move, var(--cmux-motion-quick, 80ms))");
-  expect(css).toContain(':root[data-cmux-motion="reduced"]');
-  expect(css).toContain(':root[data-cmux-motion="off"]');
+  const source = readFileSync(
+    new URL("../src/agent-session/acpmux/inspector/ChatInspector.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(css).not.toContain("--acpmux-chat-shift");
+  expect(source).not.toContain("--acpmux-chat-shift");
 });
 
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {

@@ -109,6 +109,11 @@ class StatusMapping(unittest.TestCase):
     def test_the_wait_is_one_blocking_read_per_attempt_and_bounded(self):
         _, _, reads = self.run_step(self.reply("pass"))
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
+        # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571).
+        _, _, reads = self.run_step(self.reply("pass"), PR="28059")
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1800"])
+        _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
         _, _, reads = self.run_step(self.reply("running"))
         self.assertLessEqual(len(reads), 3)
         # Every read asks for no more than what is left of the overall deadline.

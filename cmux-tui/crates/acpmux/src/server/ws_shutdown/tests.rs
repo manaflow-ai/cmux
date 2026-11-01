@@ -101,7 +101,7 @@ async fn restart_interrupts_a_blocked_writer_and_bounds_the_close() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     out.send("x".repeat(1 << 20)).await.unwrap();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown.clone()));
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown.clone(), Default::default()));
     tokio::task::yield_now().await;
     shutdown.close_clients();
     let before = tokio::time::Instant::now();
@@ -120,11 +120,13 @@ async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_cod
         let (stop, stopped) = oneshot::channel();
         let shutdown = WsShutdown::default();
         if restarting {
+            // As the daemon does: the restart latch, then the listener closes its clients.
+            shutdown.restart();
             shutdown.close_clients();
         } else {
             stop.send(()).unwrap();
         }
-        let task = tokio::spawn(write(sink, outbound, stopped, shutdown));
+        let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
         let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
             .await
             .unwrap()
@@ -149,7 +151,7 @@ async fn ordinary_shutdown_uses_a_normal_close_code() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     shutdown.normal_shutdown();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown));
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
     let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
         .await
         .unwrap()
@@ -177,4 +179,69 @@ async fn shared_restart_waits_for_each_listener_and_keeps_client_signals_local()
     shared.drained().await;
     let (late, _guard) = shared.listener();
     assert!(late.is_requested(), "late listener cannot admit after shutdown");
+}
+
+/// An explicit stop is a normal close, even for a writer that sees its clients' close signal
+/// before the stop itself. A normal stop sets `normal`, and the listener then closes its
+/// clients. A writer polled the `normal` arm while it was still false, and the `closing` arm
+/// after both were set, under full-test-run load. It sent close 1012 (service restart) for a
+/// stop that asked for no restart (daemon_restart_close.rs:100, jobs a22621a9cba715d64d4b1760
+/// and 4ae5159a9da0325598298bda: `restart_requested=false`, writer `closing` with `normal`
+/// true). Forced order: the writer runs between the two signals.
+#[tokio::test]
+async fn a_writer_that_sees_the_close_before_the_normal_stop_closes_normally() {
+    let (ours, theirs) = tokio::io::duplex(4096);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (_out, outbound) = mpsc::channel(1);
+    let (_stop, stopped) = oneshot::channel();
+    let shared = WsShutdown::default();
+    let (local, _draining) = shared.listener();
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
+    tokio::task::yield_now().await;
+    // The listener's close of its clients reaches the writer first.
+    local.close_clients();
+    tokio::task::yield_now().await;
+    shared.normal_shutdown();
+    let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(frame, Frame::Close(None)), "an explicit stop sent {frame:?}");
+    task.await.unwrap();
+}
+
+/// A connection that ends by itself while the daemon restarts still closes with 1012. As the
+/// daemon stops, a connection's serve loop can end (its reader stopped) before its listener
+/// closes its clients; the writer then left through its own end and sent a close with no code
+/// (daemon_restart_close.rs:101, `left: None`, in 3 of 605 copies under load, jobs
+/// 3d5725763bccfde7bda7b8e3 and 855a569eaae4f8b3bfb604c1). Forced order: the restart latch,
+/// then the connection's own end, then the listener's close.
+#[tokio::test]
+async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
+    let (ours, theirs) = tokio::io::duplex(4096);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (_out, outbound) = mpsc::channel(1);
+    let (stop, stopped) = oneshot::channel();
+    let shared = WsShutdown::default();
+    let (local, _draining) = shared.listener();
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
+    tokio::task::yield_now().await;
+    shared.restart();
+    stop.send(()).unwrap();
+    task.await.unwrap();
+    local.close_clients();
+    let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    match frame {
+        Frame::Close(Some(close)) => assert_eq!(close.code, CloseCode::Restart),
+        other => panic!("a restart closed a connection with {other:?}"),
+    }
 }

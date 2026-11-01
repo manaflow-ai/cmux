@@ -71,6 +71,10 @@ let package = Package(
     ] + [ffi]
 )
 """
+# The review fields every hand-written exception needs (reward-hacking audit 2026-10-30): an author, an owner, an
+# independent receipt (a reviewer who is not the author) and an expiry.
+REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2026-11-06",
+          "receipt": "Review (reviewer-b): SHIP at " + "a" * 40}
 LAYERS = {"order": ["core", "service", "domain", "ui", "app"],
           "targets": {"CmuxNextCore": {"layer": "core"}, "CmuxNextDomain": {"layer": "domain"},
                       "CmuxNextUI": {"layer": "ui"}, "CFFI": {"layer": "core"}}}
@@ -419,7 +423,7 @@ class SingletonTests(Repo):
         self.write(f"{SRC}/CmuxNextApp/AppDelegate+Cache.swift", "extension AppDelegate {\n    static var cache: [Int] = []\n}\n")
         self.commit("root")
         refusals, _ = self.check()
-        self.assertEqual(self.rows(refusals), ["global_mutable_statics", "stateful_singletons"])
+        self.assertEqual(self.rows(refusals), ["app_lines", "global_mutable_statics", "stateful_singletons"])
 
     def test_a_file_scope_global_counts_like_a_static(self):
         rows, refusals = self.refused_rows({f"{SRC}/CmuxNextDomain/Globals.swift":
@@ -892,7 +896,9 @@ class SignalTests(Repo):
         self.write(f"{SRC}/CmuxNextDomain/Blocking.swift", text)
         self.commit("a comment and a call allow blocking; a declaration and a string do not")
         refusals, _ = self.check()
-        self.assertEqual(self.rows(refusals), ["blocking_allow_escapes"])
+        # The count rise, and the two sites with no reviewed escape_reviews entry.
+        self.assertEqual(self.rows(refusals), ["blocking_allow_escapes", "blocking_allow_escapes"])
+        self.assertIn("2 blocking escape site(s)", refusals[1][1])
 
     def test_assume_isolated_in_a_deinit_is_refused_even_with_main_proof(self):
         self.write(f"{SRC}/CmuxNextDomain/Holder.swift",
@@ -1131,8 +1137,108 @@ class RatchetTests(Repo):
         self.assertTrue(refused, out)
         self.assertIn("[stateful_singletons]", out)
 
+    def test_an_exception_without_an_independent_review_owner_or_expiry_allows_nothing(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        entry = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW}
+        for broken in ({k: v for k, v in entry.items() if k != "receipt"},
+                       dict(entry, receipt="Review (agent-a): SHIP at " + "a" * 40),
+                       {k: v for k, v in entry.items() if k != "owner"},
+                       {k: v for k, v in entry.items() if k != "expiry"},
+                       dict(entry, expiry="2026-10-22")):
+            self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [broken]}))
+            self.commit("an exception its author reviewed, or with no owner or expiry")
+            refusals, notes = self.check(base=base)
+            self.assertEqual(self.rows(refusals), ["stateful_singletons"], (broken, notes))
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [entry]}))
+        self.commit("the reviewed exception")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+
+    def escape_review(self, path, text, **extra):
+        return {"path": path, "text": text, "state": "reviewed", "note": "fixture", **REVIEW, **extra}
+
+    def test_a_new_blocking_escape_needs_a_reviewed_entry_even_with_an_exception(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        path = f"{SRC}/CmuxNextDomain/Reader.swift"
+        self.write(path, "final class Reader {\n    func read() {\n        // blocking-allow: one byte\n    }\n}\n")
+        exception = {"date": "2026-10-23", "row": "blocking_allow_escapes", "allow": 1, "why": "fixture", **REVIEW}
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [exception]}))
+        self.commit("an escape with a count exception and no site review")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["blocking_allow_escapes"], notes)
+        self.assertIn("no reviewed escape_reviews entry", refusals[0][1])
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [exception], "escape_reviews": [
+            self.escape_review(path, "// blocking-allow: one byte", state="unreviewed")]}))
+        self.commit("an unreviewed entry")
+        self.assertEqual(self.rows(self.check(base=base)[0]), ["blocking_allow_escapes"])
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [exception], "escape_reviews": [
+            self.escape_review(path, "// blocking-allow: one byte", receipt="Review (agent-a): SHIP at " + "b" * 40)]}))
+        self.commit("an entry its author reviewed")
+        self.assertEqual(self.rows(self.check(base=base)[0]), ["blocking_allow_escapes"])
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [exception], "escape_reviews": [
+            self.escape_review(path, "// blocking-allow: one byte")]}))
+        self.commit("an independently reviewed entry")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+
+    def test_update_never_records_a_blocking_escape_rise_as_upstream_debt_and_keeps_the_reviews(self):
+        self.assertEqual(self.update()[0], 0)
+        self.commit("record")
+        path = f"{SRC}/CmuxNextDomain/Reader.swift"
+        self.write(path, "final class Reader {\n    func read() {\n        // blocking-allow: one byte\n    }\n}\n")
+        self.commit("an escape that came in past the hook")  # this commit is on the upstream branch
+        code, out = self.update()
+        self.assertEqual(code, 1, out)
+        self.assertIn("blocking_allow_escapes", out)
+        data = self.recorded()
+        data["exceptions"].append({"date": "2026-10-23", "row": "blocking_allow_escapes", "allow": 1, "why": "fixture",
+                                   **REVIEW})
+        data["escape_reviews"] = [self.escape_review(path, "// blocking-allow: one byte")]
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        code, out = self.update()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.recorded()["escape_reviews"], data["escape_reviews"])
+        self.assertEqual(self.recorded()["totals"]["blocking_allow_escapes"], 1)
+
+    def test_app_lines_may_not_rise(self):
+        self.write(f"{SRC}/CmuxNextApp/App.swift", "struct App {}\n")
+        self.assertEqual(self.update()[0], 0)
+        base = self.commit("record")
+        self.write(f"{SRC}/CmuxNextApp/App.swift", "struct App {}\nstruct More {}\n")
+        self.commit("one more App line")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["app_lines"], notes)
+        self.write(f"{SRC}/CmuxNextApp/App.swift", "struct App {}\n")
+        self.write(f"{SRC}/CmuxNextDomain/More.swift", "struct More {}\n")
+        self.commit("the new line goes to its own target")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+        data = self.recorded()
+        data["totals"]["app_lines"] += 5
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.commit("a hand raise of the recorded App size")
+        refusals, _ = self.check(base=base)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
+    def test_the_audit_lists_escapes_with_no_review_and_expired_ones(self):
+        path = f"{SRC}/CmuxNextDomain/Reader.swift"
+        self.write(path, "final class Reader {\n    func read() {\n        // blocking-allow: one byte\n"
+                         "        // blocking-allow: two bytes\n    }\n}\n")
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [], "escape_reviews": [
+            self.escape_review(path, "// blocking-allow: one byte", expiry="2000-01-01"),
+            self.escape_review(path, "// blocking-allow: gone")]}))
+        self.commit("two escapes, one expired review and one stale")
+        lines = "\n".join(ratchet.audit_lines(ratchet.audit(self.repo)))
+        self.assertIn("no escape_reviews entry", lines)
+        self.assertIn("two bytes", lines)
+        self.assertIn("expired 2000-01-01", lines)
+        self.assertIn("no such site any more", lines)
+
     def test_an_edited_pending_exception_gives_no_allowance_and_a_duplicate_does(self):
-        entry = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "reviewed A"}
+        entry = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "reviewed A", **REVIEW}
         self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [entry]}))
         base = self.commit("a pending exception")
         self.add_singleton()
@@ -1148,7 +1254,7 @@ class RatchetTests(Repo):
     def test_a_push_that_changes_an_applied_exception_is_refused(self):
         self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
         self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
-            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture"}]}))
+            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW}]}))
         self.commit("a reviewed singleton")
         self.assertEqual(self.update()[0], 0)
         base = self.commit("applied")
@@ -1165,7 +1271,7 @@ class RatchetTests(Repo):
         base = self.commit("record")
         self.add_singleton()
         self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
-            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture"}]}))
+            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW}]}))
         self.commit("exception")
         refusals, notes = self.check(base=base)
         self.assertEqual(refusals, [])
@@ -1198,7 +1304,7 @@ class RatchetTests(Repo):
         self.git("checkout", "--quiet", "-b", "upstream")
         self.write(f"{SRC}/CmuxNextDomain/S.swift", "extension Store {\n    static let s = Store()\n}\n")
         self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
-            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "upstream's reviewed S"}]}))
+            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "upstream's reviewed S", **REVIEW}]}))
         self.commit("upstream: singleton S and its exception")
         self.git("checkout", "--quiet", "feat-cmux-next")
         self.write("README", "pushed once\n")
@@ -1212,7 +1318,7 @@ class RatchetTests(Repo):
         self.assertIn("T.swift:2", refusals[0][1])
         # An exception of the push's own (new over both ranges) still lets it through.
         data = json.loads((self.repo / counts.RATCHET_JSON).read_text())
-        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "own T"})
+        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "own T", **REVIEW})
         self.write(counts.RATCHET_JSON, json.dumps(data))
         own = self.commit("the push's own exception")
         refusals, notes = ratchet.check_range(self.repo, base, own, [], upstream_ref="upstream")
@@ -1321,7 +1427,7 @@ class RatchetTests(Repo):
         self.assertIn(f"raised by {landed[:11]}", out)
         self.assertEqual(self.recorded()["totals"]["stateful_singletons"], recorded, "a refused update writes nothing")
         data = self.recorded()
-        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture"})
+        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW})
         self.write(counts.RATCHET_JSON, json.dumps(data))
         code, out = self.update()
         self.assertEqual(code, 0, out)
@@ -1440,7 +1546,7 @@ class RatchetTests(Repo):
         base = self.commit("record")
         self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
         data = self.recorded()
-        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture"})
+        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW})
         self.write(counts.RATCHET_JSON, json.dumps(data))
         self.commit("a reviewed singleton and its exception")
         self.assertEqual(self.update()[0], 0)
@@ -1558,12 +1664,13 @@ class RatchetTests(Repo):
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
         self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
 
-    def test_app_lines_are_report_only(self):
+    def test_app_lines_ratchet(self):
+        # Report only until the reward-hacking audit of 2026-10-30: the row rose 143,610 -> 164,014 unrefused.
         self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 50)
         self.commit("app lines")
         refusals, notes = self.check()
-        self.assertEqual(refusals, [])
-        self.assertTrue(any("app_lines +50" in n for n in notes), notes)
+        self.assertEqual(self.rows(refusals), ["app_lines"], notes)
+        self.assertIn("[app_lines] CmuxNextApp Swift lines: +50", refusals[0][1])
 
     def test_rule_modules_load_from_a_directory_and_zero_modules_work(self):
         with tempfile.TemporaryDirectory() as empty:
@@ -1594,7 +1701,7 @@ class RatchetTests(Repo):
                 "    return [(ID, 'first'), (ID, 'second', None)], []\n")
             rules, warnings = ratchet.load_rules(Path(folder))
             self.assertEqual(warnings, [])
-            entry = {"date": "2026-10-23", "row": "two-refusals", "allow": 1, "why": "reviewed"}
+            entry = {"date": "2026-10-23", "row": "two-refusals", "allow": 1, "why": "reviewed", **REVIEW}
             self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [entry]}))
             one = self.commit("allows one of two")
             refusals, _ = self.check(head=one, rules=rules)

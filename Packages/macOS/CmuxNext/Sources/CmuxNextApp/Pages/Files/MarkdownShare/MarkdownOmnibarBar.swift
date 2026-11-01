@@ -34,7 +34,6 @@ final class MarkdownOmnibarBar: NSView {
     private var reading: Task<Void, Never>?
     private var canBack = false
     private var canForward = false
-    private lazy var height = heightAnchor.constraint(equalToConstant: toolbar.preferredHeight)
 
     init(suggestionEngine: OmniboxSuggestionEngine, reader: MarkdownFileLocationReader = MarkdownFileLocationReader(),
          actions: MarkdownOmnibarActions) {
@@ -49,7 +48,6 @@ final class MarkdownOmnibarBar: NSView {
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            height,
         ])
         toolbar.onBack = actions.back
         toolbar.onForward = actions.forward
@@ -63,12 +61,6 @@ final class MarkdownOmnibarBar: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // The row's height follows the window's pixel grid, as the browser toolbar's does.
-        height.constant = toolbar.preferredHeight
-    }
 
     /// The tab shows `file` (nil: the empty state): the field shows its path; the chip follows
     /// once git answers.

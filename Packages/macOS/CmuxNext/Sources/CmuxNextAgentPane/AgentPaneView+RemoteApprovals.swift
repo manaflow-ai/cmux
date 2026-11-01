@@ -31,7 +31,7 @@ extension AgentPaneView {
         peerApprovalsReason = reason
         switch reason {
         case .notEnrolled(let peer):
-            let enroll = AgentPanePeerApprovals.enroll == nil ? nil : (Self.peerApprovalsEnroll, #selector(enrollThisMac(_:)))
+            let enroll = model.transport.peerApprover?.enroll == nil ? nil : (Self.peerApprovalsEnroll, #selector(enrollThisMac(_:)))
             showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsOffDetail, button: enroll)
         case .onceOnly:
             showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil)
@@ -99,9 +99,9 @@ extension AgentPaneView {
     @objc private func enrollThisMac(_ sender: NSButton) {
         // The daemon this pane talks to now, which named the peer: a reconnect while the command
         // runs does not change where it enrolls, and a pane with no daemon enrolls nowhere.
-        guard case .notEnrolled(let peer) = peerApprovalsReason, let enroll = AgentPanePeerApprovals.enroll,
+        guard case .notEnrolled(let peer) = peerApprovalsReason, let approver = model.transport.peerApprover, let enroll = approver.enroll,
               let notice = remoteApprovalsNotice, let socket = model.transport.acpmuxSocket else { return }
-        let daemon = AgentPanePeerApprovals.daemon(socket: socket)
+        let daemon = approver.daemon(socket: socket)
         sender.isEnabled = false
         // task-owner: one enroll per click; the notice it updates belongs to this pane
         Task { @MainActor [weak self, weak notice, weak sender] in

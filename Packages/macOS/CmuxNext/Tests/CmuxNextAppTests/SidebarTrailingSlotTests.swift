@@ -71,7 +71,6 @@ import Testing
                 ("nested", try h.row(.workspace(T.nested))), ("busy", try h.row(.workspace(T.busy))),
                 ("waiting", try h.row(.workspace(T.waiting))), ("selected", try h.row(.workspace(T.selected))),
                 ("home", try h.bandRow(T.home)), ("bandSelected", try h.bandRow(T.lead)),
-                ("tabUnread", try h.row(.tab(T.selected, T.tabUnread))), ("tabWorking", try h.row(.tab(T.selected, T.tabWorking))),
                 ("foldedHeader", try h.row(.group(T.folded))),
             ]
             var marks: [T.Mark] = []
@@ -85,12 +84,11 @@ import Testing
         }
     }
 
-    /// A hovered row (the default close spot, at the row's end): ✕ on the column, its chevron one slot in, its menu two
-    /// slots in; a row with no chevron puts its menu one slot in. A hovered group header: the chevron on the column, the
+    /// A hovered row (the default close spot, at the row's end): ✕ on the column, its menu one slot in. A hovered group header: the chevron on the column, the
     /// menu and the + one and two slots in. Every hovered control, of every row kind, centers on a slot.
     @Test(arguments: looks)
     func hoveredControlsStepOneSlotPitch(_ look: Look) throws {
-        try SidebarTabGroupControlsTests.withCloseSpot(.end) { try SidebarGroupRailAlignmentTests.with(look.density, .off) {
+        try SidebarRowCloseSpotTests.withCloseSpot(.end) { try SidebarGroupRailAlignmentTests.with(look.density, .off) {
             let h = T.KindHarness(width: look.width)
             defer { h.window.close() }
             let column = try T.columnX(h), tolerance = Self.tolerance(h), pitch = SidebarStyle.trailingSlotPitch
@@ -105,7 +103,7 @@ import Testing
                     #expect(abs(x - want) <= tolerance, "\(look.testDescription) \(label): \(what) at \(x), slot \(slot) at \(want) (pitch \(pitch))")
                 }
             }
-            for (id, expected) in [(T.selected, ["close", "disclosure", "more"]), (T.nested, ["close", "disclosure", "more"]),
+            for (id, expected) in [(T.selected, ["close", "more"]), (T.nested, ["close", "more"]),
                                    (T.unread, ["close", "more"]), (T.busy, ["close", "more"])] {
                 let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
                 // The harness wires no menu; the app's rows have one, so the hovered ⋮ shows (as in the capture).
@@ -113,7 +111,7 @@ import Testing
                 row.isHovered = true
                 row.layoutSubtreeIfNeeded()
                 defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
-                let controls: [(String, NSView)] = [("close", row.closeButton), ("disclosure", row.disclosureButton), ("more", row.moreButton)]
+                let controls: [(String, NSView)] = [("close", row.closeButton), ("more", row.moreButton)]
                 expectSlots(id.rawValue, controls.filter { drawn($0.1) }.map { ($0.0, h.list.convert($0.1.frame, from: row).midX) }, expected)
             }
             for id in [T.open, T.sub] {
@@ -141,26 +139,6 @@ import Testing
             print("TRAILSLOT|hover|\(look.testDescription)|column \(column) pitch \(pitch)|\(report.joined(separator: "; "))")
         } }
     }
-
-    /// A listed tab with a status and an unread dot: the status on the column, the dot one slot in (the line a hovered
-    /// row's chevron takes), never an ad hoc gap beside it.
-    @Test(arguments: looks)
-    func aTabDotBesideItsStatusTakesTheNextSlot(_ look: Look) throws {
-        try SidebarGroupRailAlignmentTests.with(look.density, .off) {
-            let h = T.KindHarness(width: look.width)
-            defer { h.window.close() }
-            let row = try #require(h.list.rowViews[.tab(T.selected, T.tabWorking)] as? SidebarTabRowView)
-            row.unreadDot.configure(.dot)
-            row.needsLayout = true
-            row.layoutSubtreeIfNeeded()
-            let column = try T.columnX(h), tolerance = Self.tolerance(h)
-            let dot = h.list.convert(row.unreadDot.frame, from: row).midX
-            let want = column - SidebarStyle.trailingSlotPitch
-            print("TRAILSLOT|tab|\(look.testDescription)|column \(column)|dot \(dot) want \(want)")
-            #expect(abs(dot - want) <= tolerance, "\(look.testDescription): the tab's dot at \(dot), slot 1 at \(want)")
-        }
-    }
-
     /// Leo 2026-10-30: "this alignment is annoying too". The trailing column must also stay
     /// inside the sidebar content when it is at the minimum, default and wide widths: the resize
     /// band straddles the edge, so an accessory whose frame reaches into its inside half is clipped
@@ -194,10 +172,10 @@ import Testing
                     selected.isHovered = true
                     selected.layoutSubtreeIfNeeded()
                     defer { selected.isHovered = false; selected.layoutSubtreeIfNeeded() }
-                    for (name, view) in [("close", selected.closeButton), ("disclosure", selected.disclosureButton), ("more", selected.moreButton)]
+                    for (name, view) in [("close", selected.closeButton), ("more", selected.moreButton)]
                         where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
                         // Hover controls occupy the shared slot grid: close is slot 0, while
-                        // disclosure and menu intentionally step left by one pitch each.
+                        // the menu intentionally steps left by one pitch.
                         accessories.append((name, h.list.convert(view.frame, from: selected), name == "close"))
                     }
 

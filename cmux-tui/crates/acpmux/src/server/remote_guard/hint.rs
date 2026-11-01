@@ -29,7 +29,8 @@ pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
 
 /// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
 /// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
-/// daemon's hint.
+/// daemon's hint. `policy_proved`: the request is a policy raise the person proved
+/// (`hub/person/policy_grant.rs`).
 pub(in crate::server) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: crate::server::Origin,
@@ -37,9 +38,10 @@ pub(in crate::server) async fn check(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
-    let mut result = super::check_inner(hub, origin, auth, device, m, params).await;
+    let mut result = super::check_inner(hub, origin, auth, device, m, params, policy_proved).await;
     if m == crate::rpc::method::SESSION_NEW
         && origin.web_class()
         && let Err(e) = &mut result
