@@ -45,6 +45,29 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return fallbackValue
     }
 
+    /// Reads credentials with the availability of the same primary-store read.
+    /// - Returns: The authoritative file snapshot, or the Keychain read and its status.
+    public func readStoredTokens() async -> AuthStoredTokenRead {
+        guard keychainWorks else { return await file.readStoredTokens() }
+        let primary = await keychain.readStoredTokens()
+        guard keychainWorks else { return await file.readStoredTokens() }
+        if primary.accessToken != nil || primary.refreshToken != nil { return primary }
+        let fallback = await file.readStoredTokens()
+        if fallback.accessToken != nil || fallback.refreshToken != nil {
+            keychainWorks = false
+            log.log("keychain read missed file fallback token; switching to file fallback for this session")
+            return fallback
+        }
+        return primary
+    }
+
+    /// Reports current storage availability without consuming another read's status.
+    /// - Returns: Whether the authoritative store can currently answer a token probe.
+    public func isTokenStorageAvailable() async -> Bool {
+        guard keychainWorks else { return true }
+        return await keychain.isReadable()
+    }
+
     public func setTokens(accessToken: String?, refreshToken: String?) async {
         if keychainWorks {
             let ok = await keychain.trySetTokens(
