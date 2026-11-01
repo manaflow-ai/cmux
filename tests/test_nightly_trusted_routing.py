@@ -102,6 +102,32 @@ class NightlyTrustedRouting(unittest.TestCase):
                             self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}),
                                              'ubuntu-24.04')
 
+    def test_tail_controls_prefer_only_the_activated_nightly_mini(self):
+        dedicated = 'glaeda-nightly-only-m4pro'
+        for name in TAIL_CONTROL_JOBS:
+            job = DOC['jobs'][name]
+            self.assertIn('decide', job['needs'])
+            expr = parse_expression(job['runs-on'].removeprefix('${{').removesuffix('}}'))
+            for owner in ('manaflow-ai', 'fork'):
+                for track in ('nightly-next', 'nightly', ''):
+                    for attempt in (1, 2, 3):
+                        for activation in (dedicated, '', 'glaeda-trusted-next-nightly',
+                                           'glaeda-runner-unserved', 'macos-26', 'ubuntu-24.04'):
+                            for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                                context = {
+                                    'github.repository_owner': owner,
+                                    'github.run_attempt': attempt,
+                                    'needs.decide.outputs.track': track,
+                                    'vars.CI_NIGHTLY_ONLY_RUNNER': activation,
+                                    'vars.LINUX_RUNNER': overflow,
+                                }
+                                expected = ('ubuntu-24.04' if owner != 'manaflow-ai' or attempt == 1
+                                            else overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                                if owner == 'manaflow-ai' and track == 'nightly-next' and attempt == 1 and activation == dedicated:
+                                    expected = dedicated
+                                with self.subTest(job=name, **context):
+                                    self.assertEqual(evaluate(expr, context), expected)
+
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
