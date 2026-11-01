@@ -2,7 +2,8 @@ public import Foundation
 
 /// The cmux Computer Use helper's host-only `display_still` request and reply
 /// (scripts/cmux-cua-display-still.patch), and how its refusals read.
-public enum ChiefScreenStillWire {
+public struct ChiefScreenStillWire {
+    public init() {}
     /// The method name on the helper's socket.
     public static let method = "display_still"
     /// The helper's refusal when Screen Recording is not allowed for it.

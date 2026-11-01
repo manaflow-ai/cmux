@@ -66,7 +66,7 @@ jobs:
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
   # success, and repair then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ci-routing-agent
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.

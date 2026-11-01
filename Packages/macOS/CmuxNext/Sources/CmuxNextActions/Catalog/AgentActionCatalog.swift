@@ -6,21 +6,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPaneZoomIn",
                 title: String(localized: "action.agentPaneZoomIn", defaultValue: "Agent Chat: Zoom In", bundle: .module),
-                keywords: ["agent", "chat", "zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.command]),
+                keywords: ["agent", "chat", "zoom", "bigger"],
                 category: .agents, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-in", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "agentPaneZoomOut",
                 title: String(localized: "action.agentPaneZoomOut", defaultValue: "Agent Chat: Zoom Out", bundle: .module),
-                keywords: ["agent", "chat", "zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.command]),
+                keywords: ["agent", "chat", "zoom", "smaller"],
                 category: .agents, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-out", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "agentPaneZoomReset",
                 title: String(localized: "action.agentPaneZoomReset", defaultValue: "Agent Chat: Actual Size", bundle: .module),
-                keywords: ["agent", "chat", "zoom", "reset"], defaultShortcut: Shortcut("0", modifiers: [.command]),
+                keywords: ["agent", "chat", "zoom", "reset"],
                 category: .agents, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent actual-size", mainMenu: .view
             ),
@@ -502,6 +502,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",

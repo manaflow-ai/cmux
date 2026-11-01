@@ -2490,6 +2490,268 @@
         }
       }
     },
+    "agentPane.stateLoss.pairedPhones": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A change to your paired iPhones was cut off when cmux quit. Pair your iPhones again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقّف تغيير على أجهزة iPhone المقترنة عند إغلاق cmux. أعد إقران أجهزة iPhone."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promjena uparenih iPhone uređaja prekinuta je kada se cmux zatvorio. Ponovo uparite svoje iPhone uređaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ændring af dine parrede iPhones blev afbrudt, da cmux lukkede. Par dine iPhones igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Änderung an deinen gekoppelten iPhones wurde beim Beenden von cmux abgebrochen. Kopple deine iPhones erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un cambio en tus iPhone vinculados se interrumpió al cerrarse cmux. Vuelve a vincular tus iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une modification de vos iPhone jumelés a été interrompue à la fermeture de cmux. Jumelez à nouveau vos iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una modifica agli iPhone abbinati è stata interrotta alla chiusura di cmux. Abbina di nuovo i tuoi iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了時に、ペアリング済み iPhone への変更が中断されました。iPhone をもう一度ペアリングしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរ iPhone ដែលបានផ្គូផ្គងរបស់អ្នកត្រូវបានកាត់ផ្ដាច់នៅពេល cmux បិទ។ សូមផ្គូផ្គង iPhone របស់អ្នកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 종료될 때 페어링된 iPhone에 대한 변경이 중단되었습니다. iPhone을 다시 페어링하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En endring av de parede iPhone-ene dine ble avbrutt da cmux ble avsluttet. Par iPhone-ene på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmiana sparowanych iPhone’ów została przerwana przy zamknięciu cmux. Sparuj iPhone’y ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma alteração nos seus iPhones pareados foi interrompida quando o cmux fechou. Pareie seus iPhones novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменение сопряжённых iPhone было прервано при закрытии cmux. Сопрягите iPhone заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนแปลง iPhone ที่จับคู่ไว้ถูกขัดจังหวะเมื่อ cmux ปิด โปรดจับคู่ iPhone อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanırken eşlenmiş iPhone’larınızdaki bir değişiklik yarıda kaldı. iPhone’larınızı yeniden eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміну спарених iPhone було перервано під час закриття cmux. Спарте iPhone знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thay đổi đối với các iPhone đã ghép đôi bị gián đoạn khi cmux thoát. Hãy ghép đôi lại các iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 退出时，对已配对 iPhone 的更改被中断。请重新配对你的 iPhone。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 結束時，對已配對 iPhone 的變更被中斷。請重新配對你的 iPhone。"
+          }
+        }
+      }
+    },
+    "agentPane.stateLoss.unsentDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text typed in a new chat just before cmux quit was not saved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُحفظ النص الذي كُتب في محادثة جديدة قبل إغلاق cmux مباشرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst upisan u novi razgovor neposredno prije zatvaranja cmuxa nije sačuvan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat lige før cmux lukkede, blev ikke gemt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text, der kurz vor dem Beenden von cmux in einen neuen Chat eingegeben wurde, wurde nicht gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se guardó el texto escrito en un chat nuevo justo antes de que se cerrara cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte saisi dans une nouvelle discussion juste avant la fermeture de cmux n’a pas été enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo digitato in una nuova chat poco prima della chiusura di cmux non è stato salvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了直前に新しいチャットに入力したテキストは保存されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទដែលបានវាយក្នុងការជជែកថ្មីមុនពេល cmux បិទបន្តិច មិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 종료되기 직전에 새 채팅에 입력한 텍스트가 저장되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat rett før cmux ble avsluttet, ble ikke lagret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst wpisany w nowym czacie tuż przed zamknięciem cmux nie został zapisany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto digitado em um novo chat logo antes de o cmux fechar não foi salvo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введённый в новом чате незадолго до закрытия cmux, не был сохранён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความที่พิมพ์ในแชตใหม่ก่อน cmux ปิดไม่นานไม่ได้รับการบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanmadan hemen önce yeni bir sohbete yazılan metin kaydedilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введений у новому чаті незадовго до закриття cmux, не збережено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Văn bản đã nhập trong một cuộc trò chuyện mới ngay trước khi cmux thoát chưa được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 退出前刚在新聊天中输入的文字未能保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 結束前剛在新聊天中輸入的文字未能儲存。"
+          }
+        }
+      }
+    },
     "agentPane.acpmuxDaemon.title": {
       "extractionState": "manual",
       "localizations": {

@@ -351,6 +351,9 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
+    /// inbox notice and no other agent's steer goes into it.
+    pub persons: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -1216,6 +1219,7 @@ impl Hub {
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
+            status_changes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -1990,6 +1994,9 @@ impl Hub {
                 return false;
             }
             m.status = status;
+            if was != status {
+                session.status_changes.fetch_add(1, Ordering::SeqCst);
+            }
             // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
             // it as old as it was, or a chat stopped every day would never be old enough for log
             // retention (`retention.rs`) and would move up the lists that sort by it.
