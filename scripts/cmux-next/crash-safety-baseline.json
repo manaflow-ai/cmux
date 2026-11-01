@@ -30,15 +30,15 @@
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 26
+   "cmux-tui-core": 25
   },
   "unwrap": {
-   "acpmux": 136,
+   "acpmux": 134,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1142,
+   "cmux-tui-core": 1136,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,

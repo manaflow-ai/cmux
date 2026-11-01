@@ -13,7 +13,12 @@
 //! - disk: (free − `free_gb_floor`) / `disk_per_lane_gb`;
 //! - lanes: `max_lanes` − live agents.
 //!
-//! The smallest of the four is its room. The most room wins, then the
+//! The smallest of the four is its room. Among hosts with room, the registry's
+//! `lane_place.placement_preference` decides first, as leo-workspace's lane-place does
+//! (`tiers`): a list best first of providers (`freestyle`, `gcp`) and machine names, so a
+//! Freestyle lane VM with room beats a less-loaded GCP one (Leo, 2026-10-29: Freestyle is
+//! "pound for pound just cheaper than GCP"; 2026-10-31: "WHY GCP IF WE HAVE FREESTYLE???").
+//! Hosts in no tier come after. Then the most room wins, then the
 //! registry's `rank`, then fewer live agents. A host is passed over when its
 //! room is under one lane, its budget verdict is over, or its swap is fuller
 //! than the `max_swap_used_fraction` its entry sets (none by default: a Linux
@@ -382,6 +387,50 @@ pub fn load_registry() -> Option<Value> {
     serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
 }
 
+/// The providers `lane_place.placement_preference` may name besides machine names.
+const PROVIDERS: [&str; 2] = ["freestyle", "gcp"];
+
+/// Which provider a registry machine runs on, as lane-place's `host_provider` says: its
+/// `provider` when declared, else `freestyle` for an `agent_vm` with a `cloud` block (a cmux
+/// Cloud lane VM), else `gcp` for a GCE lane VM (a `gcp` block or a `gcp-` name), else none (an
+/// owned machine).
+fn provider<'a>(name: &str, m: &'a Value) -> Option<&'a str> {
+    if let Some(p) = m.get("provider").and_then(Value::as_str) {
+        return Some(p);
+    }
+    if m.get("agent_vm").and_then(Value::as_bool) == Some(true)
+        && m.get("cloud").is_some_and(Value::is_object)
+    {
+        return Some("freestyle");
+    }
+    if m.get("gcp").is_some() || name.starts_with("gcp-") {
+        return Some("gcp");
+    }
+    None
+}
+
+/// The place (0 best) and the list entry of `name`'s (by name or alias) tier in the registry's
+/// `lane_place.placement_preference`, a list best first of providers and machine names: its
+/// own name's place in the list, else its provider's (`provider`). `None`: no list, a list
+/// that cannot be read (not a list of distinct providers or machine names, which lane-place
+/// refuses; placement then weighs no tier, as before the list), or a host in no tier.
+fn tier(registry: Option<&Value>, name: &str) -> Option<(usize, String)> {
+    let registry = registry?;
+    let machines = registry.get("machines")?.as_object()?;
+    let order = registry.pointer("/lane_place/placement_preference")?.as_array()?;
+    let order: Vec<&str> = order.iter().map(Value::as_str).collect::<Option<_>>()?;
+    let distinct = order.iter().enumerate().all(|(i, p)| order.iter().take(i).all(|q| q != p));
+    let known = order.iter().all(|p| PROVIDERS.contains(p) || machines.contains_key(*p));
+    if !distinct || !known {
+        return None;
+    }
+    let want = canonical(name);
+    let (key, m) = machines.iter().find(|(n, m)| machine_names(n, m).contains(&want))?;
+    let place = |want: &str| order.iter().enumerate().find(|(_, o)| **o == want);
+    let (at, of) = place(key).or_else(|| place(provider(key, m)?))?;
+    Some((at, (*of).to_owned()))
+}
+
 /// One host's verdict: its room in lanes, or why it is refused.
 #[derive(Clone, Debug)]
 struct Weighed {
@@ -395,6 +444,8 @@ struct Weighed {
     /// `refused` is for room, load or swap, not the host's role: it may still
     /// take the work when no host has room (`place`).
     load: bool,
+    /// Its `placement_preference` tier (`tier`), counted only while it has room (`place`).
+    tier: Option<(usize, String)>,
     why: String,
 }
 
@@ -417,6 +468,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         live,
         refused: None,
         load: false,
+        tier: None,
         why: String::new(),
     };
     let Some(lanes) = lanes else {
@@ -492,8 +544,9 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 
 /// The pick and every host's verdict, as `_acpmux/place` returns them:
 /// `{"pick": NAME|null, "local": bool, "overloaded": bool (no host had room and the pick
-/// takes it anyway), "why": TEXT, "work": "agent"|"build",
-/// "hosts": [{name, local, ok, room, rank, live, why, refused}]}`.
+/// takes it anyway), "why": TEXT, "work": "agent"|"build", "tier": {index, of}|null (the
+/// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
+/// live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
@@ -529,9 +582,24 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             }
         }
     }
-    // Most room first (a host with no reading after every host with one),
-    // then the registry's rank, then fewer live agents. With none left, the
-    // hosts passed over only for room, load or swap whose role takes the work.
+    // A host that takes the work and shows room for a lane gets its placement_preference
+    // tier, as lane-place gives one only to a host with headroom: a full, busy or unread host
+    // gets none, so the next tier or the most room decides.
+    for w in weighed.iter_mut() {
+        if w.refused.is_none() && w.room.is_some_and(|r| r >= 1.0) {
+            w.tier = tier(registry, &w.name);
+            if let Some((at, of)) = &w.tier {
+                w.why.push_str(&format!(
+                    ", tier {} ({of}, lane_place.placement_preference)",
+                    at.saturating_add(1)
+                ));
+            }
+        }
+    }
+    // The best placement_preference tier first (a host in none after every one in one), then
+    // most room (a host with no reading after every host with one), then the registry's rank,
+    // then fewer live agents. With none left, the hosts passed over only for room, load or
+    // swap whose role takes the work.
     let mut order: Vec<&Weighed> = weighed.iter().filter(|w| w.refused.is_none()).collect();
     let overloaded = order.is_empty();
     if overloaded {
@@ -542,8 +610,10 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     }
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
-        room(b)
-            .total_cmp(&room(a))
+        let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
+        best(a)
+            .cmp(&best(b))
+            .then(room(b).total_cmp(&room(a)))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))
     });
@@ -565,12 +635,15 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         "overloaded": overloaded && pick.is_some(),
         "why": why,
         "work": work.as_str(),
+        "tier": pick.and_then(|w| w.tier.as_ref()).map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
         "hosts": weighed.iter().map(|w| json!({
             "name": w.name,
             "local": w.local,
             "ok": w.refused.is_none(),
             "room": w.room,
             "rank": w.lanes.rank,
+            // Its lane_place.placement_preference tier (1 is best) while it has room, else null.
+            "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
             "refused": w.refused,

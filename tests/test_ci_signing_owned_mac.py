@@ -81,7 +81,8 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
-    ("nightly.yml", "signer-dmg"),
+    ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    ("nightly.yml", "publish-nightly-next-github-names"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -185,12 +186,6 @@ def keychain_job(job: dict) -> bool:
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
 
 
-def release_pool_signer(job: dict) -> bool:
-    """The rcodesign release-pool path keeps its certificate in a temporary directory."""
-    text = json.dumps(keychain_guard.inline_step_scripts(job))
-    return any(script in text for script in keychain_guard.RELEASE_POOL_SIGNERS.values())
-
-
 def signing_job(job: dict) -> bool:
     """A keychain job, or a job that holds a Sparkle private key (read in dot form, after dotted())."""
     return keychain_job(job) or bool(SPARKLE_KEY.search(json.dumps(keychain_guard.inline_step_scripts(job))))
@@ -201,6 +196,12 @@ def owned_only(runs_on: str) -> bool:
     blacksmith-*, ubuntu-* or GitHub-hosted macos-* label and no EPHEMERAL_RUNNER_VARIABLES variable, and an owned
     label or a variable to take one from."""
     text = FORK_ROUTE.sub("", runs_on)
+    # The nightly release-pool Linux picker validates RUNNER_POOLS.linux against
+    # the three trusted Blacksmith Linux labels before exposing its output. It
+    # is an ephemeral route even though it is not one of the scalar signing
+    # variables below.
+    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+        return False
     if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
            for label in LABEL_LITERAL.findall(text)):
         return False
@@ -235,7 +236,7 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
         if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
-            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned(?:_pool)?\b", value) is not None
             found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
         else:
             found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
@@ -359,19 +360,43 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                 "SIGNING_JOBS, which gives it the whole mini)")
             for read in owned_reads:
                 clauses = attempt_clauses(jobs, read)
-                if not any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
-                                     + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
-                           for clause in clauses):
-                    failures.append(f"{label}: reads {read} other than as `{' or '.join(clauses)} && {read} && "
-                                    f"fromJSON({read})`, so a re-run could stay on the fleet")
+                if read.endswith(".owned_pool") or read.endswith("_owned_pool"):
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" +
+                                             re.escape(read), runs_on) for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read}"
+                else:
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
+                                             + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
+                                   for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read} && fromJSON({read})"
+                if not route_ok:
+                    failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
-            gate = steps[0] if steps else {}
-            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell", "id"}
-                    or str(gate.get("shell", "bash")) != "bash" or gate.get("id") != CLAIM_GATE_ID):
-                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
-                                f"for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error, before the "
-                                "checkout's token")
+            publication = workflow == "nightly.yml" and name in {
+                "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"
+            }
+            gate_index = next((index for index, step in enumerate(steps)
+                               if str(step.get("id", "")) == CLAIM_GATE_ID), None)
+            gate = steps[gate_index] if gate_index is not None else {}
+            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+                       and not (set(gate) - {"name", "run", "shell", "id"})
+                       and str(gate.get("shell", "bash")) == "bash"
+                       and gate.get("id") == CLAIM_GATE_ID)
+            if not gate_ok:
+                if publication:
+                    failures.append(f"{label}: the claim gate ({CLAIM_GATE_NAME}) must copy CLAIM_GATE word for word, "
+                                    f"id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+                else:
+                    failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
+                                    f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+            elif not publication and gate_index != 0:
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
+            elif publication:
+                checkout_index = next((index for index, step in enumerate(steps)
+                                       if "actions/checkout@" in str(step.get("uses", ""))), None)
+                if checkout_index is None or gate_index <= checkout_index:
+                    failures.append(f"{label}: publication claim gate must run after checkout and before release credentials")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
@@ -384,7 +409,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
-                for index, step in enumerate(steps[1:], 1):
+                for index, step in enumerate(steps, 0):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
@@ -396,7 +421,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
             # Rule 4 is the keychain's; a job that only holds a Sparkle key makes none.
-            if keychain_job(job) and not release_pool_signer(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
+            if keychain_job(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
                        for step in steps):
                 failures.append(f"{label}: routed to owned Macs without an `if: always()` step that runs "
                                 "scripts/ci/signing-keychain.sh delete")
@@ -477,9 +502,28 @@ class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
         self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
         # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
         self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
+        self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
+    def test_owned_pool_label_drops_the_runner_pin(self) -> None:
+        self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-26.6", "glaeda-runner-cmux12-glaeda-nightly"]'),
+                         "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(signing_runner.owned_pool_label(""), "")
+        self.assertEqual(signing_runner.owned_pool_label("not-json"), "")
+
+    def test_publication_pool_output_fails_closed_without_controller_evidence(self) -> None:
+        runners = [runner("cmux12-glaeda", [SIDE])]
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "OWNED_LABELS": SIDE}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"],
+                                lambda token, repo: runners, lambda path: {"jobs": []},
+                                lambda token, repo: {}, NOW)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["owned_pool"], "")
+
     def test_workflows(self) -> None:
         failures, owned_jobs = check(workflows())
         self.assertEqual(failures, [])
@@ -836,6 +880,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE]  # publication controls use the shared pool label, without a runner pin
+        owned, why = signing_runner.owned_pick(env, read, jobs)
+        self.assertEqual(owned, "", why)
+        self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE, "glaeda-runner-cmux13-glaeda-3"]
         for status in ("waiting", "pending", "requested"):  # every unfinished run status a started run can have
             with self.subTest(run_status=status):
                 run_status[0] = status
@@ -919,7 +968,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\n')
+            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool=\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)

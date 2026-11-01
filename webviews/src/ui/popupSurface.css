@@ -18,7 +18,9 @@
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
-  --ui-row-radius: 5px;
+  /* A row's highlight is concentric with its popup (design/grid.md section 1: the outer radius minus the
+     inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
+  --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The fade-in a dialog, its backdrop, a tooltip and the find pill take. A popup or menu has none:
      it opens in one frame (below). The motion scale's steps (pages/shared/desktop.css); the literal
@@ -163,6 +165,7 @@
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
   font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }

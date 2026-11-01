@@ -6,6 +6,7 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-build-id",
  "anyhow",
  "base64",
  "chrono",
@@ -16,9 +17,11 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-host",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server",
@@ -69,6 +72,10 @@ dependencies = [
  "x25519-dalek",
  "zeroize",
 ]
+
+[[package]]
+name = "acpmux-build-id"
+version = "1.0.0"
 
 [[package]]
 name = "adler2"
@@ -988,6 +995,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1207,7 +1215,10 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1220,6 +1231,9 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1253,11 +1267,14 @@ name = "cmux-link"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "cmux-unix-socket",
  "libc",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1484,17 +1501,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-remote-transcript"
-version = "0.1.0"
-dependencies = [
- "base64",
- "flate2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1513,7 +1519,9 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1648,6 +1656,7 @@ name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
  "acpmux",
+ "acpmux-build-id",
  "anyhow",
  "async-trait",
  "base64",
@@ -1658,6 +1667,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
+ "cmux-conversation",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1913,6 +1923,7 @@ dependencies = [
  "clap",
  "cmux-vm-client",
  "futures",
+ "nix 0.31.3",
  "security-framework",
  "serde",
  "serde_json",

@@ -10,6 +10,37 @@ struct StandingGroupAccess {
     var add: (() -> Void)?
 }
 
+/// One of the header actions a sole-member row offers (`StandingGroupAccess`). A value, not a closure: a VoiceOver
+/// action holds only Sendable state and resolves the row's current access when it is performed.
+enum StandingGroupAction: Sendable {
+    case edit, menu, add
+    /// The fold for the header state the action was built with: it refuses once the group folded the other way.
+    case fold(expanded: Bool)
+
+    var name: String {
+        switch self {
+        case .edit: GroupEditorStrings.editor
+        case .menu: GroupEditorStrings.moreActions
+        case .add: GroupEditorStrings.newWorkspace
+        case let .fold(expanded): expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
+        }
+    }
+
+    func perform(on access: StandingGroupAccess) -> Bool {
+        switch self {
+        case .edit: access.edit()
+        case .menu: access.menu()
+        case .add:
+            guard let add = access.add else { return false }
+            add()
+        case let .fold(expanded):
+            guard access.expanded == expanded else { return false }
+            access.toggle()
+        }
+        return true
+    }
+}
+
 extension WorkspaceRowView {
     /// Routes AXPress through the sidebar's shared workspace selection action.
     override func accessibilityPerformPress() -> Bool {
@@ -23,21 +54,47 @@ extension WorkspaceRowView {
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions = super.accessibilityCustomActions() ?? []
         guard !isShowingPlaceholder else { return actions.isEmpty ? nil : actions }
-        if let treeFold, let onToggleTree {
+        // VoiceOver may retain an action after the list recycles this view for another workspace.
+        // Resolve the current callback only while this row still represents the action's workspace.
+        let actionKey = key
+        if let treeFold, onToggleTree != nil {
             let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
-            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
+            actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                guard let self, self.canPerformAccessibilityAction(for: actionKey), self.treeFold == treeFold,
+                      let onToggleTree = self.onToggleTree else { return false }
+                onToggleTree()
+                return true
+            })
         }
-        if let onMore {
-            actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
+        if onMore != nil {
+            actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { [weak self] in
+                guard let self, self.canPerformAccessibilityAction(for: actionKey), let onMore = self.onMore else { return false }
+                onMore()
+                return true
+            })
         }
         if let group = standingGroup {
-            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { group.edit(); return true })
-            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { group.menu(); return true })
-            if let add = group.add { actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { add(); return true }) }
-            let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
-            actions.append(NSAccessibilityCustomAction(name: fold) { group.toggle(); return true })
+            var groupActions: [StandingGroupAction] = [.edit, .menu]
+            if group.add != nil { groupActions.append(.add) }
+            groupActions.append(.fold(expanded: group.expanded))
+            for action in groupActions { actions.append(standingGroupAction(action, for: actionKey)) }
         }
         return actions.isEmpty ? nil : actions
+    }
+
+    /// The handler captures only Sendable values (the row weakly, its key, the action) and reads the row's current
+    /// `standingGroup` when performed. A captured closure parameter is task-isolated to the main-actor handler, which
+    /// the Release compile (Xcode 26.6) refuses as a send.
+    private func standingGroupAction(_ action: StandingGroupAction, for actionKey: SidebarRowKey) -> NSAccessibilityCustomAction {
+        NSAccessibilityCustomAction(name: action.name) { [weak self] in
+            guard let self, self.canPerformAccessibilityAction(for: actionKey),
+                  let current = self.standingGroup else { return false }
+            return action.perform(on: current)
+        }
+    }
+
+    private func canPerformAccessibilityAction(for actionKey: SidebarRowKey) -> Bool {
+        key == actionKey && !isHidden && !isShowingPlaceholder
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {

@@ -1,6 +1,6 @@
 // l10n-allow-file: sample transcript and screenshot labels, not shipped UI.
 // Leo: "when I said move the scrollbar to the right, I do mean to the right". The
-// Inspector may move the text column, but never the native scrollbar's own box.
+// Session Info may move the text column, but never the native scrollbar's own box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
@@ -35,11 +35,11 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             actions.configureQuickActions(tools ? undefined : { quickActions: [] });
             window.cmuxAcpmuxBridge?.applyHeaderState?.({ inspector: true, version: 2 });
           }, tools);
-          const toggle = page.locator("button.acpmux-chat-inspector-toggle");
-          const panel = page.locator("aside.acpmux-chat-inspector");
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const panel = page.locator("aside.acpmux-session-info");
           await toggle.waitFor();
           if ((await panel.count()) === 0) await toggle.click();
-          await page.locator('.acpmux-chat-inspector[data-presence="shown"]').waitFor();
+          await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();
           await settled(page);
           const geometry = await page.evaluate(() => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();

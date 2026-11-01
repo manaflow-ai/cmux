@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
+# cmux-tui's Rust checks on a fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --arg MODE [--arg TEST_FILTER]
+#     --os linux|macos --arg MODE [--arg TEST_FILTER]
+# --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
+# cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
+# needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
@@ -10,8 +13,9 @@
 # against scripts/cmux-next/rust-panic-baseline.json before it lands. Linux only: the baseline holds
 # Linux counts, and on macOS clippy also sees the macOS-only code and misses the Linux-only code (a
 # false red or a false green), so off Linux it refuses (exit 2, no cargo). No TEST_FILTER. The clippy
-# JSON is .build/artifacts/panic-clippy.jsonl, which the workflow uploads (a Mac-pinned or rbx run can
-# fetch it with --artifact; a Linux-routed fleet step takes none, so a failed clippy prints its errors);
+# JSON is .build/artifacts/panic-clippy.jsonl, which the workflow uploads; a fleet step fetches it with
+# `--os linux --artifact .build/artifacts/panic-clippy.jsonl` (the Linux route returns that one file after a
+# passing run, hq#5957; a failed or red step returns none, so a failed clippy prints its errors);
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
@@ -63,7 +67,8 @@ set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
 cmux-tui-rust-check.sh runs cargo and runs only as a fleet step:
-  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --arg all
+  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --os linux --arg all
+  (--os macos for a test that runs only on macOS)
 MSG
   exit 2
 fi

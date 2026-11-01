@@ -120,8 +120,8 @@ extension AgentPaneView {
     /// in the file input says about where they came from, for `chat.attach.source`.
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
-            guard let self, AgentPanePersonInput.currentIsPerson else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
             model.droppedPaths.stashSource(
@@ -130,7 +130,7 @@ extension AgentPaneView {
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
-            guard let self, AgentPanePersonInput.currentIsPerson else { return }
+            guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
             model.droppedPaths.stashSource(
@@ -146,7 +146,7 @@ extension AgentPaneView {
         // the upload of every picked file (Retry on each tile).
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
             model.droppedPaths.stash(urls, kind: .choose)
             model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
@@ -284,20 +284,20 @@ extension AgentPaneView {
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
     }
 
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, []) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         if NSEvent.modifierFlags.contains(.option) {
             popUpForkMenu(through: seq)
         } else {

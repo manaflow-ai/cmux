@@ -25,8 +25,9 @@ enum DebugDialog {
     /// harness sheet (a folder's program would run with the user's rights), the Cloud machine create confirmation (a spend
     /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
-    /// link's new tab (any page or app can open the link).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
+    /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
+    /// (it exposes the chat's transcript, #30263).
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 

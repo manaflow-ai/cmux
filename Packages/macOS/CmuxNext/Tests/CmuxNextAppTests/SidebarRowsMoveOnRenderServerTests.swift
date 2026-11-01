@@ -744,6 +744,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aGroupLineTheDisplaySleepsThroughEndsAtItsRows() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1", "w2"]))
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
         model.sections = Self.grouped(["new", "w1", "w2"])
         list.reload(animated: true)
         let lines = list.subviews.compactMap { $0 as? GroupLineView }
@@ -767,6 +769,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let members = (1...60).map { "m\($0)" }
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1"], members: members))
         defer { restore() }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
         DesignSettings.shared.animationSpeed = .normal
         model.sections = Self.grouped(["w1"], members: members + ["m61"])
         list.reload(animated: true)

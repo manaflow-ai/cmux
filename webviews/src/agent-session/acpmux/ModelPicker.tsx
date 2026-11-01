@@ -121,7 +121,7 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry, lang);
   const all = groupChoices([...latest, ...older], model).filter(usable);
-  return relevantModelSections(all, entry?.top);
+  return relevantModelSections(all, entry?.top, model);
 }
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -953,15 +953,17 @@ export function ModelPicker(props: ModelPickerProps) {
     // models are routes of its tab, chosen in the menu's Account row.
     const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
-    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
-    // Starred keeps the chat's own models, and another launch profile of any harness forks there.
+    // Keep the chat's own models; only Continue In's eligible profile IDs can receive a fork,
+    // including launch profiles expanded from a folded catalog family.
     return rail.flatMap((family): QuickFamily[] => {
       const own = family;
       if (family.starred) {
         const models = family.models.filter((model) => model.family === current?.id);
         return models.length ? [{ ...family, models }] : [];
       }
-      if (family.id === current?.id || family.note) return [own];
+      if (family.id === current?.id) return [own];
+      if (!fork?.targets.has(family.id)) return [];
+      if (family.note) return [own];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
@@ -1014,7 +1016,7 @@ export function ModelPicker(props: ModelPickerProps) {
     if (owner && loginFor(owner) !== undefined) return;
     const target = owner?.acpmuxHarness ?? id;
     if (harnessFixed) {
-      if (fork?.ready) fork.to(target);
+      if (fork?.ready && fork.targets.has(target)) fork.to(target);
     } else onHarness?.(target);
   };
   const addHarness = () => {
@@ -1203,7 +1205,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const chipFace = (
     <>
-      <AgentMark agent={chipHarness} size={15} />
+      <AgentMark agent={chipHarness} size={16} />
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
@@ -1421,7 +1423,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }}
                   onClick={() => showTab(STARRED, -1, true)}
                 >
-                  <StarGlyph filled={false} size={15} />
+                  <StarGlyph filled={false} size={16} />
                 </PickerOption>
                 {railHarnesses.map((entry, index) => [
                   <PickerOption
@@ -1512,7 +1514,7 @@ export function ModelPicker(props: ModelPickerProps) {
               </output>
             )}
             <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
-              <SearchIcon size={15} />
+              <SearchIcon size={16} />
               <PickerComboboxInput
                 ref={search}
                 type="search"
@@ -1665,7 +1667,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
-                          <StarGlyph filled={favorites.has(model.id)} size={13} />
+                          <StarGlyph filled={favorites.has(model.id)} size={14} />
                         </button>
                         {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
                           <span className="grid size-6 place-items-center text-muted">

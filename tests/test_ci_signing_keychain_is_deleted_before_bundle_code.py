@@ -270,6 +270,15 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
         runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        trusted_linux_pool = (
+            "fromJSON(vars.RUNNER_POOLS).linux" in runs_on
+            and all(label in runs_on for label in (
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            ))
+            and "contains(fromJSON(" in runs_on
+        )
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -278,6 +287,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_linux_pool and variable == "RUNNER_POOLS":
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
@@ -295,15 +306,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     pool_signer = RELEASE_POOL_SIGNERS.get(tuple(name.split(" ", 1)))
     if pool_signer:
         runner = str(job.get("runs-on", ""))
-        owned_mac_release = tuple(name.split(" ", 1)) == ("nightly.yml", "signer-dmg")
-        valid_runner = ("needs.pick-nightly-sign-runner.outputs.sign_owned" in runner
-                        and "needs.pick-nightly-sign-runner.outputs.runner" in runner
-                        and "macos" in runner) if owned_mac_release else ("ubuntu" in runner and "macos" not in runner)
-        if "keychain" in text or pool_signer not in text or not valid_runner:
-            if owned_mac_release:
-                failures.append(f"{name}: the release-pool DMG signer must use the owned signing pick then Blacksmith macOS, call {pool_signer}, and make no keychain")
-            else:
-                failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
+        if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
+            failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
         certificate_steps = [step for step in steps if isinstance(step, dict) and "secrets.APPLE_CERTIFICATE_BASE64" in json.dumps(step)]
         if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
             failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")

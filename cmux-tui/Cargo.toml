@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-tailnet",
+    "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-chat-index",
@@ -54,7 +55,6 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
-    "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
@@ -95,10 +95,10 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-kitty-media",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -206,6 +206,7 @@ cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
+cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }

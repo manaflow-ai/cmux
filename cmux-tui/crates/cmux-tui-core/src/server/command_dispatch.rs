@@ -210,7 +210,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
+            cmd_terminal_io::wait_for(mux, writer, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             cmd_terminal_io::run(
@@ -618,6 +618,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
+        Command::CloudEnvironment(params) => cloud_conversations::environment(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }

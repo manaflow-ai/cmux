@@ -36,13 +36,13 @@ extension DebugKey {
             if let refusal = makeKey(wanted, params, services: services) { return .object(["error": .string(refusal)]) }
             keyWindow = .string(wanted)
         }
-        // The start in the event system's own units (``DebugKeySequence/Stamp``).
-        let source = CGEventSource(stateID: .privateState)
-        guard let probe = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-              let baseSeconds = NSEvent(cgEvent: probe)?.timestamp, baseSeconds > 0 else {
+        // The start in the event system's own units (``DebugKeySequence/Stamp``): the probe's, else the host clock.
+        let source = CGEventSource(stateID: .privateState), probe = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+        guard let stamp = DebugKeySequence.Stamp.start(probeTimestamp: probe?.timestamp ?? 0,
+                                                       probeSeconds: probe.flatMap { NSEvent(cgEvent: $0)?.timestamp }) else {
             return .object(["error": .string("no event timestamp to start the sequence from")])
         }
-        let stamp = DebugKeySequence.Stamp(base: probe.timestamp, ticksPerSecond: Double(probe.timestamp) / baseSeconds)
+        let baseSeconds = Double(stamp.base) / stamp.ticksPerSecond
         player.play(sequence, stamp: stamp, source: source, clock: ContinuousClock()) { cgEvent in
             if let event = NSEvent(cgEvent: cgEvent) { NSApp.postEvent(event, atStart: false) }
         }

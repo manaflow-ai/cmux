@@ -17,6 +17,8 @@
 // A refusal leaves a short note after the line until the row next changes.
 import { createContext, useContext, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { AgentTag } from "../conversation/AgentTag";
+import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { formatDuration } from "../conversation/turns";
 import { ChevronRight, Retry, Spinner } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
@@ -92,6 +94,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       ];
   // Why it failed, as acpmux recorded it, last: the line cuts it first.
   const parts = [...head, ...(error && !waiting ? [error] : [])];
+  const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
   const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
@@ -117,10 +120,13 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   );
   return (
     <div className="cv-tools">
-      <div className="cv-tool cv-subagent-done-row" data-state={waiting ? "retrying" : agent.state}>
+      <TranscriptActivityRowShell
+        className="cv-tool cv-subagent-done-row"
+        attributes={{ "data-state": waiting ? "retrying" : agent.state }}
+      >
         <button
           type="button"
-          className="cv-tool cv-bgtask cv-subagent-done"
+          className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
           aria-label={whole}
@@ -135,8 +141,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             )}
           </span>
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
-          <span className="cv-tool__text" title={whole}>
-            {parts.join(" · ")}
+          <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
+            {!waiting && before}
+            <AgentTag name={agent.name} />
+            {!waiting && after}
+            {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
           </span>
         </button>
         {inline}
@@ -176,15 +185,18 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             )}
           </span>
         )}
-        <span className="cv-tool__trail cv-subagent-done__trail">
+        <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {/* The chevron only marks that the line opens; the line's button is the one control. Its
             column holds on a line that opens nothing, so the columns still line up. */}
-        <span className={`cv-tool__chevron cv-subagent-done__chevron${open ? "" : " is-idle"}`} aria-hidden>
+        <span
+          className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
+          aria-hidden
+        >
           <ChevronRight size={14} strokeWidth={1.2} />
         </span>
-      </div>
+      </TranscriptActivityRowShell>
     </div>
   );
 }

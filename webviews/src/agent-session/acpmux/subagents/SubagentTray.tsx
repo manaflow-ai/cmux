@@ -6,8 +6,9 @@
 // started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
 // its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
 // click opens it: a subagent's pane or view (App.tsx `showSubagent`), a command's terminal
-// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, keeps its
-// stop button. An agent another one spawned sits right under it.
+// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, has a Stop
+// square in the fixed row track and the same action in its context menu (a right-click, or Shift-F10
+// and the menu key on the focused line). An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
 // head their running agents: a still running-work mark (never the spinner, which stays on each
@@ -37,11 +38,11 @@
 // A line says what the agent does now in words (trayDetail.ts), never a raw shell line.
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
-// a box in a box. Hovering a line that opens something fills that whole line, its stop button
-// included, to the tray's own edges (one inset), with the arrow; a line says its kind first
-// ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its tooltip; its
-// stop button stops only that command (`_acpmux/process/kill`), which the composer's Stop does not
-// (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on
+// a box in a box. Hovering a line that opens something fills that whole line to the tray's own
+// edges (one inset), with the arrow, and the line stays lit while its menu is open; a line says its
+// kind first ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its
+// tooltip; its menu's Stop stops only that command (`_acpmux/process/kill`), which the composer's
+// Stop does not (that cancels the turn, and the command outlives it), so the item says so. (Leo 2026-10-21 on
 // the strip: "why is that even highlighted in the first place? you can click on it to go
 // somewhere? is that a command or a subagent?")
 //
@@ -50,16 +51,17 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactElement, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
-import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
+import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
@@ -85,6 +87,20 @@ const ROW_ICON = rowIconSize(12);
 
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
+
+/// What a line's Stop is keyed by while it can stop: a running subagent the harness stops, or a
+/// command acpmux lists; else nothing.
+const stopKey = (item: TrayItem): string | undefined =>
+  item.kind === "agent"
+    ? item.agent.state === "running" && !item.agent.command
+      ? `agent:${item.agent.id}`
+      : undefined
+    : item.kind === "command" && item.command.processId
+      ? `process:${item.command.processId}`
+      : undefined;
+
+/// A line's menu with nothing to stop.
+const NO_STOP: readonly ContextMenuItem[] = [];
 
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const SubagentTray = memo(function SubagentTray({
@@ -146,6 +162,9 @@ export const SubagentTray = memo(function SubagentTray({
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
   const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
+  // Each line's Stop, as its menu item: off while the request is out (and after it is taken, until
+  // that run ends); when acpmux or the harness refuses, the item says so and can be tried again.
+  const [stops, setStops] = useState<ReadonlyMap<string, "stopping" | "failed">>(() => new Map());
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
   const [motion] = useState(() => experimentArm(trayMotionLook));
@@ -212,6 +231,13 @@ export const SubagentTray = memo(function SubagentTray({
   const [arrived, setArrived] = useState<ReadonlySet<string>>(NO_ARRIVALS);
   if (comparedFor.current?.items !== items || comparedFor.current.finished !== finished) {
     comparedFor.current = { items, finished };
+    // A Stop's state lasts one run: a line that ends (or leaves) drops it, so a run that resumes
+    // under the same id can be stopped again (#28533's review).
+    if (stops.size > 0) {
+      const stoppable = new Set(items.map(stopKey).filter((key): key is string => key !== undefined));
+      if ([...stops.keys()].some((key) => !stoppable.has(key)))
+        setStops((current) => new Map([...current].filter(([key]) => stoppable.has(key))));
+    }
     const keys = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
     const known = seen.current ?? keys;
     seen.current = keys;
@@ -398,12 +424,46 @@ export const SubagentTray = memo(function SubagentTray({
     </section>
   );
 
+  /// A line in its context menu's host. The host stays when there is nothing to stop (no items, so a
+  /// right-click keeps the default and no menu opens): a line that ends, or whose command's process
+  /// id arrives, is the same node, and keeps its focus (#28533's review).
+  function menu(node: ReactElement, item: ContextMenuItem | false | undefined | "" | null) {
+    return (
+      <ContextMenu className="acpmux-running-tray__menu" items={item ? [item] : NO_STOP}>
+        {node}
+      </ContextMenu>
+    );
+  }
+
+  /// The menu's Stop for one line, keyed by what it stops.
+  function stopItem(key: string, name: string, label: string, run: () => Promise<unknown>): ContextMenuItem {
+    const state = stops.get(key);
+    const mark = (next: "stopping" | "failed") =>
+      setStops((current) => {
+        const updated = new Map(current);
+        updated.set(key, next);
+        return updated;
+      });
+    return {
+      id: "stop",
+      label: state === "failed" ? t("subagents.stopFailed", { name }) : label,
+      symbol: "stop.circle",
+      disabled: state === "stopping",
+      destructive: true,
+      onSelect: () => {
+        mark("stopping");
+        run().catch(() => mark("failed"));
+      },
+    };
+  }
+
   function line(item: TrayItem) {
     if (item.kind === "agent")
-      return (
+      return menu(
         <AgentLine
           name={item.agent.name}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
+          progressAgent={item.agent}
           mark={item.agent.harness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
@@ -426,54 +486,67 @@ export const SubagentTray = memo(function SubagentTray({
             item.agent.state === "running" &&
             !item.agent.command && <StopButton agent={item.agent} stop={stop} />
           }
-        />
+        />,
+        // An agent a shell call started stops with that call, not through the harness.
+        stop &&
+          item.agent.state === "running" &&
+          !item.agent.command &&
+          stopItem(stopKey(item)!, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
+            stop(item.agent.id),
+          ),
       );
     if (item.kind === "command") {
       const key = itemKey(item);
+      const processId = item.command.processId;
       return (
         <>
-          <AgentLine
-            name={sendLabel(t, item.command) ?? commandLabel(item.command)}
-            title={item.command.command}
-            kind={t("tray.kind.command")}
-            chevron
-            icon="terminal"
-            working
-            status="running"
-            state={t("subagents.state.running")}
-            quiet
-            expanded={canOpenTerminal ? openCommands.has(key) : undefined}
-            trayColumns
-            time={
-              item.command.startedAt === undefined
-                ? undefined
-                : formatDuration(Math.max(0, now - item.command.startedAt))
-            }
-            onOpen={
-              onOpenCommand
-                ? () => {
-                    setOpenCommands((current) => {
-                      const next = new Set(current);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    });
-                    onOpenCommand(item.command);
-                  }
-                : undefined
-            }
-            after={
-              stopProcess &&
-              item.command.processId && (
-                <ProcessStopButton
-                  id={item.command.processId}
-                  name={item.command.command}
-                  label={t("tray.stopCommand")}
-                  stop={stopProcess}
-                />
-              )
-            }
-          />
+          {menu(
+            <AgentLine
+              name={sendLabel(t, item.command) ?? commandLabel(item.command)}
+              title={item.command.command}
+              kind={t("tray.kind.command")}
+              chevron
+              icon="terminal"
+              working
+              status="running"
+              state={t("subagents.state.running")}
+              quiet
+              expanded={canOpenTerminal ? openCommands.has(key) : undefined}
+              trayColumns
+              time={
+                item.command.startedAt === undefined
+                  ? undefined
+                  : formatDuration(Math.max(0, now - item.command.startedAt))
+              }
+              onOpen={
+                onOpenCommand
+                  ? () => {
+                      setOpenCommands((current) => {
+                        const next = new Set(current);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      });
+                      onOpenCommand(item.command);
+                    }
+                  : undefined
+              }
+              after={
+                stopProcess &&
+                processId && (
+                  <ProcessStopButton
+                    id={processId}
+                    name={item.command.command}
+                    label={t("tray.stopCommand")}
+                    stop={stopProcess}
+                  />
+                )
+              }
+            />,
+            stopProcess &&
+              processId &&
+              stopItem(stopKey(item)!, item.command.command, t("tray.stopCommand"), () => stopProcess(processId)),
+          )}
           <BackgroundTaskTail
             command={item.command}
             open={openCommands.has(key) && canReadTail}

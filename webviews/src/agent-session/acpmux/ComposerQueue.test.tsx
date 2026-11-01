@@ -920,9 +920,129 @@ test("a waiting recovery whose row is gone when the editor frees hands its text 
   expect(run.editor("p-2")).toBeNull();
 });
 
+// A Save answered "no" after a newer Save of the same row began is stale: it must not hand its
+// superseded text to the composer (the newer save's text is the one that counts).
+test("an older save answered no after a newer save began does not hand its text to the composer", async () => {
+  const calls: { resolve(ok: boolean): void }[] = [];
+  const lost: [string, string][] = [];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((resolve) => calls.push({ resolve }))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  const saveAs = async (text: string) => {
+    await startEdit(container, "p-1");
+    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("text A");
+  await saveAs("text B");
+  await act(async () => calls[0]!.resolve(false));
+  await settle();
+  expect(lost).toEqual([]);
+  await act(async () => calls[1]!.resolve(false));
+  await settle();
+  expect(lost).toEqual([["p-1", "text B"]]);
+});
+
+// p-1's Save fails while its removal is pending (Delete hid it at once) and p-2's editor holds the
+// editor, so p-1's text waits. The row is not gone until acpmux says so: when p-2's editor closes the text
+// stays waiting (nothing goes to the composer); a refused removal brings the row back and the text
+// reopens in its editor, an accepted one hands it to the composer.
+async function failedSaveBehindPendingDelete() {
+  const saves = new Map<string, { reject(error: Error): void }>();
+  const removals: { resolve(ok: boolean): void }[] = [];
+  const lost: [string, string][] = [];
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={(id) => new Promise<boolean>((_, reject) => saves.set(id, { reject }))}
+        onRemove={() => new Promise<boolean>((resolve) => removals.push({ resolve }))}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  const saveAs = async (id: string, text: string) => {
+    await startEdit(container, id);
+    const field = container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`)!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("p-1", "one edited");
+  await saveAs("p-2", "two edited");
+  // Delete p-1 while its Save is pending: hidden at once, its removal awaits acpmux.
+  await act(async () => actions(container, "p-1")[1]!.click());
+  await settle();
+  expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
+  const notConnected = () => Object.assign(new Error("not connected"), { code: "native.not_connected" });
+  await act(async () => saves.get("p-2")!.reject(notConnected()));
+  await settle();
+  await act(async () => saves.get("p-1")!.reject(notConnected()));
+  await settle();
+  const editor = (id: string) => container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`);
+  expect(editor("p-2")?.value).toBe("two edited");
+  await act(async () => {
+    editor("p-2")!.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+  });
+  await settle();
+  return { lost, removals, editor, redraw: (rows: typeof queue) => act(async () => draw(rows)) };
+}
+
+test("a failed save behind a pending delete waits for acpmux's answer; a refused delete reopens its editor", async () => {
+  const run = await failedSaveBehindPendingDelete();
+  expect(run.lost).toEqual([]);
+  expect(run.editor("p-1")).toBeNull();
+  await act(async () => run.removals[0]!.resolve(false));
+  await settle();
+  await settle();
+  expect(run.editor("p-1")?.value).toBe("one edited");
+  expect(run.lost).toEqual([]);
+});
+
+test("a failed save behind a pending delete hands its text to the composer once the delete took", async () => {
+  const run = await failedSaveBehindPendingDelete();
+  expect(run.lost).toEqual([]);
+  await act(async () => run.removals[0]!.resolve(true));
+  await run.redraw([queue[1]!]);
+  await settle();
+  await settle();
+  expect(run.lost).toEqual([["p-1", "one edited"]]);
+  expect(run.editor("p-1")).toBeNull();
+});
+
 for (const [name, error] of [
   ["timed out", { code: "native.timed_out" }],
   ["closed", { code: "transport.closed" }],
+  ["failed (a reply lost or malformed after the edit applied)", { code: "native.failed" }],
 ] as const) {
   test(`a save that ${name} may already be applied: nothing is restored or reopened`, async () => {
     const run = await failedSave(error);
@@ -1080,4 +1200,100 @@ test("shownText is the prompt for the person's rows, and the resume's label, nam
   expect(shownText({ id: "r", prompt: "Your subagent … (agent id x1)", retry: { agentId: "x1" } }, t)).toBe(
     "composer.queuedSubagentRetry x1",
   );
+});
+
+// Cancel and edit takes the row back with the text it shows. A Save of the row still out would
+// change that text, and one failing after the row left would restore its own beside it, so cancel and
+// edit waits for the Save's answer: nothing is taken back, and nothing typed is lost or shown twice.
+async function cancelAndEditWhileSaving(slowImages = false) {
+  const saves: { resolve(ok: boolean): void; reject(error: Error): void }[] = [];
+  const reads: ((url: string | undefined) => void)[] = [];
+  const taken: [string, string][] = [];
+  const lost: [string, string][] = [];
+  const first = {
+    ...queue[0]!,
+    ...(slowImages ? { images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] } : {}),
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[first, queue[1]!]}
+        chat="c"
+        t={t}
+        readImage={slowImages ? () => new Promise<string | undefined>((resolve) => reads.push(resolve)) : undefined}
+        onChange={() => new Promise<boolean>((resolve, reject) => saves.push({ resolve, reject }))}
+        onRemove={async () => true}
+        onCancelEdit={async (id, text) => {
+          taken.push([id, text]);
+          return true;
+        }}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  const cancel = () =>
+    container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]')!;
+  const save = async () => {
+    await startEdit(container, "p-1");
+    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+    await act(async () => {
+      field.value = "first, reworded";
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')?.value ?? null;
+  return { saves, reads, taken, lost, cancel, save, editor };
+}
+
+test("cancel and edit does nothing while a Save of the row is out, and the failed Save's text is not lost", async () => {
+  const run = await cancelAndEditWhileSaving();
+  await run.save();
+  await act(async () => run.cancel().click());
+  await settle();
+  expect(run.taken).toEqual([]);
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});
+
+test("cancel and edit works again once the Save is answered", async () => {
+  const run = await cancelAndEditWhileSaving();
+  await run.save();
+  await act(async () => run.saves[0]!.resolve(true));
+  await settle();
+  await act(async () => run.cancel().click());
+  await settle();
+  expect(run.taken).toEqual([["p-1", "first"]]);
+});
+
+test("a Save begun while cancel and edit reads the row's images keeps the row queued", async () => {
+  const run = await cancelAndEditWhileSaving(true);
+  await act(async () => run.cancel().click());
+  await run.save();
+  await act(async () => run.reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+  await settle();
+  expect(run.taken).toEqual([]);
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});
+
+test("a Save begun and answered while cancel and edit reads the row's images keeps the row queued", async () => {
+  const run = await cancelAndEditWhileSaving(true);
+  await act(async () => run.cancel().click());
+  await run.save();
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  await act(async () => run.reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+  await settle();
+  expect(run.taken).toEqual([]);
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
 });

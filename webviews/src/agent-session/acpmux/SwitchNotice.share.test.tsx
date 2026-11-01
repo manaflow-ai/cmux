@@ -1,6 +1,6 @@
 // A teammate's machine refused the chat start: the card offers Share with Me beside New Cloud
-// Machine and Retry, one share button at a time (Leo rejects bloated cards). A share retries the
-// start; a refusal because only the creator or an admin shares turns the button into Ask the
+// Machine and Retry, one share button at a time (Leo rejects bloated cards). A share starts the
+// chat again and resends the refused prompt (#29563); a refusal because only the creator or an admin shares turns the button into Ask the
 // Owner, which copies a request naming the machine.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -57,13 +57,20 @@ const teamRefusal = {
   code: "agent_session.team_vm_blocked",
 };
 
-async function render(container: HTMLElement, call: () => Promise<unknown>, ran: string[], switching = teamRefusal) {
+async function render(
+  container: HTMLElement,
+  call: () => Promise<unknown>,
+  ran: string[],
+  switching = teamRefusal,
+  resends = true,
+) {
   await act(async () => {
     root ??= createRoot(container);
     root.render(
       <SwitchNotice
         switching={switching}
         onRetry={() => ran.push("retry")}
+        {...(resends && { onShared: () => ran.push("shared") })}
         onAction={(action) => ran.push(action)}
         share={{ machine: "build-box", call }}
       />,
@@ -71,11 +78,19 @@ async function render(container: HTMLElement, call: () => Promise<unknown>, ran:
   });
 }
 
-test("a teammate's machine offers Share with Me, and a share retries the start", async () => {
+test("a teammate's machine offers Share with Me, and a share resends the refused start", async () => {
   const container = installDom();
   const ran: string[] = [];
   await render(container, async () => ({ shared: true }), ran);
   expect(buttons(container)).toEqual(["Share with Me", "New Cloud Machine", "Retry"]);
+  await press(container, "Share with Me");
+  expect(ran).toEqual(["shared"]);
+});
+
+test("without a resend handler, a share falls back to a plain retry", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  await render(container, async () => ({ shared: true }), ran, teamRefusal, false);
   await press(container, "Share with Me");
   expect(ran).toEqual(["retry"]);
 });
@@ -123,8 +138,26 @@ test("once the owner was asked, Retry looks for their share before it starts aga
   shared = true;
   await press(container, "Retry");
   expect(calls).toBe(2);
-  expect(ran).toEqual(["retry"]);
+  expect(ran).toEqual(["shared"]);
   expect(buttons(container)).toEqual(["Share with Me", "New Cloud Machine", "Retry"]);
+});
+
+test("once the owner was asked, Retry with no share yet is a plain retry", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  let calls = 0;
+  await render(
+    container,
+    async () => {
+      calls += 1;
+      throw new NativeError({ code: "vm_chat_share_forbidden" });
+    },
+    ran,
+  );
+  await press(container, "Share with Me");
+  await press(container, "Retry");
+  expect(calls).toBe(2);
+  expect(ran).toEqual(["retry"]);
 });
 
 test("other refusals offer no share, and a new refusal starts over", async () => {

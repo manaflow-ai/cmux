@@ -16,6 +16,7 @@ verify-final-dmg-nightly, which publish needs anyway.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import shutil
@@ -130,21 +131,48 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 if name in SECRET_JOBS:
                     self.assertEqual(job["environment"], "${{ needs.decide.outputs.environment }}")
-                    if name == "signer-dmg":
-                        # The DMG release signer is trusted on a drained owned Mac first;
-                        # the moving Blacksmith macOS picker is its overflow. It deliberately
-                        # stays off fleet Linux because it receives release credentials.
-                        self.assertIn("needs.pick-nightly-sign-runner.outputs.sign_owned", job["runs-on"])
-                        self.assertIn("needs.pick-nightly-sign-runner.outputs.runner", job["runs-on"])
-                        self.assertIn("blacksmith-6vcpu-macos-26", job["runs-on"])
-                        self.assertNotIn("ubuntu", job["runs-on"])
-                    else:
-                        self.assertIn("ubuntu", job["runs-on"])
-                        self.assertNotIn("macos", job["runs-on"])
+                    self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", job["runs-on"])
+                    self.assertIn("linux_alternate", job["runs-on"])
+                    self.assertNotIn("macos", job["runs-on"])
                     self.assertNotIn("secrets.", yaml.safe_dump(job.get("env") or {}))
                 else:
                     self.assertNotIn("environment", job)
                     self.assertNotIn("secrets.", text)
+
+    def test_signer_compiler_uses_the_blacksmith_linux_set(self):
+        runs_on = JOBS["signer-build"]["runs-on"]
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt", runs_on)
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.linux_alternate", runs_on)
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
+        self.assertIn("contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]')", runs_on)
+        self.assertIn("pick-nightly-sign-runner", needs(JOBS["signer-build"]))
+
+    def test_production_signers_never_use_hosted_or_single_label_routes(self):
+        """Every credentialed signer reads the reconciled Blacksmith pool."""
+        runner_map = json.loads((ROOT / ".github/runners.json").read_text())
+        linux_set = runner_map["fleets"]["blacksmith"]
+        self.assertEqual(
+            {linux_set["linux"], linux_set["linux_16"], linux_set["linux_32"]},
+            {
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            },
+        )
+        for name in ("signer-build", "signer-app", "signer-app-notary", "signer-dmg"):
+            runs_on = JOBS[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
+                # Fork/manual runs have no repository variables; the owner
+                # guard keeps their expression from evaluating RUNNER_POOLS.
+                # The production branch after that guard must never use hosted
+                # Ubuntu or a fixed Linux label.
+                owner_guard = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' ||"
+                self.assertIn(owner_guard, runs_on)
+                self.assertNotIn("ubuntu-24.04", runs_on.split(owner_guard, 1)[1])
+                self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+                self.assertIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
+                self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
 
     def test_the_helper_is_notarized_first_and_every_signer_call_is_checked(self):
         steps = {step.get("name"): step for step in JOBS["signer-app"]["steps"]}
@@ -155,19 +183,12 @@ class Wiring(unittest.TestCase):
         for name in SECRET_JOBS:
             install = next(s for s in JOBS[name]["steps"] if s.get("name") == "Install the signer")
             self.assertIn("release-signer/install.sh", install["run"])
-            expected = "${{ needs.signer-build-macos.outputs.sha256 }}" if name == "signer-dmg" else "${{ needs.signer-build.outputs.sha256 }}"
-            self.assertEqual(install["env"]["SIGNER_SHA256"], expected)
+            self.assertEqual(install["env"]["SIGNER_SHA256"], "${{ needs.signer-build.outputs.sha256 }}")
         # A rerun of failed jobs reads the signer by the name its build attempt gave it.
         self.assertEqual(JOBS["signer-build"]["outputs"]["artifact"], "nightly-signer-${{ github.run_attempt }}")
         text = yaml.safe_dump({k: JOBS[k] for k in SIGNER_JOBS[1:]})
         self.assertNotIn("nightly-signer-${{ github.run_attempt }}", text)
         self.assertIn("name: ${{ needs.signer-build.outputs.artifact }}", text)
-
-    def test_native_signer_build_has_the_same_arm64_gate_as_the_linux_signer(self):
-        self.assertEqual(JOBS["signer-build-macos"]["if"], JOBS["signer-build"]["if"])
-        self.assertEqual(JOBS["signer-build-macos"]["outputs"]["artifact"], "nightly-signer-macos-${{ github.run_attempt }}")
-        install = next(s for s in JOBS["signer-dmg"]["steps"] if s.get("name") == "Install the signer")
-        self.assertEqual(install["env"]["SIGNER_SHA256"], "${{ needs.signer-build-macos.outputs.sha256 }}")
 
     def test_the_mac_jobs_run_every_apple_check_including_the_copied_helper(self):
         checks = (ROOT / "scripts/ci/nightly-steps/signer-apple-checks.sh").read_text()

@@ -27,6 +27,7 @@ import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
 
@@ -146,15 +147,15 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  // Use the shared compositor-only fade for a calm handoff from the placeholder.
-  // The motion is disabled under reduced-motion; opacity never affects layout.
   const image = (
     <img
-      className={thumb ? "cv-thumb__img cv-img--enter" : "cv-img cv-img--enter"}
+      className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
-      decoding="async"
+      // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
+      // second, visibly different frame.
+      decoding="sync"
     />
   );
   if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
@@ -198,16 +199,20 @@ export function ReplyImage({
   hideMissing?: boolean;
 }) {
   const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
   // A template or placeholder (`${variant}-320.png`) names no file: its text, never a chip.
   if (isTemplatePath(src)) return <span className="cv-chip-plain">{alt || pathName(src.split(/[?#]/)[0]!)}</span>;
   const local = localImageSource(src);
-  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
-  if (local && scope?.host !== undefined)
+  // Another machine's image (or, read only, the owner's): its chip, never a file of the same path
+  // here; a denied one is its name.
+  if (local && (scope?.host !== undefined || readOnly))
     return isDeniedPath(local) ? (
       <span className="cv-chip-plain">{alt || pathName(local)}</span>
     ) : (
-      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+      <ElsewhereChip path={local} host={scope?.host ?? ""} label={alt || undefined} />
     );
+  // Read only, a web image or media file stays its link text: nothing asks the owner's host.
+  if (readOnly) return <>{fallback}</>;
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);

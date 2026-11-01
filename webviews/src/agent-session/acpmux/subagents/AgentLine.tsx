@@ -4,7 +4,7 @@
 // either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon
 // (summary.css `.acpmux-lineage__icon`) is in the theme's accent while it runs, never a brand color,
 // and carries no corner dot, since the line says its state in words; then its name, a dim detail (what it does now, or its kind), its time and
-// its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
+// its state. A click opens it. With a `card` (Session Info's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
 // In the tray a line also says what kind of thing it is before its name (Leo 2026-10-21 on a tray
@@ -29,7 +29,9 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -38,6 +40,7 @@ export function AgentLine({
   name,
   detail,
   progress,
+  progressAgent,
   status,
   state,
   time,
@@ -67,6 +70,7 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -116,6 +120,8 @@ export function AgentLine({
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;

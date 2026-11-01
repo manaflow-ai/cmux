@@ -11,6 +11,7 @@ import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
+import { AgentTag } from "./AgentTag";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -107,21 +108,13 @@ export function AgentMessageRow({
               {before.trim()}
             </span>
           )}
-          {onOpenName ? (
-            <button
-              type="button"
-              className="cv-agentmsg__name cv-recipient"
-              aria-label={openNameLabel}
-              title={nameTitle}
-              onClick={onOpenName}
-            >
-              {name}
-            </button>
-          ) : (
-            <span className="cv-agentmsg__name cv-recipient is-plain" aria-hidden title={nameTitle}>
-              {name}
-            </span>
-          )}
+          <AgentTag
+            name={name}
+            className="cv-agentmsg__name cv-recipient"
+            ariaLabel={openNameLabel}
+            title={nameTitle}
+            onClick={onOpenName}
+          />
           {after.trim() && (
             <span className="cv-agentmsg__words" aria-hidden>
               {after.trim()}
