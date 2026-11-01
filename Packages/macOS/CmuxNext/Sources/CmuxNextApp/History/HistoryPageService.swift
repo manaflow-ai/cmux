@@ -151,9 +151,11 @@ extension TabContentCache {
     /// again, connected; one the tab left for another address is not touched.
     func personOpenedRemoteView(_ key: String, url: URL, scope: ActionRunScope?) {
         guard let services = pageRequests.services else { return }
+        let tab = tabModel(key)
+        // A tab that already left the record keeps no approval it could use if the record came back.
+        if let tab, tab.url != url.absoluteString { return }
         services.remoteViewPages.confirm(key, url: url, scope: scope)
-        guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab = tabModel(key),
-              tab.url == url.absoluteString else { return }
+        guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab else { return }
         showAppPage(url, in: tab)
     }
 
