@@ -91,7 +91,7 @@ class IndexNowTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
 
     def test_workflow_uses_public_shared_configuration_and_no_private_secret(self):
-        workflow = (ROOT / ".github/workflows/indexnow.yml").read_text()
+        workflow = (ROOT / ".github/workflows/indexnow-hourly.yml").read_text()
         self.assertNotIn("secrets.", workflow)
         self.assertNotIn("api/cron/indexnow", workflow)
         self.assertIn("web/app/lib/indexnow.ts", workflow)
@@ -99,11 +99,18 @@ class IndexNowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 6", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
 
+    def test_retire_legacy_workflow_filename_to_disable_old_identity(self):
+        # deployment_status can execute the workflow file from an old PR ref.
+        # The original workflow ID is retired after the replacement is active;
+        # keeping the file on main would preserve the noisy legacy identity.
+        self.assertFalse((ROOT / ".github/workflows/indexnow.yml").exists())
+        self.assertTrue((ROOT / ".github/workflows/indexnow-hourly.yml").is_file())
+
     def test_workflow_is_scheduled_not_triggered_by_every_deployment_status(self):
         # deployment_status cannot be filtered at the trigger, so every Vercel
         # preview status started a skipped run. The schedule plus state marker
         # replaces it.
-        workflow = (ROOT / ".github/workflows/indexnow.yml").read_text()
+        workflow = (ROOT / ".github/workflows/indexnow-hourly.yml").read_text()
         triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertNotIn("deployment_status", triggers)
         self.assertIn("schedule:", triggers)
