@@ -104,6 +104,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
     /// workspace colors"). On by default.
     public var showColors = true
+    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot (the
+    /// default), a leading rail or the whole row's fill. `showColors` off draws none of them.
+    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
