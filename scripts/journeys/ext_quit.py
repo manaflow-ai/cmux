@@ -10,15 +10,16 @@ key equivalent runs Quit. This group sends that real key (CuaDriver, ext_realkey
 --whole-host) and records what the person sees and what survives.
 
 Steps (`do`):
-  quit_state     {as}                    records, under NAME, the app's daemon pid (`debug.daemon`), the holder and
+  quit_state     {name}                  records, under NAME, the app's daemon pid (`debug.daemon`), the holder and
                                          terminal host processes of the bundle, the daemon's workspaces and terminals
                                          (`cmux workspace list`, `cmux terminal list`) and the app's own topology
                                          (`snapshot.get`): what must come back
-  real_quit      {answer?, ask_wait?, mark?}
-                                         a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
+  require_whole_host {}                  `not run` at once in a capture slot (its window is never key, so a real key
+                                         cannot reach it): run it with run.py --whole-host
+  real_quit      {ask_wait?, mark?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
                                          its quit dialog (`debug.quit` asking) within ASK_WAIT s (default 5), its
-                                         title, lines, buttons and default are recorded and ANSWER (default: the
-                                         dialog's default button, as Return does) is pressed; then the driver's
+                                         title, lines, buttons and default are recorded and its default button is
+                                         pressed (as Return does); a later dialog is recorded too; then the driver's
                                          `relaunch` path: wait for the process to end, reopen the same bundle through
                                          LaunchServices with its launch variables, wait for the restored topology.
 
@@ -27,9 +28,11 @@ Conditions (inside `expect.all`):
                                          it has every id in BUTTONS
   daemon_kept    {before}                process: the daemon the reopened app is connected to is the one recorded in
                                          BEFORE (same pid), and every holder and terminal host recorded then still runs
-  workspaces_back {before}               app: every workspace (by id and name) and every terminal (by id) the daemon
-                                         listed in BEFORE is listed again, each terminal still live (not ended), and
-                                         the app's topology shows every workspace and every pane BEFORE's showed
+  workspaces_back {before}               app: every workspace and every live terminal (by id) the daemon listed in
+                                         BEFORE is listed again, each terminal still live (not ended), and the app's
+                                         topology shows every workspace and every terminal BEFORE's showed
+  scrollback_whole {prefix, last}        daemon: the current terminal's rows above the screen (history, oldest first)
+                                         and its screen together hold PREFIX1 .. PREFIXLAST, each once, in order
 """
 import json
 import time
@@ -83,8 +86,15 @@ def _app_places(j):
     return workspaces, terms
 
 
+def step_require_whole_host(j, step):
+    if not D.ACTIVATE:
+        # A slot's window is never key: a real key cannot reach it. Not a verdict on the app.
+        raise D.NotRun("a real key needs a whole-host lease (run.py --whole-host): the app's window must be key")
+    return {"activate": True}
+
+
 def step_quit_state(j, step):
-    name = step["as"]
+    name = step["name"]
     workspaces, terminals = _daemon_lists(j)
     app_workspaces, app_terms = _app_places(j)
     state = {"daemon_pid": _daemon_pid(j), "helpers": _helpers(j), "workspaces": workspaces, "terminals": terminals,
@@ -105,9 +115,7 @@ def _quit_report(j):
 
 def step_real_quit(j, step):
     import ext_realkey  # the CuaDriver key path (same folder; it imports no driver)
-    if not D.ACTIVATE:
-        # A slot's window is never key: a real key cannot reach it. Not a verdict on the app.
-        raise D.NotRun("real_quit needs a whole-host lease (run.py --whole-host): the app's window must be key")
+    step_require_whole_host(j, step)
     seen = {"asked": False}
     j.quit_seen = seen
 
@@ -123,7 +131,7 @@ def step_real_quit(j, step):
                             default=prompt.get("default"), lines=report.get("lines"),
                             buttons=[b.get("id") for b in report.get("buttons") or []],
                             titles=[b.get("title") for b in report.get("buttons") or []], remember=report.get("remember"))
-                answer = step.get("answer") or prompt.get("default") or "keep"
+                answer = prompt.get("default") or "keep"
                 seen["answered"] = answer
                 seen["pressed"] = (j.app.rpc("debug.quit", {"press": answer}, timeout=10) or {}).get("pressed")
                 break
@@ -137,6 +145,11 @@ def step_real_quit(j, step):
         record = D.Journey.step_relaunch(j, dict(step, how="quit"))
     finally:
         del j.key
+    if not seen.get("asked") and record.get("sheet"):
+        # The dialog came after ASK_WAIT: the driver's own loop saw it and pressed its default.
+        sheet = record["sheet"]
+        seen.update(asked=True, late=True, default=sheet.get("default"), lines=sheet.get("lines"),
+                    buttons=sheet.get("buttons"), answered=sheet.get("default"))
     record["quit_dialog"] = seen
     record["why"] = _why(j, wall)
     return record
@@ -192,6 +205,8 @@ def cond_daemon_kept(j, want, cache):
               "helpers_gone": gone[:6]}
     if not before["daemon_pid"]:
         return False, dict(detail, why="no daemon pid was recorded before the quit")
+    if not before["helpers"]:
+        return False, dict(detail, why="no holder or terminal host was found before the quit: nothing to compare")
     if pid != before["daemon_pid"]:
         return False, dict(detail, why="the reopened app talks to another daemon: the old one ended")
     if gone:
@@ -206,9 +221,10 @@ def cond_workspaces_back(j, want, cache):
     ids = {w["id"] for w in workspaces}
     lost_ws = [w for w in before["workspaces"] if w["id"] not in ids]
     by_id = {t["id"]: t for t in terminals}
-    lost_terms = [t["id"] for t in before["terminals"] if t["id"] not in by_id]
-    dead = [t["id"] for t in before["terminals"] if t["id"] in by_id
-            and str(by_id[t["id"]].get("lifecycle") or "").lower() in ("dead", "ended", "exited", "closed")]
+    ended = ("dead", "ended", "exited", "closed")
+    live_before = [t for t in before["terminals"] if str(t.get("lifecycle") or "").lower() not in ended]
+    lost_terms = [t["id"] for t in live_before if t["id"] not in by_id]
+    dead = [t["id"] for t in live_before if t["id"] in by_id and str(by_id[t["id"]].get("lifecycle") or "").lower() in ended]
     app_ids = {w["id"] for w in app_workspaces}
     app_lost = [w for w in before["app_workspaces"] if w["id"] not in app_ids]
     app_lost_terms = [t for t in before["app_terminals"] if t not in set(app_terms)]
@@ -217,10 +233,33 @@ def cond_workspaces_back(j, want, cache):
               "app_workspaces_before": len(before["app_workspaces"]), "app_workspaces_now": len(app_workspaces),
               "lost_workspaces": lost_ws[:8], "lost_terminals": lost_terms[:8], "ended_terminals": dead[:8],
               "app_lost_workspaces": app_lost[:8], "app_lost_terminals": app_lost_terms[:8]}
-    ok = not (lost_ws or lost_terms or dead or app_lost or app_lost_terms) and len(before["workspaces"]) > 0
+    ok = not (lost_ws or lost_terms or dead or app_lost or app_lost_terms) and len(before["workspaces"]) > 0 and len(live_before) > 0
     return ok, detail
 
 
-STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit}
+def cond_scrollback_whole(j, want, cache):
+    prefix, last = j.sub(want["prefix"]), int(want["last"])
+    texts, total = j.history("oldest", min(max(last + 200, 200), 10000), cache)
+    screen = j.app.screen(j.need_term())["text"].splitlines()
+    import re
+    pattern = re.compile(r"^\s*" + re.escape(prefix) + r"(\d+)\s*$")
+    numbers = [int(m.group(1)) for line in list(texts) + screen for m in [pattern.match(line)] if m]
+    # A row can show in both reads when the screen scrolled between them: keep the first of each run.
+    seen, ordered = set(), []
+    for n in numbers:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    want_rows = list(range(1, last + 1))
+    detail = {"history_rows_read": len(texts), "screen_rows": len(screen), "numbered": len(ordered),
+              "first": ordered[0] if ordered else None, "last": ordered[-1] if ordered else None}
+    if ordered != want_rows:
+        missing = sorted(set(want_rows) - seen)
+        return False, dict(detail, why=f"rows 1..{last} are not all there in order", missing=missing[:8],
+                           missing_count=len(missing), out_of_order=ordered != sorted(ordered))
+    return True, detail
+
+
+STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host}
 CONDITIONS = {"quit_asked": ("app", cond_quit_asked), "daemon_kept": ("process", cond_daemon_kept),
-              "workspaces_back": ("app", cond_workspaces_back)}
+              "workspaces_back": ("app", cond_workspaces_back), "scrollback_whole": ("daemon", cond_scrollback_whole)}
