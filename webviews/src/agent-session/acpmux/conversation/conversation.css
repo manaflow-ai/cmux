@@ -1924,13 +1924,14 @@ pre.cv-math-source {
 /* Tool calls are background activity: focus restores the primary tone without changing the
    row's geometry. A step row draws nothing more on hover (Leo 2026-10-13, #20330: tool rows
    "no longer change on hover"; agent-pane-step-rows.test.ts), so only focus lifts it. */
-.cv-tool:focus-within,
+/* A session link chip in the row (AgentTag.css) lights alone: its focus is not the row's. */
+.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 .cv-worked:hover,
 .cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:focus-within .cv-tool__chevron,
-.cv-tool:focus-within .cv-tool__detail {
+.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
@@ -2539,13 +2540,15 @@ pre.cv-math-source {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
+/* A written file's name (WriteLabel.tsx): it opens the file, so under the pointer it takes the link
+   colour and an underline, apart from the row's own lift (design/chat-transcript.md, "Session link
+   chip": a link in a row lights alone and reads as a link). */
 .cv-tool__file.is-link {
   cursor: default;
   border-radius: 3px;
 }
 .cv-tool__file.is-link:hover {
-  color: var(--cv-text);
+  color: var(--agent-link, var(--agent-accent));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -2804,8 +2807,8 @@ pre.cv-math-source {
   user-select: none;
 }
 /* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
-.cv-received > .cv-disclosure__line:hover:not(:has(.cv-received__from--open:hover)),
-.cv-received > .cv-disclosure__line:focus-within,
+.cv-received > .cv-disclosure__line:hover:not(:has(.cv-agent-tag.is-open:hover)),
+.cv-received > .cv-disclosure__line:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 .cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
@@ -2848,6 +2851,11 @@ pre.cv-math-source {
   opacity: 1;
   pointer-events: auto;
 }
+/* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
+.cv-received > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open])) .cv-received__hover {
+  opacity: 0;
+  pointer-events: none;
+}
 .cv-received__hover > .cv-received-actions {
   margin-inline-start: 0;
 }
@@ -2865,9 +2873,16 @@ pre.cv-math-source {
 .cv-received__mark {
   display: inline-flex;
   flex: none;
+  /* Its own line box would sit the glyph on a baseline above the line's centre: the mark is a
+     centred box of the glyph line's height, so its glyph and the sender's chip share a centre. */
+  align-items: center;
+  height: var(--cv-glyph-line);
   width: var(--cv-row-icon);
   justify-content: center;
   color: var(--cv-text-muted);
+}
+.cv-received__mark > :is(svg, img, span) {
+  display: block;
 }
 .cv-received__from {
   min-width: 0;
@@ -2876,21 +2891,8 @@ pre.cv-math-source {
   white-space: nowrap;
   color: var(--cv-activity-text);
 }
-.cv-received__from--open {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--cv-text);
-  margin-inline: calc(-1 * var(--ds-space-1));
-  padding: calc(var(--ds-space-1) / 2) var(--ds-space-1);
-  border-radius: 5px;
-  cursor: default;
-}
-.cv-received__from--open:hover,
-.cv-received__from--open:focus-visible {
-  background: color-mix(in srgb, var(--cv-text) 8%, transparent);
-}
+/* A sender with a chat to open is the session link chip (AgentTag.css `button.cv-agent-tag.is-open`):
+   its look is that rule's alone. */
 .cv-received__preview {
   flex: 0 1 auto;
   min-width: 0;
@@ -2907,12 +2909,12 @@ pre.cv-math-source {
   user-select: text;
   -webkit-user-select: text;
 }
-.cv-received:is(:hover, :active, :focus-within) {
+/* Pointing at the sender's open chip lights the chip alone: the line keeps its tone. */
+.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
   color: var(--cv-text);
 }
-.cv-received:is(:hover, :active, :focus-within) .cv-received__from,
-.cv-received:hover .cv-received__text,
-.cv-received:is(:hover, :active, :focus-within) .cv-received__text {
+.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  :is(.cv-received__from:not(.is-open), .cv-received__text) {
   color: var(--cv-text);
 }
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
@@ -2936,9 +2938,10 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   text-decoration: none;
 }
+/* A commit link under the pointer takes the link colour, not the text's: it opens GitHub. */
 a.cv-sha:hover,
 a.cv-sha:focus-visible {
-  color: var(--cv-text);
+  color: var(--agent-link, var(--agent-accent));
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 3px;
