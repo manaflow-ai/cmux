@@ -467,11 +467,11 @@ impl Session {
         // as the owner's (`cmux_conversation::agent_sender`).
         let mut parts = parts;
         if let Some(sender) = &self.sender {
-            for part in &mut parts {
-                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                    part["text"] = json!(sender.labelled(text));
-                    break;
-                }
+            let fields = parts.iter_mut().filter_map(Value::as_object_mut);
+            if let Some(text) = fields.into_iter().find_map(|part| part.get_mut("text"))
+                && let Some(words) = text.as_str()
+            {
+                *text = json!(sender.labelled(words));
             }
         }
         let message = match self.client.owner {

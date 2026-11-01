@@ -53,10 +53,16 @@ pub(super) fn add_sender(
     if let Some(thread) = provenance.and_then(|p| p.get("threadId")).and_then(Value::as_str) {
         sender.insert("threadId".into(), json!(thread));
     }
-    if !params.get("_meta").is_some_and(Value::is_object) {
-        params["_meta"] = json!({});
+    // Params are always an object here (`prompt_params`, a steer's); anything
+    // else is left as it is.
+    let Some(fields) = params.as_object_mut() else { return };
+    let meta = fields.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
     }
-    params["_meta"]["acpmux"] = json!({"sender": Value::Object(sender)});
+    if let Some(meta) = meta.as_object_mut() {
+        meta.insert("acpmux".into(), json!({"sender": Value::Object(sender)}));
+    }
 }
 
 #[cfg(test)]
