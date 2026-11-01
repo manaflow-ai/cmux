@@ -186,6 +186,13 @@ class PerTest(unittest.TestCase):
                               "✘ Suite SidebarGroupHoverCardTests failed after 0.2 seconds with 1 issue."))
         self.assertEqual(found.failed, {"SidebarGroupHoverCardTests"})
 
+    def test_quoted_suite_teardown_issue_is_a_failing_suite(self):
+        found = reds.read(log(
+            '✘ Suite "Cloud sidebar Ports status controls" recorded an issue at Cloud.swift:1:2: Issue recorded',
+            '✘ Suite "Cloud sidebar Ports status controls" failed after 0.2 seconds with 1 issue.',
+        ))
+        self.assertEqual(found.failed, {"Cloud sidebar Ports status controls"})
+
     def test_swift_test_summary_fixture_signal_text_is_not_a_crash(self):
         fixture = log(
             "scripts/cmux-next/tests/swift-test-summary.test.sh:148: "
