@@ -1,7 +1,7 @@
 //! The link share bridge against a fake room that speaks `cmux.share/1` (cmux-platform's
 //! `ChatShareRoom`): provisioning, its retry and give-up, the host socket's `hello` → `guests`
 //! order, redeem, kicks resent until acknowledged, revoke's `end` and `DELETE`, and reconnects.
-use super::super::{MAX_SHARES, digest, hex};
+use super::super::{MAX_SHARES, ShareTerms, digest, hex};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, Fixture, SESSION, WAIT, agent_tab, assert_code, mux_with,
@@ -780,6 +780,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 state: ShareState::Revoked,
                 secret_sha256: String::new(),
                 provision_key: None,
+                create_id: None,
                 room: None,
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
@@ -817,7 +818,17 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(pending(), 0, "credentialless pending room deletes settle at expiry");
-    assert!(shares.insert(Some(&directory), SESSION.into(), 1, 3600, 1, false).is_ok());
+    assert!(
+        shares
+            .insert(
+                Some(&directory),
+                SESSION.into(),
+                1,
+                ShareTerms { ttl_secs: 3600, uses: 1, create_id: None },
+                false
+            )
+            .is_ok()
+    );
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
@@ -887,7 +898,15 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
     room.shared.deletes.lock().unwrap().push_back(503);
     let (_fake, mux, surface, _owner) = bridged("room-owner-unsaved", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.refuse_writes.store(true, Ordering::Relaxed);
     let mut configured = shares.bridge.room().unwrap();
@@ -920,7 +939,15 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
     let directory = mux.session_state_directory().unwrap();
     let shares = shares_of(&mux);
     shares.serve(&mux);
-    let created = shares.insert(Some(&directory), SESSION.into(), 1, 60, 1, true).unwrap();
+    let created = shares
+        .insert(
+            Some(&directory),
+            SESSION.into(),
+            1,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares
         .end(Some(&directory), &super::super::Named { share_id: id.clone(), guest_id: None })
@@ -949,13 +976,38 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
     let room = FakeRoom::start(&[]);
     let (_fake, mux, surface, _owner) = bridged("room-late-capacity", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
     for _ in 1..MAX_SHARES {
-        shares.insert(None, SESSION.into(), surface, 60, 1, false).unwrap();
+        shares
+            .insert(
+                None,
+                SESSION.into(),
+                surface,
+                ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+                false,
+            )
+            .unwrap();
     }
-    assert_eq!(shares.insert(None, SESSION.into(), surface, 60, 1, false), Err("share.limit"));
+    assert_eq!(
+        shares.insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            false
+        ),
+        Err("share.limit")
+    );
     delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
     let (path, bearer, _) = room.request("DELETE");
     assert_eq!(path, format!("/v1/chat-shares/{id}"));
@@ -967,7 +1019,15 @@ fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
     let room = FakeRoom::start(&[]);
     let (_fake, mux, surface, _owner) = bridged("room-late-token-race", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
     assert!(view(&mux, &id).unwrap().delete, "the revoke queues the room's DELETE");
@@ -1095,6 +1155,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 state: ShareState::Active,
                 secret_sha256: String::new(),
                 provision_key: None,
+                create_id: None,
                 room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
@@ -1132,6 +1193,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 state: ShareState::Revoked,
                 secret_sha256: String::new(),
                 provision_key: None,
+                create_id: None,
                 room: Some(json!({"url": room.url, "host_token": "t"})),
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
@@ -1139,7 +1201,17 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
             Ok(((), false))
         })
         .unwrap();
-    assert!(shares.insert(None, SESSION.into(), surface, 60, 1, false).is_ok());
+    assert!(
+        shares
+            .insert(
+                None,
+                SESSION.into(),
+                surface,
+                ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+                false
+            )
+            .is_ok()
+    );
     shares
         .with(None, |all, _| {
             all[0].pending_room_ops.push(json!({"op": "delete"}));
@@ -1559,6 +1631,29 @@ fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_
     room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "after",
         "text": "still here"}));
     assert_eq!(fake.frame()["method"], "session/prompt");
+}
+
+/// A guest frame of another protocol version (or none) starts no relay and sends no prompt.
+#[test]
+fn a_guest_frame_of_another_version_is_ignored() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-version", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 2, "t": "guest_joined", "guest_id": ann}));
+    room.send(json!({"t": "guest_joined", "guest_id": ann}));
+    room.none(
+        "a snapshot for a guest_joined that is not v1",
+        |s| matches!(s, Seen::Frame { frame, .. } if frame["t"] == "snapshot"),
+    );
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 2, "t": "guest_prompt", "guest_id": ann, "client_id": "v2",
+        "text": "hello"}));
+    assert!(
+        fake.next_frame(Duration::from_millis(500)).is_none_or(|f| f["method"] != "session/prompt"),
+        "a v2 prompt never reaches the daemon"
+    );
 }
 
 /// A guest relay's connection takes one of the daemon's connection permits like any client's:

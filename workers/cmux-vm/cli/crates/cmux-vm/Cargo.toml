@@ -11,13 +11,27 @@ rust-version.workspace = true
 name = "cmux-vm"
 path = "src/main.rs"
 
+[features]
+default = ["default-tls", "system-proxy", "preserve-order"]
+default-tls = ["cmux-vm-client/default-tls"]
+system-proxy = ["cmux-vm-client/system-proxy"]
+# --json prints the server's keys in the server's order. Off in the cmux CLI: Cargo unifies
+# features, so it would turn on preserve_order for every serde_json map in that binary.
+preserve-order = ["serde_json/preserve_order"]
+
 [dependencies]
 clap.workspace = true
-cmux-vm-client = { path = "../cmux-vm-client" }
+base64.workspace = true
+cmux-vm-client = { path = "../cmux-vm-client", default-features = false }
 futures.workspace = true
 serde.workspace = true
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json.workspace = true
 tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+# The user's home from the user database, for the token store lock (token.rs).
+nix = { workspace = true, features = ["user"] }
 
 [dev-dependencies]
 wiremock.workspace = true

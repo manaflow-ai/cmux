@@ -13,7 +13,7 @@ import Testing
 /// therefore 6 + 6 = 12, the nearest grid line both allow; text stays lead + icon box + 8 (36 compact, 44 comfortable).
 @MainActor @Suite(.serialized) struct SidebarGridAlignmentTests {
     nonisolated enum Kind: String, CaseIterable, Sendable {
-        case workspace, item, tab, app, link, sectionHeader, done, showMore, group
+        case workspace, item, app, link, sectionHeader, done, showMore, group
     }
 
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
@@ -92,12 +92,7 @@ import Testing
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
             let text: CGFloat = hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)
-            if c.kind == .tab {
-                // A tab row's lead is #27530's hierarchy (under its parent's title), not a grid line; its mid is checked.
-                let label = try #require(view.subviews.compactMap { $0 as? ChromeLabel }.first { !$0.isHidden && !$0.stringValue.isEmpty })
-                let font = try #require(label.font)
-                #expect(abs(label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2 - height / 2) <= 0.5)
-            } else if let workspace = view as? WorkspaceRowView {
+            if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 7)) <= 0.5)
                 let font = workspace.title.font
                 let mid = workspace.title.frame.minY + font.ascender - font.capHeight / 2
@@ -161,12 +156,6 @@ import Testing
             let view = SidebarItemListRowView(key: .item("grid-item"))
             let item = SidebarListItem(id: "grid-item", ref: c.kind == .app ? .app("grid/app") : .url("https://example.com"), title: "Grid")
             view.configure(item, favicon: nil, row: row(view.key, height: height))
-            result = view
-        case .tab:
-            let tabID = TabID("grid-tab")
-            let view = SidebarTabRowView(key: .tab(workspaceID, tabID))
-            let tab = SidebarTab(id: tabID, title: "Grid", isUnread: true)
-            view.configure(tab, row: row(view.key, height: height))
             result = view
         case .sectionHeader:
             let view = SectionHeaderRowView(key: .section(.machine(.local)))
@@ -267,14 +256,16 @@ extension SidebarGridAlignmentTests {
             let height = SidebarDensityTokens.headerHeight
             let section = try #require(Self.view(c, width: 304, height: height) as? SectionHeaderRowView)
             section.layout()
+            // Without the add button the fold takes the column; with it, the add button takes the column and the
+            // fold steps one pitch left (base #27954, as a group header's + ⋮ ⌄ do).
             let fold = try #require(section.subviews.compactMap { $0 as? DecorativeImageView }.first { !$0.isHidden })
-            #expect(abs(fold.frame.midX - 281.5) <= 0.5)
+            #expect(abs(fold.frame.midX - (marks == 1 ? 281.5 : 261.5)) <= 0.5)
             #expect(abs(fold.frame.midY - height / 2) <= 0.5)
             #expect(section.addButton.isHidden == (marks == 1))
             if marks == 2 {
-                #expect(abs(section.addButton.frame.midX - 261.5) <= 0.5)
+                #expect(abs(section.addButton.frame.midX - 281.5) <= 0.5)
                 #expect(abs(section.addButton.frame.midY - height / 2) <= 0.5)
-                #expect(section.addButton.frame.maxX <= fold.frame.minX)
+                #expect(fold.frame.maxX <= section.addButton.frame.minX)
             }
         }
     }
@@ -290,7 +281,7 @@ extension SidebarGridAlignmentTests {
             let height = SidebarDensityTokens.rowHeight
             let group = GroupID("grid-nesting")
             let keys: [SidebarRowKey] = [
-                .workspace(WorkspaceID("grid-nesting")), .tab(WorkspaceID("grid-nesting"), TabID("grid-nesting")),
+                .workspace(WorkspaceID("grid-nesting")),
                 .item("grid-nesting"), .doneFold(SidebarDoneFoldID(section: .machine(.local), group: group)),
                 .showMore(SidebarDoneFoldID(section: .machine(.local), group: group)), .group(group),
             ]
@@ -329,14 +320,13 @@ extension SidebarGridAlignmentTests {
             let workspace = try #require(Self.view(c, width: 312, height: height) as? WorkspaceRowView)
             workspace.isHovered = true
             workspace.onMore = {}
-            workspace.disclosure = .collapsed
             workspace.treeFold = .collapsed
             workspace.isExpanded = true
             workspace.isPinned = { true } // an expanded row shows its pin button only when pinned (base)
             workspace.audioButton.isHidden = false
             workspace.layout()
             for control in [workspace.closeButton, workspace.moreButton, workspace.pinButton,
-                            workspace.audioButton, workspace.disclosureButton, workspace.treeFoldButton] {
+                            workspace.audioButton, workspace.treeFoldButton] {
                 #expect(control.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             }
             let groupCase = Case(kind: .group, comfortable: comfortable, depth: 0, marks: 2)
@@ -396,26 +386,6 @@ extension SidebarGridAlignmentTests {
 }
 
 extension SidebarGridAlignmentTests {
-    /// A tab with nothing on the trailing column (no status, unread dot or hover ✕) still ends its text one
-    /// `horizontalInset` short of the row's end; it never runs to the row edge (Astra's c8a8b25e follow-up 1).
-    @Test(arguments: [false, true])
-    func aTabWithNoTrailingMarkStopsTextOneInsetShortOfTheEdge(comfortable: Bool) throws {
-        try Self.withDensity(comfortable) {
-            let workspaceID = WorkspaceID("grid-workspace"), tabID = TabID("grid-quiet-tab")
-            let view = SidebarTabRowView(key: .tab(workspaceID, tabID))
-            let tab = SidebarTab(id: tabID, title: String(repeating: "A long quiet tab title ", count: 8), isUnread: false)
-            let height = SidebarDensityTokens.rowHeight
-            view.configure(tab, row: Self.row(view.key, height: height))
-            view.frame = NSRect(x: 0, y: 0, width: 304, height: height)
-            view.layout()
-            let labels = view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && $0.frame.width > 0 }
-            #expect(!labels.isEmpty)
-            for label in labels {
-                #expect(label.frame.maxX <= 304 - SidebarStyle.horizontalInset + 0.5)
-            }
-        }
-    }
-
     /// grid.md 3: a leading icon's box is 16 (compact) or 20 (comfortable) and the text starts one 8 pt gap after
     /// it, so the icon-to-text gap is 8 at both densities; the glyph centers in the box and keeps its size
     /// (Astra's c8a8b25e follow-up 2: comfortable reserved a 20 column around a 16 frame, a 12 pt gap).

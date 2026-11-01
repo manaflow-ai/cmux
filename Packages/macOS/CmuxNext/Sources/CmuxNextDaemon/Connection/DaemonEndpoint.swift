@@ -305,11 +305,17 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
+    /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
+    /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
+    case agentSessionFolders = "agent-session-folders-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
+    /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
+    case agentSessionSettings = "agent-session-settings-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -513,8 +519,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
-             .agentSessionChildren, .agentSessionPresence, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

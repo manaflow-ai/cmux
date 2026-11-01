@@ -294,15 +294,15 @@ export default agentPaneEntry({
       },
     },
     "panel-two": {
-      note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; a chat\'s raw shell doing line reads "Running sed -i …", never "cd /Users/… && sed -i …".',
+      note: "Leo's panel with two chats running and three ended (2026-10-25: \"this section, the whatever background tasks ... it's kind of wack\"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         headInView(ctx);
-        const details = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__kind")].map(
-          (node) => node.textContent ?? "",
-        );
-        if (details.some((text) => text.startsWith("cd ")))
-          throw new Error(`a line never shows a raw shell line: ${details.join(" | ")}`);
+        // No line carries a subtitle, so none shows a raw shell line (subagents/AgentLine.tsx).
+        const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        if (tray.querySelector(".acpmux-summary-agent__kind"))
+          throw new Error("a tray line carries no subtitle: what it does is its tooltip");
+        if ((tray.textContent ?? "").includes("cd /Users/")) throw new Error("a line never shows a raw shell line");
       },
       snapshot: panel(3),
     },
@@ -350,7 +350,7 @@ export default agentPaneEntry({
       snapshot: panel(116),
     },
     "workflow-progress": {
-      note: "A workflow reports completed/started agents, failures, queued agents and token usage in the default tray.",
+      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is Session Info's).",
       play: trayLines(1),
       snapshot: chat(
         [
@@ -360,7 +360,7 @@ export default agentPaneEntry({
               agent("Review modules", 1.8, "running", {
                 kind: "workflow",
                 action: "Review",
-                agents: { done: 37, started: 101, failed: 2, queued: 4 },
+                agents: { done: 1037, started: 10101, failed: 212, queued: 1450 },
                 tokens: 1_200_000,
                 phases: [{ index: 0, title: "Review" }],
                 workflowAgents: new Map([

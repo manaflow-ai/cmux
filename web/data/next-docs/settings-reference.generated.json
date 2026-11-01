@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 538,
   "sections": [
     {
       "id": "general",
@@ -89,6 +89,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
         },
         {
           "key": "agentPane.scrollToBottomOnSend",
@@ -352,6 +364,19 @@
           "group": "Tabs"
         },
         {
+          "key": "appearance.metrics.tabFontSize",
+          "title": "Tab Text Size",
+          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 10,
+            "max": 18,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -400,6 +425,19 @@
           "range": {
             "min": 24,
             "max": 120,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabStripHeight",
+          "title": "Tab Bar Height",
+          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 22,
+            "max": 44,
             "unit": "points"
           }
         },
@@ -1610,6 +1648,19 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "title": "Transcript View",
+          "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Agent Chat",
+          "values": [
+            "normal",
+            "thinking",
+            "verbose"
           ]
         },
         {
@@ -3145,7 +3196,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 1300,
+          "default": 400,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3449,6 +3500,14 @@
           "key": "sidebar.showLocalMachine",
           "title": "Mark This Mac's Workspaces",
           "help": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3910,6 +3969,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },

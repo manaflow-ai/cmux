@@ -356,7 +356,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -457,7 +457,8 @@ public final class AgentPaneView: NSView {
         removeContextMenu()
         if let page {
             webView.stopLoading()
-            webView.loadHTMLString("", baseURL: nil)
+            // A Chromium chat's WebKit view never loaded: a blank load would start a process to close.
+            if webView.url != nil { webView.loadHTMLString("", baseURL: nil) }
             // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {

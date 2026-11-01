@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -126,6 +127,8 @@ extension CloudHandlers {
             guard let publicKey = invocation["publicKey"]?.stringValue, !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ActionFailure(message: CloudStrings.publicKeyRequired)
             }
+            // A Worker machine (the app server link) has no `/api/vm` scp endpoint.
+            guard cloud.configuration.linkSource != .appServer else { throw operationUnavailable }
             answer("prepare Cloud file transfer", invocation, context) {
                 let endpoint = try await cloud.api.prepareSCP(session.machineID, publicKey: publicKey)
                 let body = ["host: \(endpoint.host)", "port: \(endpoint.port)", "user: \(endpoint.username)",
@@ -155,10 +158,10 @@ extension CloudHandlers {
             }
         }
         bind("cloudRenameMachine", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context)
+            let session = try machine(invocation, context), byPerson = origin(of: invocation) == .user
             let rename = { (name: String) in
                 result("rename machine", context) {
-                    try await cloud.renameMachine(session.machineID, to: name)
+                    try await cloud.renameMachine(session.machineID, to: name, byPerson: byPerson)
                     return machineFields(session.machineID, ["name": .string(name)])
                 }
             }
@@ -166,24 +169,58 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
+        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
+        // it a person's run opens the teammates page and a CLI or agent run answers the list.
+        bind("cloudShareMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
+                let shared = invocation["revoke"]?.boolValue != true
+                return result("share machine", context) {
+                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
+                        throw ActionFailure(message: CloudMachineShare.message(error))
+                    }
+                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
+                }
+            }
+            if origin(of: invocation) == .user {
+                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
+                                                     relativeTo: context.activeWindow?.window)
+            }
+            answer("machine shares", invocation, context) {
+                let roster: CloudMachineShareRoster
+                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
+                    throw ActionFailure(message: CloudMachineShare.message(error))
+                }
+                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
+                let teammates = roster.rows.map { row in
+                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
+                }
+                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
+                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
+            }
+        }
+        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
+            (try? machine(invocation, context))?.link == nil
+        }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
-                try await cloud.deleteMachine(session.machineID)
-                return machineFields(session.machineID, ["status": .string("deleted")])
+                try await cloud.deleteMachine(session.machineID, byPerson: origin(of: invocation) == .user)
+                return deletionPending(session.machineID)
             }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             runTracked("pause machine", context) {
-                try await cloud.pauseMachine(session.machineID)
+                try await cloud.pauseMachine(session.machineID, byPerson: origin(of: invocation) == .user)
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             runTracked("resume machine", context) {
-                try await cloud.resumeMachine(session.machineID)
+                try await cloud.resumeMachine(session.machineID, byPerson: origin(of: invocation) == .user)
             }
         }
         // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
@@ -206,18 +243,24 @@ extension CloudHandlers {
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
-            guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
-                throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
-            }
-            result("resize machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["size": .string(size)])) {
-                try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory)
-                return machineFields(session.machineID, ["size": .string(size)])
+            // A menu or palette run with neither still asks for the size, as when --size was required.
+            if invocation["size"] == nil, invocation["disk"] == nil, origin(of: invocation) == .user,
+               registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
+            let request = try CloudResizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
+            result("resize machine", context, pendingAfter: machineAnswerWait, pending: fields) {
+                if cloud.configuration.linkSource == .appServer {
+                    try await cloud.appServerResize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb, byPerson: origin(of: invocation) == .user)
+                } else {
+                    try await cloud.api.resize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                }
+                return fields
             }
         }
         // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
         // after this many minutes with nothing attached, running or forwarded; `off` never.
         bind("cloudSetIdlePause", registry, reason: reason) { invocation in
-            try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1) }
+            let byPerson = origin(of: invocation) == .user
+            try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1, byPerson: byPerson) }
         }
         // `cloud apply-machine-config --target machine:<id> [--machine-config FILE]` (CloudMachineConfig):
         // uploads FILE, or reapplies the --repo checkout's `.cmux/machine.toml` or the last upload.
@@ -261,6 +304,9 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            if session.appLink != nil, cloud.previewAPI != nil {
+                return livePreviewPorts(session, invocation, context)
+            }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
             answer("machine ports", invocation, context) {
                 let table = try await connection.request(MachineListeningTCPRequest()).stdout
@@ -283,7 +329,8 @@ extension CloudHandlers {
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             answer("hand off machine", invocation, context) {
-                let live = try await cloud.api.machine(session.machineID)
+                let live = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerMachine(session.machineID) : try await cloud.api.machine(session.machineID)
                 return CloudAnswer(title: CloudStrings.handoffTitle, text: handoff(live),
                                    fields: ["machine_id": .string(live.id), "status": .string(live.status.rawValue)])
             }
@@ -291,9 +338,10 @@ extension CloudHandlers {
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             answer("snapshot machine", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
-                let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
-                return CloudAnswer(title: CloudStrings.snapshotTitle, text: CloudStrings.snapshotBody(snapshot.id),
-                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
+                let snapshot = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerSnapshot(session.machineID, name: nil, byPerson: origin(of: invocation) == .user) : try await cloud.api.snapshot(session.machineID, name: nil).id
+                return CloudAnswer(title: CloudStrings.snapshotTitle, text: CloudStrings.snapshotBody(snapshot),
+                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.deleteSnapshot", registry, reason: reason) { invocation in
@@ -302,7 +350,11 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.snapshotRequired)
             }
             runTracked("delete snapshot", context) {
-                try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                if cloud.configuration.linkSource == .appServer {
+                    try await cloud.appServerDeleteSnapshot(snapshot, byPerson: origin(of: invocation) == .user)
+                } else {
+                    try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                }
                 await cloud.refresh()
             }
         }
@@ -311,17 +363,20 @@ extension CloudHandlers {
         bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             answer("promote machine to template", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
-                let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
-                return CloudAnswer(title: CloudStrings.templateTitle, text: CloudStrings.templateBody(snapshot.id),
-                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
+                let name = templateName(session.machineID, at: Date())
+                let snapshot = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerSnapshot(session.machineID, name: name, byPerson: origin(of: invocation) == .user) : try await cloud.api.snapshot(session.machineID, name: name).id
+                return CloudAnswer(title: CloudStrings.templateTitle, text: CloudStrings.templateBody(snapshot),
+                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else { throw ActionFailure(message: CloudStrings.snapshotRequired) }
             result("restore machine", context, pendingAfter: machineAnswerWait, pending: ["snapshot_id": .string(snapshot)]) {
-                let restored = try await cloud.api.restore(snapshotID: snapshot)
+                let restored = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerRestore(snapshotID: snapshot, byPerson: origin(of: invocation) == .user) : try await cloud.api.restore(snapshotID: snapshot).id
                 await cloud.refresh()
-                return machineFields(restored.id, ["snapshot_id": .string(snapshot)])
+                return machineFields(restored, ["snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
@@ -341,6 +396,10 @@ extension CloudHandlers {
     static let terminalAnswerWait: Duration = .seconds(30)
 
     /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func deletionPending(_ machineID: String) -> [String: ActionResultValue] {
+        machineFields(machineID, ["pending": .bool(true), "status": .string("deleting")])
+    }
+
     static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
         session.machine.status == .paused
             ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
@@ -577,9 +636,6 @@ extension CloudHandlers {
     static func templateName(_ machineID: String, at date: Date) -> String {
         "template-\(machineID.prefix(12))-\(Int(date.timeIntervalSince1970))"
     }
-
-    /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
-    static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]
 
     static func filePath(_ invocation: ActionInvocation) throws -> String {
         guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

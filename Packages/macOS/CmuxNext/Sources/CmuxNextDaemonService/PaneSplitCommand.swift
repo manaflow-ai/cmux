@@ -20,8 +20,11 @@ public struct PaneSplitCommand: Sendable {
     /// and returns the new surface. It goes through the command funnel, so
     /// a running action's scope gets one ticket, the failure, and the write
     /// barrier that `action.run` waits for before it answers.
-    public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
-        let pane = pane, direction = direction, options = options, swapTowards = swapTowards
+    /// A pane still opening (a split's or Cmd-N's stand-in) is waited for and named by its daemon pane
+    /// (``DaemonStore/daemonTarget(_:)``), never refused.
+    @MainActor public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
+        let direction = direction, options = options, swapTowards = swapTowards
+        let pane = try await daemon.store.daemonTarget(self.pane)
         return try await daemon.perform("split") { connection in
             let created = try await connection.split(pane, direction: direction, options: options)
             if let swapTowards { try await connection.swapPane(pane, with: .direction(swapTowards)) }
@@ -57,7 +60,7 @@ public struct PaneSplitCommand: Sendable {
         // split's stand-in, which the daemon does not know ("unknown pane"); by the time this goes out (the workspace's
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over
         // (``DaemonStore/daemonHandle(showing:)``). P0 2026-10-30: a quick second Cmd-D made no pane, 12 of 12.
-        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("split", intent, transaction: transaction) { connection in
             try await connection.split(try await target(), direction: direction, options: sent)
         }
@@ -66,6 +69,8 @@ public struct PaneSplitCommand: Sendable {
             // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
             // (or answered by a capturing caller), never the generic failure on top of it.
             if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
+            // The stand-in's own create failed or was closed: that reason, not a daemon refusal the daemon never sent.
+            if case .failure(let notCreated as PendingPaneNotCreated) = answer { throw notCreated }
             guard case .success(let created) = answer else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }

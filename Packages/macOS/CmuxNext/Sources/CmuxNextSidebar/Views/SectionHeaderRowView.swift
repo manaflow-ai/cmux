@@ -91,6 +91,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -122,6 +125,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -260,17 +266,21 @@ final class SectionHeaderRowView: SidebarRowView {
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX = columns.text
         }
-        var trailing = columns.textEnd(trailingMarks: 1)
-        // Section actions occupy the next shared trailing pitch; the fold remains on the first mark.
+        // The add button keeps its slot, so the name never re-truncates on hover.
+        // Section actions stay available at rest. Hiding them until hover made
+        // the bottom of the sidebar flash as the pointer crossed a header.
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
-            trailing = columns.trailingEdge(before: addButton.frame)
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
         }
         chevron.isHidden = isEmpty
         let chevronSide = SidebarStyle.controlSize
-        chevron.frame = columns.trailingFrame(centerY: b.midY, side: chevronSide)
+        // Without the add button the chevron takes the trailing column, as a group header's does; with it, the
+        // chevron steps one shared pitch left of the add button.
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
+                                                         side: chevronSide, slot: allowsAdd ? 1 : 0)
+        var trailing = columns.trailingEdge(before: chevron.frame)
         let dot = SidebarStyle.dotSize
         status.isHidden = statusTone == nil
         if !status.isHidden {

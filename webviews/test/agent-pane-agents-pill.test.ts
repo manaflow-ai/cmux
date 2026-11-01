@@ -1,16 +1,9 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// By default running subagents sit in one tray above the composer (subagents/SubagentTray.tsx): the
-// transcript has no running card and there is no pill; a subagent that ends leaves one line where it
-// ended. The tests below the first cover the older presentation, which Debug Settings
-// agentPane.debug.subagentTray off keeps (the host pushes `subagentTray: false` with the theme).
-// With it, while a chat's subagents run, a pill sits right above the composer, after Codex's phone app ("3
-// agents"): it counts the agents still running and opens a list split into Active and Completed,
-// a colored dot per agent. The same color marks the agent's name in the transcript, and an agent
-// keeps it for the life of the chat as others start and end. A click on an agent opens it. The
-// pill shows only while an agent runs, and streamed text never redraws it. The page is the pane's
-// dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon that can push live
-// events.
-//
+// Running subagents sit in one tray above the composer (subagents/SubagentTray.tsx): the transcript
+// has no running card and there is no second pill. A subagent that ends leaves one line where it
+// ended. This page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
+// acpmux daemon that can push live events. Current running-tray coverage owns the tray interactions;
+// this fixture only checks that the removed pill is absent.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -129,7 +122,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   function answer(method: string, params: Record<string, any> = {}): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
         return {
           sessions: [session(BUSY), session(QUIET), { ...session(STUCK), status: "idle" }, session(NESTED)],
@@ -178,49 +174,6 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   };
   const tray = (page: Page) => page.locator(".acpmux-running-tray");
   const pill = (page: Page) => page.locator(".acpmux-agents-pill");
-  const list = (page: Page) => page.getByRole("dialog", { name: "Agents" });
-  /// Each agent's dot color in the open list, by name.
-  const dots = (page: Page) =>
-    list(page)
-      .locator(".acpmux-agents-list__row")
-      .evaluateAll((rows) =>
-        Object.fromEntries(
-          rows.map((row) => [
-            row.querySelector(".acpmux-agents-list__name")!.textContent,
-            getComputedStyle(row.querySelector(".acpmux-agents-list__dot")!).backgroundColor,
-          ]),
-        ),
-      );
-  /// Counts the pill's renders from React's devtools hook, installed before the page's scripts: each
-  /// commit, the pill's fiber rendered when it is a new fiber object with React's PerformedWork flag
-  /// (a memo bailout clones the fiber without the flag; a skipped subtree keeps the last object).
-  const countPillRenders = () => {
-    const performedWork = 1;
-    let last: object | undefined;
-    const counter = { renders: 0 };
-    (window as any).__pillRenders = counter;
-    const find = (fiber: any): any => {
-      for (let node = fiber; node; node = node.sibling) {
-        if (node.type?.name === "AgentsPill") return node;
-        const found = node.child && find(node.child);
-        if (found) return found;
-      }
-      return undefined;
-    };
-    (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-      supportsFiber: true,
-      renderers: new Map(),
-      inject: () => 1,
-      onCommitFiberUnmount: () => {},
-      onPostCommitFiberRoot: () => {},
-      onCommitFiberRoot: (_id: number, root: any) => {
-        const pill = find(root.current);
-        if (pill && pill !== last && (pill.alternate === null || (pill.flags & performedWork) !== 0)) counter.renders++;
-        last = pill;
-      },
-    };
-  };
-  const pillRenders = (page: Page) => page.evaluate(() => (window as any).__pillRenders.renders as number);
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -236,9 +189,19 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
           sockets.delete(ws);
         },
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, any>;
+          };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: answer(message.method, message.params),
+              }),
+            );
         },
       },
     });
@@ -315,162 +278,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await stale.close();
   });
 
-  test("a pill above the composer counts the agents still running", async () => {
+  test("running activity does not render a second pill above the composer", async () => {
     const page = await open(BUSY);
-    await pill(page).waitFor({ timeout: 5_000 });
-    expect((await pill(page).innerText()).trim()).toBe("2 agents");
-    const [pillBox, composerBox] = await Promise.all([
-      pill(page).boundingBox(),
-      page.locator(".acpmux-composer").first().boundingBox(),
-    ]);
-    expect(pillBox!.y + pillBox!.height).toBeLessThanOrEqual(composerBox!.y);
-    // At the chat's end the latest row stays clear of the pill, once following the bottom has
-    // taken in the height the pill took.
-    const clearance = async () => {
-      const [latest, box] = await Promise.all([
-        // The running line is the turn's last row (agentPane.debug.liveLineBelow).
-        page.locator(".acpmux-row").last().boundingBox(),
-        pill(page).boundingBox(),
-      ]);
-      return box!.y - (latest!.y + latest!.height);
-    };
-    await page
-      .waitForFunction(
-        () => {
-          const rows = document.querySelectorAll(".acpmux-row");
-          const latest = rows[rows.length - 1]?.getBoundingClientRect();
-          const box = document.querySelector(".acpmux-agents-pill")?.getBoundingClientRect();
-          return !!latest && !!box && box.y - latest.bottom >= 0;
-        },
-        null,
-        { timeout: 5_000 },
-      )
-      .catch(() => {});
-    expect(await clearance()).toBeGreaterThanOrEqual(0);
-    await page.close();
-    // No agent running: no pill.
-    const done = await open(QUIET);
-    expect(await pill(done).count()).toBe(0);
-    await done.close();
-    // The turn is over: an agent left "running" by a cancel or a reconnect pins no pill.
-    // Its work folds under Worked for; the prompt shows.
-    const stale = await open(STUCK, "Review the branch with a few agents");
-    expect(await pill(stale).count()).toBe(0);
-    await stale.close();
-  });
-
-  test("the list splits active from completed, with a colored dot per agent", async () => {
-    const page = await open(BUSY);
-    await pill(page).click();
-    await list(page).waitFor({ timeout: 5_000 });
-    const sections = await list(page)
-      .locator(".acpmux-agents-list__section")
-      .evaluateAll((nodes) =>
-        nodes.map((node) => [
-          node.querySelector(".acpmux-agents-list__heading")!.textContent,
-          [...node.querySelectorAll(".acpmux-agents-list__name")].map((name) => name.textContent),
-        ]),
-      );
-    expect(sections).toEqual([
-      ["Active", ["Reviewer", "Tester"]],
-      ["Completed", ["Linter"]],
-    ]);
-    const colors = await dots(page);
-    expect(new Set(Object.values(colors)).size).toBe(3);
-    await page.close();
-  });
-
-  test("an agent spawned by another sits right under it, indented", async () => {
-    const page = await open(NESTED);
-    await pill(page).click();
-    await list(page).waitFor({ timeout: 5_000 });
-    const rows = await list(page)
-      .locator(".acpmux-agents-list__row")
-      .evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          name: node.querySelector(".acpmux-agents-list__name")!.textContent,
-          dot: node.querySelector(".acpmux-agents-list__dot")!.getBoundingClientRect().left,
-        })),
-      );
-    expect(rows.map((row) => row.name)).toEqual(["Reviewer", "Scout", "Tester"]);
-    const [reviewer, scout, tester] = rows;
-    expect(scout!.dot).toBeGreaterThan(reviewer!.dot + 8);
-    expect(tester!.dot).toBe(reviewer!.dot);
-    await page.close();
-  });
-
-  test("an agent's color marks its name in the transcript, and holds as others start and on reload", async () => {
-    const page = await open(BUSY);
-    await pill(page).click();
-    await list(page).waitFor({ timeout: 5_000 });
-    const before = await dots(page);
-    await page.keyboard.press("Escape");
-    // The transcript's group, open while its agents run: each name in its agent's color.
-    await page.locator(".cv-subagent__name").nth(2).waitFor({ timeout: 5_000 });
-    const names = await page
-      .locator(".cv-subagent__name")
-      .evaluateAll((nodes) =>
-        Object.fromEntries(nodes.map((node) => [node.firstChild!.textContent, getComputedStyle(node).color])),
-      );
-    expect(names).toEqual(before);
-    // A fourth agent starts: the others keep their colors.
-    push(spawned("a4", "Formatter"));
-    await pill(page).filter({ hasText: "3 agents" }).waitFor({ timeout: 5_000 });
-    await pill(page).click();
-    await list(page).waitFor({ timeout: 5_000 });
-    const after = await dots(page);
-    expect(Object.fromEntries(Object.keys(before).map((name) => [name, after[name]]))).toEqual(before);
-    await page.close();
-    // A reload colors each agent as before: the color comes from the agent's id alone.
-    const again = await open(BUSY);
-    await pill(again).click();
-    await list(again).waitFor({ timeout: 5_000 });
-    expect(await dots(again)).toEqual(before);
-    await again.close();
-  });
-
-  test("a click on an agent opens it, and the pill goes once none runs", async () => {
-    const page = await open(BUSY);
-    await pill(page).click();
-    await list(page)
-      .getByRole("button", { name: /Reviewer/ })
-      .click();
-    // The dev host opens no pane of its own, so the agent's view shows in this pane.
-    await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
-    expect(await list(page).count()).toBe(0);
-    push(finished("a1", "Reviewer"));
-    push(finished("a2", "Tester"));
-    await pill(page)
-      .first()
-      .waitFor({ state: "detached", timeout: 5_000 })
-      .catch(() => {});
     expect(await pill(page).count()).toBe(0);
-    await page.close();
-  });
-
-  test("streamed text never redraws the pill", async () => {
-    sockets.clear();
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.addInitScript(countPillRenders);
-    await page.goto(url(BUSY));
-    await page.getByText("Read app.ts").first().waitFor({ timeout: 25_000 });
-    await trayOff(page);
-    await pill(page).filter({ hasText: "2 agents" }).waitFor({ timeout: 25_000 });
-    const before = await pillRenders(page);
-    expect(before).toBeGreaterThan(0);
-    for (let chunk = 1; chunk <= 12; chunk++) {
-      push([
-        "in",
-        "agent_message_chunk",
-        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: ` Streamed word ${chunk}.` } }),
-      ]);
-      await page.getByText(`Streamed word ${chunk}.`, { exact: false }).first().waitFor({ timeout: 5_000 });
-    }
-    expect(await pillRenders(page)).toBe(before);
-    // The counter sees a change the pill shows: a third agent starts.
-    push(spawned("a5", "Packager"));
-    await pill(page).filter({ hasText: "3 agents" }).waitFor({ timeout: 5_000 });
-    expect(await pillRenders(page)).toBeGreaterThan(before);
+    expect(await page.locator(".acpmux-agents-pill-anchor").count()).toBe(0);
     await page.close();
   });
 });
