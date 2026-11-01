@@ -32,10 +32,22 @@ impl Fixture {
     }
 
     fn server(&self, name: &str, replies: Vec<Value>) -> JoinHandle<Vec<Value>> {
+        self.server_observing(name, replies, |_, _| {})
+    }
+
+    fn server_observing<F>(
+        &self,
+        name: &str,
+        replies: Vec<Value>,
+        observer: F,
+    ) -> JoinHandle<Vec<Value>>
+    where
+        F: Fn(usize, &Value) + Send + 'static,
+    {
         let listener = UnixListener::bind(self.root.join(name)).unwrap();
         std::thread::spawn(move || {
             let mut requests = Vec::new();
-            for reply in replies {
+            for (index, reply) in replies.into_iter().enumerate() {
                 // A faulty implementation that sends fewer calls fails the
                 // test within five seconds rather than leaving accept hung.
                 let mut ready =
@@ -48,6 +60,7 @@ impl Fixture {
                 let mut line = String::new();
                 BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
                 requests.push(serde_json::from_str(&line).unwrap());
+                observer(index, requests.last().unwrap());
                 writeln!(stream, "{reply}").unwrap();
             }
             requests
@@ -128,13 +141,30 @@ fn cloud_repo_runtime_running_progress_finishes_with_seed_notes() {
     let fixture = Fixture::new();
     let progress = json!({"received_bytes":1024,"objects":2,"total_objects":4});
     let notes = json!(["lfs_unavailable"]);
-    let seed = fixture.server(
+    let expected_progress = progress.clone();
+    let mux = fixture.mux.clone();
+    let session = fixture.session.clone();
+    let seed = fixture.server_observing(
         "seed.sock",
         vec![
             seed_reply(json!({"job":"progress"})),
             seed_reply(json!({"state":"running","phase":"clone","progress":progress})),
             seed_reply(json!({"state":"done","head":"abc123","notes":notes})),
         ],
+        move |index, request| {
+            if index == 2 {
+                assert_eq!(request["cmd"], "git.seed.status");
+                assert_eq!(
+                    store::pending(&mux, &session).unwrap(),
+                    vec![json!({
+                        "repo":"owner/tool",
+                        "state":"running",
+                        "phase":"clone",
+                        "progress":expected_progress,
+                    })]
+                );
+            }
+        },
     );
     let result =
         add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"owner/tool"})).unwrap();
@@ -160,6 +190,7 @@ fn cloud_repo_runtime_clones_through_seed_and_replays_the_record_without_a_secon
     assert_eq!(add(&runtime, &args).unwrap(), result);
     assert_eq!(runtime.attached(&fixture.session).unwrap(), vec![result]);
     assert_eq!(runtime.sources().unwrap()[0].full_name, "owner/tool");
+    assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
     let requests = server.join().unwrap();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0]["cmd"], "git.seed.start");
@@ -171,6 +202,47 @@ fn cloud_repo_runtime_clones_through_seed_and_replays_the_record_without_a_secon
         json!(runtime.home.join("chats").join(&fixture.session).join("tool"))
     );
     assert_eq!(requests[1], json!({"id":"cloud-repo","cmd":"git.seed.status","job":"clone-1"}));
+}
+
+#[test]
+fn cloud_repo_runtime_record_failure_recovers_completed_clone_after_seed_expires() {
+    struct FailingRecord<'a>(Runtime<'a>);
+    impl Backend for FailingRecord<'_> {
+        fn sources(&self) -> Result<Vec<Repo>, Failure> {
+            self.0.sources()
+        }
+        fn connector(&self, query: Option<&str>) -> Result<Catalog, Failure> {
+            self.0.connector(query)
+        }
+        fn attached(&self, session: &str) -> Result<Vec<Value>, Failure> {
+            self.0.attached(session)
+        }
+        fn clone_repo(
+            &self,
+            session: &str,
+            repo: &str,
+            reference: Option<&str>,
+        ) -> Result<Value, Failure> {
+            self.0.clone_repo(session, repo, reference)
+        }
+        fn record(&self, _: &str, _: &Value) -> Result<(), Failure> {
+            Err(Failure::new("seed.clone_failed", "Retry recording the completed clone."))
+        }
+    }
+    let fixture = Fixture::new();
+    let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"expires"})), done()]);
+    let backend = FailingRecord(fixture.runtime());
+    let args = json!({"session":fixture.session,"repo":"owner/tool"});
+    assert!(add(&backend, &args).is_err());
+    assert_eq!(seed.join().unwrap().len(), 2);
+    assert!(backend.attached(&fixture.session).unwrap().is_empty());
+    let saved = store::job(&fixture.mux, &fixture.session, "tool").unwrap().unwrap();
+    assert_eq!(saved["completed"]["head"], "0123456789abcdef");
+    // The fake seed listener is gone; no status lookup or second start can succeed.
+    let result = add(&backend.0, &args).unwrap();
+    assert_eq!(result, saved["completed"]);
+    assert_eq!(backend.attached(&fixture.session).unwrap(), vec![result]);
+    assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
 }
 
 #[test]
@@ -435,6 +507,32 @@ fn cloud_repo_runtime_connector_pages_and_rejects_repeated_cursor() {
 }
 
 #[test]
+fn cloud_repo_runtime_add_keeps_prior_page_when_install_expires() {
+    let fixture = Fixture::new();
+    let install_url = "https://github.com/apps/cmux/installations/new";
+    store::sync(&fixture.mux, &json!({"repos":[],"install_url":install_url})).unwrap();
+    let agent = fixture.server(
+        "agent.sock",
+        vec![
+            json!({
+                "ok":true,
+                "repos":[{"fullName":"owner/tool","private":true}],
+                "next_cursor":"page-2"
+            }),
+            json!({"ok":false,"error":{"code":"repo.needs_github"}}),
+        ],
+    );
+    let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"page-auth"})), done()]);
+    let result =
+        add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"tool"})).unwrap();
+    assert_eq!(result["repo"], "owner/tool");
+    assert_eq!(seed.join().unwrap().len(), 2);
+    let asks = agent.join().unwrap();
+    assert_eq!(asks[0], json!({"github_repos":{"query":"tool"}}));
+    assert_eq!(asks[1], json!({"github_repos":{"query":"tool","cursor":"page-2"}}));
+}
+
+#[test]
 fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
     let trusted = "https://github.com/apps/cmux/installations/new?state=mac";
     let response_url = "https://github.com/apps/cmux/installations/new?state=connector";
@@ -462,19 +560,13 @@ fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
                 match runtime.connector(None) {
                     Ok(catalog) => {
                         assert_ne!(source, "repo.no_access");
-                        assert!(expected.is_some());
+                        assert!(catalog.disconnected);
                         assert_eq!(catalog.install_url.as_deref(), expected);
                     }
                     Err(failure) => {
-                        if source == "repo.no_access" {
-                            assert_eq!(failure.0["code"], "repo.no_access");
-                            assert_eq!(failure.0["install_url"].as_str(), expected);
-                        } else {
-                            assert!(expected.is_none());
-                            assert_eq!(failure.0["code"], "seed.bad_request");
-                            assert!(failure.0.get("install_url").is_none());
-                            assert!(failure.0["message"].as_str().unwrap().contains("Mac"));
-                        }
+                        assert_eq!(source, "repo.no_access");
+                        assert_eq!(failure.0["code"], "repo.no_access");
+                        assert_eq!(failure.0["install_url"].as_str(), expected);
                     }
                 }
                 assert_eq!(agent.join().unwrap().len(), 1);
@@ -489,22 +581,58 @@ fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
 }
 
 #[test]
-fn cloud_repo_runtime_unsafe_connector_link_never_enters_list_wait_or_retry_card() {
-    let fixture = Fixture::new();
+fn cloud_repo_runtime_unsafe_connector_link_preserves_rows_and_disconnected_state() {
     let unsafe_url = "https://user:secret@github.com:444/install";
-    let reply = json!({"ok":true,"repos":[],"connect":{"install_url":unsafe_url}});
-    let agent = fixture.server("agent.sock", vec![reply.clone(), reply.clone(), reply]);
-    let runtime = fixture.runtime();
-    for failure in [
-        list(&runtime, None).unwrap_err().0,
-        runtime.wait_github(0).unwrap_err().0,
-        add(&runtime, &json!({"session":fixture.session,"repo":"tool"})).unwrap_err().0,
-    ] {
-        assert_eq!(failure["code"], "seed.bad_request");
-        assert!(!failure.to_string().contains(unsafe_url));
-        assert!(failure.get("retry").is_none());
+    for typed_error in [false, true] {
+        let fixture = Fixture::new();
+        store::sync(
+            &fixture.mux,
+            &json!({"repos":[{
+                "fullName":"local/project","private":true,"source":"local"
+            }]}),
+        )
+        .unwrap();
+        let first = json!({"ok":true,"repos":[{"fullName":"org/tool","private":true}],"next_cursor":"next"});
+        let last = if typed_error {
+            json!({"ok":false,"error":{"code":"repo.needs_github","install_url":unsafe_url}})
+        } else {
+            json!({"ok":true,"repos":[],"connect":{"install_url":unsafe_url}})
+        };
+        let agent = fixture.server(
+            "agent.sock",
+            vec![
+                first.clone(),
+                last.clone(),
+                first.clone(),
+                last.clone(),
+                first.clone(),
+                last.clone(),
+                first,
+                last,
+            ],
+        );
+        let seed = fixture.server("seed.sock", vec![json!({
+            "ok":false,"error_code":"seed.needs_github","error_details":{"install_url":unsafe_url}
+        })]);
+        let runtime = fixture.runtime();
+        let listed = list(&runtime, None).unwrap();
+        assert_eq!(listed["repos"].as_array().unwrap().len(), 2);
+        assert_eq!(listed["repos"][0]["fullName"], "local/project");
+        assert_eq!(listed["repos"][1]["fullName"], "org/tool");
+        assert!(listed.get("connect").is_none());
+        // Missing a safe URL is still disconnected, not a false success.
+        assert_eq!(runtime.wait_github(0).unwrap(), json!({"connected":false}));
+        for repo in ["missing", "org/tool"] {
+            let failure =
+                add(&runtime, &json!({"session":fixture.session,"repo":repo})).unwrap_err().0;
+            assert_eq!(failure["code"], "seed.bad_request");
+            assert!(failure["message"].as_str().unwrap().contains("refresh"));
+            assert!(!failure.to_string().contains(unsafe_url));
+            assert!(failure.get("retry").is_none());
+        }
+        assert_eq!(agent.join().unwrap().len(), 8);
+        assert_eq!(seed.join().unwrap().len(), 1);
     }
-    assert_eq!(agent.join().unwrap().len(), 3);
 }
 
 #[test]

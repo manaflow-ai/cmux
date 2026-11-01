@@ -246,6 +246,18 @@ pub(super) fn record(mux: &Mux, session: &str, repo: &Value) -> Result<(), Failu
         recent.insert(0, json!({"fullName":repo.get("repo"),"private":true,"source":"recent"}));
         recent.truncate(1000);
         doc.set("recent", json!(recent));
+        // Attachment and job retirement share one CAS. A failed write leaves
+        // the completed job available for retry, never an occupied orphan.
+        if let Some(name) =
+            repo.get("repo").and_then(Value::as_str).and_then(|repo| repo.rsplit('/').next())
+            && let Some(jobs) = doc
+                .get_mut("jobs")
+                .and_then(|jobs| jobs.get_mut(session))
+                .and_then(Value::as_object_mut)
+            && jobs.get(name).and_then(|job| job.get("repo")) == repo.get("repo")
+        {
+            jobs.remove(name);
+        }
     })
 }
 

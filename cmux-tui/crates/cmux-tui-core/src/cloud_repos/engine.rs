@@ -15,6 +15,9 @@ pub(crate) struct Repo {
 pub(crate) struct Catalog {
     pub repos: Vec<Repo>,
     pub install_url: Option<String>,
+    /// Installation state is independent of whether a safe recovery URL
+    /// was supplied. A missing/invalid URL must never imply connected.
+    pub disconnected: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -159,10 +162,7 @@ pub(crate) fn list(backend: &impl Backend, query: Option<&str>) -> Result<Value,
     let sources = backend.sources()?;
     let catalog = backend.connector(query)?;
     let mut result = json!({"repos":merge(sources.into_iter().chain(catalog.repos), query)});
-    if let Some(url) = catalog.install_url {
-        if !valid_install_url(&url) {
-            return Err(install_link_required());
-        }
+    if let Some(url) = catalog.install_url.filter(|url| valid_install_url(url)) {
         result.set("connect", json!({"install_url":url}));
     }
     Ok(result)
@@ -202,8 +202,12 @@ fn resolve(backend: &impl Backend, input: &str) -> Result<String, Failure> {
     if !matches.is_empty() {
         return choose(matches);
     }
-    if let Some(url) = catalog.install_url {
-        return Err(Failure::needs_github(&url));
+    if catalog.disconnected {
+        return Err(catalog
+            .install_url
+            .as_deref()
+            .map(Failure::needs_github)
+            .unwrap_or_else(install_link_required));
     }
     Err(Failure::new(
         "repo.not_found",

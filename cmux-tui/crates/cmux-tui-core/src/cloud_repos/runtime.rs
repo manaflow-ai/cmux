@@ -83,7 +83,8 @@ impl<'a> Runtime<'a> {
             // A linked installation can still exclude this organization or
             // repo. Its recovery is access, not reconnecting the same account.
             let catalog = self.connector(Some(repo))?;
-            if let Some(url) = catalog.install_url {
+            if catalog.disconnected {
+                let url = catalog.install_url.ok_or_else(super::engine::install_link_required)?;
                 failure = Failure::needs_github(&url);
             } else {
                 let url = self.optional_install_url(value)?;
@@ -109,7 +110,7 @@ impl<'a> Runtime<'a> {
     fn wait_github(&self, timeout_ms: u64) -> Result<Value, Failure> {
         let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(60_000));
         loop {
-            if self.connector(None)?.install_url.is_none() {
+            if !self.connector(None)?.disconnected {
                 return Ok(json!({"connected":true}));
             }
             if Instant::now() >= deadline {
@@ -129,10 +130,6 @@ impl<'a> Runtime<'a> {
                 .filter(|url| super::engine::valid_install_url(url))
                 .map(str::to_owned)
         }))
-    }
-
-    fn install_url(&self, response: &Value) -> Result<String, Failure> {
-        self.optional_install_url(response)?.ok_or_else(super::engine::install_link_required)
     }
 }
 impl Backend for Runtime<'_> {
@@ -166,9 +163,13 @@ impl Backend for Runtime<'_> {
                 if code == "repo.needs_github" {
                     // Missing installation is the same recoverable state
                     // whether the bridge returns connect or a typed error.
+                    // Keep repositories already received from earlier pages:
+                    // an installation can expire while a paginated catalog
+                    // is being read, but those rows are still valid choices.
                     return Ok(Catalog {
-                        repos: Vec::new(),
-                        install_url: Some(self.install_url(error)?),
+                        repos: catalog.repos,
+                        install_url: self.optional_install_url(error)?,
+                        disconnected: true,
                     });
                 }
                 let mut failure = Failure::new(
@@ -187,7 +188,8 @@ impl Backend for Runtime<'_> {
                 return Err(failure);
             }
             if let Some(connect) = answer.get("connect").filter(|v| v.is_object()) {
-                catalog.install_url = Some(self.install_url(connect)?);
+                catalog.disconnected = true;
+                catalog.install_url = self.optional_install_url(connect)?;
             }
             let rows = answer.get("repos").and_then(Value::as_array).ok_or_else(transport_error)?;
             for row in rows {
@@ -251,6 +253,22 @@ impl Backend for Runtime<'_> {
                     "Choose a different chat for this repository or branch; another add already uses that folder.",
                 ));
             }
+            if let Some(completed) = existing.get("completed") {
+                // The seed job can expire after clone completion. Retain its
+                // result until attachment recording succeeds, so recovery
+                // never tries to clone over the completed repository.
+                if completed.get("repo").and_then(Value::as_str) != Some(repo)
+                    || completed.get("folder") != Some(&json!(folder))
+                    || completed.get("state").and_then(Value::as_str) != Some("done")
+                    || completed
+                        .get("head")
+                        .and_then(Value::as_str)
+                        .is_none_or(|head| head.is_empty())
+                {
+                    return Err(transport_error());
+                }
+                return Ok(completed.clone());
+            }
             existing.get("job").and_then(Value::as_str).ok_or_else(transport_error)?.to_owned()
         } else {
             let mut params =
@@ -290,8 +308,8 @@ impl Backend for Runtime<'_> {
             };
             // Progress shares the existing projection event. Bound writes to
             // once per second; completion always removes the running state.
-            if status.get("state").and_then(Value::as_str) != Some("running")
-                || last_progress.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
+            if status.get("state").and_then(Value::as_str) == Some("running")
+                && last_progress.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
             {
                 let mut saved =
                     json!({"job":job,"repo":repo,"ref":reference,"state":status.get("state")});
@@ -315,6 +333,14 @@ impl Backend for Runtime<'_> {
                     if let Some(notes) = status.get("notes") {
                         result.set("notes", notes.clone());
                     }
+                    store::set_job(
+                        self.mux,
+                        session,
+                        name,
+                        Some(&json!({
+                            "job":job,"repo":repo,"ref":reference,"state":"done","completed":result
+                        })),
+                    )?;
                     return Ok(result);
                 }
                 Some("failed") => {
