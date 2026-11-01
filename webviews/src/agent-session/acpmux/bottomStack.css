@@ -61,8 +61,9 @@
    look is one glass stack: no gap, and where two parts meet neither rounds and only the lower one
    draws the hairline, as the queue meets the card (composerLocation.css), so the tray, the opened
    pull requests and the composer read as one surface with one rim and no notch between rounded
-   corners. The gallery's `cards` look (bottomStackStyles.gallery.ts, data-bottom-stack) keeps
-   separate cards one 4px step apart. test/agent-pane-bottom-stack-edges.test.ts measures the edges
+   corners. A settled tray (nothing runs) draws no card (subagents.css), so it joins nothing: the
+   part under it keeps its own rounded top. The gallery's `cards` look (bottomStackStyles.gallery.ts,
+   data-bottom-stack) keeps separate cards one 4px step apart. test/agent-pane-bottom-stack-edges.test.ts measures the edges
    and gaps. */
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
@@ -77,13 +78,13 @@
 .acpmux-dock > .acpmux-running-tray:has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
   margin-bottom: var(--acpmux-stack-gap);
 }
-:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray + .acpmux-pr-stack {
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray:not([data-settled]) + .acpmux-pr-stack {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > :is(.acpmux-pr-stack, .acpmux-running-tray):has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
+  > :is(.acpmux-pr-stack, .acpmux-running-tray:not([data-settled])):has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   /* The sides and the top only: the part under it draws the hairline where they meet. */
@@ -92,7 +93,7 @@
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
 }
-:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray + .acpmux-pr-stack:has(+ .acpmux-composer) {
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray:not([data-settled]) + .acpmux-pr-stack:has(+ .acpmux-composer) {
   box-shadow:
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
@@ -101,7 +102,7 @@
 /* The composer's first part (the queue, else the card) squares its top under the stack. */
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > :is(.acpmux-pr-stack, .acpmux-running-tray)
+  > :is(.acpmux-pr-stack, .acpmux-running-tray:not([data-settled]))
   + .acpmux-composer
   > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
   border-top-left-radius: 0;
@@ -109,7 +110,7 @@
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > :is(.acpmux-pr-stack, .acpmux-running-tray)
+  > :is(.acpmux-pr-stack, .acpmux-running-tray:not([data-settled]))
   + .acpmux-composer
   > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
   border-radius: inherit;
