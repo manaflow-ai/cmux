@@ -509,6 +509,9 @@ async fn check_inner(
             | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
             | method::MUX_QUEUE_REMOVE
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
@@ -823,6 +826,10 @@ async fn web_starts_asking(
         method::SESSION_PROMPT
             | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
+            // Approving runs a prompt, as a Web prompt would (`hub/queue_approve.rs`).
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
@@ -1169,6 +1176,9 @@ mod cloud_chat_tests {
     fn cloud_peer_uses_a_durable_chat_folder() {
         let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
+        // A Cloud machine's home folder exists; only `chats` and the chat's
+        // folder are made here.
+        std::fs::create_dir_all(&home).unwrap();
         let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
         assert_eq!(dir, home.join("chats/chat-1"));
         assert!(dir.is_dir());

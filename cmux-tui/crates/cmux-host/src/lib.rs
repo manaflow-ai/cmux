@@ -60,3 +60,5 @@ pub mod roles;
 pub mod run_roles;
 pub mod status;
 pub mod team_ssh;
+#[cfg(unix)]
+pub mod turn_scope;

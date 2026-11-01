@@ -5,7 +5,7 @@
   max-height: calc(100dvh - max(16px, 6vh) - 16px);
   padding: 0;
   overflow: auto;
-  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
+  border: 1px solid transparent;
   border-radius: var(--radius-lg, 12px);
   color: var(--cmux-text, CanvasText);
   box-shadow: var(--elevation-2);

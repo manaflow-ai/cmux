@@ -318,7 +318,7 @@ impl Drop for PendingGuard<'_> {
 /// not hold, and its last turn is that one.
 pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
     session.turn().is_none()
-        && session.queue().iter().all(|q| q.held)
+        && session.queue().iter().all(|q| q.aside())
         && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
             == Some(cut_turn)
 }
@@ -401,6 +401,7 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),

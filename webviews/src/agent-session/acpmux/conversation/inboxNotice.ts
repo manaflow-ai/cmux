@@ -22,6 +22,9 @@ export type InboxThread = {
   from: string[];
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
+  /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
+  /// (prompt_provenance.rs `fromHarness`; cmux#30247): its line draws that harness's mark.
+  fromHarness?: string;
   /// The new messages the notice brought.
   count: number;
   /// The newest one's first line.
@@ -102,6 +105,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       label: shownLabel(text(p.label), threadId),
       from: strings(p.from),
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
+      ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
       count,
       preview: text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? ""),
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),

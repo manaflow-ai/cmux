@@ -87,6 +87,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
+  /// What the chat's permission groups and handoff reads cost in the side-reads run: longer than the
+  /// attach, as on a daemon whose permission store is busy (HQ#5914, finding 3). Every other run
+  /// answers them in CALL_MS, inside the attach's time.
+  const SIDE_READ_MS = 400;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
   const videoDir = process.env.CMUX_CHAT_OPEN_PERF_VIDEO;
 
@@ -157,12 +161,42 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       kind,
       msg,
     }));
-    return { sessionId, marker, listed, attached: { ...listed, modes: modes(listed.currentModeId) }, events };
+    return {
+      sessionId,
+      marker,
+      title: listed.title,
+      listed,
+      attached: { ...listed, modes: modes(listed.currentModeId) },
+      events,
+    };
   };
   const chats = [...Array(CHAT_COUNT).keys()].map(chat);
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
+  /// Chats whose `_acpmux/events` answers their page (the hover test's); empty for every other one.
+  const readable = new Set<string>();
+  /// When the newest page connected (its `initialize`), and when each chat's attach was answered.
+  let initializedAt = 0;
+  const attachAnsweredAt = new Map<string, number>();
+  /// The app host's tail store (AgentPaneTailCache.swift): in memory, the 20 most recent chats,
+  /// shared by every page as the app is. The hover test's pages reach it through `cmuxHostTail`.
+  const hostTails = new Map<string, unknown>();
+  const hostWrites = new Map<string, () => void>();
+  const hostTail = (method: string, params: { sessionId?: string; tail?: unknown }) => {
+    const sessionId = String(params.sessionId ?? "");
+    if (method === "chat.tail.get") return hostTails.get(sessionId) ?? null;
+    // A hover's hand-over is kept only over an older tail, as AgentPaneTailCache.rememberIfNewer does.
+    const newest = (tail: unknown) =>
+      Math.max(0, ...((tail as { events?: { seq: number }[] } | undefined)?.events ?? []).map((event) => event.seq));
+    const kept = hostTails.get(sessionId);
+    if ((params as { ifNewer?: boolean }).ifNewer === true && kept && newest(kept) >= newest(params.tail)) return null;
+    hostTails.delete(sessionId);
+    if (params.tail) hostTails.set(sessionId, params.tail);
+    while (hostTails.size > 20) hostTails.delete(hostTails.keys().next().value!);
+    if (params.tail) hostWrites.get(sessionId)?.();
+    return null;
+  };
   /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar, and
   /// below the recent chats the pane reads ahead (direct.ts READ_AHEAD_RECENT), so the first visit
   /// to each is the cold open this measures (chat-switch-prefetch.test.ts holds the read-ahead).
@@ -173,11 +207,37 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// The load is on, which the second phase turns on; `pushed` is how many changes have gone out.
   let busy = false;
   let pushed = 0;
+  /// The side-reads run is on: the permission and handoff reads take SIDE_READ_MS.
+  let slowSideReads = false;
   const timers = new Map<unknown, ReturnType<typeof setInterval>>();
+  const SIDE_OPERATIONS = [
+    "_acpmux/permission_groups",
+    "_acpmux/permission_group_respond",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/handoff_prepare",
+    "_acpmux/handoff_get",
+    "_acpmux/handoff_draft",
+    "_acpmux/handoff_start",
+    "_acpmux/handoff_discard",
+  ];
+  const sideRead = (method: string) => method === "_acpmux/permission_groups" || method === "_acpmux/handoff_get";
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        // The permission group and handoff operations, so every open reads them as the app's does.
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: SIDE_OPERATIONS } },
+        };
+      case "_acpmux/permission_groups":
+        return {
+          groups: [],
+          chatAllowance: { active: false, expires: "session_stop_or_daemon_restart" },
+          coverage: { label: "acp_requests_only", isolation: "unverified", detail: "ACP requests only" },
+          batching: { windowMs: 50, maxItems: 8, maxPendingGroups: 4, maxReceipts: 8 },
+        };
+      case "_acpmux/handoff_get":
+        return null;
       case "_acpmux/watch":
         return { sessions: chats.map((entry) => entry.listed) };
       case "_acpmux/attach": {
@@ -185,8 +245,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         const entry = byId.get(String(params.sessionId))!;
         return { session: entry.attached, lastSeq: entry.events.length, events: entry.events };
       }
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: byId.get(String(params.sessionId))?.events.length ?? 0 };
+      case "_acpmux/events": {
+        const entry = byId.get(String(params.sessionId));
+        // The hover test's chats answer a read ahead with their page; every other chat answers an
+        // empty one, so the recent chats' read-ahead fills nothing the other tests open.
+        if (entry && readable.has(entry.sessionId))
+          return { events: entry.events, hasMore: false, lastSeq: entry.events.length };
+        return { events: [], hasMore: false, lastSeq: entry?.events.length ?? 0 };
+      }
       default:
         return null;
     }
@@ -250,6 +316,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
+          if (message.method === "initialize") initializedAt = Date.now();
           const slow = message.method === "_acpmux/attach" && message.params?.sessionId === slowChat.sessionId;
           // The slow chat's agent says something while its attach is still out, after the switch's
           // hold gave up: a live row the pane draws before it read the chat.
@@ -283,8 +350,18 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
             );
           // Every call costs a round trip, an attach the chat's read on top: the daemon is busy.
           setTimeout(
-            () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result })),
-            slow ? SLOW_ATTACH_MS : message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
+            () => {
+              if (message.method === "_acpmux/attach")
+                attachAnsweredAt.set(String(message.params?.sessionId), Date.now());
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+            },
+            slow
+              ? SLOW_ATTACH_MS
+              : message.method === "_acpmux/attach"
+                ? ATTACH_MS
+                : slowSideReads && sideRead(message.method)
+                  ? SIDE_READ_MS
+                  : CALL_MS,
           );
         },
       },
@@ -326,6 +403,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   type Opened = {
     /// Milliseconds from the select to the first frame that draws this chat; null when it never did.
     drawn: number | null;
+    /// Milliseconds from the select to the first frame whose header names this chat (its title);
+    /// null when none did inside the window.
+    header: number | null;
     /// Frames after that one where a row that was already drawn moved in the view.
     shifted: number;
     /// The largest move of a drawn row, in pixels.
@@ -357,14 +437,22 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const openChat = async ({
     sessionId,
     marker,
+    title,
     settleMs,
     limitMs,
   }: {
     sessionId: string;
     marker: string;
+    title?: string;
     settleMs: number;
     limitMs: number;
   }) => {
+    /// Whether the pane's header names the chat: its title, in the header or the tab row's tools.
+    const headerNames = () =>
+      title !== undefined &&
+      [...document.querySelectorAll<HTMLElement>(".acpmux-header, .acpmux-handoff-header-tools")].some((node) =>
+        (node.textContent ?? "").includes(title),
+      );
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     /// Each mounted row's top in the view, by its id.
     const rowTops = () => {
@@ -405,6 +493,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     };
     const start = performance.now();
     let drawn: number | null = null;
+    let header: number | null = null;
     let shifted = 0;
     let moved = 0;
     let blank = 0;
@@ -434,6 +523,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       window.cmuxAfterPaint(() => {
         const at = performance.now() - start;
         const shows = scroller.innerText.includes(marker);
+        if (header === null && headerNames()) header = at;
         const seen = opacity();
         const behind = backdrop();
         if (behind !== lastBackdrop) {
@@ -504,6 +594,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         if (drawn !== null && lastOpacity < 0.999) fadeMs = at - drawn;
         resolve({
           drawn,
+          header,
           shifted,
           moved,
           blank,
@@ -533,6 +624,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     const worst = Math.max(...drawn);
     console.log(
       `chat-open-perf ${name}: draws ${drawn.map((ms) => (Number.isFinite(ms) ? ms.toFixed(0) : "never")).join("/")} ms ` +
+        `(header ${opened.map((entry) => (entry.header === null ? "never" : entry.header.toFixed(0))).join("/")} ms) ` +
         `(worst ${Number.isFinite(worst) ? worst.toFixed(0) : "never"}), ` +
         `shifted frames ${opened.map((entry) => entry.shifted).join("/")} (worst move ${Math.max(...opened.map((entry) => entry.moved)).toFixed(1)} px), ` +
         `blank frames ${opened.map((entry) => entry.blank).join("/")}, ` +
@@ -599,6 +691,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `(${openChat.toString()})(${JSON.stringify({
           sessionId: entry.sessionId,
           marker: entry.marker,
+          title: entry.title,
           settleMs: SETTLE_MS,
           limitMs: 8_000,
         })})`,
@@ -724,10 +817,15 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `(${openChat.toString()})(${JSON.stringify({
           sessionId: slowChat.sessionId,
           marker: LIVE_MARKER,
+          title: slowChat.title,
           settleMs: SLOW_ATTACH_MS,
           limitMs: 8_000,
         })})`,
       )) as Opened;
+      console.log(
+        `chat-open-perf slow attach: live row ${opened.drawn?.toFixed(0) ?? "never"} ms, ` +
+          `header ${opened.header?.toFixed(0) ?? "never"} ms (attach ${SLOW_ATTACH_MS} ms, hold 1500 ms)`,
+      );
       expect(opened.drawn).not.toBeNull();
       expect(opened.drawOpacity).toBe(1);
       expect(opened.animated).toEqual([]);
@@ -737,6 +835,126 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       await page.getByText(slowChat.marker).waitFor({ timeout: 5_000 });
     } finally {
       await page.close();
+    }
+  });
+
+  /// Leo, 2026-11-01: "loading into a chat and some of its recent messages ... it's not cached well
+  /// enough nor prerendered/prefetched well enough" (HQ#5914, finding 2). A sidebar click opens a
+  /// chat in a tab of its own, which is a NEW page; the sidebar forwards the row the pointer rests
+  /// on to the agent chat on screen (`chat.prefetch` with `hover`), whose page reads it ahead and
+  /// hands its tail to the app host, so the new page draws it from the host's copy before its
+  /// attach answers. Measured against a new tab on a chat nobody hovered, in one run: both times
+  /// from the page's connect (its `initialize`, so the dev bundle's load is not in them) and from
+  /// its navigation, to the frame its transcript shows the chat.
+  test("a chat the sidebar pointer rested on opens in a new tab before its attach answers", async () => {
+    const hovered = [...Array(VISITS).keys()].map((at) => chats[22 + at * 11]!);
+    const cold = [...Array(VISITS).keys()].map((at) => chats[23 + at * 11]!);
+    for (const entry of [...hovered, ...cold]) readable.add(entry.sessionId);
+    /// The app host for a page, and (with `marker`) when the page first shows that line.
+    const withHost = async (page: import("playwright").Page, marker?: string) => {
+      await page.exposeFunction("cmuxHostTail", hostTail);
+      await page.exposeFunction("cmuxDrawn", () => Date.now());
+      await page.addInitScript((marker: string | null) => {
+        const call = (window as unknown as { cmuxHostTail: (method: string, params: unknown) => Promise<unknown> })
+          .cmuxHostTail;
+        const host = {
+          "chat.tail.get": (params: unknown) => call("chat.tail.get", params),
+          "chat.tail": (params: unknown) => call("chat.tail", params),
+        };
+        // The page installs its own actions over this object; the host's two stay beside them.
+        let actions: Record<string, unknown> = { ...host };
+        Object.defineProperty(window, "cmuxAcpmuxActions", {
+          configurable: true,
+          get: () => actions,
+          set: (value) => {
+            actions = Object.assign(value ?? {}, host);
+          },
+        });
+        if (!marker) return;
+        const look = () => {
+          if (document.body?.textContent?.includes(marker)) {
+            const drawn = (window as unknown as { cmuxDrawn: () => Promise<number> }).cmuxDrawn();
+            (window as unknown as { drawnAt: Promise<number> }).drawnAt = drawn;
+            (window as unknown as { navigatedAt: number }).navigatedAt = performance.now();
+            return;
+          }
+          // raf-read: an init script on a page with no painted-frames hook yet; it reads only whether the
+          // tail's line is in the DOM, the same way for both arms, so the frame it lands on is no bias.
+          requestAnimationFrame(look);
+        };
+        // raf-read: as above.
+        requestAnimationFrame(look);
+      }, marker ?? null);
+    };
+    const worker = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    type NewTab = { connect: number; navigation: number; beforeAttach: boolean; hostHeld: boolean };
+    const results: { hovered: NewTab[]; cold: NewTab[] } = { hovered: [], cold: [] };
+    try {
+      await withHost(worker);
+      await worker.goto(url(chats[0].sessionId));
+      await worker.getByText(chats[0].marker).waitFor();
+      const newTab = async (entry: (typeof chats)[number]): Promise<NewTab> => {
+        const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+        try {
+          await withHost(page, entry.marker);
+          await page.goto(url(entry.sessionId));
+          await page.waitForFunction(() => (window as unknown as { drawnAt?: unknown }).drawnAt !== undefined);
+          const drawnAt = (await page.evaluate(
+            () => (window as unknown as { drawnAt: Promise<number> }).drawnAt,
+          )) as number;
+          const navigation = (await page.evaluate(
+            () => (window as unknown as { navigatedAt: number }).navigatedAt,
+          )) as number;
+          const connectedAt = initializedAt;
+          // The attach answers after the draw when the draw came from the host's copy.
+          await page.getByText(entry.marker).waitFor();
+          const attachedAt = attachAnsweredAt.get(entry.sessionId) ?? Number.POSITIVE_INFINITY;
+          return {
+            connect: drawnAt - connectedAt,
+            navigation,
+            beforeAttach: drawnAt < attachedAt,
+            hostHeld: hostTails.has(entry.sessionId),
+          };
+        } finally {
+          await page.close();
+        }
+      };
+      for (let at = 0; at < VISITS; at += 1) {
+        // A new tab on a chat nobody hovered.
+        results.cold.push(await newTab(cold[at]!));
+        // The pointer rests on a chat's row: the sidebar forwards it to the chat on screen.
+        const target = hovered[at]!;
+        const written = new Promise<void>((resolve) => {
+          hostWrites.set(target.sessionId, resolve);
+          // fixed-wait: a page that never hands the chat over (the base) is measured cold after this deadline.
+          setTimeout(resolve, 1_500);
+        });
+        await worker.evaluate(
+          (sessionId) =>
+            (window as unknown as { cmuxAcpmuxActions: Record<string, (params: object) => Promise<unknown>> })
+              .cmuxAcpmuxActions["chat.prefetch"]!({ sessionId, hover: true }),
+          target.sessionId,
+        );
+        await written;
+        hostWrites.delete(target.sessionId);
+        results.hovered.push(await newTab(target));
+      }
+    } finally {
+      await worker.close();
+      readable.clear();
+    }
+    const line = (name: string, tabs: NewTab[]) =>
+      console.log(
+        `chat-open-perf new tab ${name}: from connect ${tabs.map((tab) => tab.connect.toFixed(0)).join("/")} ms, ` +
+          `from navigation ${tabs.map((tab) => tab.navigation.toFixed(0)).join("/")} ms, ` +
+          `drawn before its attach ${tabs.map((tab) => (tab.beforeAttach ? "yes" : "no")).join("/")}`,
+      );
+    line("cold", results.cold);
+    line("hovered", results.hovered);
+    for (const tab of results.cold) expect(tab.beforeAttach).toBe(false);
+    for (const tab of results.hovered) {
+      expect(tab.hostHeld).toBe(true);
+      expect(tab.beforeAttach).toBe(true);
     }
   });
 
@@ -772,6 +990,19 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       holdToTheBrief(run, DEV_RENDER_MS);
     } finally {
       busy = false;
+    }
+  });
+
+  /// HQ#5914, finding 3: the chat's permission groups and handoff, read with its attach, answer
+  /// after it (a daemon whose permission store is busy). The rows draw on the attach page, not on
+  /// the slowest of the three reads, and the same no-shift, no-blank rules hold.
+  test("opening chats whose side reads outlast the attach draws on the attach", async () => {
+    slowSideReads = true;
+    try {
+      const run = await openEachTwice("side reads");
+      holdToTheBrief(run);
+    } finally {
+      slowSideReads = false;
     }
   });
 });

@@ -40,7 +40,7 @@ export function BareReferenceChip({ number, href, text }: { number: number; href
   return (
     <UrlChip
       href={address(choice.repository, number)}
-      icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+      icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
     >
       {ambiguous ? `${choice.repository.split("/")[1]}#${number}` : text}
     </UrlChip>

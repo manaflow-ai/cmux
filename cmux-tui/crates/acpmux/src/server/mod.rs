@@ -195,6 +195,10 @@ pub struct Conn {
     pub(super) nonce: String,
     /// It proved the person key for its challenge.
     person: AtomicBool,
+    /// A Cloud trigger connection is an explicitly scoped principal. It is
+    /// never inferred from the local socket and it cannot become a person.
+    /// The scope lives only for this connection and is never persisted.
+    trigger: StdMutex<Option<TriggerScope>>,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
@@ -221,6 +225,24 @@ pub struct Conn {
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
     /// on a transport whose writer does not compress.
     wire: Option<Arc<crate::frame_compress::Wire>>,
+}
+
+/// The only authority a trigger connection carries after platform admission.
+/// Every field is pinned to one machine/chat/delivery; no bearer or owner
+/// credential is retained here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TriggerScope {
+    pub trigger: String,
+    pub owner: String,
+    pub team: String,
+    pub machine: String,
+    pub workspace: String,
+    pub session: String,
+    pub delivery: String,
+    pub prompt_hash: String,
+    pub cwd: String,
+    pub harness: String,
+    pub guest_key: String,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -341,7 +363,29 @@ impl Conn {
 
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
-        self.person.load(Ordering::SeqCst)
+        self.person.load(Ordering::SeqCst) && !self.is_trigger()
+    }
+
+    pub(super) fn is_trigger(&self) -> bool {
+        self.trigger.lock_or_recover().is_some()
+    }
+
+    /// Admit the first verified scope, or require retries to carry the exact
+    /// same scope. This prevents a connection from being retargeted between
+    /// deliveries while retaining its trigger principal.
+    pub(super) fn admit_trigger(&self, scope: TriggerScope) -> Result<(), RpcError> {
+        let mut current = self.trigger.lock_or_recover();
+        if self.person.load(Ordering::SeqCst) {
+            return Err(RpcError::new(-32001, "a person connection cannot become a trigger"));
+        }
+        match current.as_ref() {
+            Some(existing) if existing == &scope => Ok(()),
+            Some(_) => Err(RpcError::new(-32001, "trigger scope changed on this connection")),
+            None => {
+                *current = Some(scope);
+                Ok(())
+            }
+        }
     }
 
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
@@ -1527,6 +1571,7 @@ async fn serve_connection_from(
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
+        trigger: StdMutex::new(None),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
@@ -1585,6 +1630,21 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // Once a local connection has been admitted as a trigger
+                // principal it is a single-purpose channel. In particular,
+                // the local socket must not keep granting ordinary person
+                // RPCs after trigger authentication.
+                if conn.is_trigger() && !m.starts_with("trigger/chat.") {
+                    conn.send(&Message::err(
+                        id,
+                        RpcError::new(
+                            -32001,
+                            "trigger connection accepts trigger/chat operations only",
+                        )
+                        .with_data(json!({"reason": "trigger.connection_scope"})),
+                    ));
+                    continue;
+                }
                 let slot = match try_request_slot(&request_slots, &m) {
                     Ok(slot) => slot,
                     Err(()) => {
@@ -1652,6 +1712,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            Message::Notification { method: m, params: _ } if conn.is_trigger() => {
+                tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -1688,7 +1751,9 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                conn.settle_client_request(&id, result, error);
+                if !conn.is_trigger() {
+                    conn.settle_client_request(&id, result, error);
+                }
             }
         }
     }
@@ -1953,10 +2018,13 @@ mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 mod team;
+mod trigger_authority;
+mod trigger_chat;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
+pub(crate) mod host_notice;
 mod inventory_watch;
 mod lane_parent;
 mod list_reply;
