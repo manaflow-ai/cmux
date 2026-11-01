@@ -80,6 +80,10 @@ extension WorkspaceRowView {
             // laying out counts or other marks, so none can occupy the dot's slot at rest.
             badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.unreadDotSize)
             view = badge
+        } else if !machineMark.isHidden {
+            // A row with no status: the machine mark takes the column, in a status mark's box, as the triangle does.
+            machineMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = machineMark
         } else {
             return nil
         }
