@@ -4,6 +4,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAppCore
 import CmuxNextDaemon
+import CmuxNextDesign
+@testable import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -124,6 +126,36 @@ struct ChatWorkspaceShowsAtOnceTests {
         try #require(standIn != nil, "the open showed no stand-in tab")
         #expect(workspace != nil, "the daemon's create failed")
         #expect(bound, "the daemon's tab record holds session \(record?.session ?? "none"), not the one its page started (\(started))")
+    }
+
+    /// A stand-in row the daemon does not list yet draws where unplaced rows go: first under `top`, else last
+    /// (`SidebarDocWiring.placesNewRowsFirst`); its slot is applied once the daemon takes it over. Where that slot is
+    /// elsewhere (`afterCurrent`, `placement: top` under another setting, below a grouped caller), a stand-in row
+    /// drew in one place and then moved (Leo 2026-11-01: rows must not pop up somewhere and then go where they belong;
+    /// review of #30961). Such an open shows nothing before the daemon lists it, at its slot, as before.
+    @Test(arguments: [("afterCurrent", false), ("bottom", true)])
+    func aSessionWorkspaceShowsAtOnceOnlyWhereItsRowStays(placement: String, top: Bool) async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let url = launched.root.appendingPathComponent("cmux.json")
+        try Data(#"{"workspaces":{"newPlacement":"\#(placement)"}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
+        try #require(services.settings?.snapshot.newWorkspacePlacement.rawValue == placement)
+        let store = services.daemon.store
+        let key = WorkspaceKey.generate()
+
+        let work = try AgentSessionWorkspace.open(session: "s-slot-\(placement)", name: "lane", key: key, cwd: nil, top: top, services: services)
+        let shownAtOnce = store.workspaces.contains { $0.key == key }
+        let failure = await work.value?.message
+        await launched.stop()
+
+        #expect(!shownAtOnce, "under \(placement)\(top ? " with placement top" : "") the stand-in showed before the daemon listed it, so its row would move to its slot")
+        #expect(failure == nil, "refused: \(failure ?? "")")
     }
 
     @Test func openChatShowsItsWorkspaceBeforeTheDaemonAnswers() async throws {
