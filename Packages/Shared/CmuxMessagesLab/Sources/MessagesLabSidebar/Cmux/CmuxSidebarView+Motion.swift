@@ -35,13 +35,19 @@ extension CmuxSidebarView {
     /// host's gate allows it. When false the change applies in one frame.
     static var animatesMovement: Bool { !reducesMotion && (movementGate?() ?? true) }
 
-    /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`, so calm mode, the speed
-    /// `off` and Home's motion switch also stop them); nil: only Reduce Motion decides. A Chief's
-    /// avatar loop (``SidebarAvatarMotion``) runs only while it allows.
-    public static var avatarLoopGate: (@MainActor () -> Bool)?
+    /// The host's gate for a Chief's avatar loop (cmux-next: `Motion.home.animatesLoops`, so calm
+    /// mode, the animation speed `off` and Home's motion switch also apply); nil: only Reduce Motion
+    /// decides. A change applies when `reduceMotionDidChange` posts.
+    public var avatarLoopGate: (@MainActor () -> Bool)? {
+        get { controller.avatarMotion.gate }
+        set { controller.avatarMotion.gate = newValue }
+    }
 
     /// How a Chief's avatar moves (the host's Debug setting); a change applies on the next `show`.
-    public static var avatarMotionStyle = CmuxSidebarAvatarMotionStyle.float
+    public var avatarMotionStyle: CmuxSidebarAvatarMotionStyle {
+        get { controller.avatarMotion.style }
+        set { controller.avatarMotion.style = newValue }
+    }
 
     /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at
     /// once on the main thread (a test's pin change applies before it returns), else on the main
@@ -74,7 +80,7 @@ extension CmuxSidebarView {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
             if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
-            if let row = layer as? SidebarRowLayer { SidebarAvatarMotion.refresh(row.avatar, window: window) }
+            if let row = layer as? SidebarRowLayer { controller.avatarMotion.refresh(row, window: window) }
             layers += layer.sublayers ?? []
         }
     }

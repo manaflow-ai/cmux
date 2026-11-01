@@ -30,6 +30,7 @@ struct ChiefAvatarMotionTests {
                 entry("noah", "Noah", .monogram("NO"), nil, false),
             ]
             window.contentView = view
+            controller.avatarMotion.onScreenPin = true
             show()
             view.layoutSubtreeIfNeeded()
             controller.view.layoutSubtreeIfNeeded()
@@ -57,17 +58,11 @@ struct ChiefAvatarMotionTests {
     }
 
     init() {
-        SidebarAvatarMotion.onScreenOverride = true
         CmuxSidebarView.reduceMotionOverride = false
-        CmuxSidebarView.avatarLoopGate = nil
-        CmuxSidebarView.avatarMotionStyle = .float
     }
 
     private func reset() {
-        SidebarAvatarMotion.onScreenOverride = nil
         CmuxSidebarView.reduceMotionOverride = nil
-        CmuxSidebarView.avatarLoopGate = nil
-        CmuxSidebarView.avatarMotionStyle = .float
     }
 
     @Test func aChiefsAvatarLoopsSlowAtIdleAndFasterWhileItWorks() throws {
@@ -103,7 +98,7 @@ struct ChiefAvatarMotionTests {
         #expect(f.loop("scout") != nil, "and they start again")
 
         var homeLoops = false
-        CmuxSidebarView.avatarLoopGate = { homeLoops }
+        f.view.avatarLoopGate = { homeLoops }
         NotificationCenter.default.post(name: CmuxSidebarView.reduceMotionDidChange, object: nil)
         #expect(f.loop("scout") == nil, "Home's motion switch, calm mode or speed off stop them")
         homeLoops = true
@@ -115,15 +110,15 @@ struct ChiefAvatarMotionTests {
         defer { reset() }
         let f = Fixture()
         #expect(f.loop("scout") != nil)
-        SidebarAvatarMotion.onScreenOverride = false
+        f.controller.avatarMotion.onScreenPin = false
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: nil)
         #expect(f.loop("scout") == nil && f.loop("chief") == nil)
-        SidebarAvatarMotion.onScreenOverride = true
+        f.controller.avatarMotion.onScreenPin = true
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: f.window)
         #expect(f.loop("scout") != nil)
 
         // Unpinned, the real check: this offscreen test window is not on screen, so nothing loops.
-        SidebarAvatarMotion.onScreenOverride = nil
+        f.controller.avatarMotion.onScreenPin = nil
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: f.window)
         #expect(f.loop("scout") == nil, "a window that is not on screen never loops")
     }
@@ -138,7 +133,7 @@ struct ChiefAvatarMotionTests {
         f.controller.tile(force: true)
         #expect(avatar.animation(forKey: SidebarAvatarMotion.animationKey) == nil, "a pooled avatar never loops")
 
-        CmuxSidebarView.avatarMotionStyle = .still
+        f.view.avatarMotionStyle = .still
         f.set("chief", .working)
         #expect(f.loop("chief") == nil)
     }

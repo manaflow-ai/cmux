@@ -112,6 +112,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
     private let cache = SidebarBitmapCache()
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
+    var avatarMotion = SidebarAvatarMotion() // cmux: a Chief's avatar loop (the host's gate and style)
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
@@ -973,7 +974,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.conversationID = nil
         l.setAffineTransform(.identity)
         l.removeAnimation(forKey: "move"); l.removeAnimation(forKey: "appear")
-        SidebarAvatarMotion.stop(l.avatar) // cmux: a pooled avatar never loops
+        SidebarAvatarMotion.stop(l) // cmux: a pooled avatar never loops
         l.shownKey = nil
         l.shownLayout = nil
         l.shownText = nil
@@ -1015,7 +1016,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: ah, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
-        SidebarAvatarMotion.apply(l.avatar, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
         let d = SidebarMetrics.dotDiameter
         l.dot.isHidden = !c.unread
         l.dot.frame = CGRect(x: metrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
@@ -1188,7 +1189,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
-        SidebarAvatarMotion.apply(l.avatar, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
         configureSenders(l, c, avatar: ar)
         l.dot.isHidden = !c.unread
         l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
@@ -1745,6 +1746,8 @@ final class SidebarRowLayer: CALayer {
     var senders: [CALayer] = []
     /// The conversation this layer shows (nil: in the pool).
     var conversationID: ConversationID?
+    /// cmux: what the avatar was asked to show and the loop on it (``SidebarAvatarMotion``).
+    var avatarMotion: SidebarAvatarMotion.Shown?
     var shownKey: SidebarBitmapKey?
     /// The line breaks and truncation of the text bitmap on screen (nil: not known, e.g. from the cache).
     var shownLayout: SidebarDraw.RowTextLayout?

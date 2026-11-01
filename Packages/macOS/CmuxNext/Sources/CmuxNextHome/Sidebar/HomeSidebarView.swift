@@ -113,6 +113,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
+        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
+        list.avatarLoopGate = { Motion.home.animatesLoops }
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -200,7 +202,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func reshow() {
-        CmuxSidebarView.avatarMotionStyle = HomeTunables.avatarMotion.value.style
+        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,

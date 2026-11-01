@@ -13,60 +13,73 @@ import AppKit
 ///   (``CmuxSidebarView/avatarLoopGate``, the host's `Motion.home.animatesLoops`);
 /// - the app is not active, or the list's window is hidden, minimized or covered (its occlusion
 ///   state): ``CmuxSidebarView`` re-applies every avatar when either changes.
-enum SidebarAvatarMotion {
+///
+/// The list's controller holds one (its host's gate and style); each row layer holds what its avatar
+/// was asked to show (``Shown``), so a gate, app or window change re-applies it.
+struct SidebarAvatarMotion {
     /// What a conversation's avatar does: nil stands still.
     enum Mode: String, Codable, Hashable, Sendable {
         case idle
         case working
     }
 
-    /// The layer key the loop is added under, and the KVC key holding the shown mode.
-    static let animationKey = "cmux.avatarMotion"
-    private static let modeKey = "cmux.avatarMotion.mode"
+    /// What one avatar was asked to show, and the loop running on it (nil: at rest).
+    struct Shown: Equatable {
+        var mode: Mode
+        var seed: String
+        var loop: Loop?
+    }
 
+    /// A running loop's style and mode: a reload asking for the same keeps it.
+    struct Loop: Equatable {
+        var style: CmuxSidebarAvatarMotionStyle
+        var mode: Mode
+    }
+
+    /// The layer key the loop is added under.
+    static let animationKey = "cmux.avatarMotion"
+
+    /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`); nil: only Reduce Motion decides.
+    var gate: (@MainActor () -> Bool)?
+    /// How avatars move (the host's Debug setting).
+    var style = CmuxSidebarAvatarMotionStyle.float
     /// Tests' pin for "the app is active and the window is on screen" (an offscreen test window never is).
-    @MainActor static var onScreenOverride: Bool?
+    var onScreenPin: Bool?
 
     /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the app is
     /// active and the window is on screen.
-    @MainActor static func mayRun(in window: NSWindow?) -> Bool {
-        guard !CmuxSidebarView.reducesMotion, CmuxSidebarView.avatarLoopGate?() ?? true else { return false }
-        if let onScreenOverride { return onScreenOverride }
+    @MainActor func mayRun(in window: NSWindow?) -> Bool {
+        guard !CmuxSidebarView.reducesMotion, gate?() ?? true else { return false }
+        if let onScreenPin { return onScreenPin }
         guard NSApp?.isActive ?? false, let window, window.isVisible, !window.isMiniaturized,
               window.occlusionState.contains(.visible) else { return false }
         return true
     }
 
-    /// Shows `mode` on the avatar `layer` of conversation `seed` (its id: each avatar's loop starts at
+    /// Shows `mode` on `row`'s avatar for conversation `seed` (its id: each avatar's loop starts at
     /// its own phase, so a list of Chiefs doesn't move in lockstep). Keeps a running loop of the same
     /// mode and style; replaces one that differs; removes it when `mode` is nil or loops may not run.
-    @MainActor static func apply(_ layer: CALayer, mode: Mode?, seed: String, window: NSWindow?) {
-        let style = CmuxSidebarView.avatarMotionStyle
-        let wanted = mode.flatMap { mayRun(in: window) && style != .still ? "\(style.rawValue).\($0.rawValue)" : nil }
-        layer.setValue(mode?.rawValue, forKey: modeKey)
-        layer.setValue(seed, forKey: modeKey + ".seed")
-        let shown = layer.animation(forKey: animationKey)?.value(forKey: modeKey) as? String
-        guard shown != wanted else { return }
-        layer.removeAnimation(forKey: animationKey)
-        guard let wanted, let mode else { return }
-        let loop = animation(style, mode: mode, seed: seed)
-        loop.setValue(wanted, forKey: modeKey)
-        layer.add(loop, forKey: animationKey)
+    @MainActor func apply(_ row: SidebarRowLayer, mode: Mode?, seed: String, window: NSWindow?) {
+        guard let mode else { return Self.stop(row) }
+        let wanted = mayRun(in: window) && style != .still ? Loop(style: style, mode: mode) : nil
+        // The loop on screen, if it is still this conversation's (a layer reused for another restarts).
+        let shown = row.avatarMotion
+        let running = row.avatar.animation(forKey: Self.animationKey) == nil || shown?.seed != seed ? nil : shown?.loop
+        row.avatarMotion = Shown(mode: mode, seed: seed, loop: wanted)
+        guard running != wanted || (wanted == nil && row.avatar.animation(forKey: Self.animationKey) != nil) else { return }
+        row.avatar.removeAnimation(forKey: Self.animationKey)
+        if let wanted { row.avatar.add(Self.animation(wanted.style, mode: mode, seed: seed), forKey: Self.animationKey) }
     }
 
-    /// Re-applies the mode `layer` last showed (after a gate, app or window change).
-    @MainActor static func refresh(_ layer: CALayer, window: NSWindow?) {
-        guard let mode = (layer.value(forKey: modeKey) as? String).flatMap(Mode.init(rawValue:)) else {
-            layer.removeAnimation(forKey: animationKey)
-            return
-        }
-        apply(layer, mode: mode, seed: layer.value(forKey: modeKey + ".seed") as? String ?? "", window: window)
+    /// Re-applies what `row`'s avatar last showed (after a gate, app or window change).
+    @MainActor func refresh(_ row: SidebarRowLayer, window: NSWindow?) {
+        apply(row, mode: row.avatarMotion?.mode, seed: row.avatarMotion?.seed ?? "", window: window)
     }
 
-    /// Stops the loop (the layer goes back to the pool).
-    static func stop(_ layer: CALayer) {
-        layer.removeAnimation(forKey: animationKey)
-        layer.setValue(nil, forKey: modeKey)
+    /// Stops the loop (the layer goes back to the pool, or its conversation stands still).
+    static func stop(_ row: SidebarRowLayer) {
+        row.avatar.removeAnimation(forKey: animationKey)
+        row.avatarMotion = nil
     }
 
     /// One loop: `style`'s keyframes at the mode's period and depth, starting at the seed's phase.
