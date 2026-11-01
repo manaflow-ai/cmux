@@ -32,6 +32,7 @@ extension AnimationPixelRun {
         try await Task.sleep(for: .milliseconds(300))
         guard let rest = stream.lastImage else {
             await stream.stop()
+            try stream.requireUninterrupted()
             throw Failure(description: "\(name): ScreenCaptureKit gave no frame of the window at rest")
         }
         // The resting colors: panes, divider lines, gaps.
@@ -55,6 +56,7 @@ extension AnimationPixelRun {
         try await Task.sleep(for: .milliseconds(300))
         sampler.stop()
         await stream.stop()
+        try stream.requireUninterrupted()
 
         let release = driver.releaseTime ?? .infinity
         let moves = driver.moves, final = moves.last?.offset ?? 0

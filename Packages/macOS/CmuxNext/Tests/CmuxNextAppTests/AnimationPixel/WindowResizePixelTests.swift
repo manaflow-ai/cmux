@@ -49,6 +49,7 @@ struct WindowResizePixelTests {
         try await Task.sleep(for: .milliseconds(300))
         guard let rest = stream.lastImage else {
             await stream.stop()
+            try stream.requireUninterrupted()
             throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame of the window at rest")
         }
         let style = fixture.model.style
@@ -77,6 +78,7 @@ struct WindowResizePixelTests {
         try await Task.sleep(for: .milliseconds(300))
         sampler.stop()
         await stream.stop()
+        try stream.requireUninterrupted()
 
         var failures: [String] = [], shownWidths: [(time: Double, width: Double)] = []
         let allowed = Set(([Double(window.frame.width)] + widths + [1200]).map { Int(($0 * Double(scale)).rounded()) })
