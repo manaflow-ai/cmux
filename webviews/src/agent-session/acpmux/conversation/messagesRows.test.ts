@@ -30,6 +30,7 @@ describe("messagesRows", () => {
       row("summary", "turnSummary", { status: "completed", durationMs: 1200 }),
       row("date", "date"),
       row("typing", "typing"),
+      row("pending-tool", "activity", { permission: { permissionId: "p", pending: true, options: [] } }),
     ];
 
     expect(messagesRows(rows)).toEqual([]);
@@ -71,7 +72,7 @@ describe("messagesRows", () => {
     const pending = row("pending", "user", { pending: true, text: "Waiting to send" });
     const failed = row("failed", "user", { failed: true, text: "Retry this" });
     const steer = row("steer", "user", { steer: "waiting", text: "Also check the tests" });
-    const hidden = row("hidden", "user", { incoming: { kind: "hidden" }, text: "" });
+    const hidden = row("hidden", "user", { incoming: { kind: "hidden" }, text: "", pending: true });
     const attachment = row("attachment", "user", { text: "", images: [{ id: "image", mimeType: "image/png" }] });
 
     expect(messagesRows([pending, failed, steer, hidden, attachment])).toEqual([pending, failed, steer, attachment]);
@@ -80,7 +81,7 @@ describe("messagesRows", () => {
   test("keeps error recovery controls while omitting successful summaries", () => {
     const resume = row("resume", "turnSummary", { status: "cancelled", resumable: true });
     const failed = row("failed-summary", "turnSummary", { status: "failed", error: "agent stopped" });
-    const normal = row("normal", "turnSummary", { status: "completed", resumable: true });
+    const normal = row("normal", "turnSummary", { status: "completed", resumable: true, retryable: true });
 
     expect(messagesRows([resume, failed, normal])).toEqual([resume, failed]);
   });
