@@ -49,7 +49,7 @@ pub const PLACES: [&str; 5] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 12] = [
+pub const CONTROL_ACTIONS: [&str; 13] = [
     "status",
     "interrupt",
     "answer",
@@ -62,6 +62,7 @@ pub const CONTROL_ACTIONS: [&str; 12] = [
     "hide",
     "cap",
     "cloud",
+    "sessions",
 ];
 
 /// The sizes `cmux cloud new-machine --size` takes.

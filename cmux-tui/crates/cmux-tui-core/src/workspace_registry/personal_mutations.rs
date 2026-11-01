@@ -386,8 +386,9 @@ impl WorkspaceRegistry {
         Ok(changed)
     }
 
-    /// Record or refresh a session in the registry. A new session is
-    /// followed by `default` and by `follow_with` when given.
+    /// Record a session in the registry. Repeating its effective content
+    /// is a read: no timestamp, revision, journal entry or WAL write. A new
+    /// session is followed by `default` and by `follow_with` when given.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn put_session_in(
         tx: &Transaction<'_>,
@@ -404,14 +405,26 @@ impl WorkspaceRegistry {
                 validate_name(label, value)?;
             }
         }
-        let transport = validate_personal_json("transport", transport, true)?;
-        let capabilities = capabilities.map(validate_session_capabilities).transpose()?;
+        let transport_json = validate_personal_json("transport", transport, true)?;
+        let capabilities_json = capabilities.map(validate_session_capabilities).transpose()?;
         if let Some(room) = follow_with {
             validate_profile_id(room)?;
         }
-        let created = read_session(tx, session)?.is_none();
+        let existing = read_session(tx, session)?;
+        let created = existing.is_none();
         if let Some(room) = follow_with {
             anyhow::ensure!(read_profile(tx, room)?.is_some(), "unknown room {room}");
+        }
+        if let Some(record) = existing {
+            // Absent optional fields preserve their stored values. Compare
+            // parsed JSON, so object key order cannot cause a write either.
+            if machine_name.is_none_or(|name| record.machine_name.as_deref() == Some(name))
+                && session_name.is_none_or(|name| record.session_name.as_deref() == Some(name))
+                && record.transport == *transport
+                && capabilities.is_none_or(|value| record.capabilities.as_ref() == Some(value))
+            {
+                return Ok((record, false));
+            }
         }
         let now = i64::try_from(unix_epoch_ms()?)?;
         tx.execute(
@@ -423,7 +436,7 @@ impl WorkspaceRegistry {
                transport_json = excluded.transport_json,
                last_seen_ms = excluded.last_seen_ms,
                capabilities_json = COALESCE(excluded.capabilities_json, sessions.capabilities_json)",
-            params![session, machine_name, session_name, transport, now, capabilities],
+            params![session, machine_name, session_name, transport_json, now, capabilities_json],
         )?;
         if created {
             for room in [Some(DEFAULT_PROFILE_ID), follow_with].into_iter().flatten() {

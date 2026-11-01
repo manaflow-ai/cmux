@@ -278,7 +278,43 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<(), (String, String
     }
     super::sync_cli::push(socket, local, remote)
         .map(|_| ())
-        .map_err(|error| (super::sync_cli::push_failure_code(&error), format!("{error:#}")))
+        .map_err(|error| super::sync_cli::push_failure(&error))
+}
+
+/// Folders a chat's copy refuses as too broad: the disk's root and the
+/// system's own top folders (each itself; a project below one is fine).
+/// The home folder itself is refused too ([`too_broad`]).
+const TOO_BROAD: &[&str] = &[
+    "/",
+    "/System",
+    "/Library",
+    "/Applications",
+    "/Users",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/private",
+    "/etc",
+    "/var",
+    "/tmp",
+    "/opt",
+    "/Volumes",
+    "/home",
+    "/root",
+];
+
+/// Whether `local` is a folder too broad to copy: the root, a system top
+/// folder, or the home folder `home` itself, as spelled or as it resolves
+/// (`/etc` is `/private/etc` on a Mac).
+pub(super) fn too_broad(local: &str, home: Option<&Path>) -> bool {
+    let spelled = PathBuf::from(if local.len() > 1 { local.trim_end_matches('/') } else { local });
+    let resolved = std::fs::canonicalize(&spelled).ok();
+    let home_resolved = home.and_then(|home| std::fs::canonicalize(home).ok());
+    [Some(spelled), resolved].into_iter().flatten().any(|path| {
+        TOO_BROAD.iter().any(|broad| path == Path::new(broad))
+            || home.is_some_and(|home| path == home)
+            || home_resolved.as_deref().is_some_and(|home| path == home)
+    })
 }
 
 /// `copy`'s arguments.
@@ -339,13 +375,53 @@ impl StartCopy {
     }
 
     /// The copy, or the chat's folder of the one that already finished.
-    /// Each copy goes to a new folder, kept before the push starts: the
-    /// ledger is not locked during the push, which can take minutes, so a
-    /// copy whose answer was lost (it may have finished on the machine) or
-    /// a second copy of the same send at once never writes over another.
+    ///
+    /// A retry resumes: the copy that did not finish (cut off, its answer
+    /// lost, or its process gone) left its folder in the ledger, and the
+    /// retry pushes into it again, so what already landed is not sent again
+    /// (`cmux link sync push` saves its record as it goes). The folder is
+    /// held by a lease for as long as its push runs ([`Lease`], a lock the
+    /// system lets go when the process ends, also when it is killed): a
+    /// second copy of the same send at once finds it held and takes a new
+    /// folder, so two copies never write over each other. No chat opens in
+    /// a folder before its copy finished, so a resumed one is never written
+    /// over a chat's changes. An abandoned folder (its send never retried
+    /// on that machine) stays on the machine; nothing cleans it up.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
+        if too_broad(&self.local, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
+            return refused(
+                "folder_too_broad",
+                format!(
+                    "{} is too broad to copy to a Cloud machine; pick a project folder",
+                    self.local
+                ),
+            );
+        }
         let send = Send::new(&self.key, &self.account);
-        let place = self.fresh_place();
+        let in_flight = match Ledger::update(ledger, |pins| {
+            pins.copied_chat(&send, &self.machine)
+                .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
+        }) {
+            Ok(Ok(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Err(place)) => place,
+            Err(error) => return refused("ledger_failed", format!("{error:#}")),
+        };
+        // The unfinished copy's folder when no live copy holds it, else a new one.
+        let resumed = in_flight
+            .and_then(|place| Some((Lease::take(ledger, &send, &self.machine, &place)?, place)));
+        let (lease, place) = match resumed {
+            Some(held) => held,
+            None => {
+                let place = self.fresh_place();
+                match Lease::take(ledger, &send, &self.machine, &place) {
+                    Some(lease) => (lease, place),
+                    None => return refused("ledger_failed", "cannot hold the copy's folder"),
+                }
+            }
+        };
+        // Checked again under the lease: a copy that finished between the
+        // first read and the lease (and let it go) is the send's copy now,
+        // and its folder may hold a chat; it is never pushed over.
         match Ledger::update(ledger, |pins| {
             let finished = pins.copied_chat(&send, &self.machine);
             if finished.is_none() {
@@ -362,9 +438,11 @@ impl StartCopy {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(()) => {
-                    return match Ledger::update(ledger, |pins| {
+                    let recorded = Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
-                    }) {
+                    });
+                    lease.release();
+                    return match recorded {
                         Ok(()) => {
                             json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
                         }
@@ -382,6 +460,50 @@ impl StartCopy {
             }
         }
         refused(&last.0, last.1)
+    }
+}
+
+/// A copy's hold on its folder while its push runs: an exclusive lock on a
+/// file of its own beside the ledger (`copies/<hash>.lock`), which the
+/// system lets go when the process ends.
+pub(super) struct Lease {
+    file: std::fs::File,
+    path: PathBuf,
+}
+
+impl Lease {
+    /// Holds `place` of `send` on `machine`; None when a live copy holds it
+    /// (or its lock cannot be made).
+    pub(super) fn take(ledger: &Path, send: &Send, machine: &str, place: &str) -> Option<Self> {
+        use sha2::Digest as _;
+        use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+        let dir = ledger.parent()?.join("copies");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).ok()?;
+        let mut hasher = sha2::Sha256::new();
+        for part in [send.key(), send.account(), machine, place] {
+            hasher.update(part.as_bytes());
+            hasher.update([0]);
+        }
+        let name: String =
+            hasher.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect();
+        let path = dir.join(format!("{name}.lock"));
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)
+            .ok()?;
+        file.try_lock().ok()?;
+        Some(Self { file, path })
+    }
+
+    /// The copy finished: its lock file goes.
+    fn release(self) {
+        let _ = std::fs::remove_file(&self.path);
+        drop(self.file);
     }
 }
 
