@@ -17,7 +17,17 @@ extension KeyRouter: CreationInputHost {
         let terminalTab: String? = if case .terminal(_, let tab) = state.resolved { tab } else { nil }
         return CreationInputFocus(shell: shell, inContent: kind == .content, expectedTab: expectedTab,
                                   expectedGeneration: state.expectation?.generation, terminalTab: terminalTab,
-                                  takesKeys: Self.responderTakesKeys(controller, window: shell))
+                                  takesKeys: Self.responderTakesKeys(controller, window: shell),
+                                  terminalHasKeyboard: Self.terminalHasKeyboard(controller, window: shell))
+    }
+
+    /// The terminal the focus names is shown in its pane and its view is the window's first responder.
+    private static func terminalHasKeyboard(_ controller: WindowController, window: NSWindow) -> Bool {
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
+              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
+              case .terminal(let entry)? = paneController.currentContent,
+              let responder = window.firstResponder as? NSView else { return false }
+        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view)
     }
 
     func isCloseKey(_ event: NSEvent, in shell: NSWindow) -> Bool {
