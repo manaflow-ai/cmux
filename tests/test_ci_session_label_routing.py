@@ -9,8 +9,11 @@ they take it. A job asking for a label no online runner carries queues forever,
 so until the fleet carries it each job must evaluate to the label it takes today.
 
 The tour's picker (cmux_next_media_runner.py) reads CI_OWNED_POOL_SLOTS, so the
-session label wins only with a count there. The autofix jobs have no picker and
-take it only once vars.CI_SESSION_LABEL is 1.
+session label wins only with a count there. The autofix jobs have no picker, so
+they never take it: on 2026-10-29 cmux#24295's daemon tests waited 90 minutes,
+twice, on a session label whose online runners were all busy while the gui label
+moved, and only a placement's role_room() can see that (side_lane_placement.py).
+They keep the gui label whatever vars.CI_SESSION_LABEL says.
 """
 from __future__ import annotations
 
@@ -79,13 +82,14 @@ class AutofixActionExports(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
         return context
 
-    def test_the_session_label_only_once_ci_session_label_is_1(self):
+    def test_the_gui_label_whatever_ci_session_label_says(self):
         for name in self.WORKFLOWS:
             runs_on = self.runs_on(name)
             with self.subTest(workflow=name):
                 self.assertEqual(evaluate(runs_on, self.context()), GUI)
                 self.assertEqual(evaluate(runs_on, self.context(CI_SESSION_LABEL="0")), GUI)
-                self.assertEqual(evaluate(runs_on, self.context(CI_SESSION_LABEL="1")), SESSION)
+                self.assertEqual(evaluate(runs_on, self.context(CI_SESSION_LABEL="1")), GUI)
+                self.assertNotIn(SESSION, runs_on)
                 # Owned pools off keeps the hosted fallback whatever the session switch says.
                 self.assertEqual(evaluate(runs_on, self.context(CI_PR_POOL_OWNED="0", CI_SESSION_LABEL="1")),
                                  FALLBACK)
