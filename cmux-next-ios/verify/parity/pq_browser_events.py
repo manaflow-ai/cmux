@@ -75,8 +75,8 @@ def serve():
     for name, body in files.items():
         cmd += f" && printf %s {shlex.quote(body)} > {name}"
     cmd += (f" && (curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html || "
-            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &))"
-            f" && (nc -z 127.0.0.1 {SLOW_PORT} || (nohup python3 slow.py </dev/null >/dev/null 2>&1 &))")
+            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 & echo $! > http-{PORT}.pid))"
+            f" && (nc -z 127.0.0.1 {SLOW_PORT} || (nohup python3 slow.py </dev/null >/dev/null 2>&1 & echo $! > slow-{SLOW_PORT}.pid))")
     r = pq.rsh(cmd)
     check(r.returncode == 0, f"site: {r.stderr.strip()[:200]}")
     t0 = time.time()
@@ -445,7 +445,12 @@ def run_all(names=None):
 
 
 def stop_site():
-    pq.rsh(f"pkill -f 'http.server {PORT}' || true; pkill -f 'slow.py' || true")
+    """Stops the two servers serve() started, by the PIDs it recorded; never by name, so another
+    run's server on this mini is left alone."""
+    stops = []
+    for pidfile in (f"http-{PORT}.pid", f"slow-{SLOW_PORT}.pid"):
+        stops.append(f"p=$(cat {SITE}/{pidfile} 2>/dev/null) && kill \"$p\" 2>/dev/null; rm -f {SITE}/{pidfile}")
+    pq.rsh("; ".join(stops) + "; true")
 
 
 if __name__ == "__main__":
