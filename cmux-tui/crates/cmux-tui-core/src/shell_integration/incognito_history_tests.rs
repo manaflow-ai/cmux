@@ -512,3 +512,32 @@ fn a_forged_startup_file_does_not_skip_incognito_integration() {
         launched.env.iter().rev().find(|(key, _)| key == "ZDOTDIR").map(|(_, value)| value.clone());
     assert_ne!(zdotdir, Some(forged), "a forged ZDOTDIR must not skip the integration");
 }
+
+/// A forced `shell-integration` (bash, fish) names another shell than the
+/// incognito command's: the command's own shell is integrated, so zsh gets
+/// its history hook and no bash flags.
+#[test]
+fn an_incognito_shell_is_integrated_as_itself_under_a_forced_mode() {
+    if !scripts_available() {
+        eprintln!("skipped: the integration scripts could not be written here");
+        return;
+    }
+    let base = temp_base("forced-mode");
+    fs::create_dir_all(&base).unwrap();
+    for forced in ["bash", "fish"] {
+        let config = base.join(format!("config-{forced}"));
+        fs::write(&config, format!("shell-integration = {forced}\n")).unwrap();
+        let mut env = vec![
+            ("HOME".to_string(), base.to_string_lossy().into_owned()),
+            ("CMUX_NEXT_GHOSTTY_CONFIG".to_string(), config.to_string_lossy().into_owned()),
+        ];
+        keep_no_history(&mut env);
+        let launched = integrate_with(vec!["/bin/zsh".to_string()], env, &|_: &str| None);
+        assert_eq!(launched.command, ["/bin/zsh"], "{forced}: no flags of another shell");
+        assert!(
+            launched.env.iter().any(|(key, _)| key == "ZDOTDIR"),
+            "{forced}: an incognito zsh gets the zsh integration: {:?}",
+            launched.env
+        );
+    }
+}
