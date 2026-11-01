@@ -1177,7 +1177,10 @@ impl Hub {
             prepared: StdMutex::new(std::collections::VecDeque::new()),
             prepared_done: StdMutex::new(std::collections::VecDeque::new()),
             cloud_generation: AtomicU64::new(
-                std::env::var("CMUX_CLOUD_GENERATION").ok().and_then(|v| v.parse().ok()).unwrap_or(0),
+                std::env::var("CMUX_CLOUD_GENERATION")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
             ),
             team_information: Default::default(),
             queue_moved: Notify::new(),
