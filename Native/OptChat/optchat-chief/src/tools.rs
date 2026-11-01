@@ -1178,6 +1178,10 @@ pub enum ControlRequest {
     Engine(crate::brain::EngineRequest),
     /// chief.stop: answers `{"stopped": bool}`.
     Stop,
+    /// Reopen the last owner-stopped reply batch.
+    Continue,
+    /// Re-answer one owner message in the Chief conversation.
+    Retry(String),
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
     /// chief.stop {all: true}: the turn and every subagent ("Stop all
@@ -1294,6 +1298,8 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "spawn_policy"
                         | "engine"
                         | "stop"
+                        | "continue"
+                        | "retry"
                         | "inspect"
                         | "grant"
                         | "browse"
@@ -1341,9 +1347,24 @@ fn connection(conn: UnixStream, served: &Served) {
                 let model_stop = tool == "stop"
                     && (req.get("end_turn").and_then(Value::as_bool) == Some(true)
                         || role() == crate::turn_caller::Role::Turn);
-                if tool == "engine" || (tool == "stop" && !model_stop) {
+                if matches!(tool, "continue" | "retry") && role() != crate::turn_caller::Role::Other
+                {
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"error": {"code": "forbidden", "message": "owner control only"}})
+                    );
+                    continue;
+                }
+                if matches!(tool, "engine" | "continue" | "retry")
+                    || (tool == "stop" && !model_stop)
+                {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
+                        ("continue", _) => Some(ControlRequest::Continue),
+                        ("retry", _) => field("message")
+                            .filter(|id| !id.trim().is_empty())
+                            .map(ControlRequest::Retry),
                         ("stop", _) => {
                             let restart = req.get("restart").and_then(Value::as_array).map(|ids| {
                                 ids.iter()
@@ -1388,7 +1409,7 @@ fn connection(conn: UnixStream, served: &Served) {
                     };
                     let answer = match (ask, control) {
                         (None, _) => {
-                            json!({"error": {"code": "bad_request", "message": "engine action is show or set"}})
+                            json!({"error": {"code": "bad_request", "message": "engine action is show or set; retry requires message"}})
                         }
                         (Some(_), None) => {
                             json!({"error": {"code": "unavailable", "message": "the engine control is not served here"}})

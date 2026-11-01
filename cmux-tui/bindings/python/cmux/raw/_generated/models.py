@@ -2700,15 +2700,6 @@ class CloudConversationUnsubscribeRequest:
 
 
 @dataclass(frozen=True)
-class CloudEnvironmentRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-environment/request'
-    access_token: str
-    action: str
-    params: Union[JsonValue, None]
-    platform_origin: str
-
-
-@dataclass(frozen=True)
 class CloudHostReplicaClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-host-replica-clear/request'
     purge: Union[bool, MissingType] = field(default=MISSING)
@@ -6320,7 +6311,6 @@ __all__ = [
     'CloudConversationThreadRequest',
     'CloudConversationTypingRequest',
     'CloudConversationUnsubscribeRequest',
-    'CloudEnvironmentRequest',
     'CloudHostReplicaClearRequest',
     'CloudHostReplicaSetRequest',
     'CloudHostReplicaStatusRequest',

@@ -25,7 +25,6 @@ import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -88,8 +87,7 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
   // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
   const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
-  const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
-  const failed = rowFailed(tool) && !recovery;
+  const failed = rowFailed(tool);
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
@@ -192,7 +190,6 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
         </div>
       )}
       <WrittenArtifactButtons tools={[tool]} />
-      {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
