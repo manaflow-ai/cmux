@@ -36,6 +36,25 @@ test("a provider alias names the same grouped row and unavailable models stay fo
   expect(result.more).toEqual([blocked, ...models]);
 });
 
+// https://github.com/manaflow-ai/cmux/issues/29915: Codex reports its whole live list as its menu,
+// so its tab listed 13 models flat while Claude's folded the rest under Legacy models.
+test("a harness menu that lists older versions of a catalog family folds them, keeping variants", () => {
+  const catalog = [
+    { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", family: "Sol" },
+    { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", family: "Terra" },
+    { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+    { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", family: "Terra" },
+    { id: "gpt-6-astra", name: "GPT-6 Astra", family: "Astra" },
+    { id: "gpt-5.5", name: "GPT-5.5", family: "GPT" },
+    { id: "opus[1m]", name: "Opus 5.5 · 1M context", family: "Opus", release: "claude-opus-5-5" },
+    { id: "opus", name: "Opus 5.5", family: "Opus", release: "claude-opus-5-5" },
+    { id: "plain", name: "Plain", family: "Opus" },
+  ];
+  const result = relevantModelSections(catalog, ids(catalog));
+  expect(ids(result.shown)).toEqual(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-5.5", "opus[1m]", "opus", "plain"]);
+  expect(ids(result.more)).toEqual(["gpt-6-sol", "gpt-5.6-terra"]);
+});
+
 test("without a harness menu, newest provider families are inferred without model-name allowlists", () => {
   const catalog = [
     { id: "gpt-6-sol", name: "GPT-6-Sol" },
