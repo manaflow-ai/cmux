@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// User msg 17912 ("empty workspace needs plus button", a shot of an open, empty "Sleep alarm" group): the
 /// empty group's row read only "No workspaces · drag one here", and its header hid the + an empty group needs
 /// most. The row shows a + at rest, and the header offers its + on hover as a full group's does; both run
 /// New Workspace in Group, the one action path the group editor, menu, palette and CLI share.
-@MainActor @Suite(.serialized) struct SidebarEmptyGroupAddButtonTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEmptyGroupAddButtonTests {
     private static let group = GroupID("grp-empty")
 
     /// A sidebar in a window with one open, empty group; `ran` collects the group actions it runs.

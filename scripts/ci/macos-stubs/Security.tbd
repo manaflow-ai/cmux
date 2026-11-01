@@ -17,6 +17,10 @@ exports:
                        '_SecCodeCopySigningInformation',
                        '_SecCodeCopyStaticCode',
                        '_SecCopyErrorMessageString',
+                       '_SecItemAdd',
+                       '_SecItemCopyMatching',
+                       '_SecItemDelete',
+                       '_SecItemUpdate',
                        '_SecKeychainAddGenericPassword',
                        '_SecKeychainCopyDefault',
                        '_SecKeychainFindGenericPassword',
@@ -35,8 +39,14 @@ exports:
                        '_SecTrustSettingsCopyCertificates',
                        '_SecTrustSettingsCopyTrustSettings',
                        '_SessionGetInfo',
+                       '_kSecAttrAccount',
+                       '_kSecAttrService',
+                       '_kSecClass',
+                       '_kSecClassGenericPassword',
                        '_kSecCodeInfoIdentifier',
                        '_kSecCodeInfoTeamIdentifier',
                        '_kSecCodeInfoUnique',
-                       '_kSecGuestAttributeAudit' ]
+                       '_kSecGuestAttributeAudit',
+                       '_kSecReturnData',
+                       '_kSecValueData' ]
 ...

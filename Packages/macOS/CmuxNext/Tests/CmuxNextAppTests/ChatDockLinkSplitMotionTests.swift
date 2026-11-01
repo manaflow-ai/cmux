@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Testing
 
 /// A link clicked in a lone agent chat (Leo 2026-10-21, screenshots): the chat docks left in a new
@@ -14,6 +15,7 @@ import Testing
 /// no entrance replayed; only the pane with the new tab moves, sliding in from the right edge.
 /// Frames step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
+@Suite(.closesItsWindows)
 struct ChatDockLinkSplitMotionTests {
     /// What the link's pane holds.
     enum Content {
