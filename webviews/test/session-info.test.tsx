@@ -335,14 +335,12 @@ test("Session Info opens with a first chat: its environment, context use and out
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: 48K of 200K is 24% with a bar, folded until asked; then, as Claude Code desktop's, the
-  // percent used with the tokens, a bar, and the used and free parts with their shares.
-  const context = section(container, "context")!;
-  expect(meta(context)).toContain("24%");
-  expect(context.querySelector(".acpmux-session-info-meter")).not.toBeNull();
-  expect(context.textContent).not.toContain("tokens");
-  await click(head(context));
+  // Context: 48K of 200K is 24% with a bar, open from the start (Leo, 2026-11-01: "context tho is
+  // pretty good i think to keep expanded by default?"): as Claude Code desktop's, the percent used
+  // with the tokens, a bar, and the used and free parts with their shares.
   const open = section(container, "context")!;
+  expect(meta(open)).toContain("24%");
+  expect(open.querySelector(".acpmux-session-info-meter")).not.toBeNull();
   expect(open.querySelector(".acpmux-session-info-context__total")?.textContent).toBe("24% used48K / 200K");
   const bar = open.querySelector<HTMLElement>('.acpmux-session-info-context__bar [data-part="used"]');
   expect(bar?.style.width).toBe("24%");
@@ -375,14 +373,14 @@ test("open, closed, folds and width are this pane's, and another pane's change n
   await render(container, localChat);
   await click(head(section(container, "context")!));
   await click(toggle(container)!);
-  // The same pane drawn again (a chat shown again) keeps its state: closed, Context open.
+  // The same pane drawn again (a chat shown again) keeps its state: closed, Context folded.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, localChat);
   expect(panel(container)).toBeNull();
   await click(toggle(container)!);
-  expect(section(container, "context")!.textContent).toContain("48K / 200K");
-  expect(sessionInfoState().sections.context).toBe(true);
+  expect(section(container, "context")!.textContent).not.toContain("48K / 200K");
+  expect(sessionInfoState().sections.context).toBe(false);
   await click(toggle(container)!);
 
   // Another pane opens its own: this one stays closed.
