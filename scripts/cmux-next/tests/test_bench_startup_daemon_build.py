@@ -46,6 +46,48 @@ class Verdict(unittest.TestCase):
         self.assertEqual(bench_startup.daemon_verdict(APP, [], 1000.0)["verdict"], "not_run")
 
 
+class Hosts(unittest.TestCase):
+    """Terminal hosts run from host-exe/<sha256 of the bundle's binary>/<name>, outside the bundle, and keep their
+    binary until their terminal ends (DAEMON SKEW 2703): a host of another build makes the round not run."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="hosts-")
+        self.app = os.path.join(self.root, "cmux DEV hosttest.app")
+        bin_dir = os.path.join(self.app, "Contents/Resources/bin")
+        os.makedirs(bin_dir)
+        for name, body in (("cmux-tui", b"new tui build"), ("cmux-tui-host", b"new slim host build")):
+            with open(os.path.join(bin_dir, name), "wb") as f:
+                f.write(body)
+        import hashlib
+        self.new = hashlib.sha256(b"new slim host build").hexdigest()
+        self.old = hashlib.sha256(b"an older build").hexdigest()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def owner(self):
+        return {"name": "cmux-tui", "pid": 1, "build_id": "b", "started_wall": 1000.5,
+                "exe": os.path.join(self.app, "Contents/Resources/bin/cmux-tui")}
+
+    def host(self, digest):
+        return {"name": "terminal-host", "pid": 2, "build_id": None, "started_wall": 1000.6,
+                "exe": f"/Users/cmux/Library/Application Support/cmux-tui/host-exe/{digest}/cmux-tui-host"}
+
+    def test_a_host_copy_of_the_bundles_binary_is_the_build(self):
+        v = bench_startup.daemon_verdict(self.app, [self.owner(), self.host(self.new)], 1000.0)
+        self.assertEqual(v["verdict"], "run", v["reasons"])
+
+    def test_a_host_of_another_build_is_not_run(self):
+        v = bench_startup.daemon_verdict(self.app, [self.owner(), self.host(self.old)], 1000.0)
+        self.assertEqual(v["verdict"], "not_run")
+        self.assertIn("terminal-host", v["reasons"][0])
+
+    def test_an_agent_host_outside_the_bundle_is_not_run(self):
+        agent = {"name": "agent-host", "pid": 3, "build_id": None, "started_wall": 1000.6,
+                 "exe": "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux"}
+        self.assertEqual(bench_startup.daemon_verdict(self.app, [self.owner(), agent], 1000.0)["verdict"], "not_run")
+
+
 class StopEveryCopy(unittest.TestCase):
     """Cold mode must stop the tag's daemons of EVERY app copy, not only the copy this step runs."""
 
