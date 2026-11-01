@@ -2677,6 +2677,78 @@
             "state": "translated",
             "value": "「%@」をゲストと共有しますか？"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podijeliti „%@“ s gostom?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du dele “%@” med en gæst?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Condividere “%@” con un ospite?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចែករំលែក “%@” ជាមួយភ្ញៀវឬ?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du dele «%@» med en gjest?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępnić „%@” gościowi?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartilhar “%@” com um convidado?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поделиться «%@» с гостем?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชร์ “%@” กับแขกไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” bir misafirle paylaşılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поділитися «%@» з гостем?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ “%@” với khách?"
+          }
         }
       }
     },
@@ -2735,6 +2807,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントまたはスクリプトがこのチャットのゲストリンクを求めました。リンクを持つ人は、コマンドの出力やエージェントの推論を含め、あなたと同じようにチャットを見られます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent ili skripta zatražili su link za gosta za ovaj chat. Svako ko ima link vidi chat kao i ti, uključujući izlaz naredbi i razmišljanje agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent eller et script bad om et gæstelink til denne chat. Alle med linket ser chatten, som du gør, også kommandooutput og agentens ræsonnement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente o uno script ha chiesto un link ospite per questa chat. Chiunque abbia il link vede la chat come te, inclusi l’output dei comandi e il ragionamento dell’agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ ឬស្គ្រីបមួយបានស្នើសុំតំណភ្ញៀវសម្រាប់ការជជែកនេះ។ អ្នកណាដែលមានតំណនឹងឃើញការជជែកដូចអ្នកឃើញ រួមទាំងលទ្ធផលពាក្យបញ្ជា និងការវែកញែករបស់ភ្នាក់ងារ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent eller et skript ba om en gjestelenke til denne chatten. Alle med lenken ser chatten slik du gjør, også kommandoutdata og agentens resonnering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent lub skrypt poprosił o link dla gościa do tego czatu. Każdy, kto ma link, widzi czat tak jak ty, łącznie z wynikami poleceń i rozumowaniem agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um agente ou script pediu um link de convidado para este chat. Qualquer pessoa com o link vê o chat como você, incluindo a saída dos comandos e o raciocínio do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент или скрипт запросил гостевую ссылку на этот чат. Любой, у кого есть ссылка, видит чат так же, как вы, включая вывод команд и рассуждения агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์หรือสคริปต์ขอลิงก์สำหรับแขกของแชตนี้ ทุกคนที่มีลิงก์จะเห็นแชตเหมือนที่คุณเห็น รวมถึงเอาต์พุตของคำสั่งและการให้เหตุผลของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan veya betik bu sohbet için bir misafir bağlantısı istedi. Bağlantıya sahip herkes sohbeti sizin gördüğünüz gibi, komut çıktısı ve ajanın akıl yürütmesi dahil görür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент або скрипт запросив гостьове посилання на цей чат. Кожен, хто має посилання, бачить чат так само, як ви, разом із виводом команд і міркуваннями агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tác tử hoặc tập lệnh đã yêu cầu liên kết khách cho cuộc trò chuyện này. Bất kỳ ai có liên kết đều thấy cuộc trò chuyện như bạn, kể cả đầu ra lệnh và suy luận của tác tử."
           }
         }
       }
@@ -2795,6 +2939,78 @@
             "state": "translated",
             "value": "リンクの有効期間は %@ で、1 回使えます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link traje %@ i radi jednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linket varer %@ og virker én gang."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il link dura %@ e funziona una volta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណមានសុពលភាព %@ ហើយប្រើបានតែម្តង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenken varer %@ og virker én gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link działa przez %@ i można go użyć raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O link dura %@ e funciona uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылка действует %@ и срабатывает один раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์มีอายุ %@ และใช้ได้ครั้งเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantı %@ geçerlidir ve bir kez çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання діє %@ і спрацьовує один раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết có hiệu lực trong %@ và dùng được một lần."
+          }
         }
       }
     },
@@ -2853,6 +3069,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "リンクの有効期間は %1$@ で、%2$lld 回使えます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link traje %1$@ i radi %2$lld puta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linket varer %1$@ og virker %2$lld gange."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il link dura %1$@ e funziona %2$lld volte."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណមានសុពលភាព %1$@ ហើយប្រើបាន %2$lld ដង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenken varer %1$@ og virker %2$lld ganger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link działa przez %1$@ i można go użyć %2$lld razy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O link dura %1$@ e funciona %2$lld vezes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылка действует %1$@ и срабатывает %2$lld раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์มีอายุ %1$@ และใช้ได้ %2$lld ครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantı %1$@ geçerlidir ve %2$lld kez çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання діє %1$@ і спрацьовує %2$lld разів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết có hiệu lực trong %1$@ và dùng được %2$lld lần."
           }
         }
       }
@@ -2913,6 +3201,78 @@
             "state": "translated",
             "value": "リンクを作成"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napravi link"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opret link"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea link"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើតតំណ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lag lenke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utwórz link"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Criar link"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать ссылку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantı Oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити посилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo liên kết"
+          }
         }
       }
     },
@@ -2972,6 +3332,78 @@
             "state": "translated",
             "value": "共有しない"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne dijeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del ikke"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non condividere"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំចែករំលែក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udostępniaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не делиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paylaşma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не ділитися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không chia sẻ"
+          }
         }
       }
     },
@@ -3030,6 +3462,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "チャットの所有者がゲストリンクを許可しなかったため、リンクは作成されませんでした。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vlasnik chata nije dozvolio link za gosta, pa nijedan nije napravljen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens ejer tillod ikke et gæstelink, så der blev ikke oprettet noget."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il proprietario della chat non ha consentito un link ospite, quindi non ne è stato creato nessuno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម្ចាស់ការជជែកមិនបានអនុញ្ញាតតំណភ្ញៀវទេ ដូច្នេះមិនបានបង្កើតតំណទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eieren av chatten tillot ikke en gjestelenke, så ingen ble laget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Właściciel czatu nie zezwolił na link dla gościa, więc żaden nie został utworzony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O dono do chat não permitiu um link de convidado, então nenhum foi criado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Владелец чата не разрешил гостевую ссылку, поэтому она не создана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เจ้าของแชตไม่อนุญาตลิงก์สำหรับแขก จึงไม่ได้สร้างลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin sahibi misafir bağlantısına izin vermedi, bu yüzden bağlantı oluşturulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Власник чату не дозволив гостьове посилання, тож його не створено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ cuộc trò chuyện không cho phép liên kết khách, nên chưa có liên kết nào được tạo."
           }
         }
       }
