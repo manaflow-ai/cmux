@@ -107,7 +107,13 @@ export function HistoryPage({
 
   const headerMenu = (event: MouseEvent<HTMLButtonElement>, items: PageMenuItem[]) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setMenu({ session: ++menuSession.current, x: rect.left, y: rect.bottom + 4, items, returnFocus: event.currentTarget });
+    setMenu({
+      session: ++menuSession.current,
+      x: rect.left,
+      y: rect.bottom + 4,
+      items,
+      returnFocus: event.currentTarget,
+    });
   };
 
   const groupingItems = (): PageMenuItem[] =>
