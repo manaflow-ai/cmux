@@ -175,9 +175,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 "vars.CI_CLOUD_OVERFLOW_SAVED": "",
                 "inputs.linux_runner": "",
             }
-            self.assertEqual(evaluate(runs_on, context), "ubuntu-24.04")
+            self.assertEqual(evaluate(runs_on, context), "blacksmith-16vcpu-ubuntu-2404")
             context["vars.CI_CLOUD_OVERFLOW_SAVED"] = OVERFLOW_RECORD
-            self.assertEqual(evaluate(runs_on, context), "ubuntu-24.04")
+            self.assertEqual(evaluate(runs_on, context), "blacksmith-8vcpu-ubuntu-2404")
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes().items():
