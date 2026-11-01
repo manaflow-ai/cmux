@@ -77,7 +77,11 @@ impl Hub {
 
     /// `_acpmux/agent_hold {sessionId, held}`: the person takes `session` over (`held`), or hands
     /// it back, which delivers its managers' held messages, in order.
-    pub fn agent_hold(self: &Arc<Self>, session: &Arc<Session>, held: bool) -> Result<Value, RpcError> {
+    pub fn agent_hold(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        held: bool,
+    ) -> Result<Value, RpcError> {
         let was = Self::agent_held(session);
         if held {
             let mut set = serde_json::Map::new();
@@ -91,6 +95,8 @@ impl Hub {
         }
         let (resumed, delivered) =
             if held { (0, 0) } else { self.agent_pair_resume_inner(&session.id, None, "handback") };
-        Ok(json!({"sessionId": session.id, "held": held, "resumed": resumed, "delivered": delivered}))
+        Ok(
+            json!({"sessionId": session.id, "held": held, "resumed": resumed, "delivered": delivered}),
+        )
     }
 }

@@ -879,7 +879,8 @@ impl Hub {
             peer.is_none_or(|p| p == other)
         };
         let kept: HashSet<PairKey> = if by == "person" {
-            let keys: Vec<PairKey> = self.pairs_state().pairs.keys().filter(|k| mine(k)).cloned().collect();
+            let keys: Vec<PairKey> =
+                self.pairs_state().pairs.keys().filter(|k| mine(k)).cloned().collect();
             keys.into_iter().filter(|(a, b)| self.pair_taken_over(a, b)).collect()
         } else {
             HashSet::new()
@@ -889,7 +890,9 @@ impl Hub {
             let mut state = self.pairs_state();
             // A pair not paused starts over; a paused one drains, then starts over.
             state.pairs.retain(|key, pair| !mine(key) || pair.paused.is_some());
-            for (key, pair) in state.pairs.iter_mut().filter(|(key, _)| mine(key) && !kept.contains(*key)) {
+            for (key, pair) in
+                state.pairs.iter_mut().filter(|(key, _)| mine(key) && !kept.contains(*key))
+            {
                 if let Some(paused) = pair.paused.as_mut()
                     && !paused.draining
                 {

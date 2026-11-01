@@ -1064,16 +1064,18 @@ impl Hub {
             // The handoff target tag decides which session a handoff adopts; the agent hold tag
             // holds a manager's messages (`agent_hold.rs`), which its manager must not lift.
             method::MUX_TAG => {
-                let guarded = |k: &str| k == super::handoff::TARGET_TAG || k == super::agent_hold::HOLD_TAG;
+                let guarded =
+                    |k: &str| k == super::handoff::TARGET_TAG || k == super::agent_hold::HOLD_TAG;
                 let sets = params
                     .get("set")
                     .and_then(Value::as_object)
                     .is_some_and(|o| o.keys().any(|k| guarded(k)));
-                let removes = params.get("remove").and_then(Value::as_array).is_some_and(|a| {
-                    a.iter().any(|v| v.as_str().is_some_and(guarded))
-                });
+                let removes = params
+                    .get("remove")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(guarded)));
                 if sets || removes {
-                    Err(person_required("the handoff target tag"))
+                    Err(person_required("the handoff target and agent hold tags"))
                 } else {
                     Ok(())
                 }
