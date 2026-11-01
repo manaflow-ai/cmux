@@ -391,7 +391,7 @@ fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
 fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     let event = |seq: u64, text: &str| json!({"seq": seq, "kind": "agent_message_chunk", "msg": {"text": text}});
     let mut reply = json!({
-        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(MAX_REPLY_BYTES), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
+        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(9 << 20), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
         "events": [event(1, "a"), event(2, &"x".repeat(3 << 20))],
         "turnOpener": event(0, "go"),
     });
@@ -415,7 +415,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
     // from opening: past the detail, any field but the chat's identity goes to its empty value.
     let mut titled = json!({
-        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(MAX_REPLY_BYTES), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(15 << 20), "tags": ["a"], "models": "m".repeat(1 << 20)},
         "events": [event(1, "a")],
         "turnOpener": null,
     });
@@ -432,7 +432,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Not even the agent's own session id: the receipt that carries it goes last, after every
     // other field (the title here), and the chat's sessionId stays.
     let mut receipt = json!({
-        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(MAX_REPLY_BYTES)}},
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
         "events": [],
         "turnOpener": null,
     });
@@ -450,7 +450,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
     let mut kind = json!({
         "session": {"sessionId": "s", "status": "idle"},
-        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(MAX_REPLY_BYTES), "msg": {"a": 1}}],
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(15 << 20), "msg": {"a": 1}}],
         "turnOpener": null,
     });
     fit_reply(&mut kind);

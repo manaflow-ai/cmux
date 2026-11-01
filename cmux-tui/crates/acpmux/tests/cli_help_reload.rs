@@ -46,9 +46,11 @@ fn root_help_describes_briefs_defaults_and_host_management() {
         let line = help.lines().find(|line| line.trim_start().starts_with(name)).unwrap();
         assert!(line.split_whitespace().count() > 1, "{name} has no description: {help}");
     }
-    let host = help.lines().find(|line| line.trim_start().starts_with("host ")).unwrap();
-    assert!(host.contains("status") && host.contains("setup"), "{host}");
-    assert!(!host.contains("Remote daemons: add, ls, rm."), "{host}");
+    let machine = help.lines().find(|line| line.trim_start().starts_with("machine ")).unwrap();
+    assert!(machine.contains("status") && machine.contains("setup"), "{machine}");
+    assert!(!machine.contains("Remote daemons: add, ls, rm."), "{machine}");
+    // `host` is the hidden old spelling: it parses, and root help does not list it.
+    assert!(!help.lines().any(|line| line.trim_start().starts_with("host ")), "{help}");
 }
 
 #[test]

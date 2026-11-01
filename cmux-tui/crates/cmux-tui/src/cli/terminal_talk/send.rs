@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::super::Surface;
 use super::super::command::{self, CommandPlan, RequestPlan};
@@ -74,6 +75,8 @@ pub(in crate::cli) struct SendRequest {
     pub timeout: Duration,
     pub settle: Duration,
     pub force: bool,
+    /// Stable identity for retrying the whole paste-and-Enter send.
+    pub idempotency_key: Option<String>,
     pub enter_delay: Duration,
     pub poll: Duration,
 }
@@ -87,6 +90,7 @@ impl SendRequest {
             timeout: DEFAULT_TIMEOUT,
             settle: DEFAULT_SETTLE,
             force: false,
+            idempotency_key: None,
             enter_delay: DEFAULT_ENTER_DELAY,
             poll: DEFAULT_POLL,
         }
@@ -143,13 +147,45 @@ fn plan(words: &[&str]) -> Result<RequestPlan, SendFailure> {
     }
 }
 
-fn mutation(words: &[&str]) -> Result<RequestPlan, SendFailure> {
+fn mutation(words: &[&str], key: String) -> Result<RequestPlan, SendFailure> {
     let mut plan = plan(words)?;
-    plan.idempotency_key = Some(
-        super::super::wire::random_idempotency_key()
-            .map_err(|error| SendFailure::local("usage.invalid", error.0, json!({}), 2))?,
-    );
+    plan.idempotency_key = Some(key);
     Ok(plan)
+}
+
+/// Both terminal writes derive stable, distinct daemon keys from one caller
+/// key and the resolved terminal. A lost reply can then replay the original
+/// paste or Enter without repeating that input on the terminal.
+fn stage_key(send_id: &str, terminal: &str, stage: &str) -> String {
+    let mut hash = Sha256::new();
+    for part in ["cmux.terminal.send.v1", send_id, terminal, stage] {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    format!("terminal-send-{:x}", hash.finalize())
+}
+
+/// The daemon's write key is an implementation detail. Return the caller's
+/// identity and the uncertain phase, so the *entire send* can be retried.
+fn stage_failure(mut failure: SendFailure, send_id: &str, phase: &str) -> SendFailure {
+    if !failure.failure.error["details"].is_object() {
+        failure.failure.error.set("details", json!({}));
+    }
+    failure.failure.error.set_path(&["details", "send_id"], json!(send_id));
+    failure.failure.error.set_path(&["details", "phase"], json!(phase));
+    if failure.failure.kind == FailureKind::InProgress {
+        let original = failure.failure.error["message"]
+            .as_str()
+            .unwrap_or("terminal write acknowledgement lost")
+            .to_owned();
+        failure.failure.error.set(
+            "message",
+            json!(format!("{original}; {phase} may have applied; retry with --idempotency-key {send_id}")),
+        );
+        failure.failure.error.set("retryable", json!(true));
+    }
+    failure.failure.idempotency_key = Some(send_id.to_owned());
+    failure
 }
 
 /// The daemon's session snapshot (`session.snapshot`).
@@ -336,6 +372,15 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
             1,
         ));
     }
+    let send_id = match request.idempotency_key.as_deref() {
+        Some(key) => {
+            cmux_tui_core::resource::validate_idempotency_key(key)
+                .map_err(|error| SendFailure::local("usage.invalid", error.message, json!({}), 2))?;
+            key.to_owned()
+        }
+        None => super::super::wire::random_idempotency_key()
+            .map_err(|error| SendFailure::local("usage.invalid", error.0, json!({}), 2))?,
+    };
     let state = backend.request(session, plan(&["terminal", &id, "state", "read"])?)?;
     let vt = state["state_base64"]
         .as_str()
@@ -344,18 +389,23 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let paste = reply::paste_mode_on(&vt);
     let engine = &base64::engine::general_purpose::STANDARD;
     let typed = engine.encode(reply::input_bytes(&request.text, paste));
-    let write = |encoded: &str| -> Result<(), SendFailure> {
-        let plan = mutation(&["terminal", &id, "write", "--bytes-base64", encoded])?;
-        backend.request(session, plan)?;
+    let write = |encoded: &str, stage: &str| -> Result<(), SendFailure> {
+        let plan = mutation(
+            &["terminal", &id, "write", "--bytes-base64", encoded],
+            stage_key(&send_id, &id, stage),
+        )?;
+        backend.request(session, plan)
+            .map_err(|error| stage_failure(error.into(), &send_id, stage))?;
         Ok(())
     };
     let sent_ms = super::now_ms();
-    write(&typed)?;
+    write(&typed, "paste")?;
     std::thread::sleep(request.enter_delay);
-    write(&engine.encode(b"\r"))?;
+    write(&engine.encode(b"\r"), "enter")?;
     let sent_at = Instant::now();
     let mut receipt = json!({
         "terminal": id,
+        "idempotency_key": send_id,
         "harness": agent.as_ref().map(|agent| agent.harness.clone()),
         "bracketed_paste": paste,
         "wait": request.wait.as_str(),
