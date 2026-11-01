@@ -90,20 +90,36 @@ def rescue_control(api: Actions, run: Mapping[str, Any], *, sleep=time.sleep, cl
     run_id = int(run["id"])
     deadline = clock() + WAIT_SECONDS
     while clock() < deadline:
-        if control_started(api.jobs(run_id, 1)):
+        try:
+            jobs = api.jobs(run_id, 1)
+        except Exception:  # noqa: BLE001 - transient reads stay bounded and fail closed
+            sleep(POLL_SECONDS)
+            continue
+        if control_started(jobs):
             return "started"
         sleep(min(POLL_SECONDS, max(0.0, deadline - clock())))
     # A final read closes the race between the last poll and cancellation.
-    if control_started(api.jobs(run_id, 1)):
+    try:
+        final_jobs = api.jobs(run_id, 1)
+    except Exception:  # noqa: BLE001 - never cancel without a final readable state
+        return "unreadable"
+    if control_started(final_jobs):
         return "started"
-    current = api.request("GET", f"/actions/runs/{run_id}")
+    try:
+        current = api.request("GET", f"/actions/runs/{run_id}")
+    except Exception:  # noqa: BLE001 - fail closed on a race-check outage
+        return "unreadable"
     if (current.get("path") not in CONTROL_PATHS
             or int(current.get("run_attempt") or 0) != 1
             or current.get("status") == "completed"):
         return "changed"
     # The run can acquire a runner between the first final read and this
     # mutation. Read the current attempt once more immediately before cancel.
-    if control_started(api.jobs(run_id, 1)):
+    try:
+        current_jobs = api.jobs(run_id, 1)
+    except Exception:  # noqa: BLE001 - never cancel without a final readable state
+        return "unreadable"
+    if control_started(current_jobs):
         return "started"
     api.cancel(run_id)
     # The Actions API accepts the full rerun once cancellation settles. The

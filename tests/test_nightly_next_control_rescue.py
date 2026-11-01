@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.ci import nightly_next_control_rescue as rescue
 
 
@@ -59,6 +62,15 @@ class ControlRescueTests(unittest.TestCase):
             result = rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
                                            sleep=lambda _: None, clock=lambda: 0.0)
         self.assertEqual(result, "changed")
+        api.cancel.assert_not_called()
+
+    def test_unreadable_final_jobs_are_left_for_the_next_rescue(self):
+        api = mock.Mock()
+        api.jobs.side_effect = RuntimeError("temporary API outage")
+        with mock.patch.object(rescue, "WAIT_SECONDS", 0):
+            result = rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
+                                           sleep=lambda _: None, clock=lambda: 0.0)
+        self.assertEqual(result, "unreadable")
         api.cancel.assert_not_called()
 
 

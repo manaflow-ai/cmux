@@ -80,6 +80,22 @@ class ControlRunnerPickerTests(unittest.TestCase):
             self.assertEqual(picker.read_live(env), [])
         self.assertEqual(tokens, ["github"])
 
+    def test_expired_snapshot_rejects_live_runner_observation(self):
+        class Client:
+            def __init__(self, token, repo):
+                pass
+
+            def runners(self):
+                return [{"status": "online", "busy": False, "os": "Linux",
+                          "labels": [{"name": "cmux-fleet-linux-x64"}]}]
+
+            def snapshot(self, *, now):
+                return {"generated_at": "2026-10-31T00:00:00Z", "pools": {}}
+
+        env = {**self.ENV, "ROUTE_TOKEN": "route", "SNAPSHOT_TOKEN": "snapshot"}
+        with mock.patch.object(picker.pr_runner_pool, "GitHub", Client):
+            self.assertIsNone(picker.read_live(env))
+
 
 if __name__ == "__main__":
     unittest.main()
