@@ -36,7 +36,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 ## Catalog counts
 
 - `window`: 119
-- `workspace`: 186
+- `workspace`: 188
 - `pane`: 88
 - `screen`: 65
 - `tab`: 105
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 21
 - `settings`: 134
 
-## Counts (1309 actions)
+## Counts (1311 actions)
 
-Palette 1253, CLI verbs 786, right-click 573, MCP tools 702.
+Palette 1255, CLI verbs 788, right-click 573, MCP tools 704.
 
 ## Menus
 
@@ -149,7 +149,7 @@ Palette 1253, CLI verbs 786, right-click 573, MCP tools 702.
 
 **familyMember** (69): `cycleWorkspaceStatus`, `workspaceGroup.collapse`, `workspaceGroup.expand`, `openBrowser`, `tab.muteAudio`, `tab.unmuteAudio`, `tabGroup.collapse`, `tabGroup.expand`, `screenGroup.collapse`, `screenGroup.expand`, `devtools.openDocked`, `devtools.openDockedRight`, `devtools.openInWindow`, `devtools.close`, `devtools.showElements`, `devtools.showSources`, `devtools.showNetwork`, `devtools.showPerformance`, `devtools.showMemory`, `devtools.showApplication`, `devtools.showLighthouse`, `devtools.showLayers`, `devtools.showRendering`, `devtools.showSensors`, `devtools.showSecurity`, `devtools.showAnimations`, `devtools.pauseScript`, `devtools.resumeScript`, `devtools.clearConsole`, `devtools.copyConsoleLog`, `devtools.toggleCache`, `devtools.throttleOffline`, `devtools.throttleSlow3G`, `devtools.throttleFast3G`, `devtools.throttleOff`, `devtools.emptyCacheAndHardReload`, `devtools.clearSiteData`, `devtools.toggleJavaScript`, `devtools.toggleCSS`, `devtools.toggleReducedMotion`, `devtools.toggleFocusEmulation`, `devtools.togglePaintFlashing`, `devtools.toggleLayoutShiftRegions`, `devtools.toggleLayerBorders`, `devtools.toggleFPSMeter`, `devtools.togglePerformanceRecording`, `devtools.takeHeapSnapshot`, `devtools.captureScreenshot`, `devtools.captureFullPageScreenshot`, `devtools.captureNodeScreenshot`, `devtools.viewPageSource`, `browserStop`, `browser.findPrevious`, `browser.extension.run`, `browser.extension.options`, `browser.extension.pin`, `browser.extension.unpin`, `browser.extension.enable`, `browser.extension.disable`, `browser.extension.reload`, `browser.extension.remove`, `browser.extension.command`, `agent.share.list`, `agent.share.revoke`, `agent.share.kick`, `palette.attemptUpdate`, `appearance.set`, `appearance.reset`, `sidebar.home.remove`
 
-**dragGesture** (7): `space.moveLeft`, `space.moveRight`, `space.moveToStart`, `space.moveToEnd`, `space.move`, `browser.extension.move`, `bookmark.move`
+**dragGesture** (9): `workspace.moveAbove`, `workspace.moveBelow`, `space.moveLeft`, `space.moveRight`, `space.moveToStart`, `space.moveToEnd`, `space.move`, `browser.extension.move`, `bookmark.move`
 
 **unimplemented** (1): `palette.browserToggleOmnibar`
 

@@ -520,7 +520,7 @@ class FailureIssueTests(unittest.TestCase):
 
 
 def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = (),
-                *, source: str = "recovered", track: str = "nightly-next"):
+                *, source: str = "recovered", track: str = "nightly-next", attempt: int = 1):
     """Apply the workflow gate, then run its real recheck against local feeds.
 
     A local publication marker stands in for the later mutable feed writes;
@@ -546,6 +546,7 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
             NIGHTLY_NEXT_FEED_BASE=str(work / "next"),
             NIGHTLY_NEXT_LEGACY_FEED_BASE=str(work / "legacy"),
             GITHUB_OUTPUT=str(output),
+            GITHUB_RUN_ATTEMPT=str(attempt),
             PUBLISH_TOOLING=str(ROOT / "scripts"),
         )
         result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
@@ -584,6 +585,18 @@ class RecheckTests(unittest.TestCase):
 
     def test_an_own_build_already_published_by_another_run_writes_nothing(self):
         result = run_recheck(49801, (49801,), source="own")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("already_published"), "true")
+        self.assertIsNone(result.published_build)
+
+    def test_retry_of_a_newer_superseded_build_still_writes_nothing(self):
+        result = run_recheck(49801, (49901,), source="own", attempt=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("superseded"), "true")
+        self.assertIsNone(result.published_build)
+
+    def test_classic_recovered_retry_keeps_its_already_published_no_op(self):
+        result = run_recheck(49801, (49801,), track="nightly", attempt=2)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.output.get("already_published"), "true")
         self.assertIsNone(result.published_build)

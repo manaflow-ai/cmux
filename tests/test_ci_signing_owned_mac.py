@@ -194,6 +194,12 @@ def owned_only(runs_on: str) -> bool:
     blacksmith-*, ubuntu-* or GitHub-hosted macos-* label and no EPHEMERAL_RUNNER_VARIABLES variable, and an owned
     label or a variable to take one from."""
     text = FORK_ROUTE.sub("", runs_on)
+    # The nightly release-pool Linux picker validates RUNNER_POOLS.linux against
+    # the three trusted Blacksmith Linux labels before exposing its output. It
+    # is an ephemeral route even though it is not one of the scalar signing
+    # variables below.
+    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+        return False
     if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
            for label in LABEL_LITERAL.findall(text)):
         return False
