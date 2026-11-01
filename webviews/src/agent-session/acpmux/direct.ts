@@ -1230,9 +1230,6 @@ function promptImages(value: unknown): PromptImage[] {
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
   private readonly local = new Set<string>();
-  /// The ids of the rows that are compactions: a turn's end settles the running ones, and reading
-  /// every row for them made a replayed chat quadratic in its turns.
-  private readonly compactions = new Set<string>();
   private made = 0;
   /// The sequence number of the event being reduced.
   current: number | undefined;
@@ -1282,8 +1279,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.pullRequestCommandVersion = Symbol();
     if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = {};
     if (!unchanged) this.snapshot = undefined;
-    if (row.kind === "compaction") this.compactions.add(id);
-    else this.compactions.delete(id);
     if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
@@ -1346,16 +1341,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
-    // The newest row (a typing row a text delta drops) leaves the kept order from its end; any other
-    // row makes ``sorted()`` sort again. Sorting after every delta made a replayed chat quadratic.
-    if (this.ordered && this.ordered.at(-1)?.id === id) {
-      this.ordered.pop();
-      this.orderedIndex.delete(id);
-    } else this.ordered = undefined;
+    this.ordered = undefined;
     this.snapshot = undefined;
     this.order.delete(id);
     this.local.delete(id);
-    this.compactions.delete(id);
     return super.delete(id);
   }
 
@@ -1367,7 +1356,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     this.order.clear();
     this.local.clear();
-    this.compactions.clear();
     this.latest = 0;
     super.clear();
   }
@@ -1392,39 +1380,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
-  /// The kept order, sorted if a row change dropped it.
-  private keepSorted(): AcpmuxRow[] {
+  /// The rows in event order (wall-clock time breaks a tie).
+  sorted(): AcpmuxRow[] {
     if (!this.ordered) {
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
-    return this.ordered;
-  }
-
-  /// The rows from the newest back while `visit` returns true, read from the kept order without
-  /// copying it: a turn's end reads only the rows of its own turn.
-  scanBack(visit: (row: AcpmuxRow) => boolean): void {
-    const ordered = this.keepSorted();
-    for (let index = ordered.length - 1; index >= 0; index -= 1) if (!visit(ordered[index]!)) return;
-  }
-
-  /// The rows that are compactions, in the order they were made.
-  compactionRows(): AcpmuxRow[] {
-    const rows: AcpmuxRow[] = [];
-    for (const id of this.compactions) {
-      const row = this.get(id);
-      if (row) rows.push(row);
-    }
-    return rows;
-  }
-
-  /// The rows in event order (wall-clock time breaks a tie).
-  sorted(): AcpmuxRow[] {
-    this.keepSorted();
     if (!this.snapshot) {
-      this.snapshot = this.ordered!.slice();
+      this.snapshot = this.ordered.slice();
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
@@ -5533,8 +5498,9 @@ export class AcpmuxDirectClient {
       // next turn's start noted as failed (it kept running into that turn); otherwise it starts
       // its own row. An older history page binds to its own rows, never to a live one.
       let running: AcpmuxRow | undefined;
-      for (const row of this.rows.compactionRows())
+      for (const row of this.rows.values())
         if (
+          row.kind === "compaction" &&
           (row.compaction?.state === "running" ||
             (row.compaction?.inferred === true &&
               (compaction.state !== "running" ||
@@ -5675,19 +5641,17 @@ export class AcpmuxDirectClient {
   private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
     // An older page's turn ends below the held rows: its own prompt is the last one before them.
     const below = this.foldingBelow;
+    const rows = this.rows
+      .sorted()
+      .filter((row) => !row.pending && !row.failed && (below === undefined || this.rows.orderOf(row.id) < below));
     // A steer goes on with its turn: the turn's time and calls run from the prompt that opened it.
-    const turn: { user?: AcpmuxRow } = {};
-    let toolCount = 0;
-    this.rows.scanBack((row) => {
-      if (row.pending || row.failed || (below !== undefined && this.rows.orderOf(row.id) >= below)) return true;
-      if (row.kind === "user" && !continuesTurn(row)) {
-        turn.user = row;
-        return false;
-      }
-      if (row.kind === "activity") toolCount += row.toolCount ?? 0;
-      return true;
-    });
-    return { durationMs: turn.user ? Math.max(0, endedAt - turn.user.at) : undefined, toolCount };
+    let start = rows.length;
+    while (start > 0 && (rows[start - 1]!.kind !== "user" || continuesTurn(rows[start - 1]!))) start -= 1;
+    const user = rows[start - 1];
+    const toolCount = rows
+      .slice(start)
+      .reduce((sum, row) => sum + (row.kind === "activity" ? (row.toolCount ?? 0) : 0), 0);
+    return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
@@ -5736,8 +5700,8 @@ export class AcpmuxDirectClient {
   /// that does come later (a forced Stop the compaction outlived) take the row back, and
   /// `mayGoOn` lets its next running note do so too, while it comes on time.
   private settleCompactions(seq: number, mayGoOn = false) {
-    for (const row of this.rows.compactionRows())
-      if (row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
+    for (const row of this.rows.values())
+      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
         if (!mayGoOn) this.compactionHeardAt.delete(row.id);
         this.rows.set(row.id, {
           ...row,
