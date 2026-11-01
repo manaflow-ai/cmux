@@ -52,40 +52,6 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Machines
 
-    /// The platform's server-side chat ACL for one team machine. The creator's
-    /// harness credentials never cross this boundary: this is only the machine
-    /// grant and the live machine presence used by the sharing UI.
-    public struct TeamMachineChatAccess: Sendable, Hashable, Decodable {
-        public var machineID: String
-        public var creator: String
-        public var chatStart: String
-        public var canShare: Bool
-        public var grants: [String]
-
-        enum CodingKeys: String, CodingKey {
-            case machineID = "machineId"
-            case creator, chatStart, canShare, grants
-        }
-    }
-
-    /// Reads a team's machine chat grant. Authorization is rechecked by
-    /// cmux-platform on every call, including after a membership change.
-    public func teamMachineChatAccess(_ id: String) async throws -> TeamMachineChatAccess {
-        try await send("GET", "/v1/machines/\(id)/chat-access", as: TeamMachineChatAccess.self)
-    }
-
-    /// Grants a current team member access to the machine's existing chat.
-    /// The platform accepts this only from the creator or an administrator.
-    public func shareTeamMachineChat(_ id: String, with user: String) async throws -> TeamMachineChatAccess {
-        try await send("PUT", "/v1/machines/\(id)/chat-grants/\(user)", as: TeamMachineChatAccess.self)
-    }
-
-    /// Removes a machine chat grant. The creator's own access is implicit and
-    /// is never represented in `grants`.
-    public func unshareTeamMachineChat(_ id: String, user: String) async throws -> TeamMachineChatAccess {
-        try await send("DELETE", "/v1/machines/\(id)/chat-grants/\(user)", as: TeamMachineChatAccess.self)
-    }
-
     public func listMachines() async throws -> [CloudMachine] {
         try await listMachinesAndLimits().machines
     }

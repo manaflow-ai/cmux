@@ -16,9 +16,6 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(Self.request("cloudMachine.list") == .cloudMachine(.list))
         #expect(Self.request("cloudMachine.open", ["id": "vm-abc123"]) == .cloudMachine(.open(id: "vm-abc123")))
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
-        #expect(Self.request("cloudMachine.chatAccess", ["id": "vm-abc123"]) == .cloudMachine(.chatAccess(id: "vm-abc123")))
-        #expect(Self.request("cloudMachine.shareChat", ["id": "vm-abc123", "user": "user_mate"]) == .cloudMachine(.shareChat(id: "vm-abc123", user: "user_mate")))
-        #expect(Self.request("cloudMachine.unshareChat", ["id": "vm-abc123", "user": "user_mate"]) == .cloudMachine(.unshareChat(id: "vm-abc123", user: "user_mate")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -31,10 +28,6 @@ struct AgentPaneCloudMachineRequestTests {
         for params in refused {
             #expect(Self.request("cloudMachine.open", params) == .unsupported("cloudMachine.open"))
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
-        }
-        for params: [String: Any] in [["id": "vm-1", "user": "bad user"], ["id": "vm/1", "user": "user"], ["id": "vm-1"], ["id": "vm-1", "user": 7]] {
-            #expect(Self.request("cloudMachine.shareChat", params) == .unsupported("cloudMachine.shareChat"))
-            #expect(Self.request("cloudMachine.unshareChat", params) == .unsupported("cloudMachine.unshareChat"))
         }
     }
 
@@ -99,28 +92,6 @@ struct AgentPaneCloudMachineRequestTests {
         let reply = await AgentPaneCloudMachineRequest.resume(id: "vm-running").reply(machines, gestures: gestures)
         #expect(reply["ok"] as? Bool != true)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
-    }
-
-    @Test func chatAccessReadsAndSharingConsumesASeparateGesture() async throws {
-        let machines = AgentPaneCloudMachines()
-        let gestures = AgentPaneUserGestures()
-        machines.chatAccess = { id in
-            .init(machineID: id, creator: "owner", chatStart: "owner", canShare: true, grants: ["user_mate"])
-        }
-        machines.shareChat = { id, user in
-            #expect(id == "vm-1")
-            #expect(user == "user_new")
-            return .init(machineID: id, creator: "owner", chatStart: "owner", canShare: true, grants: [user])
-        }
-        let read = await AgentPaneCloudMachineRequest.chatAccess(id: "vm-1").reply(machines, gestures: gestures)
-        let readValue = try #require(read["value"] as? [String: Any])
-        #expect(readValue["chatStart"] as? String == "owner")
-        #expect(readValue["grants"] as? [String] == ["user_mate"])
-        #expect(gestures.isAvailable == false)
-        #expect((await AgentPaneCloudMachineRequest.shareChat(id: "vm-1", user: "user_new").reply(machines, gestures: gestures))["ok"] as? Bool != true)
-        gestures.record(click: true)
-        let shared = await AgentPaneCloudMachineRequest.shareChat(id: "vm-1", user: "user_new").reply(machines, gestures: gestures)
-        #expect(shared["ok"] as? Bool == true)
     }
 
     @Test func withoutTheAppTheGestureIsKept() async {
