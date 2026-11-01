@@ -74,7 +74,18 @@ public enum ComposerDictationState: Equatable {
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
 public struct ComposerDictationTextMerger: Sendable {
-    /// Creates a stateless merger.
+    /// Reset speech history when starting a new recording.
+    public mutating func reset() {}
+
+    /// Merge a Speech result whose timestamps are relative to the recording.
+    /// Non-overlapping phrases must survive a recognizer transcript reset.
+    public mutating func merged(
+        base: String, transcript: String, startTime: Double?, endTime: Double?
+    ) -> String {
+        merged(base: base, transcript: transcript)
+    }
+
+    /// Creates a merger.
     public init() {}
 
     /// Combine the captured base text with the current transcript.
