@@ -155,12 +155,19 @@ final class NewTabSparePool {
         // (SpareSessionAdoption): it switches to the chat in place. One still connecting stays here,
         // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
         services.agentTabs.takeConnectedSpare = { [weak self] in
-            guard let self, let spare = slot.peek,
-                  Self.servesChat(handshake: spare.model.hasHandshake, painted: spare.model.hasPainted,
+            guard let self else { return nil }
+            guard let spare = slot.peek,
+                  let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else {
+                Self.traceSpare(.spareEmpty)
+                return nil
+            }
+            guard Self.servesChat(handshake: spare.model.hasHandshake, painted: spare.model.hasPainted,
                                   clientReady: spare.model.clientReady,
                                   lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
-                                  thermal: ProcessInfo.processInfo.thermalState),
-                  let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
+                                  thermal: ProcessInfo.processInfo.thermalState) else {
+                Self.traceSpare(.spareUnready)
+                return nil
+            }
             return take(for: window, size: nil, refill: .whenQuiet)?.view
         }
         observeWindows()
@@ -252,6 +259,13 @@ final class NewTabSparePool {
         let size = targetPaneSize ?? content.bounds.size
         guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
         fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+    }
+
+    /// The chat-open trace's account of what an existing chat's open found in the pool (bench builds).
+    static func traceSpare(_ mark: ChatOpenTrace.Mark) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        ChatOpenTrace.shared.mark(mark)
+        #endif
     }
 
     /// When the next spare is made after one is handed out.

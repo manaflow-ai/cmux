@@ -36,7 +36,11 @@ public final class ChatOpenTrace {
     public enum Mark: Int, CaseIterable, Sendable {
         case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
              setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
-             loadingLeave, loadingLeft, holdEnd
+             loadingLeave, loadingLeft, holdEnd,
+             // Whether the open's tab took the prewarmed page (`AgentTabStore.view(for:)`,
+             // NewTabSparePool.servesChat): adopted it; found none parked; found one not ready (still
+             // connecting, Low Power Mode, thermal); or the page refused (a person touched it).
+             spareAdopted, spareEmpty, spareUnready, spareRefused
 
         /// The mark's name in `debug.chat_open_trace` results.
         public var name: String {
@@ -57,6 +61,10 @@ public final class ChatOpenTrace {
             case .loadingLeave: "loading_leave"
             case .loadingLeft: "loading_left"
             case .holdEnd: "hold_end"
+            case .spareAdopted: "spare_adopted"
+            case .spareEmpty: "spare_empty"
+            case .spareUnready: "spare_unready"
+            case .spareRefused: "spare_refused"
             }
         }
     }

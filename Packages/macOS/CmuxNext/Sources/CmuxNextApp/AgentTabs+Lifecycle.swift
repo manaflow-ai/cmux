@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -249,10 +250,12 @@ extension AgentTabStore {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
+            NewTabSparePool.traceSpare(.spareRefused)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
             return false
         }
+        NewTabSparePool.traceSpare(.spareAdopted)
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key)
