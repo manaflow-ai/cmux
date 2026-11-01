@@ -163,8 +163,9 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
+  firstVisible?: number;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
-  ends: { count: number; row: AcpmuxRow | undefined }[];
+  ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
   rows: AcpmuxRow[];
 };
 
@@ -173,6 +174,10 @@ export type TurnView = {
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
+
+const firstDateUnchanged = (view: TurnView, now: number) =>
+  view.firstVisible === undefined ||
+  showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
@@ -214,8 +219,7 @@ export function turnViewFrom(
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
     previous.waitingSteers === waitingSteers &&
-    (!previous.starts.length ||
-      showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
+    firstDateUnchanged(previous, now)
   )
     return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -240,9 +244,8 @@ export function turnViewFrom(
     }
     reuse = Math.max(0, reuse - 1);
   }
-  // The first turn's line depends on `now`.
-  if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
-    reuse = 0;
+  // The first visible turn's line depends on `now`.
+  if (reuse > 0 && !firstDateUnchanged(previous!, now)) reuse = 0;
   let reusedRows = 0;
   let index: number;
   let lead: number;
@@ -279,6 +282,9 @@ export function turnViewFrom(
     ends = [];
   }
   const first = starts.length;
+  let firstVisible =
+    previous?.firstVisible !== undefined && previous.firstVisible < first ? previous.firstVisible : undefined;
+  let visible = ends.at(-1)?.visible;
   const fromStart = lead === 0;
   const pending: AcpmuxRow[] = [];
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
@@ -298,7 +304,6 @@ export function turnViewFrom(
     }
     starts.push(start);
     const turn = { promptAt: rows[start]!.at, answerAt };
-    dated.push(showsTimestamp(turn, times.at(-1), now, fromStart));
     times.push(turn);
   }
   for (let at = first; at < starts.length; at += 1) {
@@ -307,6 +312,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
+    dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     const shaped = shapedTurn(
       rows,
       start,
@@ -331,8 +337,14 @@ export function turnViewFrom(
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
+    // Invisible turns cannot consume a gap or the first visible turn's age threshold. Store
+    // the preceding visible turn at each reusable boundary, avoiding a history scan per token.
+    if (drawn.some((row) => row.kind !== DATE && !isVisiblyEmptyMessage(row))) {
+      firstVisible ??= at;
+      visible = at;
+    } else dated[at] = false;
     for (const row of drawn) out.push(row);
-    ends.push({ count: out.length, row: out.at(-1) });
+    ends.push({ count: out.length, row: out.at(-1), visible });
   }
   return {
     source: rows,
@@ -351,6 +363,7 @@ export function turnViewFrom(
     starts,
     times,
     dated,
+    firstVisible,
     ends,
     rows: out,
   };
@@ -452,16 +465,20 @@ function shapedTurn(
   // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
   // measures zero. Only a wholly invisible completed turn is omitted below.
   const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
-  // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
-  // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
-  // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
+  // A sent prompt waiting for its turn to open draws the Thinking line already, also while its
+  // agent still starts (harnessSwitch): no "Starting Claude Code…" and no Cancel there (Leo,
+  // 2026-11-01: "i hate the "Starting Claude Code... cancel" thing that it starts with"; the
+  // composer's Stop takes the prompt back). The line never jumps from under the bubble to the
+  // turn's status row, nor leaves for a frame (cx-ncc.58).
   const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
   let shaped: AcpmuxRow[];
   if (waiting) {
-    const { status, queued } = user;
-    const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
-    if (status) Object.assign(line, { status, queued });
-    shaped = [...date, ...(status ? [{ ...user, status: undefined }] : drawnUser), line];
+    const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING };
+    // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts), with
+    // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
+    // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
+    if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
+    shaped = [...date, ...drawnUser, line];
   } else {
     const body = shapeTurn(
       user,

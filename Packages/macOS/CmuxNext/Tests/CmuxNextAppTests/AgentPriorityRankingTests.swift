@@ -28,6 +28,62 @@ struct AgentPriorityRankingTests {
         lane("idle-new", .idle, ago: 2),
     ]
 
+    /// Go to Next Agent Needing Input (HQ #5329): only a chat at a question or permission prompt is
+    /// a destination, never an unseen result or a failure; it cycles them in the Priority view's
+    /// needs-you order (pinned, then newest), skips snoozed and archived ones, and starts over at
+    /// the first when the one it opened last no longer waits.
+    @Test func nextNeedsInputCyclesAndSkipsResultsAndSnoozedChats() {
+        func ids(_ marks: AgentPriorityMarks.State = .init(), _ lanes: [AgentActivityLane] = Self.lanes) -> [String] {
+            AgentPriorityRanking.needingInput(lanes, marks: marks, now: Self.now).map(\.id)
+        }
+        #expect(ids() == ["asks-new", "asks"])
+        #expect(AgentPriorityRanking.next(after: nil, in: ids()) == "asks-new")
+        #expect(AgentPriorityRanking.next(after: "asks-new", in: ids()) == "asks")
+        #expect(AgentPriorityRanking.next(after: "asks", in: ids()) == "asks-new")
+        #expect(AgentPriorityRanking.next(after: "done", in: ids()) == "asks-new")
+        #expect(AgentPriorityRanking.next(after: nil, in: []) == nil)
+
+        let marks = AgentPriorityMarks(defaults: nil)
+        marks.togglePin("asks")
+        #expect(ids(marks.state) == ["asks", "asks-new"])
+        marks.togglePin("asks")
+        marks.snooze(Self.lane("asks-new", .input, ago: 1), now: Self.now)
+        #expect(ids(marks.state) == ["asks"])
+        #expect(AgentPriorityRanking.next(after: "asks-new", in: ids(marks.state)) == "asks")
+        marks.archive("asks")
+        #expect(ids(marks.state).isEmpty)
+        // A fresh request breaks the old snooze stamp; a new ask is never lost.
+        #expect(ids(marks.state, [Self.lane("asks-new", .input, ago: 0)]) == ["asks-new"])
+    }
+
+    /// The waiting index the action reads instead of ranking every lane: kept on every write, the
+    /// watch's per-session one and a whole page alike.
+    @Test func theLaneStoreKeepsItsWaitingSessions() {
+        let store = AgentLaneStore()
+        store.lanes = Dictionary(uniqueKeysWithValues: Self.lanes.map { ($0.id, $0) })
+        #expect(store.waiting == ["asks", "asks-new"])
+        store.set("working", Self.lane("working", .input, ago: 0))
+        #expect(store.waiting == ["asks", "asks-new", "working"])
+        store.set("asks", Self.lane("asks", .working, ago: 0))
+        store.set("asks-new", nil)
+        #expect(store.waiting == ["working"])
+        #expect(store.lanes["asks-new"] == nil)
+        #expect(store.lanes["asks"]?.state == .working)
+        store.lanes = [:]
+        #expect(store.waiting.isEmpty)
+    }
+
+    /// The chats' reader: every store's waiting chats, a session an earlier store lists being that
+    /// store's (a Chief-home copy of a chat that waits here is not a second stop).
+    @Test func theChatsListTheirWaitingOnes() {
+        let here = AgentLaneStore(), chief = AgentLaneStore()
+        here.lanes = Dictionary(uniqueKeysWithValues: Self.lanes.map { ($0.id, $0) })
+        chief.lanes = ["asks": Self.lane("asks", .input, ago: 0), "sub": Self.lane("sub", .input, ago: 3), "idle-new": Self.lane("idle-new", .input, ago: 0)]
+        let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [here, chief], checksFailing: { _ in false },
+                                       archive: { _, _ in })
+        #expect(chats.needingInput(now: Self.now).map(\.id) == ["asks-new", "sub", "asks"])
+    }
+
     @Test func needsYouThenUnseenResultsThenFailuresThenWorkingThenIdle() {
         let entries = AgentPriorityRanking().entries(Self.lanes, marks: .init(), now: Self.now)
         #expect(entries.map(\.id) == ["asks-new", "asks", "done", "broke", "working", "idle-new", "idle-old"])

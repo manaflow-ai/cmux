@@ -5,6 +5,7 @@
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
         "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
+        "Start early Linux admission beside the Mac picker": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
         "Admit early controls on reserved fleet Linux": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
       "promote-nightly-next": {
@@ -330,6 +331,10 @@
         "Pick an owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through nightly_build_runner.py verify on nightly-next push and dispatch runs with owned pools on; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac for the verify jobs; its guard is checked by tests/test_nightly_sign_runner.py"},
         "Pick a drained owned Mac for the signing jobs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"}},
+      "pick-legacy-identity-runner": {
+        "Mint routing token for legacy capacity": {"plumbing": true},
+        "Place legacy identity target on live fleet Linux": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "test_ci_portable_job_placement covers fresh idle Linux, no runners and the bounded wait"},
+        "Pick moving Linux overflow for legacy identity target": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "test_nightly_sign_runner exercises queue-aware Linux overflow"}},
       "legacy-identity-target": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},

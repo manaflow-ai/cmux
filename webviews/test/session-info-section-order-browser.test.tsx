@@ -146,19 +146,25 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
             return before.content !== "none";
           };
+          const ruled = ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"];
           return {
-            about: [box("context").top - box("environment").bottom, box("connectors").top - box("context").bottom],
+            // Usage sits after Context in the top block (#28773).
+            about: [
+              box("context").top - box("environment").bottom,
+              box("usage").top - box("context").bottom,
+              box("connectors").top - box("usage").bottom,
+            ],
             made: box("sources").top - box("changes").bottom,
             between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
-            rules: ["environment", "context", "changes", "sources", "subagents", "tasks"].map(rule),
+            rules: ruled.map(rule),
           };
         });
-        expect(geometry.about).toEqual([0, 0]);
+        expect(geometry.about).toEqual([0, 0, 0]);
         expect(geometry.made).toBeCloseTo(6, 1);
         // This page has no desktop.css, so the hairline is its 0.5px fallback.
         for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
         // The hairline over the first section of each block but the first, and nowhere else.
-        expect(geometry.rules).toEqual([false, false, true, false, true, false]);
+        expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
       } finally {
         await page.close();
       }
@@ -186,19 +192,30 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           const handle = document
             .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!
             .getBoundingClientRect();
-          const body = document.querySelector(".acpmux-session-info__body")!.getBoundingClientRect();
+          const scroller = document.querySelector<HTMLElement>(".acpmux-session-info__body")!;
+          const body = scroller.getBoundingClientRect();
+          // The scrollport's right edge: where a classic scrollbar's track begins.
+          const scrollport = body.left + scroller.clientLeft + scroller.clientWidth;
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
           const title = document
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
             inBody: handle.right <= body.right + 0.5,
+            // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
+            clearOfScrollbar: scrollport - handle.right >= 3.5,
             afterSection: handle.left >= section.right - 0.5,
             rightOfTitle: handle.left > title.right,
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
-        expect(inside).toEqual({ inBody: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
+        expect(inside).toEqual({
+          inBody: true,
+          clearOfScrollbar: true,
+          afterSection: true,
+          rightOfTitle: true,
+          titleAtTextColumn: 8,
+        });
       } finally {
         await page.close();
       }

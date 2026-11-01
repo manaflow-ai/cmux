@@ -113,8 +113,9 @@ impl Mux {
                         #[cfg(test)]
                         eprintln!("correlated resource creation failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
-                        return creation_settlement_result(
-                            self.settle_resource_creation(recovery, Some(failure))?,
+                        return self.settle_failed_creation(
+                            recovery,
+                            failure,
                             &idempotency_key,
                             &operation_name,
                         );
@@ -134,8 +135,9 @@ impl Mux {
                             "correlated resource creation projection commit failed: {error:#}"
                         );
                         let failure = resource_creation_failure(&recovery, &error);
-                        creation_settlement_result(
-                            self.settle_resource_creation(recovery, Some(failure))?,
+                        self.settle_failed_creation(
+                            recovery,
+                            failure,
                             &idempotency_key,
                             &operation_name,
                         )
@@ -147,6 +149,34 @@ impl Mux {
         self.activate_created_terminal_launch(&commit.result)?;
         crate::debug_spans::mark("creation.launch_activated");
         Ok(commit)
+    }
+
+    /// Settle a creation that failed and answer the caller. When the
+    /// settlement itself fails (its rollback or its receipt is a write, and
+    /// a full disk refuses it), the error is logged and the caller gets the
+    /// creation's own failure, which names the cause ("database or disk is
+    /// full"), not the settlement's. Memory was rolled back before any of
+    /// those writes, and the receipt stays unsettled: a retry with the same
+    /// key is blocked, and the next start settles it.
+    fn settle_failed_creation(
+        &self,
+        recovery: ResourceCreationRecovery,
+        failure: ResourceError,
+        idempotency_key: &str,
+        operation_name: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        match self.settle_resource_creation(recovery, Some(failure.clone())) {
+            Ok(settlement) => {
+                creation_settlement_result(settlement, idempotency_key, operation_name)
+            }
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: the failed creation {idempotency_key} ({operation_name}) could not be \
+                     settled: {error:#}"
+                );
+                Err(anyhow::Error::new(failure))
+            }
+        }
     }
 
     pub(super) fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
@@ -243,6 +273,22 @@ impl Mux {
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
             ResourceCreationEvidence::AmbiguousLive => {
+                // The terminal's outcome is unknown, but the creation did not
+                // report success: a workspace it staged does not stay behind,
+                // and neither does its terminal with no view.
+                if recovery.intent.get("workspace_reservation").is_some()
+                    && let Some(terminal_id) = recovery
+                        .intent
+                        .get("terminal_reservation")
+                        .and_then(|reservation| reservation.get("terminal_id"))
+                        .and_then(Value::as_str)
+                    && let Err(error) = self.close_unpublished_terminal(terminal_id)
+                {
+                    eprintln!(
+                        "cmux-tui: a failed creation's terminal could not be closed: {error:#}"
+                    );
+                }
+                self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
@@ -274,6 +320,8 @@ impl Mux {
         }
     }
 
+    /// Roll back the workspace a creation staged, when it is not public.
+    /// Memory always lets it go, even when the store refuses the close.
     pub(super) fn rollback_interrupted_workspace_creation(
         &self,
         intent: &Value,
@@ -300,14 +348,35 @@ impl Mux {
         }
         let workspace =
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
-        if let Some(workspace) = workspace {
-            anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
-                    .is_some(),
-                "interrupted staged workspace {public_id} disappeared during rollback"
-            );
+        let Some(workspace) = workspace else {
+            return Ok(());
+        };
+        match self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => {
+                anyhow::bail!(
+                    "interrupted staged workspace {public_id} disappeared during rollback"
+                )
+            }
+            Err(error) => {
+                // The store refused the close (a full disk). The workspace
+                // still leaves memory and its subscribers, so no client shows
+                // a workspace the store never published (fuzz restore h1).
+                // The error goes on, so the receipt stays unsettled and the
+                // creation's recovery closes the stored row later.
+                match self.discard_unpublished_workspace_from_memory(workspace) {
+                    Ok(_) => eprintln!(
+                        "cmux-tui: staged workspace {public_id} left memory, but the store \
+                         refused its close: {error:#}"
+                    ),
+                    Err(discard) => eprintln!(
+                        "cmux-tui: the store refused the close of staged workspace {public_id} \
+                         ({error:#}), and it stays in memory: {discard}"
+                    ),
+                }
+                Err(error)
+            }
         }
-        Ok(())
     }
 
     pub(super) fn persisted_creation_settlement(

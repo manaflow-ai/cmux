@@ -19,8 +19,8 @@
 // subtitles are bad"): one leading glyph (the spinner while it works, else its own icon or its
 // harness's mark), never a second kind glyph beside it; the title; one muted trailing meta (what it
 // spent, a state worth reading, its time); the chevron. No agent-type subtitle on the line (the
-// tooltip and the hover card keep it), and no "Done" or "Running" word: the glyph says those
-// (`quiet`), and the word stays for screen readers. design/chat-transcript.md "Subagent row anatomy".
+// tooltip and the hover card keep it). The tray reserves a status-word track beside the time,
+// including Running and Done, so every state keeps the same control geometry.
 import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -29,7 +29,9 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -38,6 +40,7 @@ export function AgentLine({
   name,
   detail,
   progress,
+  progressAgent,
   status,
   state,
   time,
@@ -67,6 +70,7 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -116,6 +120,8 @@ export function AgentLine({
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
@@ -166,21 +172,21 @@ export function AgentLine({
         )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {progress && trayColumns && progressAt === "meta" && (
+          <span className="acpmux-agent-line__stats">{progress}</span>
+        )}
         {progress && !(trayColumns && progressAt === "meta") && (
           <span className="acpmux-agent-line__progress">{progress}</span>
         )}
       </span>
       {trayColumns ? (
         <>
-          {/* One muted trailing meta: what it spent and a state worth a word, then its time. */}
-          {((progress && progressAt === "meta") || !quiet) && (
-            <span className="acpmux-summary-meta acpmux-agent-line__meta">
-              {progress && progressAt === "meta" && <span className="acpmux-agent-line__stats">{progress}</span>}
-              {/* Running turns to Waiting or Failed with a tick, never a jump (trayMotion.tsx). */}
-              {!quiet && <Tick className="acpmux-summary-agent__state" text={state} />}
-            </span>
-          )}
-          {quiet && <span className="acpmux-agent-line__sr">{state}</span>}
+          {/* The tray reserves a visible status track for every row. Keeping the word in the same
+              track for quiet (Running/Done/Cancelled) rows prevents a missing state from pulling
+              the duration toward the title or moving the Stop and chevron columns. */}
+          <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
+            <Tick className="acpmux-summary-agent__state" text={state} />
+          </span>
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>

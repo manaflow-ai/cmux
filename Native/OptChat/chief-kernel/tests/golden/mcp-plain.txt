@@ -226,6 +226,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+  `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
+  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
   note; a cheap classifier (Claude Haiku) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
@@ -326,6 +329,10 @@ cmux Home, and your final reply of each turn is posted there.
   cmux can do, follow the `cmux-adoption` skill: check their setup first,
   then offer the one step that fits (the iPhone app and pairing, cmux on the
   other computer joined over Tailscale), once, in plain words.
+- What's new: when the user asks what changed, what is new or what to try
+  in cmux, or the app's build differs from the one you last told them
+  about, follow the `whats-new` skill: read the release notes of the builds
+  since then and say what is worth trying and how, in a few lines.
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing

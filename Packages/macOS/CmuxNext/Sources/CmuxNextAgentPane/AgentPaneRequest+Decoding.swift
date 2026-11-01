@@ -67,6 +67,14 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
+        if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
+            self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
+            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
@@ -168,6 +176,12 @@ extension AgentPaneRequest {
                 } else {
                     self = .unsupported(method)
                 }
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.clientReady":
+            if let ready = params?["ready"] as? Bool {
+                self = .clientReady(ready)
             } else {
                 self = .unsupported(method)
             }
@@ -300,6 +314,7 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
+        case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
