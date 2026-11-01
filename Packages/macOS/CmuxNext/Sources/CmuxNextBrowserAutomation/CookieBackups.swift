@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
 import Security
@@ -49,6 +50,19 @@ public nonisolated struct CookieBackups: Sendable {
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         return support.appending(path: bundle).appending(path: "CookieBackups", directoryHint: .isDirectory)
+    }
+
+    /// The app's cookie backups (undo of an agent's `cookies.clear`): encrypted with the Keychain
+    /// key (decision D4, issue 13742). DEBUG builds take `CMUX_NEXT_COOKIE_BACKUP_KEY_FILE` instead,
+    /// so fleet tests run without the Keychain; Release builds never read it.
+    public static func app(bundleID: String?, loginKeychain: LoginKeychain) -> CookieBackups {
+        let directory = defaultDirectory(bundleID: bundleID)
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_COOKIE_BACKUP_KEY_FILE"], !path.isEmpty {
+            return CookieBackups(directory: directory, keySource: FileCookieBackupKey(url: URL(filePath: path)))
+        }
+        #endif
+        return CookieBackups(directory: directory, keySource: KeychainCookieBackupKey(bundleID: bundleID, loginKeychain: loginKeychain))
     }
 
     /// Why a new backup of `plainBytes` bytes would pass the bound, or nil.

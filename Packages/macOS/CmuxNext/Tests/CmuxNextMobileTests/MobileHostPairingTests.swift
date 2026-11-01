@@ -470,7 +470,7 @@ import Testing
 
     /// The digest lives in the data-protection Keychain, in the app's own access group, never synced.
     @Test func theSealIsInTheAppsOwnDataProtectionKeychain() {
-        let seal = MobileHostKeychainPairingSeal(bundleID: "com.cmuxterm.app.next")
+        let seal = MobileHostKeychainPairingSeal(bundleID: "com.cmuxterm.app.next", loginKeychain: testLoginKeychain)
         #expect(seal.service == "com.cmuxterm.app.next.iphone-host.pairing-seal")
         let query = MobileHostKeychainPairingSeal.query(service: seal.service)
         #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
@@ -485,23 +485,23 @@ import Testing
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = FakeKeychain(entitled: false)
-        _ = try Self.saved(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        _ = try Self.saved(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
         #expect(keychain.items(dataProtection: false) == 1 && keychain.items(dataProtection: true) == 0)
 
         // The next launch (a nightly update relaunches) builds a new seal over the same Keychain.
-        let relaunched = Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        let relaunched = Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
         #expect(relaunched.approvers.map { $0["publicKey"] } == [Self.approval])
         #expect(relaunched.hostd.count == 1)
-        let list = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        let list = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
             .load(userID: "u")
         #expect(list.decision(for: Self.request) == .trusted, "the phone would be asked again")
 
         // The fallback seal still catches a rewritten file (not a planted login item; see the seal's doc).
-        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
         let theirs = "04" + String(repeating: "cc", count: 64)
         let text = try String(contentsOf: file.file, encoding: .utf8).replacingOccurrences(of: Self.approval, with: theirs)
         try Data(text.utf8).write(to: file.file)
-        #expect(Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls)).approvers.isEmpty)
+        #expect(Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)).approvers.isEmpty)
     }
 
     /// An entitled build keeps its seal in the data-protection Keychain and never reads the login
@@ -510,7 +510,7 @@ import Testing
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let keychain = FakeKeychain(entitled: true)
-        let seal = MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls)
+        let seal = MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)
         let (file, _) = try Self.saved(directory, seal: seal)
         #expect(keychain.items(dataProtection: true) == 1 && keychain.items(dataProtection: false) == 0)
         #expect(Self.relaunched(directory, seal: seal).approvers.map { $0["publicKey"] } == [Self.approval])
@@ -532,7 +532,7 @@ import Testing
     @Test func theKeyPersistsAndItsLineCarriesBothHalves() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, useKeychain: false)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, useKeychain: false, loginKeychain: testLoginKeychain)
         let first = try store.loadOrCreate()
         #expect(first.privateKey.count == 32 && first.publicKey.count == 65 && first.publicKey.first == 4)
         #expect(try store.loadOrCreate() == first)
