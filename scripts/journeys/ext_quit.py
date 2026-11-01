@@ -16,7 +16,9 @@ Steps (`do`):
                                          (`snapshot.get`): what must come back
   require_whole_host {}                  `not run` at once in a capture slot (its window is never key, so a real key
                                          cannot reach it): run it with run.py --whole-host
-  real_quit      {ask_wait?, mark?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
+  quit_why       {}                      evidence after the checks: the app's quit and daemon log lines since the real
+                                         key (log show --info), the daemon_version_handoff mark, the daemon pid now
+  real_quit      {ask_wait?, mark?, env?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
                                          its quit dialog (`debug.quit` asking) within ASK_WAIT s (default 5), its
                                          title, lines, buttons and default are recorded and its default button is
                                          pressed (as Return does); a later dialog is recorded too; then the driver's
@@ -31,6 +33,11 @@ Conditions (inside `expect.all`):
   workspaces_back {before}               app: every workspace and every live terminal (by id) the daemon listed in
                                          BEFORE is listed again, each terminal still live (not ended), and the app's
                                          topology shows every workspace and every terminal BEFORE's showed
+  helpers_kept   {before}                process: every holder and terminal host of BEFORE still runs (the daemon may be
+                                         new: a handoff)
+  daemon_is_prior {}                     process: the app's daemon runs ${prior_tui} (run.py --prior-build)
+Set-up steps: require_prior {} (`not run` without --prior-build), require_daemon_prior {timeout?} (`not run` unless the
+daemon runs ${prior_tui})
   scrollback_whole {prefix, last}        daemon: the current terminal's rows above the screen (history, oldest first)
                                          and its screen together hold PREFIX1 .. PREFIXLAST, each once, in order
 """
@@ -84,6 +91,26 @@ def _app_places(j):
     workspaces = [{"id": ws.get("id"), "name": ws.get("name")} for ws in topo.get("workspaces", [])]
     terms = sorted({t for _, _, _, t in j.places(topo) if t})
     return workspaces, terms
+
+
+def step_require_prior(j, step):
+    if j.sub("${prior_tui}") == "${prior_tui}":
+        raise D.NotRun("this journey needs a second build: run.py --prior-build JOB (an older build of the same tag)")
+    return {"prior_tui": j.sub("${prior_tui}")}
+
+
+def step_require_daemon_prior(j, step):
+    """Set-up check: the app's daemon is the prior build's, within TIMEOUT s; else `not run` (an older owner that
+    refuses this build's state is a set-up limit, not the reopen under test)."""
+    end = D.now() + float(step.get("timeout", 30))
+    held, detail = False, {}
+    while D.now() < end and not held:
+        held, detail = cond_daemon_is_prior(j, {}, {})
+        if not held:
+            time.sleep(0.5)
+    if not held:
+        raise D.NotRun(f"set-up: the daemon did not start as the prior build's: {json.dumps(detail)[:300]}")
+    return detail
 
 
 def step_require_whole_host(j, step):
@@ -151,8 +178,13 @@ def step_real_quit(j, step):
         seen.update(asked=True, late=True, default=sheet.get("default"), lines=sheet.get("lines"),
                     buttons=sheet.get("buttons"), answered=sheet.get("default"))
     record["quit_dialog"] = seen
-    record["why"] = _why(j, wall)
+    j.quit_wall = wall  # `quit_why` reads the logs since the key, after the checks
     return record
+
+
+def step_quit_why(j, step):
+    """Evidence (after the checks, so it never eats their time): see _why."""
+    return _why(j, getattr(j, "quit_wall", time.time() - 120))
 
 
 def _why(j, since_wall):
@@ -162,7 +194,7 @@ def _why(j, since_wall):
     seconds = max(int(time.time() - since_wall) + 5, 10)
     predicate = ('subsystem == "com.cmuxterm.app.next" AND (category == "app.quit" OR category == "daemon")')
     try:
-        out = D.subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--last", f"{seconds}s", "--predicate", predicate],
+        out = D.subprocess.run(["/usr/bin/log", "show", "--info", "--style", "compact", "--last", f"{seconds}s", "--predicate", predicate],
                                capture_output=True, text=True, timeout=60).stdout
     except (OSError, D.subprocess.TimeoutExpired) as error:
         out = f"log show failed: {error}"
@@ -214,6 +246,31 @@ def cond_daemon_kept(j, want, cache):
     return True, detail
 
 
+def cond_helpers_kept(j, want, cache):
+    """Every holder and terminal host recorded in BEFORE still runs (a daemon handoff keeps them: the new daemon adopts
+    the shells); the daemon itself may be new."""
+    before = _before(j, want)
+    gone = [h for h in before["helpers"] if not j.app.alive(h["pid"])]
+    pid = _daemon_pid(j)
+    detail = {"helpers_before": len(before["helpers"]), "helpers_gone": gone[:6], "daemon_before": before["daemon_pid"],
+              "daemon_now": pid}
+    if not before["helpers"]:
+        return False, dict(detail, why="no holder or terminal host was found before the quit: nothing to compare")
+    if gone:
+        return False, dict(detail, why=f"{len(gone)} holder or host processes ended: their shells ended")
+    return True, detail
+
+
+def cond_daemon_is_prior(j, want, cache):
+    """The app's daemon runs the prior build's cmux-tui (${prior_tui}): the set-up for a handoff at the reopen."""
+    prior = j.sub("${prior_tui}")
+    pid = _daemon_pid(j)
+    if not pid or prior == "${prior_tui}":
+        return False, {"why": "no daemon pid, or no prior build (run.py --prior-build)", "daemon": pid}
+    command = D.subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return command.startswith(prior), {"daemon": pid, "command": command[:200], "prior": prior}
+
+
 def cond_workspaces_back(j, want, cache):
     before = _before(j, want)
     workspaces, terminals = _daemon_lists(j)
@@ -238,28 +295,31 @@ def cond_workspaces_back(j, want, cache):
 
 
 def cond_scrollback_whole(j, want, cache):
-    prefix, last = j.sub(want["prefix"]), int(want["last"])
-    texts, total = j.history("oldest", min(max(last + 200, 200), 10000), cache)
-    screen = j.app.screen(j.need_term())["text"].splitlines()
+    """The history alone is 1..k, each once, in order; the screen adds k+1..LAST (a screen row numbered k or lower,
+    at its start, is the boundary overlap of the two reads and is skipped). A duplicated scrollback fails."""
     import re
+    prefix, last = j.sub(want["prefix"]), int(want["last"])
+    texts, _total = j.history("oldest", min(max(last + 200, 200), 10000), cache)
+    screen = j.app.screen(j.need_term())["text"].splitlines()
     pattern = re.compile(r"^\s*" + re.escape(prefix) + r"(\d+)\s*$")
-    numbers = [int(m.group(1)) for line in list(texts) + screen for m in [pattern.match(line)] if m]
-    # A row can show in both reads when the screen scrolled between them: keep the first of each run.
-    seen, ordered = set(), []
-    for n in numbers:
-        if n not in seen:
-            seen.add(n)
-            ordered.append(n)
-    want_rows = list(range(1, last + 1))
-    detail = {"history_rows_read": len(texts), "screen_rows": len(screen), "numbered": len(ordered),
-              "first": ordered[0] if ordered else None, "last": ordered[-1] if ordered else None}
-    if ordered != want_rows:
-        missing = sorted(set(want_rows) - seen)
-        return False, dict(detail, why=f"rows 1..{last} are not all there in order", missing=missing[:8],
-                           missing_count=len(missing), out_of_order=ordered != sorted(ordered))
+    numbered = lambda lines: [int(m.group(1)) for line in lines for m in [pattern.match(line)] if m]
+    hist, scr = numbered(texts), numbered(screen)
+    k = len(hist)
+    detail = {"history_rows_read": len(texts), "screen_rows": len(screen), "history_numbered": k,
+              "screen_numbered": len(scr), "history_head": hist[:3], "history_tail": hist[-3:], "screen_head": scr[:3]}
+    if hist != list(range(1, k + 1)):
+        return False, dict(detail, why="the history is not 1..k once each, in order (lost, repeated or out of order)")
+    rest = scr
+    while rest and rest[0] <= k:
+        rest = rest[1:]
+    if hist + rest != list(range(1, last + 1)):
+        return False, dict(detail, why=f"history + screen is not exactly 1..{last}",
+                           screen_rest_head=rest[:3], screen_rest_tail=rest[-3:])
     return True, detail
 
 
-STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host}
+STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,
+         "quit_why": step_quit_why, "require_prior": step_require_prior, "require_daemon_prior": step_require_daemon_prior}
 CONDITIONS = {"quit_asked": ("app", cond_quit_asked), "daemon_kept": ("process", cond_daemon_kept),
-              "workspaces_back": ("app", cond_workspaces_back), "scrollback_whole": ("daemon", cond_scrollback_whole)}
+              "workspaces_back": ("app", cond_workspaces_back), "scrollback_whole": ("daemon", cond_scrollback_whole),
+              "helpers_kept": ("process", cond_helpers_kept), "daemon_is_prior": ("process", cond_daemon_is_prior)}

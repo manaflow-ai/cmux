@@ -32,6 +32,7 @@ import random
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -73,6 +74,9 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
 EXT_CONDITIONS = {}
 # The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
 EXT_NEGATIVE = set()
+# `relaunch` kinds that quit through the app's own quit actions, with no dialog (QuitOrigin.explicit).
+QUIT_ACTIONS = {"quit-keep": "quitKeepSessions", "quit-end-sessions": "quitEndSessions",
+                "quit-end-everything": "quitEndEverything"}
 # Seconds a quit (Cmd-Q or a crash) may take to end the app's process, and a relaunch to answer.
 QUIT_SECONDS = 60
 RELAUNCH_SECONDS = 90
@@ -185,6 +189,15 @@ class App:
             return True
         stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
         return bool(stat) and not stat.startswith("Z")
+
+    def daemon_pid(self):
+        """The pid of the daemon the app says it is connected to (`debug.daemon`), or None."""
+        try:
+            state = self.rpc("debug.daemon", timeout=5) or {}
+        except (StepError, OSError, ValueError):
+            return None
+        pid = state.get("pid") if isinstance(state, dict) else None
+        return int(pid) if pid else None
 
     def daemon_socket(self):
         """The app daemon's socket, from its own `--socket` argument: the daemon the app says it is
@@ -1113,13 +1126,31 @@ class Journey:
             except (StepError, OSError, ValueError) as error:
                 record["reply"] = f"no answer (expected): {str(error)[-120:]}"
             end = now() + QUIT_SECONDS
+        elif how in QUIT_ACTIONS:
+            # A quit of one kind with no dialog (QuitOrigin.explicit): the File menu's own actions.
+            try:
+                record["reply"] = app.rpc("action.run", {"action": QUIT_ACTIONS[how], "args": {}}, timeout=10)
+            except (StepError, OSError, ValueError) as error:
+                record["reply"] = f"no answer: {str(error)[-120:]}"
+            end = now() + QUIT_SECONDS
+        elif how in ("kill-app", "kill-both"):
+            # SIGKILL: none of the app's quit path runs (and with kill-both, none of its daemon's either).
+            if how == "kill-both":
+                record["daemon_pid"] = app.daemon_pid()
+                if record["daemon_pid"]:
+                    os.kill(record["daemon_pid"], signal.SIGKILL)
+            os.kill(old, signal.SIGKILL)
+            end = now() + QUIT_SECONDS
         else:
-            raise StepError(f"relaunch: how is quit or crash, not {how!r}")
+            raise StepError(f"relaunch: how is quit, crash, kill-app, kill-both or one of {sorted(QUIT_ACTIONS)}, not {how!r}")
         while now() < end and app.alive(old):
             time.sleep(0.25)
         if app.alive(old):
             raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
         record["ended_after_s"] = round(now() - started, 2)
+        if callable(step.get("after_end")):
+            # A caller's read between the end and the reopen (the action fuzzer: what the daemon kept).
+            record["after_end"] = step["after_end"]()
         if step.get("leftovers_after") is not None:
             # What a person's Mac still runs after the quit: every process run from this bundle (its
             # path) or owned by it (`--owner BUNDLE_ID`, the terminal hosts), `leftovers_after` seconds on.
@@ -1130,6 +1161,15 @@ class Journey:
             self.marks[step["mark"]] = now()
         # In the background (-g), as capture-host's own launch, unless that launch was --activate (a whole-host
         # lease): then the reopened app comes to the front and becomes the active app again, as a person sees it.
+        # `env`: launch variables to set (substituted) or, with an empty value, to drop for the reopen (a reopen
+        # from the Dock has none of a script's overrides, such as CMUX_NEXT_TUI_BIN).
+        for key, value in (step.get("env") or {}).items():
+            value = self.sub(str(value))
+            if value:
+                env[key] = value
+            else:
+                env.pop(key, None)
+        record["env_changes"] = sorted((step.get("env") or {}).keys())
         argv = ["/usr/bin/open", *([] if ACTIVATE else ["-g"]), "-n", "-a", app.bundle]
         for key, value in env.items():
             argv += ["--env", f"{key}={value}"]
@@ -1610,6 +1650,7 @@ ACTIVATE = False
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--socket", required=True)
+    ap.add_argument("--prior-app", default="", help="a second build's app bundle (run.py --prior-build): ${prior_tui}")
     ap.add_argument("--app", required=True, help="the slot's app bundle (capture-host launch's app=)")
     ap.add_argument("--home", required=True, help="the slot's HOME, for the bundled CLI")
     ap.add_argument("--journeys", required=True, help="a JSON list of journey specs")
@@ -1645,7 +1686,12 @@ def main(argv=None):
         if now() > deadline:
             results.append({"id": spec["id"], "status": "not run", "reason": "the lease deadline came first"})
             continue
-        result = Journey(spec, app, out, deadline, a.frame_interval).run()
+        journey = Journey(spec, app, out, deadline, a.frame_interval)
+        if a.prior_app:
+            # A second build (run.py --prior-build): its cmux-tui, for a journey that starts the daemon of another
+            # build (a reopen after an update hands that daemon off to this build's).
+            journey.vars["prior_tui"] = os.path.join(a.prior_app, "Contents/Resources/bin/cmux-tui")
+        result = journey.run()
         PLAYED.append(result["id"])
         results.append(result)
         print(f"journey {result['id']}: {result['status']} {result['reason']}", flush=True)

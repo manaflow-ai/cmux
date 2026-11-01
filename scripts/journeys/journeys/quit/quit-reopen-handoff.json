@@ -1,0 +1,239 @@
+{
+ "id": "quit-reopen-handoff",
+ "priority": "P0",
+ "title": "Quit (Keep Sessions) while the daemon is an older build's, reopen this build: the daemon hands off, and every workspace, pane, terminal and its scrollback comes back",
+ "why": "Lawrence 2026-11-01 lost all workspaces and terminals at a reopen right after cmux-ad launched a NEW dogfood build: the reopen saw a daemon of another build_commit, so DaemonLauncher.handOffIfStale sent shutdown-daemon (STATUS 2718, lead 01:1xZ). A handoff must keep every terminal host and the workspace registry. Set-up: End Everything, reopen with CMUX_NEXT_TUI_BIN = the prior build's cmux-tui (an owner of another build), make the work, then a REAL Cmd-Q and a reopen with no override, as a Dock click after an update.",
+ "source": "QUIT P0 (STATUS 2680, owner a8c03bd88d9f5386c)",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "require_prior"
+  },
+  {
+   "do": "wait",
+   "seconds": 6,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "relaunch",
+   "how": "quit-end-everything",
+   "env": {
+    "CMUX_NEXT_TUI_BIN": "${prior_tui}"
+   },
+   "mark": "prior-up",
+   "title": "set-up: End Everything (this build's daemon stops), reopen with the prior build's cmux-tui as the daemon"
+  },
+  {
+   "do": "require_daemon_prior",
+   "timeout": 30,
+   "title": "set-up: the daemon is the prior build's (else not run)"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "main"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'jq-${nonce}-%g' 1 400",
+   "enter": true,
+   "mark": "lines"
+  },
+  {
+   "do": "expect",
+   "title": "400 numbered lines, the last on screen",
+   "since": "lines",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_line": "jq-${nonce}-400"
+    },
+    {
+     "app_text_line": "jq-${nonce}-400"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "right"
+  },
+  {
+   "do": "expect",
+   "title": "the split's shell answers",
+   "since": "right",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    },
+    {
+     "app_text_line": "right-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "seed_workspaces",
+   "count": 3,
+   "prefix": "jq-${nonce}-ws",
+   "title": "set-up: three more workspaces, a terminal each"
+  },
+  {
+   "do": "use",
+   "name": "main"
+  },
+  {
+   "do": "quit_state",
+   "title": "what must come back: daemon pid, holder and hosts, workspaces, terminals, panes",
+   "name": "before"
+  },
+  {
+   "do": "real_quit",
+   "mark": "reopened",
+   "title": "a REAL Cmd-Q; the dialog's default (Keep) is pressed; reopen with NO override, as after an update: the daemon hands off",
+   "env": {
+    "CMUX_NEXT_TUI_BIN": ""
+   }
+  },
+  {
+   "do": "expect",
+   "title": "the holder and every host still run (the new daemon adopted them); every workspace and terminal is back and live",
+   "since": "reopened",
+   "timeout": 45,
+   "all": [
+    {
+     "helpers_kept": {
+      "before": "before"
+     }
+    },
+    {
+     "workspaces_back": {
+      "before": "before"
+     }
+    }
+   ]
+  },
+  {
+   "do": "use",
+   "name": "main"
+  },
+  {
+   "do": "expect",
+   "title": "the scrollback came back whole: rows 1..400, each once, in order (history above the screen, then the screen)",
+   "since": "reopened",
+   "timeout": 45,
+   "all": [
+    {
+     "scrollback_whole": {
+      "prefix": "jq-${nonce}-",
+      "last": 400
+     }
+    },
+    {
+     "daemon_line": "jq-${nonce}-400"
+    },
+    {
+     "app_text_line": "jq-${nonce}-400"
+    },
+    {
+     "app_pane": {
+      "link": "connected"
+     }
+    },
+    {
+     "frame_text": "jq-${nonce}-400"
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo back-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "back"
+  },
+  {
+   "do": "expect",
+   "title": "the restored shell takes input",
+   "since": "back",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "back-${nonce}-42"
+    },
+    {
+     "app_text_line": "back-${nonce}-42"
+    },
+    {
+     "frame_text": "back-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "use",
+   "name": "right"
+  },
+  {
+   "do": "expect",
+   "title": "the split came back with its text",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    },
+    {
+     "app_text_line": "right-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the real Cmd-Q asked how to quit: Keep Sessions (default), End Sessions, End Everything, Cancel",
+   "timeout": 1,
+   "all": [
+    {
+     "quit_asked": {
+      "default": "keep",
+      "buttons": [
+       "keep",
+       "end-keep-layout",
+       "end-everything",
+       "cancel"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "quit_why",
+   "title": "evidence: the app's quit and daemon log lines, the handoff mark, the daemon pid"
+  }
+ ],
+ "finally": [
+  {
+   "do": "close_seeded",
+   "prefix": "jq-${nonce}-ws"
+  }
+ ]
+}

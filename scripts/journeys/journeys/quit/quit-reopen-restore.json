@@ -205,6 +205,10 @@
      }
     }
    ]
+  },
+  {
+   "do": "quit_why",
+   "title": "evidence: the app's quit and daemon log lines, the handoff mark, the daemon pid"
   }
  ],
  "finally": [

@@ -366,6 +366,16 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
+        prior = ""
+        if build.get("prior"):
+            # --prior-build: a second build's bundle beside the first (never launched by capture-host: a journey
+            # uses its cmux-tui as ${prior_tui}).
+            prior = remote(host, f"set -e; cd {q(work)}; cmux-ci artifact {q(build['prior'])} prior.zip >&2; "
+                                 f"ditto -x -k prior.zip prior; rm -f prior.zip; "
+                                 f"find \"$PWD/prior\" -maxdepth 2 -name '*.app' -type d | head -1",
+                           timeout=left(300)).stdout.decode().strip()
+            if not prior.endswith(".app"):
+                raise RuntimeError(f"prior build {build['prior']} has no app bundle")
         # capture-host (hq main since 2026-10-30) launches only the build of --commit, checked against the bundle.
         commit = str(build.get("commit") or "")
         if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
@@ -390,7 +400,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
                              f"--deadline-seconds {budget} --frame-interval {frame_interval}"
-                             + (" --activate" if whole_host else ""),
+                             + (" --activate" if whole_host else "")
+                             + (f" --prior-app {q(prior)}" if prior else ""),
                        timeout=budget + 90, check=False)
         for line in drove.stdout.decode(errors="replace").splitlines():
             log(f"[{host}] {line}")
@@ -546,6 +557,8 @@ def main(argv=None):
     ap.add_argument("--whole-host", action="store_true",
                     help="lease the whole mini (capture-host acquire without --slot) and launch the app active "
                          "(--activate): it gets a key window. Needs CuaDriver's grants on the mini")
+    ap.add_argument("--prior-build", help="a second build job whose app is unpacked beside the first (journeys read "
+                                          "its cmux-tui as ${prior_tui}: a daemon of another build)")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
@@ -590,7 +603,7 @@ def main(argv=None):
     job = opts.build or build_for_commit(opts.commit, out_root)
     status = wait_build(job, opts.build_wait_minutes * 60)
     build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
-             "state": status.get("state")}
+             "state": status.get("state"), "prior": opts.prior_build}
     out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
     out.mkdir(parents=True, exist_ok=True)
     log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; results in {out}")
