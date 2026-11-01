@@ -9,7 +9,8 @@
 // - The cancel the steer caused is not drawn as "You stopped after", and the prompt carries no
 //   mark of its own (no "Steered": #22773 removes those marks); it is accepted and drawn inline.
 // - A Send now that ends the turn with `end_turn` (acpmux #22808, Claude) goes on the same way.
-// - Once the turn ends, its connected steer chain folds into one Worked-for disclosure.
+// - Once the turn ends, its work folds into one Worked-for disclosure; personal steers and
+//   their preceding assistant replies stay visible.
 //   Expanding it keeps every call, reply, and steer in its recorded order.
 // - A real Stop still reads "You stopped after", also when a prompt is sent now after it.
 // - Everything else that finds a turn by its prompt walks past a steer too (review of #22691): the
@@ -183,8 +184,8 @@ test("once the chain ends, all its work folds under one stable disclosure", asyn
   expect(worked.some((row) => row.status === "cancelled")).toBe(false);
   expect(worked.map((row) => row.durationMs)).toEqual([80_000]);
   expect(workedLabel(translate, worked[0]!)).toBe(translate("turn.worked", { time: "1m 20s" }));
-  expect(view.some((row) => row.id === steerRow.id)).toBe(false);
-  expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(false);
+  expect(view.some((row) => row.id === steerRow.id)).toBe(true);
+  expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(true);
   expect(view.indexOf(worked[0]!)).toBeLessThan(view.findIndex((row) => row.text === "Both paths are fixed."));
   expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
   // Nothing is dropped: open, the fold holds every tool call and steer in recorded order.
@@ -619,10 +620,10 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
     row("sum", "turnSummary", { status: "completed" }),
   ];
   // A clock just after the turn, so no date line comes before it.
-  const now = { now: START + 200_000 };
+  const now = { now: START + 200_000, agentFamily: "claude" };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
-  expect(ids).toEqual(["u", `${WORKED}-u`, "r2", "sum"]);
+  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", "s2", "r2", "sum"]);
   expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([90_000]);
   const open = turnView(rows, new Set([`${WORKED}-u`]), now);
   expect(open.map((each) => each.id)).toEqual([
@@ -639,6 +640,38 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
     "sum",
   ]);
   expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual(rows.map(() => `${WORKED}-u`));
+});
+
+test("only Codex folds interim assistant text; Claude keeps every assistant message visible", () => {
+  let at = START;
+  const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    kind,
+    version: 1,
+    at: (at += 10_000),
+    ...extra,
+  });
+  const bash = (id: string) =>
+    row(`a-${id}`, "activity", {
+      items: [{ kind: "tool", text: "", tool: { id, title: `Run ${id}`, kind: "execute", status: "completed" } }],
+    });
+  const rows = [
+    row("prompt", "user", { text: "Inspect the run" }),
+    bash("one"),
+    row("interim", "assistant", { text: "The first check is still running." }),
+    bash("two"),
+    row("final", "assistant", { text: "Both checks are healthy." }),
+    row("summary", "turnSummary", { status: "completed" }),
+  ];
+
+  const claude = turnView(rows, new Set(), { agentFamily: "claude" });
+  expect(claude.filter((each) => each.kind === "assistant").map((each) => each.id)).toEqual(["interim", "final"]);
+  expect(claude.some((each) => each.kind === WORKED)).toBe(true);
+
+  const codex = turnView(rows, new Set(), { agentFamily: "codex" });
+  expect(codex.some((each) => each.id === "interim")).toBe(false);
+  expect(codex.some((each) => each.id === "final")).toBe(true);
+  expect(codex.some((each) => each.kind === WORKED)).toBe(true);
 });
 
 test("Find walks past a prompt that failed to send mid-turn to the fold the turn draws", () => {
