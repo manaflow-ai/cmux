@@ -59,11 +59,12 @@ final class StderrLines: Sendable {
         state.withLock { state in
             guard !state.done else { return }
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while true {
-                let count = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, state.offset) }
-                guard count > 0 else { break }
+            // A regular file: each read returns what is there and 0 at its end (or -1 on an error),
+            // so the loop ends at EOF and on any error.
+            var count = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, state.offset) }
+            while count > 0 {
                 state.offset += off_t(count)
-                for byte in buffer[0..<count] {
+                for byte in buffer.prefix(count) {
                     if byte == UInt8(ascii: "\n") {
                         lines.append(String(decoding: state.pending, as: UTF8.self))
                         state.pending.removeAll(keepingCapacity: true)
@@ -71,6 +72,7 @@ final class StderrLines: Sendable {
                         state.pending.append(byte)
                     }
                 }
+                count = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, state.offset) }
             }
             if final {
                 if !state.pending.isEmpty { lines.append(String(decoding: state.pending, as: UTF8.self)) }
