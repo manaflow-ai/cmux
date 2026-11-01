@@ -69,97 +69,175 @@ impl Hub {
     pub(crate) fn trigger_delivery(&self, session: &Session, delivery: &str) -> Value {
         const MAX_REPLY: usize = 16 * 1024;
         let mut turn_id = None::<String>;
-        let mut status = None::<Value>;
+        let mut result = None::<Value>;
+        let mut state = "unknown";
         let mut reply = String::new();
+        let mut reply_chars = 0;
+        let mut reply_open = false;
+        let mut active = false;
         let mut started = false;
+        let mut settled = false;
+        let mut closed_window = false;
         let mut prompt_hash = None::<String>;
-        let _ = self.store.scan(&session.id, 0, &mut |rec| {
-            if turn_id.is_none() && matches!(rec.kind.as_str(), "queued" | "user_message") {
-                let delivery_id = rec
-                    .msg
-                    .pointer("/_meta/provenance/deliveryId")
-                    .and_then(Value::as_str)
-                    .or_else(|| rec.msg.get("promptId").and_then(Value::as_str));
-                let trigger = rec.msg.pointer("/_meta/provenance/kind").and_then(Value::as_str)
-                    == Some("trigger");
-                if delivery_id == Some(delivery) && trigger {
-                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                    if let Some(text) = rec.msg.get("text").and_then(Value::as_str) {
-                        prompt_hash = Some(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
-                    }
-                }
-            }
-            if turn_id.is_none()
-                && rec.kind == "turn_started"
-                && rec.msg.get("promptId").and_then(Value::as_str) == Some(delivery)
+        let mut permissions = HashSet::<String>::new();
+        let scanned = self.store.scan_strict(&session.id, 0, &mut |rec| {
+            let field = |key: &str| rec.msg.get(key).and_then(Value::as_str);
+            let mux = rec.dir == "mux";
+            // Only daemon-authored admission records bind a delivery. A human prompt
+            // or a harness event can reuse its promptId, but grants no trigger authority.
+            if mux && matches!(rec.kind.as_str(), "queued" | "user_message")
+                && field("promptId") == Some(delivery)
             {
-                turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                started = true;
+                let provenance = crate::prompt_provenance::recorded(&rec.msg);
+                let trusted = provenance.as_ref().is_some_and(|p| {
+                    p["kind"] == "trigger" && p["deliveryId"] == delivery
+                        && p["session"] == session.id
+                        && crate::prompt_provenance::of(
+                            &json!({"_meta": {"acpmux": {"provenance": p}}}),
+                            crate::prompt_provenance::Sender::Trigger,
+                        ).is_ok()
+                });
+                if !started && result.is_none() && trusted {
+                    if let (Some(id), Some(text)) = (field("turnId"), field("text")) {
+                        let hash = format!("{:x}", sha2::Sha256::digest(text.as_bytes()));
+                        if prompt_hash.as_ref().is_some_and(|prior| prior != &hash) {
+                            state = "failed";
+                            result = Some(json!({"status": "failed", "error": "trigger prompt changed after admission"}));
+                            return false;
+                        }
+                        prompt_hash = Some(hash);
+                        turn_id = Some(id.to_owned());
+                        state = "queued";
+                    }
+                } else if !started && turn_id.is_some() && !trusted {
+                    // A person's queue edit drops the trigger provenance. Do not
+                    // attribute the edited prompt's output to the original delivery.
+                    state = "failed";
+                    result = Some(json!({"status": "failed", "error": "trigger prompt ownership changed"}));
+                    return false;
+                }
             }
             let Some(id) = turn_id.as_deref() else { return true };
-            if started
-                && rec.kind == "turn_started"
-                && rec.msg.get("turnId").and_then(Value::as_str) != Some(id)
-            {
+            let exact = field("turnId") == Some(id);
+            if mux && rec.kind == "queue_updated" && field("promptId") == Some(delivery) {
+                state = "failed";
+                result = Some(json!({"status": "failed", "error": "trigger prompt was edited"}));
                 return false;
             }
-            if rec.kind == "turn_started"
-                && rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+            if mux && rec.kind == "permission_decision"
+                && let Some(permission) = field("permissionId")
             {
-                started = true;
+                // Decisions omit turnId. Only IDs established by this exact turn's
+                // request may settle its attention, even after another turn starts.
+                permissions.remove(permission);
             }
-            if started
-                && rec.kind == "agent_message_chunk"
-                && rec.dir == "in"
-                && rec.msg.pointer("/params/update/sessionUpdate").and_then(Value::as_str)
-                    == Some("agent_message_chunk")
-                && rec.msg.pointer("/params/_meta/acpmux/subagent").is_none()
-            {
-                if let Some(text) =
-                    rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                {
-                    if reply.chars().count() < MAX_REPLY {
-                        let remaining = MAX_REPLY - reply.chars().count();
-                        reply.extend(text.chars().take(remaining));
+            if closed_window { return true; }
+            if mux && rec.kind == "turn_started" {
+                if started && !exact {
+                    active = false;
+                    closed_window = true;
+                    if !settled {
+                        state = "failed";
+                        result = Some(json!({"status": "interrupted", "turnId": id}));
                     }
+                    return true;
+                }
+                if exact && field("promptId") == Some(delivery) && rec.msg["trigger"] == true
+                    && result.is_none()
+                {
+                    active = true;
+                    started = true;
+                    state = "running";
+                } else if exact && !started {
+                    state = "failed";
+                    result = Some(json!({"status": "failed", "error": "trigger turn ownership changed"}));
+                    return false;
                 }
             }
-            if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
-                && matches!(rec.kind.as_str(), "turn_result" | "turn_error" | "turn_end")
+            if mux && matches!(rec.kind.as_str(), "permission_request" | "permission_reissued")
+                && exact
+                && let Some(permission) = field("permissionId")
             {
-                status = Some(rec.msg.clone());
-                return false;
+                permissions.insert(permission.to_owned());
+            }
+            if active && rec.dir == "in"
+                && rec.msg.get("method").and_then(Value::as_str) == Some("session/update")
+                && rec.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+                && field("turnId").is_none_or(|turn| turn == id)
+            {
+                match rec.kind.as_str() {
+                    "agent_message_chunk" if rec.msg.pointer("/params/update/sessionUpdate")
+                        .and_then(Value::as_str) == Some("agent_message_chunk") => {
+                        if let Some(text) = rec.msg.pointer("/params/update/content/text").and_then(Value::as_str) {
+                            if !reply_open {
+                                reply.clear();
+                                reply_chars = 0;
+                                reply_open = true;
+                            }
+                            let chunk: String = text.chars().take(MAX_REPLY.saturating_sub(reply_chars)).collect();
+                            reply_chars += chunk.chars().count();
+                            reply.push_str(&chunk);
+                        }
+                    }
+                    "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => reply_open = false,
+                    _ => {}
+                }
+            }
+            if mux && exact && !settled {
+                match rec.kind.as_str() {
+                    "turn_end" | "turn_error" => {
+                        active = false;
+                        state = if rec.kind == "turn_error" { "failed" } else { "running" };
+                        result = Some(rec.msg.clone());
+                        // turn_result follows and carries the authoritative status;
+                        // do not mistake turn_error (which has no status) for success.
+                    }
+                    "turn_result" => {
+                        active = false;
+                        settled = true;
+                        state = match field("status") {
+                            Some("completed") => "completed",
+                            Some("attention" | "input_required" | "waiting") => "attention",
+                            _ => "failed",
+                        };
+                        result = Some(rec.msg.clone());
+                    }
+                    "queue_removed" | "prompt_refused" | "turn_stop_requested" => {
+                        active = false;
+                        // A stop request may still receive its authoritative result.
+                        settled = rec.kind != "turn_stop_requested";
+                        state = "failed";
+                        result = Some(rec.msg.clone());
+                    }
+                    _ => {}
+                }
             }
             true
         });
-        let mut out = serde_json::Map::new();
-        out.insert("delivery".into(), Value::String(delivery.to_owned()));
-        if let Some(hash) = prompt_hash {
-            out.insert("promptHash".into(), Value::String(hash));
+        if scanned.is_err() {
+            // A partial journal is not evidence of completion or of a safe resend.
+            return json!({"delivery": delivery, "state": "failed", "error": "trigger delivery journal could not be read"});
         }
+        if !permissions.is_empty() {
+            state = "attention";
+        }
+        let mut out = json!({"delivery": delivery, "state": state});
         if let Some(id) = turn_id {
-            out.insert("turnId".into(), Value::String(id));
-            let state = status
-                .as_ref()
-                .and_then(|v| v.get("status").and_then(Value::as_str))
-                .map(|s| match s {
-                    "failed" | "error" => "failed",
-                    "attention" | "input_required" => "attention",
-                    _ => "completed",
-                })
-                .or_else(|| started.then_some("running"))
-                .unwrap_or("queued");
-            out.insert("state".into(), Value::String(state.into()));
-        } else {
-            out.insert("state".into(), Value::String("unknown".into()));
+            out["turnId"] = json!(id);
         }
-        if let Some(status) = status {
-            out.insert("result".into(), status);
+        if let Some(hash) = prompt_hash {
+            out["promptHash"] = json!(hash);
+        }
+        if let Some(result) = result {
+            out["result"] = result;
+        }
+        if !permissions.is_empty() {
+            out["pendingPermissions"] = json!(permissions.len());
         }
         if !reply.is_empty() {
-            out.insert("reply".into(), Value::String(reply));
+            out["reply"] = json!(reply);
         }
-        Value::Object(out)
+        out
     }
 
     /// A prompt id the session's log already holds (`user_message` or
@@ -584,3 +662,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "trigger_delivery_tests.rs"]
+mod trigger_delivery_tests;
