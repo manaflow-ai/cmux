@@ -1154,7 +1154,7 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        for session in self.live_sessions() {
+        for session in self.live_session_handles() {
             visit(if with_tools {
                 self.session_summary(&session)
             } else {
@@ -1183,7 +1183,7 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        for session in self.live_sessions() {
+        for session in self.live_session_handles() {
             visit(if with_tools {
                 self.session_summary(&session)
             } else {
@@ -1201,7 +1201,7 @@ impl Hub {
     /// Every session, local and remote, newest first.
     pub fn all_session_summaries(&self) -> Vec<Value> {
         let mut v: Vec<Value> =
-            self.live_sessions().iter().map(|s| self.session_summary(s)).collect();
+            self.live_session_handles().iter().map(|s| self.session_summary(s)).collect();
         v.extend(self.closed_session_summaries());
         v.extend(self.remote_sessions());
         // Newest first, ties by sessionId: the order session list pages keep.

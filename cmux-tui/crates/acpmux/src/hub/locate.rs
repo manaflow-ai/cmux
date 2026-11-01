@@ -93,8 +93,9 @@ impl Hub {
         }
         if found.is_empty() && link.is_none() && summaries.iter().all(|s| s["status"] != "closed") {
             let full = self.all_session_summaries_including_closed();
-            found = by_key(&full, query, &own);
+            drop(found);
             summaries = full;
+            found = by_key(&summaries, query, &own);
         }
         if found.is_empty() {
             let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
