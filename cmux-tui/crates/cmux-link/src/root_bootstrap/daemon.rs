@@ -183,7 +183,7 @@ fn run(parent: &UnixStream, control: &UnixStream) -> io::Result<()> {
             }
             return Err(error);
         }
-        if fds[0].revents != 0 {
+        if fds.first().is_some_and(|fd| fd.revents != 0) {
             return Ok(());
         }
         if fds.get(2).is_some_and(|fd| fd.revents != 0) {
@@ -194,7 +194,7 @@ fn run(parent: &UnixStream, control: &UnixStream) -> io::Result<()> {
                 return Err(refused());
             }
         }
-        if fds[1].revents != 0 {
+        if fds.get(1).is_some_and(|fd| fd.revents != 0) {
             let (bytes, descriptor) = cmux_unix_socket::descriptor::receive(control, 1)?;
             if bytes != [1] || role.is_some() {
                 return Err(refused());

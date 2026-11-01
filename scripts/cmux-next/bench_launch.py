@@ -777,6 +777,12 @@ class BenchApp:
         if os.path.lexists(prev):
             shutil.rmtree(prev, ignore_errors=True)
         os.rename(root, prev)
+        # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so an
+        # override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
+        tunables = os.path.join(prev, "debug-tunables.json")
+        if os.path.isfile(tunables):
+            os.makedirs(root, exist_ok=True)
+            shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
     def launch(self, timeout=180, ready="debug.windows", on_start=None):

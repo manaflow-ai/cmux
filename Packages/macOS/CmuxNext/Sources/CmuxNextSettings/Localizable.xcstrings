@@ -181619,6 +181619,402 @@
         }
       }
     },
+    "settings.group.chiefSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podagenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Underagenter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Subagenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងាររង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Underagenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podagenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Subagentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Субагенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt Ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Субагенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử phụ"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route Subagents to the Best Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを最適なエージェントに振り分ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجيه الوكلاء الفرعيين إلى أفضل وكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten an den besten Agenten leiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar los subagentes al mejor agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confier les sous-agents au meilleur agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 가장 알맞은 에이전트로 보내기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将子代理分派给最合适的代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將子代理分派給最合適的代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usmjeri podagente na najboljeg agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send underagenter til den bedste agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Assegna i subagenti all’agente migliore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជូនភ្នាក់ងាររងទៅភ្នាក់ងារល្អបំផុត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send underagenter til den beste agenten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kieruj podagentów do najlepszego agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encaminhar subagentes ao melhor agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Направлять субагентов к лучшему агенту"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งเอเจนต์ย่อยไปยังเอเจนต์ที่ดีที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt Ajanları En İyi Ajana Yönlendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрямовувати субагентів до найкращого агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Định tuyến tác tử phụ đến tác tử phù hợp nhất"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents.help": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が各サブエージェントの実行先を選びます。たとえば長いコーディング作業には Codex、文章や UI には Claude を使います。Chief 自身が別のエージェントで動いていても同様です。オフにすると、サブエージェントは Chief と同じエージェントで動きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يختار Chief الوكيل الذي يعمل عليه كل وكيل فرعي، مثل Codex للبرمجة الطويلة وClaude للكتابة والواجهة، حتى عندما يعمل Chief نفسه على وكيل آخر. عند الإيقاف، يعمل الوكلاء الفرعيون على وكيل Chief نفسه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chief wählt für jeden Subagenten den Agenten, auf dem er läuft, etwa Codex für lange Programmierarbeit und Claude für Texte und UI, auch wenn der Chief selbst auf einem anderen läuft. Aus: Subagenten laufen auf dem Agenten des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Chief elige el agente de cada subagente, como Codex para trabajos largos de código y Claude para redacción e interfaz, aunque el Chief use otro. Desactivado, los subagentes usan el agente del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Chief choisit l'agent de chaque sous-agent, par exemple Codex pour les longs travaux de code et Claude pour la rédaction et l'interface, même s'il tourne lui-même sur un autre. Désactivé, les sous-agents tournent sur l'agent du Chief."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 각 하위 에이전트가 실행될 에이전트를 고릅니다. 예를 들어 긴 코딩 작업에는 Codex, 글쓰기와 UI에는 Claude를 씁니다. Chief 자신이 다른 에이전트에서 실행될 때도 마찬가지입니다. 끄면 하위 에이전트는 Chief의 에이전트에서 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 会为每个子代理挑选运行的代理，例如长时间的编程工作用 Codex，写作和界面用 Claude，即使 Chief 本身使用其他代理。关闭时，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 會為每個子代理挑選執行的代理，例如長時間的程式工作用 Codex，寫作與介面用 Claude，即使 Chief 本身使用其他代理。關閉時，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief bira agenta na kojem radi svaki podagent, npr. Codex za dug rad na kodu i Claude za pisanje i UI, čak i kada sam Chief radi na drugom. Kada je isključeno, podagenti rade na Chiefovom agentu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief vælger den agent, hver underagent kører på, f.eks. Codex til langt kodearbejde og Claude til tekst og UI, også når Chief selv kører på en anden. Fra: underagenter kører på Chiefs egen agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief sceglie l’agente su cui gira ogni subagente, ad esempio Codex per i lunghi lavori di codice e Claude per la scrittura e l’interfaccia, anche quando il Chief stesso usa un altro agente. Disattivato, i subagenti girano sull’agente del Chief."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ជ្រើសរើសភ្នាក់ងារដែលភ្នាក់ងាររងនីមួយៗដំណើរការ ដូចជា Codex សម្រាប់ការសរសេរកូដយូរ និង Claude សម្រាប់ការសរសេរ និង UI ទោះបីជា Chief ខ្លួនឯងដំណើរការលើភ្នាក់ងារផ្សេងក៏ដោយ។ ពេលបិទ ភ្នាក់ងាររងដំណើរការលើភ្នាក់ងាររបស់ Chief ផ្ទាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief velger agenten hver underagent kjører på, for eksempel Codex for langt kodearbeid og Claude for tekst og UI, også når Chief selv kjører på en annen. Av: underagenter kjører på Chiefs egen agent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief wybiera agenta, na którym działa każdy podagent, np. Codex do długiej pracy z kodem i Claude do pisania i UI, nawet gdy sam Chief działa na innym. Wyłączone: podagenci działają na agencie Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief escolhe o agente em que cada subagente roda, como o Codex para trabalhos longos de código e o Claude para escrita e interface, mesmo quando o próprio Chief roda em outro. Desativado, os subagentes rodam no agente do próprio Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief выбирает агента для каждого субагента, например Codex для долгой работы с кодом и Claude для текстов и интерфейса, даже если сам Chief работает на другом. Если выключено, субагенты работают на агенте самого Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief เลือกเอเจนต์ที่เอเจนต์ย่อยแต่ละตัวทำงาน เช่น Codex สำหรับงานเขียนโค้ดที่ยาว และ Claude สำหรับงานเขียนและ UI แม้ว่า Chief เองจะทำงานบนเอเจนต์อื่น เมื่อปิด เอเจนต์ย่อยจะทำงานบนเอเจนต์ของ Chief เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief, her alt ajanın çalışacağı ajanı seçer; örneğin uzun kodlama işleri için Codex, yazı ve arayüz için Claude, Chief'in kendisi başka bir ajanda çalışsa bile. Kapalıyken alt ajanlar Chief'in kendi ajanında çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief обирає агента для кожного субагента, наприклад Codex для довгої роботи з кодом і Claude для текстів та інтерфейсу, навіть коли сам Chief працює на іншому. Якщо вимкнено, субагенти працюють на агенті самого Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chọn tác tử mà mỗi tác tử phụ chạy trên đó, chẳng hạn Codex cho việc viết mã dài và Claude cho viết lách và giao diện, kể cả khi chính Chief chạy trên tác tử khác. Khi tắt, tác tử phụ chạy trên tác tử của chính Chief."
+          }
+        }
+      }
+    },
     "settings.chief.reactionsCanWake": {
       "comment": "Chief reaction classifier (a416).",
       "extractionState": "manual",

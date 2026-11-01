@@ -79,6 +79,11 @@
   --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
   --cv-glyph-line: var(--acpmux-glyph-line, 20px);
   --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  /* Content below a transcript row starts after its glyph slot and the shared inline gap.
+     Keep this in the transcript grid so a message card follows the row when the glyph slot
+     changes, instead of carrying a second local pixel indent. */
+  --cv-message-inline-gap: 8px;
+  --cv-message-indent: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-message-inline-gap));
   --cv-footer-control-slot: var(--cv-meta-row, 24px);
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
@@ -354,7 +359,8 @@
 }
 
 /* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
-   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+   collapsed to its first lines, with Show all leading its action row on the left so the toggle
+   adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
 .cv-user__from {
   margin-bottom: 2px;
   padding-right: 4px;
@@ -364,15 +370,30 @@
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-user__bubble--collapsed {
+/* The clamp is on an inner box: on the bubble itself, its bottom padding showed half of the next
+   line under the sixth (Leo 2026-10-31). */
+.cv-user__bubble--collapsed > .cv-user__clamp {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
   line-clamp: 6;
   overflow: hidden;
 }
+/* Show all, then the action row (time, copy, retry), on one line under the bubble's right edge.
+   The toggle stays visible while the actions fade in on hover. */
+.cv-user__chief-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: var(--cv-meta-row);
+  margin-top: var(--cv-meta-gap);
+}
+.cv-user__chief-footer > .cv-user__actions {
+  margin-top: 0;
+}
 .cv-user__expand {
-  margin-top: 2px;
+  flex: none;
   padding: 0 4px;
   border: 0;
   background: none;
@@ -2432,6 +2453,138 @@ pre.cv-math-source {
   max-height: 220px;
 }
 
+/* A look at a video's frames (VideoFramesCard.tsx): the video's name and length, then its frames
+ * in one row that scrolls sideways, each in a box of the video's shape with its time in a corner.
+ * It hangs from the row's words, as any line under a row does. `grid` and `poster` are the
+ * gallery's alternatives. */
+.cv-video-frames {
+  --cv-video-frame-width: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: calc(100% - var(--cv-tool-text-inset));
+  margin: 4px 0 8px var(--cv-tool-text-inset);
+}
+.cv-video-frames__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-video-frames__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+}
+button.cv-video-frames__name {
+  appearance: none;
+  cursor: default;
+}
+button.cv-video-frames__name:hover .cv-video-frames__label {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.cv-video-frames__name:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.cv-video-frames__play {
+  flex: none;
+  color: inherit;
+}
+.cv-video-frames__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-video-frames__meta {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cv-video-frames__strip {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.cv-video-frames__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cv-video-frame-width), 1fr));
+  gap: 4px;
+  width: min(100%, 720px);
+}
+.cv-video-frames__poster {
+  display: block;
+  width: min(100%, 360px);
+}
+.cv-video-frames__frame {
+  position: relative;
+  flex: none;
+  display: block;
+  box-sizing: border-box;
+  width: var(--cv-video-frame-width);
+  aspect-ratio: var(--cv-video-frame-aspect, 16 / 9);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  font: inherit;
+}
+.cv-video-frames__grid .cv-video-frames__frame,
+.cv-video-frames__frame.is-lead {
+  width: 100%;
+}
+.cv-video-frames__frame.is-lead {
+  border-radius: 8px;
+}
+button.cv-video-frames__frame {
+  appearance: none;
+  cursor: zoom-in;
+}
+button.cv-video-frames__frame:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+.cv-video-frames__frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* The frame's time, on its own dark scrim so it reads over any frame (as a video's length,
+ * chips.css .cv-media__duration). */
+.cv-video-frames__time {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  letter-spacing: var(--text-detail--letter-spacing);
+  pointer-events: none;
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;
@@ -3648,13 +3801,25 @@ a.cv-sha:focus-visible {
   margin-top: 2px;
   color: var(--agent-status-failure);
 }
+/* On the card grid (grid.md 5.6, card arm only; the rail keeps its 14 icon): a 16 icon box on the card's lead, the cause on its text column
+   (lead + 16 + 8), the icon centred on the cause's first line, which is 18 tall. */
+.cv-turn-error--card .cv-turn-error__cause {
+  gap: var(--grid-gap);
+}
+.cv-turn-error--card .cv-turn-error__icon {
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin-top: calc((18px - var(--grid-icon-box)) / 2);
+}
 .cv-turn-error__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.cv-turn-error--card .cv-turn-error__actions,
+.cv-turn-error--card .cv-turn-error__actions {
+  padding-inline-start: calc(var(--grid-icon-box) + var(--grid-gap));
+}
 .cv-turn-error--rail .cv-turn-error__actions {
   padding-inline-start: 21px;
 }
@@ -3697,8 +3862,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   margin-block: 2px 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: var(--grid-cards-padding);
+  border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
   padding-inline-start: 10px;
