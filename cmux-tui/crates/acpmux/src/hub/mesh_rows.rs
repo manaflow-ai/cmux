@@ -18,13 +18,7 @@ impl Hub {
     pub async fn mesh_rows(&self) -> Vec<SessionRow> {
         let team_enabled =
             self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
-        let sessions: Vec<Arc<Session>> = self
-            .sessions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .cloned()
-            .collect();
+        let sessions = self.live_sessions();
         let rank = |status: SessionStatus| match status {
             SessionStatus::Running | SessionStatus::Waiting => 0,
             SessionStatus::Ready => 1,

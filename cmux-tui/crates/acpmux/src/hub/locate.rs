@@ -57,9 +57,25 @@ impl Hub {
                 let found = by_link(&summaries, &link, &own);
                 (Some(link), found)
             }
-            None => (None, by_key(&summaries, query, &own)),
+            None => {
+                // Exact ids and names outrank prefixes, including a closed exact name. This
+                // preserves `locate review` when a live `review-2` was created later.
+                let exact = by_key_exact(&summaries, query, &own);
+                if !exact.is_empty() {
+                    (None, exact)
+                } else {
+                    let full = self.all_session_summaries_including_closed();
+                    let closed_exact = by_key_exact(&full, query, &own);
+                    if !closed_exact.is_empty() {
+                        summaries = full;
+                        (None, closed_exact)
+                    } else {
+                        (None, by_key(&summaries, query, &own))
+                    }
+                }
+            }
         };
-        if found.is_empty() {
+        if found.is_empty() && link.is_some() {
             // A name or id that explicitly asks for a closed chat is resolved on demand. The
             // common live lookup above never walks those records.
             summaries = self.all_session_summaries_including_closed();
@@ -73,6 +89,11 @@ impl Hub {
                 }
                 None => (None, by_key(&summaries, query, &own)),
             };
+        }
+        if found.is_empty() && link.is_none() && summaries.iter().all(|s| s["status"] != "closed") {
+            let full = self.all_session_summaries_including_closed();
+            found = by_key(&full, query, &own);
+            summaries = full;
         }
         if found.is_empty() {
             let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
@@ -296,6 +317,33 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
+/// Exact id/name portion of [`by_key`], used before prefix matching so a closed exact name keeps
+/// winning over a newer live prefix.
+fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
+    if let Some((host, rest)) = key.split_once('/') {
+        return summaries
+            .iter()
+            .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
+            .filter(|s| {
+                s["sessionId"].as_str() == Some(rest)
+                    || s["qualifiedSessionId"].as_str() == Some(key)
+                    || bare_name(s) == rest
+                    || s["name"].as_str() == Some(key)
+            })
+            .collect();
+    }
+    summaries
+        .iter()
+        .filter(|s| {
+            ["sessionId", "qualifiedSessionId", "agentSessionId"]
+                .iter()
+                .any(|field| s[*field].as_str() == Some(key))
+                || s["name"].as_str() == Some(key)
+                || bare_name(s) == key
+        })
+        .collect()
+}
+
 /// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
 fn by_short_name<'a>(rows: Vec<&'a Value>, key: &str) -> Vec<&'a Value> {
     rows.into_iter()
@@ -466,6 +514,17 @@ mod tests {
         assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
         assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
         assert!(by_key(&rows, "nobody", "big-red").is_empty());
+    }
+
+    #[test]
+    fn an_exact_closed_name_beats_a_live_prefix() {
+        let closed = json!({"sessionId": "closed", "name": "review", "status": "closed"});
+        let live = json!({"sessionId": "live", "name": "review-2", "status": "idle"});
+        let live_rows = vec![live.clone()];
+        let all_rows = vec![live, closed];
+        assert!(by_key_exact(&live_rows, "review", "local").is_empty());
+        assert_eq!(ids(&by_key_exact(&all_rows, "review", "local")), ["closed"]);
+        assert_eq!(ids(&by_key(&live_rows, "review", "local")), ["live"]);
     }
 
     #[test]
