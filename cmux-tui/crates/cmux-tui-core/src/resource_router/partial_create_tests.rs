@@ -271,7 +271,7 @@ fn refused_create_problems(create: RefusedCreate, point: DiskFillsAfter) -> Vec<
     // (e) The caller learns why: the store's own reason, not an internal one.
     match &created {
         Ok(value) => {
-            problems.push(format!("{case} (e): a create on a full disk succeeded: {value}"))
+            problems.push(format!("{case} (e): a create on a full disk succeeded: {value}"));
         }
         Err(error) => {
             eprintln!("{case}: refused create: {error:?}");
