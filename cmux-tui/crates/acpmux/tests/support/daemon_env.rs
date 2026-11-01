@@ -214,13 +214,14 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
 /// Where a test process keeps its scratch folder (and so its HOME): Cargo's target tmp, not the
 /// temp directory, because tests use the temp directory as a Web root and a root that holds HOME
 /// is dropped. But a folder the daemon guards (`protected_folders.rs`: another volume, as a fleet
-/// Mac's `/Volumes/ephemeral0` build disk) would make every test chat under HOME one whose
+/// Mac's `/Volumes/ephemeral0` build disk, or a checkout in ~/Documents) would make every test chat under HOME one whose
 /// restored queue waits for a person, so there the scratch goes to the boot volume's `/tmp`
 /// ([`moved_scratch_base`]) and is removed when the process exits.
 #[cfg(unix)]
 fn scratch_base() -> PathBuf {
     let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    if acpmux::protected_folders::refusal_in(&target, None).is_none() {
+    // The host's HOME still: a checkout in ~/Documents is guarded too.
+    if acpmux::protected_folders::unasked_refusal(&target).is_none() {
         return target;
     }
     moved_scratch_base()
