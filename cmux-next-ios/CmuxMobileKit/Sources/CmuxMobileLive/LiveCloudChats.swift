@@ -22,8 +22,9 @@ public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
 public final class CloudChatRelay {
     public let machine: CloudChatMachine
     public let macID: String
-    public let hub = AcpmuxHub()
+    public private(set) var hub = AcpmuxHub()
     public private(set) var error: String?
+    public private(set) var isRetired = false
     @ObservationIgnored private var linkID: ObjectIdentifier?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var binding: Task<Void, Never>?
@@ -35,6 +36,7 @@ public final class CloudChatRelay {
     }
 
     func bind(_ link: any MacLink, force: Bool = false) {
+        guard !isRetired else { return }
         if !force, linkID == ObjectIdentifier(link), binding != nil || hub.isReady { return }
         generation += 1
         let generation = generation
@@ -43,6 +45,7 @@ public final class CloudChatRelay {
         binding?.cancel()
         binding = Task { [weak self] in
             guard let self, self.generation == generation, !Task.isCancelled else { return }
+            let hub = self.hub
             await hub.bind(nil)
             do {
                 let channel = try await link.openChannel(service: "cloud-acpmux", args: [
@@ -72,15 +75,25 @@ public final class CloudChatRelay {
         binding?.cancel()
         binding = nil
         hub.cancelWaiters()
+        let hub = self.hub
         Task { [weak self] in
             guard let self, self.generation == generation else { return }
             await hub.bind(nil)
         }
     }
 
+    /// Account/team teardown is permanent, unlike a reconnect. A sheet still
+    /// leaving the screen cannot retain or reopen this account's chat stores.
+    func retire() {
+        disconnect()
+        isRetired = true
+        stores.removeAll()
+        hub = AcpmuxHub()
+    }
+
     /// The exact session listed on this machine, without a local-Mac fallback.
     public func store(sessionID: String) -> AgentChatStore? {
-        guard let session = hub.sessions[sessionID], session.peer == nil else { return nil }
+        guard !isRetired, let session = hub.sessions[sessionID], session.peer == nil else { return nil }
         if let store = stores[sessionID] { return store }
         let summary = AgentSessionSummary(
             id: session.id, name: session.name, harness: session.harness, agentName: session.harness,

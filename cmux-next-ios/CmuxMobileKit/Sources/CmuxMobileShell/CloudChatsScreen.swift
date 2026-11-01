@@ -112,7 +112,9 @@ private struct CloudMachineChatsScreen: View {
 
     var body: some View {
         Group {
-            if let relay, relay.hub.isReady {
+            if relay?.isRetired == true {
+                ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
+            } else if let relay, relay.hub.isReady {
                 if let preferredSession, !openedPreferred, relay.hub.sessions[preferredSession] == nil {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
