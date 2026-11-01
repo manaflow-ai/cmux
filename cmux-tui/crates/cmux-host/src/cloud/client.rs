@@ -373,11 +373,20 @@ impl<H: Http> CloudClient<H> {
             "signature": signature,
         });
         let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body, deadline)?;
+        // A team SSH binding (team_ssh::sync::client_bound) records no grant,
+        // so it pins user, install and team only. The bounded path that reads
+        // original VM authority (receiver policy, lifecycle) always pins the
+        // grant, and refuses a binding without one.
+        let grant_ok = if self.bound.grant.is_empty() {
+            deadline.is_none()
+        } else {
+            token.grant == self.bound.grant
+        };
         if status != 200
             || token.token_type != "Bearer"
             || token.user != self.bound.user
             || token.install != self.bound.install
-            || token.grant != self.bound.grant
+            || !grant_ok
             || token.team != self.bound.team
             || token.access_token.is_empty()
             || token.access_token.len() > 8192

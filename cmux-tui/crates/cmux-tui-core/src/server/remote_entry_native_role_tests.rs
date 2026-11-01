@@ -54,12 +54,14 @@ fn native_stamp_binds_role_and_request_owner_cannot_elevate_it() {
             Some(role),
         );
         // Removing guest-local Cloud markers cannot promote a signed team or
-        // missing-role token either. A real signed owner still needs a host
-        // that permits ownership; team-host evidence always wins.
+        // missing-role token either. On a team VM a signed owner is the
+        // machine's creator (the Worker signs `owner` for the creator alone,
+        // as vmKindForCaller since #28788), so NEXT's creator policy lets it
+        // in; a signed team or missing role stays refused.
         entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
         assert_eq!(entry.mux.agent_host_gate(client, Some("owner")), expected);
         entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
-        assert!(entry.mux.agent_host_gate(client, Some("owner")).is_err());
+        assert_eq!(entry.mux.agent_host_gate(client, Some("owner")), expected);
     }
 }
 

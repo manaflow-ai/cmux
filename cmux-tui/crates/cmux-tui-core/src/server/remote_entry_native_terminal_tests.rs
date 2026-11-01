@@ -201,15 +201,6 @@ fn native_terminal_keeps_foreign_leases_browser_and_other_client_controls_denied
         )["error_code"],
         json!(REMOTE_DENIED)
     );
-    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
-    assert_eq!(
-        call(
-            &mut second,
-            &mut second_reader,
-            json!({"cmd":"send", "surface":surface, "text":"forbidden"})
-        )["error_code"],
-        json!(REMOTE_DENIED)
-    );
 }
 
 #[test]

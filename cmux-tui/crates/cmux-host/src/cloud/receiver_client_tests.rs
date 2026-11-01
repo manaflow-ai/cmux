@@ -124,3 +124,16 @@ fn vm_receiver_client_keeps_original_auth_and_existing_self_read() {
     ));
     assert_eq!(seen.borrow().len(), 3, "the self read reuses the original token");
 }
+
+#[test]
+fn team_ssh_binding_without_a_grant_still_authenticates() {
+    // team_ssh::sync::client_bound records no grant; its CA and account sync
+    // must keep a token while user, install and team stay pinned.
+    let (mut client, _) = client(|bound, _| bound.grant = String::new());
+    assert_eq!(client.token(NOW).unwrap(), "test-vm-bearer");
+    let (mut other_team, _) = client(|bound, token| {
+        bound.grant = String::new();
+        token["team"] = "another-original-identity".into();
+    });
+    assert!(other_team.token(NOW).is_err());
+}
