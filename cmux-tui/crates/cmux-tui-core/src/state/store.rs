@@ -380,7 +380,28 @@ pub(crate) fn mark_workspace_ephemeral(
          ON CONFLICT(workspace_id) DO UPDATE SET ephemeral = 1",
         [workspace_id],
     )?;
+    note_ephemeral(workspace_id);
     Ok(())
+}
+
+/// Every workspace this process marked or found ephemeral, by public id
+/// (never reused). A remote device's event filter judges a closed incognito
+/// workspace's late events by it, after the workspace left the registry
+/// (server/incognito_remote.rs, #31210). A rolled-back mark leaves an id no
+/// workspace has.
+static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that workspace `workspace_id` is ephemeral.
+pub(crate) fn note_ephemeral(workspace_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether workspace `workspace_id` was ever ephemeral in this process.
+pub(crate) fn was_ephemeral(workspace_id: &str) -> bool {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().contains(workspace_id)
 }
 
 /// Live ephemeral workspaces, which the daemon closes at start.

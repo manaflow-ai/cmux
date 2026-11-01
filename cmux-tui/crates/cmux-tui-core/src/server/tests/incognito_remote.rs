@@ -198,3 +198,51 @@ fn a_remote_devices_tree_events_leave_out_incognito_workspaces() {
         assert!(!message.contains(&private), "an incognito workspace reached the phone: {message}");
     }
 }
+
+#[test]
+fn an_incognito_workspace_closed_before_the_phone_hears_of_it_never_reaches_it() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let normal = create(&mux, &app, "normal-space", false);
+    let phone = phone(&mux);
+    let reply =
+        line(&mux, &phone, json!({"id": "sub", "cmd": "subscribe", "tree_events": "deltas"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+
+    // The app opens an incognito workspace, renames it and closes it while
+    // the phone's events may still be queued.
+    let private = create(&mux, &app, "secret-plans", true);
+    let local = listed(&mux, &app);
+    let private_id = row(&local, &private).unwrap()["id"].as_u64().unwrap();
+    for request in [
+        json!({"id": "rn", "cmd": "rename-workspace", "workspace": private_id, "name": "secret-two"}),
+        json!({"id": "cl", "cmd": "close-workspace", "workspace": private_id}),
+    ] {
+        let reply = line(&mux, &app, request);
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+    let normal_id = row(&listed(&mux, &app), &normal).unwrap()["id"].as_u64().unwrap();
+    let reply = line(
+        &mux,
+        &app,
+        json!({"id": "rename", "cmd": "rename-workspace", "workspace": normal_id, "name": "visible-name"}),
+    );
+    assert_eq!(reply["ok"], true, "{reply}");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = Vec::new();
+    while !seen.iter().any(|message: &String| message.contains("visible-name")) {
+        assert!(Instant::now() < deadline, "the normal rename never reached the phone: {seen:?}");
+        match phone.2.try_pop() {
+            Some(message) => seen.push(message),
+            None => std::thread::sleep(Duration::from_millis(2)),
+        }
+    }
+    for message in &seen {
+        assert!(
+            !message.contains("secret-"),
+            "an incognito workspace reached the phone: {message}"
+        );
+        assert!(!message.contains(&private), "an incognito workspace reached the phone: {message}");
+    }
+}

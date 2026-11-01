@@ -86,16 +86,27 @@ const NO_CURRENT_TARGET: [&str; 33] = [
 ];
 
 /// The object families a field can name (`workspace`, `destination_pane`,
-/// `surfaces`, `tab_resource_id`, `workspace_key`, ...).
-const FAMILIES: [&str; 9] =
-    ["workspace", "screen", "pane", "surface", "tab", "terminal", "target", "key", "resource"];
+/// `surfaces`, `tab_resource_id`, `workspace_key`, `group`, `split`, ...).
+const FAMILIES: [&str; 11] = [
+    "workspace",
+    "screen",
+    "pane",
+    "surface",
+    "tab",
+    "terminal",
+    "target",
+    "key",
+    "resource",
+    "group",
+    "split",
+];
 const SUFFIXES: [&str; 6] = ["", "s", "_id", "_ids", "_key", "_keys"];
 
-/// Whether field `key` names an object: a family, with an optional suffix
-/// and an optional `<anything>_` prefix. `workspace_revision`,
-/// `terminal_revision` and other counters do not.
-fn is_target_key(key: &str) -> bool {
-    FAMILIES.iter().any(|family| {
+/// The family field `key` names an object of: a family, with an optional
+/// suffix and an optional `<anything>_` prefix. `workspace_revision`,
+/// `terminal_revision` and other counters name none.
+fn key_family(key: &str) -> Option<&'static str> {
+    FAMILIES.into_iter().find(|family| {
         SUFFIXES.iter().any(|suffix| {
             let tail = format!("{family}{suffix}");
             key == tail
@@ -106,13 +117,29 @@ fn is_target_key(key: &str) -> bool {
     })
 }
 
+fn is_target_key(key: &str) -> bool {
+    key_family(key).is_some()
+}
+
+/// Split ids (`set-split-ratio`) of a screen's layout.
+fn split_ids(node: &crate::model::Node, out: &mut Vec<u64>) {
+    if let crate::model::Node::Split { id, a, b, .. } = node {
+        out.push(*id);
+        split_ids(a, out);
+        split_ids(b, out);
+    }
+}
+
 /// The objects of the live ephemeral workspaces, by every id a client can
 /// name them with.
 #[derive(Default)]
 pub(super) struct Hidden {
     /// Workspace, screen, pane and tab (surface) slot ids: one id space.
     numbers: HashSet<u64>,
-    /// Public ids, workspace keys, short ids and terminal ids.
+    /// Split ids, matched only in `split` fields.
+    splits: HashSet<u64>,
+    /// Public ids, workspace keys, short ids, terminal ids and tab and
+    /// screen group ids.
     names: HashSet<String>,
     /// The hidden workspaces' names: a request naming one is refused (a
     /// bare-name selector), but a reply row is not judged by them.
@@ -155,6 +182,11 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
     if ephemeral.is_empty() {
         return None;
     }
+    for workspace in &ephemeral {
+        crate::state::store::note_ephemeral(workspace);
+    }
+    // Taken before the state lock, as `tree_decorations` does.
+    let presentation = mux.presentation_snapshot();
     let mut hidden = Hidden::default();
     mux.with_state(|state| {
         let indexes = &state.resource_indexes;
@@ -168,8 +200,19 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
             hidden.names.insert(workspace.key.clone());
             hidden.labels.insert(workspace.name.clone());
             numbers.push(workspace.id);
+            for run in crate::mux::workspace_screen_groups(workspace, &presentation.screens) {
+                hidden.names.insert(run.group.id);
+            }
             for screen in &workspace.screens {
                 numbers.push(screen.id);
+                let mut splits = Vec::new();
+                split_ids(&screen.root, &mut splits);
+                for split in splits {
+                    if let Some(id) = indexes.split_ids.get(&split) {
+                        hidden.names.insert(id.as_str().to_string());
+                    }
+                    hidden.splits.insert(split);
+                }
                 if let Some(id) = indexes.screen_ids.get(&screen.id) {
                     hidden.names.insert(id.as_str().to_string());
                 }
@@ -177,6 +220,9 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
                     numbers.push(pane);
                     if let Some(id) = indexes.pane_ids.get(&pane) {
                         hidden.names.insert(id.as_str().to_string());
+                    }
+                    for run in crate::mux::pane_tab_groups(state, &presentation, pane) {
+                        hidden.names.insert(run.group.id);
                     }
                     for surface in state.panes.get(&pane).into_iter().flat_map(|pane| &pane.tabs) {
                         numbers.push(*surface);
@@ -209,30 +255,33 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
 }
 
 impl Hidden {
-    /// Whether `value` (a target field's value) names a hidden object.
-    fn names(&self, value: &Value) -> bool {
+    /// Whether `value`, the value of field `key`, names a hidden object.
+    fn names(&self, key: &str, value: &Value) -> bool {
         match value {
-            Value::Number(number) => {
-                number.as_u64().is_some_and(|number| self.all || self.numbers.contains(&number))
-            }
+            Value::Number(number) => number.as_u64().is_some_and(|number| {
+                let numbers =
+                    if key_family(key) == Some("split") { &self.splits } else { &self.numbers };
+                self.all || numbers.contains(&number)
+            }),
             Value::String(text) => self.all || self.names.contains(text),
-            Value::Array(values) => values.iter().any(|value| self.names(value)),
+            Value::Array(values) => values.iter().any(|value| self.names(key, value)),
             _ => false,
         }
     }
 
-    /// Whether `value`, in a request, names a hidden object or picks one
-    /// the daemon resolves (`current`, a `name:` or bare-name selector).
-    fn names_in_request(&self, value: &Value) -> bool {
+    /// Whether `value`, in a request's field `key`, names a hidden object or
+    /// picks one the daemon resolves (`current`, a `name:` or bare-name
+    /// selector).
+    fn names_in_request(&self, key: &str, value: &Value) -> bool {
         match value {
             Value::String(text) => {
-                self.names(value)
+                self.names(key, value)
                     || text == "current"
                     || text.starts_with("name:")
                     || self.labels.contains(text)
             }
-            Value::Array(values) => values.iter().any(|value| self.names_in_request(value)),
-            other => self.names(other),
+            Value::Array(values) => values.iter().any(|value| self.names_in_request(key, value)),
+            other => self.names(key, other),
         }
     }
 
@@ -246,7 +295,7 @@ impl Hidden {
             .is_some_and(|kind| matches!(kind, "workspace" | "screen" | "pane" | "surface"));
         object.iter().any(|(key, value)| {
             (is_target_key(key) || (id_row && matches!(key.as_str(), "id" | "short_id")))
-                && self.names(value)
+                && self.names(key, value)
         })
     }
 
@@ -255,7 +304,7 @@ impl Hidden {
     fn named_in_request<'a>(&self, request: &'a Value) -> Option<(&'a str, &'a Value)> {
         match request {
             Value::Object(object) => object.iter().find_map(|(key, value)| {
-                if is_target_key(key) && self.names_in_request(value) {
+                if is_target_key(key) && self.names_in_request(key, value) {
                     return Some((key.as_str(), value));
                 }
                 self.named_in_request(value)
@@ -265,15 +314,32 @@ impl Hidden {
         }
     }
 
-    /// Whether a request names any target at all.
+    /// Whether a command names any target (an id or a selector in a target
+    /// field; never the request's own `id`).
     fn names_a_target(request: &Value) -> bool {
-        match request {
-            Value::Object(object) => object.iter().any(|(key, value)| {
-                (is_target_key(key) && !value.is_null()) || Self::names_a_target(value)
-            }),
-            Value::Array(values) => values.iter().any(Self::names_a_target),
-            _ => false,
+        fn selector(value: &Value) -> bool {
+            match value {
+                Value::Number(_) => true,
+                Value::String(text) => !text.is_empty(),
+                Value::Array(values) => values.iter().any(selector),
+                _ => false,
+            }
         }
+        fn walk(value: &Value) -> bool {
+            match value {
+                Value::Object(object) => object
+                    .iter()
+                    .any(|(key, value)| (is_target_key(key) && selector(value)) || walk(value)),
+                Value::Array(values) => values.iter().any(walk),
+                _ => false,
+            }
+        }
+        request.as_object().is_some_and(|object| {
+            object
+                .iter()
+                .filter(|(key, _)| key.as_str() != "id")
+                .any(|(key, value)| (is_target_key(key) && selector(value)) || walk(value))
+        })
     }
 
     /// Whether a subscription event names a hidden object.
@@ -287,11 +353,12 @@ impl Hidden {
         match reply {
             Value::Object(object) => {
                 for (key, value) in object.iter_mut() {
+                    let key = key.as_str();
                     if let Value::Array(rows) = value {
                         let ids = is_target_key(key);
                         rows.retain(|row| match row {
                             Value::Object(row) => !self.row_named(row),
-                            scalar => !(ids && self.names(scalar)),
+                            scalar => !(ids && self.names(key, scalar)),
                         });
                     }
                     self.prune_reply(value);
@@ -311,6 +378,7 @@ impl Hidden {
             return;
         };
         self.numbers.extend(other.numbers);
+        self.splits.extend(other.splits);
         self.names.extend(other.names);
         self.labels = other.labels;
         self.current_hidden = other.current_hidden;
@@ -320,14 +388,15 @@ impl Hidden {
 
 /// The kind word an unknown-object answer uses for field `key`.
 fn kind_of(key: &str) -> &'static str {
-    ["screen", "pane", "target", "terminal", "surface", "tab"]
-        .into_iter()
-        .find(|family| key.contains(family))
-        .map_or("workspace", |family| match family {
-            "target" => "pane",
-            "tab" => "surface",
-            family => family,
-        })
+    match key_family(key) {
+        Some("screen") => "screen",
+        Some("pane" | "target") => "pane",
+        Some("terminal") => "terminal",
+        Some("surface" | "tab") => "surface",
+        Some("group") => "group",
+        Some("split") => "split",
+        _ => "workspace",
+    }
 }
 
 /// Answer a remote device's line before it is parsed or dispatched when it
@@ -383,7 +452,11 @@ pub(super) fn refuse_line(
         }
     };
     if resource {
-        let scope = if kind == "surface" { "tab" } else { kind };
+        let scope = match kind {
+            "surface" => "tab",
+            "group" => "tab_group",
+            kind => kind,
+        };
         let error = crate::resource::ResourceError::not_found(scope, &selector);
         let response = crate::resource_router::malformed_resource_response(message, error);
         return Some(writer.send_control(&response).is_ok());
@@ -399,16 +472,28 @@ pub(super) fn prune_reply(mux: &Mux, client: u64, reply: &mut Value) {
     }
 }
 
-/// A subscription's view of what its connection must not hear. The hidden
-/// objects are read again on each tree event (a workspace, screen, pane or
-/// tab came or went), and ids once hidden stay hidden.
+/// A subscription's view of what its connection must not hear. It reads the
+/// hidden objects when the subscription starts and again on each tree event
+/// (a workspace, screen, pane or tab came or went). Ids once hidden stay
+/// hidden, and a tree event about a workspace this process ever marked
+/// ephemeral (`store::was_ephemeral`) is hidden and teaches the filter that
+/// workspace's ids, so a queued event of an incognito workspace closed since
+/// never leaks.
 #[derive(Default)]
 pub(super) struct EventFilter {
     hidden: Hidden,
-    read: bool,
 }
 
 impl EventFilter {
+    /// The filter of a subscription `client` starts now.
+    pub(super) fn start(mux: &Mux, client: u64) -> Self {
+        let mut filter = Self::default();
+        if is_remote_device(mux, client) {
+            filter.hidden.absorb(hidden(mux));
+        }
+        filter
+    }
+
     /// Whether `value`, the wire form of `event`, is kept from `client`.
     pub(super) fn hides(
         &mut self,
@@ -427,11 +512,74 @@ impl EventFilter {
                 | crate::MuxEvent::TreeSelectionChanged
                 | crate::MuxEvent::LayoutChanged(..)
         );
-        if !self.read || tree {
+        if tree {
             self.hidden.absorb(hidden(mux));
-            self.read = true;
         }
-        self.hidden.hides_event(value)
+        if self.hidden.hides_event(value) || names_an_ephemeral_workspace(value) {
+            self.hidden.learn(value, false);
+            return true;
+        }
+        false
+    }
+}
+
+/// Whether an event names, anywhere, the public id of a workspace that was
+/// ever ephemeral (a delta's `entity` carries it).
+fn names_an_ephemeral_workspace(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            (key == "resource_id" && value.as_str().is_some_and(crate::state::store::was_ephemeral))
+                || names_an_ephemeral_workspace(value)
+        }),
+        Value::Array(values) => values.iter().any(names_an_ephemeral_workspace),
+        _ => false,
+    }
+}
+
+impl Hidden {
+    /// Learn every id a hidden event names: its target fields, and inside
+    /// its `entity` every `id` too (the workspace's, its screens', panes'
+    /// and groups').
+    fn learn(&mut self, value: &Value, entity: bool) {
+        let Value::Object(object) = value else {
+            if let Value::Array(values) = value {
+                values.iter().for_each(|value| self.learn(value, entity));
+            }
+            return;
+        };
+        for (key, value) in object {
+            // A workspace's `group` is its sidebar group, shared with
+            // normal workspaces: never learned (tab and screen groups are,
+            // by their `id`).
+            let family = key_family(key);
+            let target =
+                (family.is_some() && family != Some("group")) || (entity && key.as_str() == "id");
+            if target {
+                self.learn_ids(key, value);
+            }
+            if matches!(value, Value::Object(_) | Value::Array(_)) {
+                self.learn(value, entity || key == "entity");
+            }
+        }
+    }
+
+    fn learn_ids(&mut self, key: &str, value: &Value) {
+        match value {
+            Value::Number(number) => {
+                if let Some(number) = number.as_u64() {
+                    if key_family(key) == Some("split") {
+                        self.splits.insert(number);
+                    } else {
+                        self.numbers.insert(number);
+                    }
+                }
+            }
+            Value::String(text) => {
+                self.names.insert(text.clone());
+            }
+            Value::Array(values) => values.iter().for_each(|value| self.learn_ids(key, value)),
+            _ => {}
+        }
     }
 }
 
@@ -497,5 +645,50 @@ mod tests {
             assert!(hidden.named_in_request(&request).is_some(), "{request}");
         }
         assert!(hidden.named_in_request(&json!({"cmd": "x", "workspace": 3})).is_none());
+    }
+
+    #[test]
+    fn the_request_id_is_never_a_target() {
+        assert!(!Hidden::names_a_target(&json!({"id": {"pane": 4}, "cmd": "new-tab"})));
+        assert!(!Hidden::names_a_target(&json!({"id": 1, "cmd": "new-tab", "pane": false})));
+        assert!(Hidden::names_a_target(&json!({"id": 1, "cmd": "new-tab", "pane": 4})));
+        assert!(Hidden::names_a_target(&json!({"id": 1, "cmd": "set-split-ratio", "split": 9})));
+    }
+
+    #[test]
+    fn groups_and_splits_of_a_hidden_workspace_are_refused() {
+        let hidden = Hidden {
+            numbers: HashSet::from([5]),
+            splits: HashSet::from([9]),
+            names: HashSet::from(["tg_hidden".to_string()]),
+            ..Hidden::default()
+        };
+        for request in [
+            json!({"cmd": "close-tab-group", "group": "tg_hidden", "end_terminals": true}),
+            json!({"cmd": "set-split-ratio", "split": 9, "ratio": 0.5}),
+        ] {
+            assert!(hidden.named_in_request(&request).is_some(), "{request}");
+        }
+        // A split id is its own id space: pane 9 is not split 9.
+        assert!(hidden.named_in_request(&json!({"cmd": "focus-pane", "pane": 9})).is_none());
+        assert!(hidden.named_in_request(&json!({"cmd": "set-split-ratio", "split": 5})).is_none());
+    }
+
+    #[test]
+    fn a_hidden_event_teaches_its_entity_ids_but_never_its_sidebar_group() {
+        let mut hidden = Hidden::default();
+        hidden.learn(
+            &json!({"event": "workspace-added", "workspace": 3, "entity": {
+                "id": 3, "resource_id": "ws_x", "key": "k", "group": "grp_shared",
+                "screens": [{"id": 4, "panes": [{"id": 5, "tabs": [{"surface": 6}]}]}]}}),
+            false,
+        );
+        for number in [3, 4, 5, 6] {
+            assert!(hidden.numbers.contains(&number), "{number}");
+        }
+        assert!(hidden.names.contains("ws_x") && hidden.names.contains("k"));
+        assert!(!hidden.names.contains("grp_shared"));
+        assert!(!hidden.hides_event(&json!({"event": "workspace-changed", "group": "grp_shared"})));
+        assert!(hidden.hides_event(&json!({"event": "title-changed", "surface": 6})));
     }
 }
