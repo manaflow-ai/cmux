@@ -569,3 +569,20 @@ fn an_incognito_apple_bash_launch_reads_no_startup_files() {
     let launched = integrate_with(vec!["/bin/bash".to_string()], env, &|_: &str| None);
     assert_eq!(launched.command, ["/bin/bash", "--noprofile", "--norc"]);
 }
+
+/// Every child launch path (Unix and Windows hosts, in-process terminals,
+/// holders) removes the same keys: the terminal-child list and the
+/// incognito markers a normal launch must not inherit from the daemon.
+#[test]
+fn every_terminal_child_drops_the_inherited_incognito_markers() {
+    let inherited = |key: &str| match key {
+        INCOGNITO_ENV | "fish_private_mode" => Some("1".to_string()),
+        "HISTFILE" => Some("/dev/null".to_string()),
+        _ => None,
+    };
+    let normal = vec![("HOME".to_string(), "/home/user".to_string())];
+    let unset = keys_to_unset_in_child_from(&normal, &inherited);
+    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN.iter().copied().chain([INCOGNITO_ENV, "HISTFILE", "fish_private_mode"]) {
+        assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
+    }
+}
