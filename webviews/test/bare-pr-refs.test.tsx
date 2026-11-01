@@ -143,14 +143,60 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
 // chip's mark takes its state from the host's cache, before any hover and without a GitHub read.
 test("a pull request chip carries its state for its mark's colour", async () => {
   const view = await render("Landed in (#634).", REPO);
+  const { act } = await import("react");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const chip = view.element.querySelector<HTMLAnchorElement>("a.cv-chip.is-ref")!;
-  await view.hover(chip);
+  // No hover: the state came from the chip's own cache-only ask.
   expect(chip.dataset.prState).toBe("open");
+  expect(view.calls.filter((call) => call.method === "pr.inspect").map((call) => call.params)).toEqual([
+    { url: URL, cached: true },
+  ]);
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new globalThis.URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
-  expect(css).toMatch(
-    /\.cv-chip\.is-ref\[data-pr-state="merged"\] \.cv-chip__icon--gh \{\s*color: var\(--agent-status-merged\);/,
-  );
+  for (const [state, token] of [
+    ["open", "success"],
+    ["merged", "merged"],
+    ["closed", "failure"],
+  ])
+    expect(css).toContain(
+      `.cv-chip.is-ref[data-pr-state="${state}"] .cv-chip__icon--gh {\n  color: var(--agent-status-${token});`,
+    );
+});
+
+// A card opened while the chip's cache-only ask is still out reads once that ask settles, rather
+// than losing its read to the one-ask-per-link rule.
+test("a card's read waits behind the chip's cache-only ask instead of being dropped", async () => {
+  const { askPullRequest, usePullRequestAnswer, resetPullRequestStore } =
+    await import("../src/agent-session/acpmux/chips/pullRequestStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { act, createElement } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  resetPullRequestStore();
+  const calls: unknown[] = [];
+  let release: (() => void) | undefined;
+  setChipHost(async (_method, params) => {
+    calls.push(params);
+    if ((params as { cached?: boolean }).cached) {
+      await new Promise<void>((resolve) => (release = resolve));
+      return { pullRequest: null, reading: false };
+    }
+    return { ...answer, fetchedAt: 1 };
+  });
+  askPullRequest(URL);
+  function Card() {
+    usePullRequestAnswer(URL, true);
+    return null;
+  }
+  const element = dom.window.document.createElement("div");
+  const root = createRoot(element);
+  await act(async () => root.render(createElement(Card)));
+  await act(async () => {
+    release!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(calls).toEqual([{ url: URL, cached: true }, { url: URL }]);
+  await act(async () => root.unmount());
+  setChipHost(undefined);
 });
 
 test("a reference in a code span or a code block is not a link", async () => {
