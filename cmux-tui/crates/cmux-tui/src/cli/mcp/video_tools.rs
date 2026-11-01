@@ -249,10 +249,9 @@ fn times(pick: &Pick, duration: f64, fps: f64) -> (Vec<f64>, f64) {
         ),
         // From the very first frame to the last, so an opening that ends before the first
         // spread sample would fall (28 s into an hour) is still a scene.
-        Pick::Scenes(_) => (
-            evenly(0.0, end, SCENE_SAMPLES),
-            (end / (SCENE_SAMPLES - 1) as f64 / 4.0).min(0.5),
-        ),
+        Pick::Scenes(_) => {
+            (evenly(0.0, end, SCENE_SAMPLES), (end / (SCENE_SAMPLES - 1) as f64 / 4.0).min(0.5))
+        }
     }
 }
 
@@ -725,7 +724,9 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 3, "{frames:?}");
         assert!(
-            frames[0] == 0.0 && (4.0..4.5).contains(&frames[1]) && (10.0..10.5).contains(&frames[2]),
+            frames[0] == 0.0
+                && (4.0..4.5).contains(&frames[1])
+                && (10.0..10.5).contains(&frames[2]),
             "{frames:?}"
         );
         assert_eq!(sent[2]["side"], 640);
