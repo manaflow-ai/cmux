@@ -756,6 +756,48 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
+  // #28533's review: a taken Stop stays off only for that run. A subagent that ends and resumes while
+  // the tray stays mounted can be stopped again.
+  test("a subagent stopped, ended and resumed can be stopped again", async () => {
+    const now = Date.now();
+    const stopped: string[] = [];
+    const tray = (state: Subagent["state"]) => {
+      const agents = [agent("Reviewer", { state, startedAt: now, ...(state !== "running" && { endedAt: now }) })];
+      return createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        finished: finishedTrayItems(agents, NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        stop: async (id: string) => void stopped.push(id),
+      });
+    };
+    const { root, show, done } = await render(tray("running"));
+    const reviewer = () => root.querySelector<HTMLElement>(".acpmux-agent-line")!;
+    const dismiss = () =>
+      act(async () =>
+        dom.window.document.body
+          .querySelector<HTMLElement>(".ui-context-menu-backdrop")
+          ?.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })),
+      );
+    try {
+      const [first] = await openMenu(reviewer());
+      await act(async () => first!.click());
+      expect(stopped).toEqual(["Reviewer"]);
+      expect((await openMenu(reviewer()))[0]!.disabled).toBe(true);
+      await dismiss();
+      await show(tray("cancelled"));
+      await show(tray("running"));
+      const [again] = await openMenu(reviewer());
+      expect(again!.textContent).toBe("Stop Reviewer");
+      expect(again!.disabled).toBe(false);
+      await act(async () => again!.click());
+      expect(stopped).toEqual(["Reviewer", "Reviewer"]);
+    } finally {
+      await done();
+    }
+  });
+
   // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
   // the icon when it's in here."
   // and 2026-10-31, on a line with a chat bubble and a fork glyph before its title: "why is this
