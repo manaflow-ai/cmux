@@ -197,6 +197,9 @@
   font-weight: 500;
 }
 .acpmux-session-info__body {
+  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide: the grid side inset
+     (the body's right padding, data-layout) less one base step, which keeps it clear of the scrollbar. */
+  --acpmux-session-info-handle-width: calc(var(--grid-sidebar-highlight-inset) - var(--grid-base));
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -228,8 +231,8 @@
   /* The first 4px of the body's right inset, past the trailing column and outside the row highlight;
      the inset's other 4px keep it clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a
      bit too close to the thumb"). The inset stays the grid's, so the trailing column keeps its line. */
-  right: calc(-1 * (var(--grid-sidebar-highlight-inset) - var(--grid-base)));
-  width: calc(var(--grid-sidebar-highlight-inset) - var(--grid-base));
+  right: calc(-1 * var(--acpmux-session-info-handle-width));
+  width: var(--acpmux-session-info-handle-width);
   height: var(--grid-row);
   display: flex;
   align-items: center;
