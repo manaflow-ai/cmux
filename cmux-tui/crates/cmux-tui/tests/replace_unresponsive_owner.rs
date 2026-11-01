@@ -263,7 +263,7 @@ fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bou
     assert_eq!(unsafe { libc::kill(old, libc::SIGSTOP) }, 0);
     fixture.frozen = Some(old);
 
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .args(["server", "ensure", "--json", "--session", &fixture.session, "--socket"])
         .arg(&fixture.socket)
@@ -280,5 +280,5 @@ fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bou
     let error: Value = serde_json::from_str(stderr.trim())
         .unwrap_or_else(|_| panic!("stderr is not one JSON error: {stderr}"));
     assert_eq!(error["code"], "server.unavailable", "not reported unavailable: {stderr}");
-    assert!(took < std::time::Duration::from_secs(60), "ensure waited {took:?} on a frozen owner");
+    assert!(took < Duration::from_secs(60), "ensure waited {took:?} on a frozen owner");
 }
