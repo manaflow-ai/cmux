@@ -622,7 +622,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
                   // ProseMirror's keymap can be bypassed while the field is being reconfigured
                   // from rich to plain mode, so handle select-all at the composer boundary too.
-                  if (plainInputNow.current && event.key.toLowerCase() === "a" && (event.metaKey || event.ctrlKey)) {
+                  const macPlatform = /Mac|iPhone|iPad|iPod/.test(globalThis.navigator?.platform ?? "");
+                  const modA = event.metaKey || (event.ctrlKey && !macPlatform);
+                  if (
+                    plainInputNow.current &&
+                    event.key.toLowerCase() === "a" &&
+                    modA &&
+                    !event.altKey &&
+                    !event.shiftKey &&
+                    !event.isComposing
+                  ) {
                     event.preventDefault();
                     selectAll(_view.state, _view.dispatch);
                     return true;
