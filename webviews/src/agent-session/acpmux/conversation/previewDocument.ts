@@ -45,19 +45,25 @@ export function previewPolicy(nonce: string | undefined): string {
 /// The frame's own script, the first to run in it: it reports the document's height to the parent
 /// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame),
 /// and keeps the frame on its document: a link click is refused (a `#fragment` still scrolls). With
-/// `inertMeta` that leaves no way for markup without script to navigate the frame; a frame that
+/// `inertDocument` that leaves no way for markup without script to navigate the frame; a frame that
 /// leaves its document anyway is torn down by the parent (InlinePreview.tsx counts its loads), since
 /// the policy is the document's and a page the frame navigated to would run without it.
 const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(link&&!(link.getAttribute("href")||"").startsWith("#"))event.preventDefault();},true);})();`;
 
-/// The document with every `http-equiv` attribute made inert. `<meta http-equiv="refresh">` is the one
-/// way markup with no script navigates its frame by itself (neither the policy nor the sandbox stops
-/// it), to a page that would run without the policy. An attribute name cannot be written with an
-/// entity or split, and only ASCII case folds, so no spelling survives; text that merely mentions it
-/// reads `data-http-equiv` in the preview (Code shows the source as written).
-export function inertMeta(html: string): string {
-  return html.replace(/http-equiv/gi, "data-http-equiv");
+/// The document with what the policy cannot stop made inert. Every `http-equiv` attribute:
+/// `<meta http-equiv="refresh">` is the one way markup with no script navigates its frame by itself
+/// (neither the policy nor the sandbox stops it), to a page that would run without the policy. Every
+/// `<link>` element: resource hints (`dns-prefetch`, `preconnect`) reach the network outside
+/// `connect-src` and `default-src`. A tag or attribute name cannot be written with an entity or
+/// split, and only ASCII case folds, so no spelling survives; an unknown `<cmux-inert-link>` does
+/// nothing, and text that merely mentions either reads renamed in the preview (Code shows the source
+/// as written).
+export function inertDocument(html: string): string {
+  return html.replace(/http-equiv/gi, "data-http-equiv").replace(/<link(?=[\s/>])/gi, "<cmux-inert-link");
 }
+
+/// Turns off the browser's own DNS prefetch of the document's link targets.
+const NO_DNS_PREFETCH = '<meta http-equiv="x-dns-prefetch-control" content="off">';
 
 /// The `srcdoc` of an inline preview: the policy first, then the pane's theme, the frame's script and
 /// the document. `nonce` set: only the frame's script runs (passive). Unset: inline scripts run too
@@ -70,14 +76,14 @@ export function inlinePreviewDocument(
 ): string {
   // An SVG image centers at its own size, no wider than the card. Not the panel's 100vh fit
   // (previewHtml): a frame sized from its document's height would never shrink back from it.
-  const html = inertMeta(
+  const html = inertDocument(
     kind === "svg"
       ? `<style>body{display:flex;justify-content:center}svg{max-width:100%;height:auto}</style>${code}`
       : code,
   );
   const script = nonce ? `<script nonce="${nonce}">${REPORTER}</script>` : `<script>${REPORTER}</script>`;
   // l10n-allow: HTML document syntax and CSP directives, not user-visible text.
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy(nonce)}"><style>${theme}</style>${script}${html}`;
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy(nonce)}">${NO_DNS_PREFETCH}<style>${theme}</style>${script}${html}`;
 }
 
 /// The height a frame's report asks for, clamped to the card's bounds; nil for any other message.

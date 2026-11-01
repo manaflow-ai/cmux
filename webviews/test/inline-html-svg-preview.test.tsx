@@ -157,12 +157,15 @@ test("a document with script shows its source until Run, then runs in the native
   expect(iframe.getAttribute("srcdoc")).toBeNull();
 });
 
-test("a refresh in the document is inert: the policy's meta is the only http-equiv", async () => {
+test("a refresh in the document is inert: the client's own metas are the only http-equiv", async () => {
   await show('```html\n<META HTTP-EQUIV="refresh" content="0;url=https://example.invalid/"><p>hi</p>\n```\n');
   const srcdoc = frame()!.getAttribute("srcdoc")!;
   const parsed = new DOMParser().parseFromString(srcdoc, "text/html");
   const live = [...parsed.querySelectorAll("meta")].filter((meta) => meta.hasAttribute("http-equiv"));
-  expect(live.map((meta) => meta.getAttribute("http-equiv"))).toEqual(["Content-Security-Policy"]);
+  expect(live.map((meta) => meta.getAttribute("http-equiv"))).toEqual([
+    "Content-Security-Policy",
+    "x-dns-prefetch-control",
+  ]);
 });
 
 test("a frame that loads a second time left its document: the card falls back to the source", async () => {
@@ -175,4 +178,13 @@ test("a frame that loads a second time left its document: the card falls back to
     });
   expect(frame()).toBeNull();
   expect(host.querySelector(".cv-codeblock")).not.toBeNull();
+});
+
+test("resource hints are inert and the browser's own DNS prefetch is off", async () => {
+  await show(
+    '```html\n<LINK rel="dns-prefetch" href="//a.invalid"><link/rel=preconnect href=https://b.invalid><p>hi</p>\n```\n',
+  );
+  const parsed = new DOMParser().parseFromString(frame()!.getAttribute("srcdoc")!, "text/html");
+  expect(parsed.querySelectorAll("link").length).toBe(0);
+  expect(parsed.querySelector('meta[http-equiv="x-dns-prefetch-control"]')?.getAttribute("content")).toBe("off");
 });
