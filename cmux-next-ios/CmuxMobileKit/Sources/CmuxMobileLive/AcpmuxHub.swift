@@ -701,7 +701,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
+        let directory = baseDirectory
+        let scope = ArtifactThumbnailOwner.remote(
+            accountID: summary.accountID, macID: summary.macID,
+            resource: "agent:\(sessionID):\(directory)")
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: directory,
+                                      thumbnailCacheScope: scope) {
             await MainActor.run { hub?.macLink }
         }
     }
