@@ -10,7 +10,9 @@ use serde_json::{Value, json};
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::{
-    Keys, Lease, StartCopy, import, pin, plan, remote_name, too_broad, valid_key, valid_workspace,
+    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, valid_environment,
+    valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -406,7 +408,7 @@ fn copy_refuses_paths_that_could_escape() {
         .map(|s| s.to_string())
         .collect();
         args.extend(extra.iter().map(|s| s.to_string()));
-        super::Flags::parse(&args).unwrap()
+        Flags::parse(&args).unwrap()
     };
     assert!(StartCopy::of(&flags(&["--local", "/Users/me/src/paint"])).is_some());
     assert!(StartCopy::of(&flags(&["--local", "relative"])).is_none());
@@ -1046,4 +1048,289 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(kept.workspace_machine("ws-first", ACCOUNT), None);
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
+}
+
+const ENV: &str = "env_0123456789abcdef01234567";
+
+#[test]
+fn the_folders_github_remote_is_the_repo() {
+    for url in [
+        "https://github.com/manaflow-ai/cmux.git",
+        "https://github.com/manaflow-ai/cmux",
+        "https://github.com/manaflow-ai/cmux/",
+        "git@github.com:manaflow-ai/cmux.git",
+        "ssh://git@github.com/manaflow-ai/cmux.git",
+        "https://user@GitHub.com/manaflow-ai/cmux",
+        "HTTPS://github.com/manaflow-ai/cmux.git",
+        "github.com:manaflow-ai/cmux",
+    ] {
+        assert_eq!(github_repo(url).as_deref(), Some("manaflow-ai/cmux"), "{url}");
+    }
+    for url in [
+        "https://gitlab.com/manaflow-ai/cmux.git",
+        "https://github.com/manaflow-ai",
+        "https://github.com/a/b/c",
+        "https://github.com/../x",
+        "/srv/git/cmux.git",
+        "https://github.com.evil.example/a/b",
+        "git@gitlab.com:a/b.git",
+        "",
+    ] {
+        assert_eq!(github_repo(url), None, "{url}");
+    }
+    assert!(valid_repo("a.b/c_d-e"));
+    assert!(!valid_repo(&format!("o/{}", "n".repeat(140))));
+    assert!(valid_environment(ENV));
+    for bad in ["env_0123", "env_0123456789ABCDEF01234567", "abc_0123456789abcdef01234567"] {
+        assert!(!valid_environment(bad), "{bad}");
+    }
+}
+
+#[test]
+fn plan_answers_the_folders_repo_and_echoes_the_environment() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    let sub = folder.join("web");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(folder.join(".git/config"), "[core]\n\tbare = false\n").unwrap();
+    let request = |environment: Value| {
+        json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true, "machines": [],
+               "local": folder.to_str().unwrap(), "environment": environment})
+        .to_string()
+    };
+    // No origin: no repo, and the send still plans.
+    let answer = plan(&path, &request(Value::Null));
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    assert_eq!(answer["repo"], Value::Null);
+    assert_eq!(answer["environment"], Value::Null);
+    std::fs::write(
+        folder.join(".git/config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:manaflow-ai/cmux.git\n",
+    )
+    .unwrap();
+    let answer = plan(&path, &request(json!(ENV)));
+    assert_eq!(answer["repo"], json!("manaflow-ai/cmux"), "{answer}");
+    assert_eq!(answer["environment"], json!(ENV));
+    assert_eq!(plan(&path, &request(json!("env_nope")))["error_code"], json!("bad_request"));
+    // A subfolder of the repository, and a worktree whose `.git` file points at it, answer its repo.
+    let in_sub =
+        json!({"key": key(), "account": ACCOUNT, "local": sub.to_str().unwrap()}).to_string();
+    assert_eq!(plan(&path, &in_sub)["repo"], json!("manaflow-ai/cmux"));
+    let worktree = dir.path().join("wt");
+    std::fs::create_dir_all(folder.join(".git/worktrees/wt")).unwrap();
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::write(folder.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+    std::fs::write(
+        worktree.join(".git"),
+        format!("gitdir: {}\n", folder.join(".git/worktrees/wt").display()),
+    )
+    .unwrap();
+    let in_worktree =
+        json!({"key": key(), "account": ACCOUNT, "local": worktree.to_str().unwrap()}).to_string();
+    assert_eq!(plan(&path, &in_worktree)["repo"], json!("manaflow-ai/cmux"));
+    // A folder that is not there, an empty one and a relative one answer no repo.
+    for local in ["/nonexistent/cmux-test", "", "project"] {
+        let request = json!({"key": key(), "account": ACCOUNT, "local": local}).to_string();
+        assert_eq!(plan(&path, &request)["repo"], Value::Null, "{local:?}");
+    }
+    let config = "[remote \"upstream\"]\n url = a\n[Remote \"origin\"]\n URL = \"b\"\n[branch \"main\"]\n url = c\n";
+    assert_eq!(origin_url(config), Some("b".into()));
+    assert_eq!(origin_url("[remote \"upstream\"]\n url = a\n"), None);
+}
+
+fn flags(args: &[&str]) -> Flags {
+    Flags::parse(&args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>()).expect("flags")
+}
+
+#[test]
+fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
+    let key = key();
+    let ensure = Ensure::of(&flags(&[
+        "--workspace",
+        "ws-1",
+        "--key",
+        &key,
+        "--repo",
+        "manaflow-ai/cmux",
+        "--environment",
+        ENV,
+    ]))
+    .expect("ensure");
+    assert_eq!(
+        ensure.body(),
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
+    );
+    let with_ref = Ensure::of(&flags(&[
+        "--workspace",
+        "ws-1",
+        "--key",
+        &key,
+        "--repo",
+        "a/b",
+        "--ref",
+        "main",
+    ]))
+    .unwrap();
+    assert_eq!(
+        with_ref.body(),
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+    );
+    for bad in [
+        vec!["--key", key.as_str(), "--repo", "a/b"],
+        vec!["--workspace", "ws-1", "--repo", "a/b"],
+        vec!["--workspace", "ws-1", "--key", key.as_str()],
+        vec!["--workspace", "ws-1", "--key", key.as_str(), "--repo", "not-a-repo"],
+        vec![
+            "--workspace",
+            "ws-1",
+            "--key",
+            key.as_str(),
+            "--repo",
+            "a/b",
+            "--environment",
+            "env_x",
+        ],
+        vec!["--workspace", "ws-1", "--key", key.as_str(), "--repo", "a/b", "--ref", ""],
+    ] {
+        assert!(Ensure::of(&flags(&bad)).is_none(), "{bad:?}");
+    }
+    assert_eq!(percent_segment("ws 1/ä"), "ws%201%2F%C3%A4");
+}
+
+#[test]
+fn ensures_line_names_the_machine_or_the_platforms_code() {
+    use crate::cli::PlatformCallError as E;
+    let made = ensure_answer(Ok(json!({
+        "workspace": "ws-1", "machine": {"id": "vm-1", "provider": "freestyle"}, "team": "team_p",
+        "snapshot": "snap_x", "environment": {"id": "denv_1", "status": "ready"}, "created": true, "boundAt": 1,
+    })));
+    assert_eq!(
+        made,
+        json!({"ok": true, "machine": "vm-1", "team": "team_p", "created": true, "snapshot": "snap_x",
+               "environment": {"id": "denv_1", "status": "ready"}})
+    );
+    let bound = ensure_answer(Ok(json!({"machine": {"id": "vm-1"}, "created": false})));
+    assert_eq!(
+        (bound["created"].clone(), bound["environment"].clone()),
+        (json!(false), Value::Null)
+    );
+    assert_eq!(ensure_answer(Ok(json!({"created": true})))["error_code"], json!("bad_answer"));
+    let not_found =
+        ensure_answer(Err(E::Status { status: 404, code: "cloud_environment.not_found" }));
+    assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 404, code: "not_found" }))["error_code"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 500, code: "" }))["error_code"],
+        json!("refused")
+    );
+    assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
+}
+
+/// Zero-setup hot start: a new machine for a send from a repository's folder, on the personal account, is the
+/// platform's workspace machine, pinned like one the App made; a team's send, a folder with no repository, or a
+/// platform that made none keeps the App's own create; one that may have made it refuses the send.
+#[test]
+fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
+    use crate::cli::PlatformCallError as E;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("paint");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(
+        folder.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://github.com/me/paint\n",
+    )
+    .unwrap();
+    let local = folder.to_str().unwrap().to_string();
+    let request = |key: &str, account: &str| {
+        json!({"key": key, "account": account, "user": ME, "loaded": true, "machines": [], "workspace": "ws-1",
+               "local": local, "environment": ENV, "credential_on_stdin": true})
+        .to_string()
+    };
+    let asked = RefCell::new(Vec::new());
+    let made = |ensure: &Ensure, credential: &str| -> Result<Value, E> {
+        asked.borrow_mut().push((ensure.body(), credential.to_string()));
+        Ok(
+            json!({"machine": {"id": "vm-hot"}, "team": "team_p", "created": true, "snapshot": "snap_x",
+                  "environment": {"id": "denv_1", "status": "ready"}}),
+        )
+    };
+    let key = key();
+    let answer = plan_with(&path, &request(&key, "user-leo/"), &mut "token-1\n".as_bytes(), &made);
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    assert_eq!(answer["machine"], json!("vm-hot"));
+    assert_eq!(answer["ensured"]["environment"], json!({"id": "denv_1", "status": "ready"}));
+    assert_eq!(answer["repo"], json!("me/paint"));
+    assert_eq!(
+        asked.borrow().as_slice(),
+        [(
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
+            "token-1".to_string()
+        )]
+    );
+    // Pinned: the retry, before the App's list shows the machine, stays on it and asks the platform nothing.
+    let retry =
+        json!({"key": key, "account": "user-leo/", "user": ME, "loaded": false, "machines": [],
+                       "workspace": "ws-1", "local": local, "credential_on_stdin": true})
+        .to_string();
+    assert_eq!(
+        plan_with(&path, &retry, &mut "token-1\n".as_bytes(), &made)["machine"],
+        json!("vm-hot")
+    );
+    assert_eq!(asked.borrow().len(), 1);
+
+    // A team's send, and a personal one without the credential flag, keep the App's create.
+    let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
+    let team =
+        plan_with(&path, &request(&self::key(), "user-leo/team-a"), &mut "t\n".as_bytes(), &never);
+    assert_eq!(
+        (team["machine"].clone(), team["new_name"].is_string()),
+        (Value::Null, true),
+        "{team}"
+    );
+    let flagless = json!({"key": self::key(), "account": "user-leo/", "local": local}).to_string();
+    assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
+
+    // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
+    let no_route =
+        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
+    let fallback =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
+    assert_eq!(
+        (fallback["ok"].clone(), fallback["machine"].clone()),
+        (json!(true), Value::Null),
+        "{fallback}"
+    );
+    let empty = plan_with(&path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
+    assert_eq!(
+        (empty["ok"].clone(), empty["machine"].clone()),
+        (json!(true), Value::Null),
+        "{empty}"
+    );
+
+    // A refused environment, or a failure after which the machine may exist, refuses the send.
+    let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 404, code: "cloud_environment.not_found" })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
+    assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
+    let lost =
+        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
+    assert_eq!(
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
+        json!("unreachable")
+    );
+    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
+    assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
+    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
 }
