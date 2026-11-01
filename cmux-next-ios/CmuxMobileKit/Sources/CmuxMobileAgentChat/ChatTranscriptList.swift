@@ -326,11 +326,15 @@ final class ChatRowCell: UICollectionViewCell {
     /// measurements are of.
     var shown: ChatRowAttributes.Shown?
 
-    /// A row is never inset by the window's safe area. A cell under the status bar (or the
-    /// transcript's header, which the collection view reports as its top safe area for the edge
-    /// effect) passed that inset to its hosted view, which padded itself by it: the row was
-    /// measured, and kept, up to 62 pt taller than it draws anywhere else.
-    override var safeAreaInsets: UIEdgeInsets { .zero }
+    /// A row is never inset by the window's top or bottom safe area. A cell under the status bar
+    /// (or the transcript's header, which the collection view reports as its top safe area for the
+    /// edge effect) passed that inset to its hosted view, which padded itself by it: the row was
+    /// measured, and kept, up to 62 pt taller than it draws anywhere else. The side insets stay:
+    /// in landscape they keep a row's text clear of the sensor housing.
+    override var safeAreaInsets: UIEdgeInsets {
+        let insets = super.safeAreaInsets
+        return UIEdgeInsets(top: 0, left: insets.left, bottom: 0, right: insets.right)
+    }
 
     /// The row's height measured before at a width for what it shows now (set when configured).
     /// It stands in for the first sizing pass after a configure only: a later pass comes from the
