@@ -86,7 +86,7 @@ import Testing
     @Test func cmuxNextStableIsANightlyTrackOnItsOwnFeed() {
         let feedURL = "https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml"
         let stable = Self.identity("com.cmuxterm.app.nightly.cmux-next-stable", feed: feedURL)
-        #expect(stable.track == .nightly)
+        #expect(stable.track == .nightlyNext)
         #expect(stable.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
         let feed = stable.feed(architecture: .arm64)
         #expect(feed.channel == .nightlyNext)

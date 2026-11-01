@@ -18,6 +18,7 @@ import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
@@ -78,6 +79,19 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
+/// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
+/// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
+/// word on whether its reply has nothing new to tell (one short line, no question, no link), and
+/// `reason` how it ended (`prompt`: a prompt started a real turn while it ran).
+export type AcpmuxBackgroundTurn = {
+  id: string;
+  trigger: string;
+  running: boolean;
+  quiet?: boolean;
+  reason?: string;
+};
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
@@ -247,6 +261,10 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
+  background?: AcpmuxBackgroundTurn;
+  /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
+  inBackground?: string;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
@@ -1405,7 +1423,8 @@ function fallbackRowHeight(
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
     row.kind === "plan" ||
-    row.kind === "typing"
+    row.kind === "typing" ||
+    row.kind === BACKGROUND_TURN
   )
     return finish(37);
   return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);

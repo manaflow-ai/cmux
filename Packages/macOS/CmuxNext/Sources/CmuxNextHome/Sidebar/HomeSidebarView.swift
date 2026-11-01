@@ -27,6 +27,16 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… on a row's menu and its left swipe (nil: not offered). A teammate row has none.
+    public var onDelete: ((ConversationID) -> Void)? {
+        didSet {
+            guard let onDelete else { list.onDelete = nil; return }
+            list.onDelete = { [weak self] id in
+                guard let self, teammate(for: id) == nil else { return }
+                onDelete(ConversationID(id))
+            }
+        }
+    }
     /// Teammates matching a query that have no DM yet (the list's extra search section). Without
     /// a search, the model's ``HomeSidebarModel/teammates`` are rows after the conversations.
     public var teammates: (String) -> [HomeContact] = { _ in [] }

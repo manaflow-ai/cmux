@@ -35,7 +35,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting { didSet { dropGrace.note(oldValue, connectionState) } }
+    public let dropGrace = DaemonDropGrace()
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -65,8 +66,8 @@ public final class DaemonStore: StateResourceQueries {
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
-    /// applies without needing a resync, and to a snapshot's barrier once
-    /// that snapshot is applied. Readers compare it with
+    /// applies without needing a resync. A snapshot can cover consumed tree events,
+    /// but cannot acknowledge session events still waiting in the inbox or pump. Readers compare it with
     /// `DaemonConnection.eventSequence()` taken after a write (read-your-writes
     /// without refetching the tree).
     public internal(set) var appliedSequence: UInt64 = 0
@@ -370,13 +371,12 @@ public final class DaemonStore: StateResourceQueries {
         for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
-    /// Records a completed handshake before its `.connected` event drains,
-    /// so capability checks right after connect see this daemon.
+    /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
     public func noteHandshake(_ identity: DaemonIdentity) {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection failed: no retry can fix it, or it outlived the startup deadline (`DaemonStartupState.showsFailure`).
     public func markFailed(_ message: String) {
         connectionState = .failed(message)
     }

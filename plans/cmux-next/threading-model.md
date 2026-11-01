@@ -56,6 +56,7 @@ and changes both with the code).
 | **Frame clock** (`FrameScheduler`: one `CADisplayLink` per window on the main run loop; `MotionClock`, `DisplayLinkDriver`, `DemandTimer` on it) | Frame ticks for clients | Never | main | One link per window, dropped when no client is active; rebuilt after 3 stalls of 100 ms |
 | **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | Rings of 128 hangs and 128 over-budget entries |
 | **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Blocking `read(2)` (reader); `write` (writer) | user-interactive (reader), default (writer) | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
+| **Cloud link credentials** `cmux.cloud.link-credential` (CloudLinkLauncher) | Listener lifecycle; Mutex protects peer generation and owned request tasks | Bind and peer inspection on the serial queue; socket reads/writes on utility dispatch workers, never the cooperative pool | utility | At most 32 requests including Worker calls; excess connections close. One 64 KiB line, 5 s read deadline and 5 s write timeout. Stop cancels owned tasks and invalidates the generation; each request closes its descriptor |
 | **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued, resumes below 2 MiB | user-interactive | The daemon's attach mailbox overflows and ends the stream |
 | **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read/write | user-interactive | 2 MiB high water: the consumer task suspends |
 | **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | focused user-interactive, visible user-initiated, hidden utility | cmux runs surfaces in manual IO mode: no Ghostty read thread |
@@ -117,17 +118,21 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
+- Cloud credentials: `cmux.cloud.link-credential`
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
+  `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
+  one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
+  stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
-  quit waits at most 2 s for it under `terminate`)
+  the quit awaits it holding no thread, with the agent panes' state files (`AppServices.stateFilesDrained`), after its deadline is armed; that deadline records the files still saving, `AgentPaneStateLoss`)
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,
   `com.cmuxterm.import-history-sync`
