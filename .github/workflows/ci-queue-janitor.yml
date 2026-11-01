@@ -2,8 +2,12 @@ name: CI queue janitor
 
 # Pull request macOS jobs share a few small runner pools. Every sweep cancels
 # runs for closed, merged or superseded pull request heads, whose results
-# nobody will use: macOS runs under the shared cap, and runs holding no macOS
-# job (Linux and Blacksmith Linux) under their own cap of 50. When more than CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
+# nobody will use: macOS runs under the shared cap. Its stale-run sweep also
+# cancels unstarted runs holding no macOS job (Linux and Blacksmith Linux) for
+# those heads, and unstarted push runs whose branch is deleted, under their own
+# cap (CI_JANITOR_MAX_STALE_CANCELS, default 50). Each cancel is logged as
+# `queue-janitor: cancelled run <id> (<category>): <reason>`. When more than
+# CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
 # queued on one pool, it also cancels the runs holding that pool whose results
 # are waste: exp/* experiment pushes, full-suite runs whose PR dropped `full-ci`
 # once a replacement run is waiting, and last, CI runs whose required
@@ -229,6 +233,7 @@ jobs:
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
           ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
+          MAX_STALE_CANCELS: ${{ vars.CI_JANITOR_MAX_STALE_CANCELS }}
           POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
           # Copied into the snapshot for fork pull requests, which get no
           # repository variables of their own (scripts/ci/pr_runner_pool.py).

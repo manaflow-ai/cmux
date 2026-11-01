@@ -113,6 +113,10 @@ jobs queued on a pool they hold exceeds a threshold:
      only with an App's token (in category e too), sends it to the owned side
      label the rescue watches. A cmux-next pull request run at its open
      head (PR #25446's case) is left to the controller's fall-through.
+  g. (stale-push) an unstarted push run on a branch that is deleted (read in
+     bulk over GraphQL, branch_refs_query()), never a protected branch or
+     workflow (protected_reason()) and never a re-run; it shares category b's
+     no-Mac cap (DEFAULT_MAX_STALE_CANCELS) as the stale-run sweep.
 
 cmux-next runs follow feat-cmux-next's workflow copy, not main's inert
 registration, so they are listed like any macOS workflow's
@@ -241,14 +245,21 @@ from delivery_workflows import dev_publish_published, dev_publish_source, dev_pu
 API = "https://api.github.com"
 DEFAULT_THRESHOLD = 6
 DEFAULT_MAX_CANCELS = 10
-# Category b for a run that holds no macOS job (a Linux or Blacksmith Linux run of a merged, closed or superseded
-# pull request) has a cap of its own, so it never spends the shared cap the Mac categories need. Until 2026-11-01
-# category b judged only runs holding a macOS job: a pull request's concurrency group ends a superseded head's run
-# at the next push, but nothing ended a merged or closed pull request's Linux runs, and at 07:02Z that day about
-# 2,520 jobs were queued on Blacksmith, the oldest for 54 minutes. Each cancel is two REST requests (a fresh read,
+# The stale-run sweep: unstarted (queued) runs nobody will read. Category b for a run that holds no macOS job (a
+# Linux or Blacksmith Linux run of a merged, closed or superseded pull request) and category g (stale-push, a push
+# run whose branch is deleted) share a cap of their own, so they never spend the shared cap the Mac categories need,
+# and they only ever take a run that has not started (UNSTARTED_RUN_STATUSES, checked again just before the cancel).
+# Until 2026-11-01 category b judged only runs holding a macOS job: a pull request's concurrency group ends a
+# superseded head's run at the next push, but nothing ended a merged or closed pull request's Linux runs or a deleted
+# branch's push runs, and at 07:02Z that day about 2,520 jobs were queued on Blacksmith, the oldest for 54 minutes;
+# a hand sweep at 07:35Z found 183 such runs among 1,532 queued. Each cancel is two REST requests (a fresh read,
 # then the cancel), so 50 a sweep at about 6 sweeps an hour is about 600 requests an hour at most.
-DEFAULT_MAX_LINUX_STALE_CANCELS = 50
-MAX_LINUX_STALE_CANCELS_LIMIT = 200
+DEFAULT_MAX_STALE_CANCELS = 50
+MAX_STALE_CANCELS_LIMIT = 200
+UNSTARTED_RUN_STATUSES = frozenset({"queued", "pending", "waiting", "requested"})
+# Push branches whose existence one sweep reads (GraphQL, PUSH_BRANCH_BATCH a query) for category g.
+MAX_PUSH_BRANCH_LOOKUPS = 300
+PUSH_BRANCH_BATCH = 50
 # The in-flight run listing pages each status until an empty page, up to MAX_RUN_PAGES pages a status
 # (4,000 runs). Until 2026-10-30 it stopped at 3 pages: with 1,138 runs queued that day the sweep saw
 # 300 of them, and the pool snapshot read every other one's jobs as nothing queued. A filtered
@@ -313,7 +324,7 @@ FULL_SUITE_LABEL = "full-ci"
 COMPILE_ONLY_POLICY = "compile-only"
 COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
-CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed", "lost", "unclaimed")
+CATEGORY_ORDER = ("experiment", "stale-pr", "stale-push", "label-dropped", "doomed", "lost", "unclaimed")
 
 # Category e (lost runner assignments, find_lost()). A job queued with no
 # runner this long after it could first run, while a newer job on exactly its
@@ -1234,8 +1245,9 @@ def classify(
     """Return (category, reason) for a wasteful run, or None to leave it alone.
 
     Category b (stale-pr) judges every pull request run, whether or not it holds a macOS job: a merged, closed or
-    superseded pull request's Linux run burns Blacksmith Linux and fleet Linux time nobody reads. Every other
-    category judges only a run holding a macOS job."""
+    superseded pull request's Linux run burns Blacksmith Linux and fleet Linux time nobody reads. One that holds no
+    macOS job is taken only while it has not started (UNSTARTED_RUN_STATUSES). Every other category judges only a
+    run holding a macOS job. Category g (stale-push) is judged in build_plan(), which has the branch heads."""
     if protected_reason(run):
         return None
     event = run.get("event")
@@ -1260,12 +1272,14 @@ def classify(
         created = parse_time(run.get("created_at"))
         if closed is not None and created is not None and created >= closed:
             return None
-        if usage.held == 0 and (closed is None or created is None):
+        if usage.held == 0 and (closed is None or created is None or run.get("status") not in UNSTARTED_RUN_STATUSES):
             return None
         return "stale-pr", f"PR #{number} is {'merged' if state == 'MERGED' else 'closed'}"
     if state != "OPEN":
         return None
     if pr.get("headRefOid") and pr.get("headRefOid") != run.get("head_sha"):
+        if usage.held == 0 and run.get("status") not in UNSTARTED_RUN_STATUSES:
+            return None
         return "stale-pr", f"superseded: PR #{number} head is now {str(pr.get('headRefOid'))[:9]}"
     if usage.held == 0:
         return None
@@ -2437,12 +2451,13 @@ def build_plan(
     branch_heads: Mapping[str, str] | None = None,
     app_rerun: bool = False,
     cmux_bot_rerun: bool = False,
-    max_linux_stale_cancels: int = DEFAULT_MAX_LINUX_STALE_CANCELS,
+    max_stale_cancels: int = DEFAULT_MAX_STALE_CANCELS,
 ) -> Plan:
     """Decide every category's candidates under the shared cap.
 
-    A stale pull request run that holds no macOS job (category b on Linux) has its own cap,
-    `max_linux_stale_cancels`, and never spends the shared one.
+    The stale-run sweep (unstarted_stale()): a stale pull request run that holds no macOS job (category b on
+    Linux) and a queued push run whose branch is deleted (category g, stale-push: `branch_heads` reads it as "")
+    share their own cap, `max_stale_cancels`, and never spend the shared one.
 
     Category e (lost, classify_lost()) is judged first, so a run holding a
     lost job is cancelled as one, never gated on a backed-up pool; a run it
@@ -2512,6 +2527,11 @@ def build_plan(
         pr = None
         if run.get("event") == "pull_request":
             pr = resolve_pull_request(run, prs_by_branch.get(branch, ()))
+        push_verdict = stale_push(run, heads)
+        if push_verdict is not None:
+            if open_pr_at_head(run, prs_by_branch.get(branch, ())) is None:
+                candidates.append(Candidate(run, "stale-push", push_verdict, usage, None))
+            continue
         verdict = classify(
             run, usage, pr,
             newer_ci_run_waiting=newer_ci_run_waiting(run, runs),
@@ -2545,6 +2565,9 @@ def build_plan(
         # honoured no-janitor).
         if candidate.category in ("lost", "unclaimed"):
             return False
+        # A deleted branch's unstarted push run (stale_push() already left out re-runs) has no reader.
+        if candidate.category == "stale-push":
+            return False
         # A re-run or a no-janitor label means someone wants this output.
         return candidate.category != "stale-pr" or deliberate(candidate)
 
@@ -2558,7 +2581,7 @@ def build_plan(
     decisions: list[Decision] = []
     projected = dict(queued_by_pool)
     cancels = 0
-    linux_stale_cancels = 0
+    stale_cancels = 0
     for candidate in candidates:
         backed_up = {pool for pool, count in projected.items() if count > threshold}
         # Nobody reads a merged, closed or superseded PR's results, so that run
@@ -2572,13 +2595,13 @@ def build_plan(
             if not backed_up.intersection(candidate.usage.held_by_pool):
                 decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
                 continue
-        if candidate.category == "stale-pr" and candidate.usage.held == 0:
-            if linux_stale_cancels >= max_linux_stale_cancels:
+        if unstarted_stale(candidate):
+            if stale_cancels >= max_stale_cancels:
                 decisions.append(Decision(
-                    candidate, "skip", f"per-sweep cap of {max_linux_stale_cancels} stale Linux runs reached"))
+                    candidate, "skip", f"per-sweep cap of {max_stale_cancels} unstarted stale runs reached"))
                 continue
             decisions.append(Decision(candidate, "cancel"))
-            linux_stale_cancels += 1
+            stale_cancels += 1
             continue
         if cancels >= max_cancels:
             decisions.append(Decision(candidate, "skip", f"per-sweep cap of {max_cancels} reached"))
@@ -2591,6 +2614,43 @@ def build_plan(
             if pool in projected:
                 projected[pool] = max(0, projected[pool] - held)
     return Plan(queued, running, threshold, decisions + lost_skips, queued_by_pool)
+
+
+def stale_push(run: Mapping[str, Any], branch_heads: Mapping[str, str]) -> str | None:
+    """Category g's reason for a queued push run whose branch is deleted, or None.
+
+    Only an unstarted, first-attempt push run of an unprotected branch whose head was read this sweep as gone ("")
+    qualifies: protected_reason() keeps main, feat-cmux-next, rc/*, tags and nightly/DEV/promote/release work."""
+    if run.get("event") != "push" or run.get("status") not in UNSTARTED_RUN_STATUSES or protected_reason(run):
+        return None
+    if int(run.get("run_attempt") or 1) > 1:
+        return None
+    branch = str(run.get("head_branch") or "")
+    if not branch or branch_heads.get(branch, None) != "":
+        return None
+    return f"push to deleted branch {branch}"
+
+
+def push_branches_to_check(runs: Iterable[Mapping[str, Any]], known: Iterable[str] = (), *,
+                           cap: int = MAX_PUSH_BRANCH_LOOKUPS) -> list[str]:
+    """Branches of unstarted push runs category g could take, oldest run first, at most `cap` a sweep."""
+    seen = set(known)
+    branches: list[str] = []
+    for run in sorted(runs, key=lambda item: str(item.get("created_at") or "")):
+        if run.get("event") != "push" or run.get("status") not in UNSTARTED_RUN_STATUSES or protected_reason(run):
+            continue
+        branch = str(run.get("head_branch") or "")
+        if branch and branch not in seen:
+            seen.add(branch)
+            branches.append(branch)
+            if len(branches) >= cap:
+                break
+    return branches
+
+
+def unstarted_stale(candidate: "Candidate") -> bool:
+    """A candidate of the stale-run sweep, under its own cap and re-checked as unstarted before the cancel."""
+    return candidate.category == "stale-push" or (candidate.category == "stale-pr" and candidate.usage.held == 0)
 
 
 def branches_to_resolve(
@@ -2665,6 +2725,35 @@ def graphql_query(owner: str, name: str, branches: Sequence[str]) -> tuple[str, 
         + "\n  }\n}"
     )
     return query, variables
+
+
+def branch_refs_query(owner: str, name: str, branches: Sequence[str]) -> tuple[str, dict[str, Any]]:
+    """One query that reads each branch's ref (r<index>), null when the branch is gone."""
+    variables: dict[str, Any] = {"owner": owner, "name": name}
+    params = ["$owner: String!", "$name: String!"]
+    fields = []
+    for index, branch in enumerate(branches):
+        variables[f"r{index}"] = f"refs/heads/{branch}"
+        params.append(f"$r{index}: String!")
+        fields.append(f"    r{index}: ref(qualifiedName: $r{index}) {{ target {{ oid }} }}")
+    query = (f"query({', '.join(params)}) {{\n  repository(owner: $owner, name: $name) {{\n"
+             + "\n".join(fields) + "\n  }\n}")
+    return query, variables
+
+
+def parse_branch_refs(response: Mapping[str, Any], branches: Sequence[str]) -> dict[str, str]:
+    """branch -> head oid, "" when its ref is null (gone). A missing repository reads nothing."""
+    repository = (response.get("data") or {}).get("repository")
+    if not isinstance(repository, Mapping):
+        return {}
+    result: dict[str, str] = {}
+    for index, branch in enumerate(branches):
+        key = f"r{index}"
+        if key not in repository:
+            continue
+        ref = repository[key]
+        result[branch] = str(((ref or {}).get("target") or {}).get("oid") or "") if ref else ""
+    return result
 
 
 def parse_graphql_prs(response: Mapping[str, Any], branches: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
@@ -3414,6 +3503,9 @@ def cancel_plan(
             if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
                 results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
                 continue
+            if unstarted_stale(candidate) and current.get("status") not in UNSTARTED_RUN_STATUSES:
+                results[run_id] = f"skipped (started: now {current.get('status')})"
+                continue
         except RateLimited as error:
             limited = error
             results[run_id] = f"skipped (out of API budget: {error})"
@@ -3451,6 +3543,7 @@ def cancel_plan(
         try:
             github.cancel(run_id)
             results[run_id] = "cancelled"
+            print(f"queue-janitor: cancelled run {run_id} ({candidate.category}): {candidate.reason}")
         except RateLimited as error:
             limited = error
             results[run_id] = f"skipped (out of API budget: {error})"
@@ -3967,6 +4060,19 @@ class GitHub:
     def run(self, run_id: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}")
 
+    def branch_heads(self, branches: Sequence[str]) -> dict[str, str]:
+        """Each branch's head commit, "" when the branch is gone, read over GraphQL PUSH_BRANCH_BATCH at a time."""
+        owner, name = self.repo.split("/", 1)
+        result: dict[str, str] = {}
+        for start in range(0, len(branches), PUSH_BRANCH_BATCH):
+            chunk = list(branches[start:start + PUSH_BRANCH_BATCH])
+            query, variables = branch_refs_query(owner, name, chunk)
+            response = self.request("POST", "/graphql", {"query": query, "variables": variables})
+            if response.get("errors"):
+                raise RuntimeError(f"GraphQL errors: {response['errors'][:1]}")
+            result.update(parse_branch_refs(response, chunk))
+        return result
+
     def branch_head(self, branch: str) -> str:
         """The branch's head commit, or "" when the branch is gone (404). Raises RuntimeError otherwise."""
         try:
@@ -4257,7 +4363,8 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     parser.add_argument("--pull-request-policy", default=os.environ.get("CI_PULL_REQUEST_SUITE", ""))
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
-    parser.add_argument("--max-linux-stale-cancels", type=int, default=None)
+    parser.add_argument("--max-stale-cancels", type=int, default=None,
+                        help="the stale-run sweep's own cap of unstarted stale runs cancelled a sweep")
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--branch-workflows", action="append", metavar="BRANCH=DIR",
@@ -4299,13 +4406,13 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
               f"within 0..{MAX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
         return 2
     try:
-        max_linux_stale_cancels = (args.max_linux_stale_cancels if args.max_linux_stale_cancels is not None
-                                   else env_int("MAX_LINUX_STALE_CANCELS", DEFAULT_MAX_LINUX_STALE_CANCELS))
+        max_stale_cancels = (args.max_stale_cancels if args.max_stale_cancels is not None
+                             else env_int("MAX_STALE_CANCELS", DEFAULT_MAX_STALE_CANCELS))
     except ValueError:
-        print("queue-janitor: MAX_LINUX_STALE_CANCELS must be an integer", file=sys.stderr)
+        print("queue-janitor: MAX_STALE_CANCELS must be an integer", file=sys.stderr)
         return 2
-    if not 0 <= max_linux_stale_cancels <= MAX_LINUX_STALE_CANCELS_LIMIT:
-        print(f"queue-janitor: max Linux stale cancels within 0..{MAX_LINUX_STALE_CANCELS_LIMIT}", file=sys.stderr)
+    if not 0 <= max_stale_cancels <= MAX_STALE_CANCELS_LIMIT:
+        print(f"queue-janitor: max stale cancels within 0..{MAX_STALE_CANCELS_LIMIT}", file=sys.stderr)
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
@@ -4403,6 +4510,14 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
 
     read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
                                    unclaimed=unclaimed))
+    # Category g (stale-push): which unstarted push runs' branches are gone, over GraphQL in bulk. A failed read
+    # leaves them unknown (no cancel); a rate limit ends the read for this sweep the same way.
+    if max_stale_cancels:
+        try:
+            for branch, head in github.branch_heads(push_branches_to_check(runs, branch_heads)).items():
+                branch_heads.setdefault(branch, head)
+        except RuntimeError as error:
+            print(f"queue-janitor: push branch heads: {error}", file=sys.stderr)
 
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
@@ -4499,7 +4614,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
-        app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(), max_linux_stale_cancels=max_linux_stale_cancels,
+        app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(), max_stale_cancels=max_stale_cancels,
     )
 
     results: dict[int, str] = {}
