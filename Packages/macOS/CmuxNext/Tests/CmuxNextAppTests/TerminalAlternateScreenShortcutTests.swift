@@ -14,9 +14,9 @@ import Testing
     }
 
     @Test func alternateScreenIsPresentOnlyForFocusedTerminal() throws {
-        let active = KeyRouter.keyContext(for: terminal, appContext: [], facts: KeyFacts(terminalAlternateScreen: true))
+        let active = KeyRouter.keyContext(for: Self.terminal, appContext: [], facts: KeyFacts(terminalAlternateScreen: true))
         #expect(active[KeyContext.terminalAlternateScreen] == .bool(true))
-        let inactive = KeyRouter.keyContext(for: terminal, appContext: [], facts: KeyFacts())
+        let inactive = KeyRouter.keyContext(for: Self.terminal, appContext: [], facts: KeyFacts())
         #expect(inactive[KeyContext.terminalAlternateScreen] == nil)
 
         var browser = FocusState()
@@ -27,8 +27,8 @@ import Testing
 
     @Test func aWhenClauseCanYieldPaneFocusInAlternateScreen() throws {
         let clause = try WhenClause.parse("!terminalAlternateScreen")
-        let shell = KeyRouter.keyContext(for: terminal, appContext: [], facts: KeyFacts())
-        let vim = KeyRouter.keyContext(for: terminal, appContext: [], facts: KeyFacts(terminalAlternateScreen: true))
+        let shell = KeyRouter.keyContext(for: Self.terminal, appContext: [], facts: KeyFacts())
+        let vim = KeyRouter.keyContext(for: Self.terminal, appContext: [], facts: KeyFacts(terminalAlternateScreen: true))
         #expect(clause.evaluate(shell))
         #expect(!clause.evaluate(vim))
     }
