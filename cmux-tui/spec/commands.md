@@ -7770,6 +7770,43 @@ becomes the lease's account: every later `cloud-*` event carries it as
 `account`, `cloud-session-status` names it as `participant`, and open
 subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 
+### cloud-environment
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-environment` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-environments-v1` |
+
+The cloud environment editor uses the existing Cloud transport on an off-loop
+request worker. Only the verified native app may call it. The app supplies
+`platform_origin` from its existing platform resolver and `access_token`, its
+cmux install JWT with team authorization. The page never supplies or sees either.
+No Home session lease is needed or modified. Redirects are disabled. The platform
+owns validation, authorization, storage and default locking.
+
+Required fields: `platform_origin`, `access_token`, `action` and `params` (object).
+The origin must be an HTTPS `*.debussy.workers.dev` deployment without a port,
+or HTTP loopback, with no userinfo, query, fragment or non-root path.
+Actions and their params:
+
+- `list`, `{}`: `GET /v1/cloud-environments`, answers an array.
+- `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
+- `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
+  environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
+  `remove_secrets` and `network`. Null and empty values reach the owner unchanged.
+- `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
+  the derived setup including `setup.script`.
+
+Ids are 1–128 ASCII letters, digits, underscores or hyphens. No action accepts an
+arbitrary path, header, scope or account. Secret values are write-only: replies
+retain only each secret's `name` and `updated_at`; diagnostics redact params and
+the install token. Upstream error messages are sanitized.
+The app requires the Save click for `update`. Platform `cloud_environment.*`
+refusals preserve their code; invalid fields fail before an HTTP call. Neither
+this command nor its reads change focus. CLI/MCP use requires the person's own
+API authorization; this native forwarding command never grants it to agents.
+
 ### cloud-conversation-thread
 
 | Field | Value |
@@ -10046,6 +10083,15 @@ and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.
+
+A running turn: `agent-transfer-begin {interrupt: true}` stops it, and this
+daemon's acpmux queues its continuation first, so the turn goes on where the
+chat lands, or here if the move does not happen
+(`agent-transfer-continues-v1`). `cmux link agent move --interrupt` asks for
+the Stop only from a source that lists that capability; an older one would
+stop the turn for good, so there the begin is refused while the turn runs. A
+chat that is compacting is refused too (`transfer.busy`): a Stop then would
+withdraw its queued prompts.
 
 A receive id is not tied to the connection that made it: another trusted
 local connection of the same user may write, finish or abort it (the pump

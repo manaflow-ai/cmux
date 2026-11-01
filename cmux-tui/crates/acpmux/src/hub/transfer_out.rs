@@ -233,6 +233,15 @@ impl Hub {
             if !interrupt {
                 return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
             }
+            // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
+            // the move waits for the compaction instead of losing them.
+            let child = session.child.lock().await.clone();
+            let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
+                || child.is_some_and(|c| c.translator.as_ref().is_some_and(|t| t.is_compacting()));
+            if compacting {
+                let e = transfer_error("busy", "the chat is compacting; move it once that ends");
+                return Err(unfreeze(e, None));
+            }
             carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
             // Its place at the head, as a record of its own: a guarded target drops the
             // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
