@@ -324,6 +324,20 @@ class TrustedRoute(unittest.TestCase):
         self.assertEqual(selector, "")
 
 
+class NightlyOnlyBuilderRoute(unittest.TestCase):
+    def test_builder_only_while_a_runner_carrying_it_is_idle(self) -> None:
+        builder, plain = picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL
+
+        def runner(status: str = "online", busy: bool = False, *labels: str) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels or (plain, builder)]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(busy=True), runner()])[0], builder)
+        for label, runners in ((builder, [runner(busy=True)]), (builder, [runner("offline")]),
+                               (builder, [runner("online", False, plain)]), (builder, None),
+                               ("", [runner()]), (plain, [runner()]), ("glaeda-unregistered", [runner()])):
+            with self.subTest(label=label, runners=runners):
+                self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
+
+
 class BlacksmithRoute(unittest.TestCase):
     def test_the_moving_label_is_picked(self) -> None:
         self.assertEqual(picker.blacksmith_route(LARGE, snapshot({LARGE: 90}), NOW)[0], SMALL)

@@ -16,6 +16,8 @@ from test_nightly_trusted_routing import evaluate, parse_expression
 
 LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
+BUILDER = "glaeda-nightly-only-m4pro-builder"
+BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
 EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
          "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
          "build-nightly-ghostty-cli-helper")
@@ -106,6 +108,58 @@ class DedicatedMini(unittest.TestCase):
                 out = dict(line.split("=", 1) for line in path.read_text().splitlines())
                 self.assertNotEqual(out["owned"], LABEL)
                 self.assertNotEqual(out["helper"], LABEL)
+
+    def builder_pick(self, runners, **changes):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "output"
+            env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_REF": "refs/heads/nightly-next", "GITHUB_EVENT_NAME": "push",
+                   "GITHUB_OUTPUT": str(path), "NIGHTLY_ONLY_LABEL": LABEL, "ROUTE_TOKEN": "present",
+                   "NIGHTLY_ONLY_BUILDER_LABEL": BUILDER, **changes}
+
+            def read(token, repo):
+                if isinstance(runners, Exception):
+                    raise runners
+                return runners
+            self.assertEqual(picker.main(env, read_runners=read), 0)
+            return dict(line.split("=", 1) for line in path.read_text().splitlines())
+
+    @staticmethod
+    def runner(*labels, status="online", busy=False):
+        return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+
+    def test_app_takes_the_warm_builder_only_while_one_is_idle_now(self):
+        idle = [self.runner(LABEL, BUILDER, busy=True), self.runner(LABEL, BUILDER)]
+        out = self.builder_pick(idle)
+        self.assertEqual((out["owned"], out["runner"]), (BUILDER, BUILDER))
+        # Only build-nightly-app reads `owned`: the helper and light jobs keep the plain label.
+        self.assertEqual((out["helper"], out["dedicated"]), (LABEL, LABEL))
+        values = context(**{f"needs.pick-nightly-build-runner.outputs.{key}": value for key, value in out.items()})
+        self.assertEqual(selected("build-nightly-app", values), BUILDER)
+        self.assertEqual(selected("build-nightly-ghostty-cli-helper", values), LABEL)
+        # Busy, offline, unread, a failed read, no token or a mistyped label: the plain label, never a wait.
+        for runners, changes in (([self.runner(LABEL, BUILDER, busy=True)], {}),
+                                 ([self.runner(LABEL, BUILDER, status="offline"), self.runner(LABEL)], {}),
+                                 ([], {}), (None, {}), (RuntimeError("403"), {}), (idle, {"ROUTE_TOKEN": ""}),
+                                 (idle, {"NIGHTLY_ONLY_BUILDER_LABEL": "glaeda-unregistered"}),
+                                 (idle, {"NIGHTLY_ONLY_BUILDER_LABEL": ""})):
+            with self.subTest(runners=runners, changes=changes):
+                out = self.builder_pick(runners, **changes)
+                self.assertEqual((out["owned"], out["runner"], out["helper"]), (LABEL, LABEL, LABEL))
+
+    def test_builder_variable_is_validated_and_mints_the_read_token_only_when_set(self):
+        for value in ("", BUILDER):
+            self.assertEqual(policy.drifted_runner_variables({"CI_NIGHTLY_ONLY_BUILDER_RUNNER": value}), [])
+        for value in (LABEL, "glaeda-unregistered", "macos-26", "blacksmith-6vcpu-macos-26"):
+            self.assertTrue(policy.drifted_runner_variables({"CI_NIGHTLY_ONLY_BUILDER_RUNNER": value}))
+        steps = {step.get("id"): step for step in DOC["jobs"]["pick-nightly-build-runner"]["steps"]}
+        condition = parse_expression(steps["route-token"]["if"])
+        values = {"github.repository": "manaflow-ai/cmux", "vars.CI_PR_POOL_OWNED": "1",
+                  "vars.GLAEDA_ROUTE_APP_ID": "1", "github.event_name": "push",
+                  "github.ref": "refs/heads/nightly-next", "github.run_attempt": 1, VARIABLE: LABEL}
+        self.assertFalse(evaluate(condition, {**values, BUILDER_VARIABLE: ""}))
+        self.assertTrue(evaluate(condition, {**values, BUILDER_VARIABLE: BUILDER}))
+        self.assertIn(f"${{{{ {BUILDER_VARIABLE} }}}}", steps["pick"]["env"]["NIGHTLY_ONLY_BUILDER_LABEL"])
 
     def test_linux_elf_signer_does_not_take_the_mac_reservation(self):
         self.assertNotIn(VARIABLE, DOC["jobs"]["signer-build"]["runs-on"])
