@@ -21,7 +21,8 @@
 //!
 //! No polling: the task waits for the last client to leave, then for [`GRACE`] or the next
 //! arrival. While something else keeps the daemon it checks again one grace later; an idle daemon
-//! with a client connected never wakes. `ACPMUX_UNUSED_EXIT_SECS` sets the grace (0: never stop).
+//! with a client connected never wakes. `ACPMUX_UNUSED_EXIT_SECS` sets the grace (0: no grace, so
+//! only the owner rule below can stop the daemon).
 //!
 //! A daemon whose owner app exited (`owner_exit.rs`: the app named itself in
 //! `ACPMUX_OWNER_APP_PID`) follows the same rule on any home, the shared one too, with
@@ -78,8 +79,9 @@ fn grace() -> Option<Duration> {
     }
 }
 
-/// Resolves, with why, once this daemon is unused (see the module doc); never for the shared
-/// home, a daemon its service unit runs, a Cloud machine, or a grace of 0.
+/// Resolves, with why, once this daemon is unused (see the module doc). Never for a daemon its
+/// service unit runs or while a Cloud machine's reports wait; for the shared home or a grace of 0,
+/// only after its owner app exited.
 pub(super) async fn unused(hub: Weak<crate::hub::Hub>) -> String {
     if super::managed_by_acpmux_unit() {
         return std::future::pending().await;

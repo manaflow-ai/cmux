@@ -86,16 +86,19 @@ mod imp {
         change.fflags = libc::NOTE_EXIT;
         // SAFETY: as above.
         let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+        // The watch is added with the first call; a call after an interruption only waits.
+        let mut changes = 1;
         loop {
-            // SAFETY: one change and one event slot, both valid for the call; no timeout.
+            // SAFETY: `changes` (0 or 1) changes and one event slot, all valid for the call; no
+            // timeout.
             let n = unsafe {
-                libc::kevent(queue.as_raw_fd(), &change, 1, &mut event, 1, std::ptr::null())
+                libc::kevent(queue.as_raw_fd(), &change, changes, &mut event, 1, std::ptr::null())
             };
             if n < 0 {
                 let error = io::Error::last_os_error();
                 if error.kind() == io::ErrorKind::Interrupted {
                     // Registered already: wait on, without adding it again.
-                    change.flags = 0;
+                    changes = 0;
                     continue;
                 }
                 // ESRCH: the process was gone before the watch was added.
@@ -162,7 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_another_real_pid_names_an_owner() {
+    fn quit_helpers_only_another_real_pid_names_an_owner() {
         assert_eq!(owner_pid(Some("4242")), Some(4242));
         assert_eq!(owner_pid(Some(" 4242\n")), Some(4242));
         assert_eq!(owner_pid(None), None);
@@ -176,7 +179,7 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
-    fn the_watch_returns_when_the_process_exits() {
+    fn quit_helpers_the_watch_returns_when_the_process_exits() {
         let mut child = std::process::Command::new("sleep").arg("600").spawn().expect("sleep");
         let pid = child.id();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -191,7 +194,7 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
-    fn the_watch_returns_at_once_for_a_process_already_gone() {
+    fn quit_helpers_the_watch_returns_at_once_for_a_process_already_gone() {
         let mut child = std::process::Command::new("true").spawn().expect("true");
         let pid = child.id();
         let _ = child.wait();

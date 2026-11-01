@@ -1766,6 +1766,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let cwd = std::env::current_dir().context("this command's folder")?;
     let socket = std::env::var_os("ACPMUX_SOCKET");
     cmd.env_remove("ACPMUX_SOCKET");
+    // A daemon a command starts has no owner app: only the app's launcher names one
+    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
+    // to the app that started an older one.
+    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
     for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
         cmd.env(key, value);
     }
