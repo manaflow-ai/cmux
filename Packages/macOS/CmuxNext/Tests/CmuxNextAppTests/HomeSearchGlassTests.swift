@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
@@ -10,6 +11,7 @@ import Testing
 /// circles with a white glyph, Search is a full-width glass capsule with a magnifier and a grey
 /// "Search" placeholder). The search field sits on a glass capsule, the Unread filter on a glass
 /// circle (Liquid Glass on macOS 26 and later, the frosted material before it), in light and dark.
+@Suite(.closesItsWindows)
 @MainActor
 struct HomeSearchGlassTests {
     private static func home(width: CGFloat = 320) -> HomeSidebarView {
@@ -131,8 +133,7 @@ struct HomeSearchGlassTests {
     @Test func theTypedTextIsCentredInTheCapsule() throws {
         let home = Self.home()
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField

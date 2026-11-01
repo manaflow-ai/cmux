@@ -140,6 +140,12 @@ extension WindowManager {
             return
         }
         claim(workspaceID: workspaceID, in: state)
+        // An unowned ephemeral workspace went to its own incognito window: that window shows it.
+        if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+            target.showWorkspace(requested: target.state.workspaceID)
+            bringToFront(target)
+            return
+        }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
@@ -176,7 +182,8 @@ extension WindowManager {
         }
         if let active {
             claim(workspaceID: workspaceID, in: active.state, select: shows)
-            return active
+            // An unowned ephemeral workspace went to its own incognito window, not the active one.
+            return registry.value.owner(of: workspaceID).flatMap { controller(for: $0) } ?? active
         }
         return openWindow(workspaces: [workspaceID])
     }
@@ -195,6 +202,12 @@ extension WindowManager {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
+        // A held Cloud workspace (its machine nobody had opened here) enters only a window of its
+        // kind: an ephemeral one an incognito window, a normal one a normal window.
+        if isHeldCloudWorkspace(workspaceID), EphemeralWorkspaces.isEphemeral(workspaceID, self) != registry.value.isIncognito(state.id) {
+            fileHeldWorkspace(workspaceID, select: shows)
+            return
+        }
         protectIfUnknown([workspaceID], window: state.id)
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
@@ -207,6 +220,55 @@ extension WindowManager {
         // after the move finds it shown there and picks it (Home took a second click otherwise).
         if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
+        fileOpenedMachine(of: workspaceID, into: state.id)
+    }
+
+    /// Whether `workspaceID` is an ephemeral workspace no window lists.
+    func holdsUnownedEphemeral(_ workspaceID: String) -> Bool {
+        registry.value.owner(of: workspaceID) == nil && EphemeralWorkspaces.isEphemeral(workspaceID, self)
+    }
+
+    /// Whether `workspaceID` is a Cloud machine's workspace no window lists: reconcile holds the
+    /// workspaces of a machine nobody opened here (`unopenedCloudWorkspaces`).
+    func isHeldCloudWorkspace(_ workspaceID: String) -> Bool {
+        guard registry.value.owner(of: workspaceID) == nil, let (_, daemon) = services.machines.workspace(id: workspaceID) else { return false }
+        return services.machines.session(daemon.machineID) != nil
+    }
+
+    /// Files a held Cloud workspace into a window of its kind: an ephemeral one opens an incognito
+    /// window; a normal one joins the most recent open normal window, else opens one.
+    func fileHeldWorkspace(_ workspaceID: String, select: Bool) {
+        // Placed meanwhile (opening its machine's other workspace re-ran reconcile): it stays there.
+        guard registry.value.owner(of: workspaceID) == nil else { return }
+        if EphemeralWorkspaces.isEphemeral(workspaceID, self) {
+            openWindow(workspaces: [workspaceID], incognito: true, behind: !select)
+        } else if let normal = registry.value.mostRecentOpen(incognito: false), let state = states[normal] {
+            claim(workspaceID: workspaceID, in: state, select: select)
+        } else {
+            openWindow(workspaces: [workspaceID], behind: !select)
+        }
+    }
+
+    /// Opening a Cloud machine (a claim of one of its workspaces) brings its other workspaces in:
+    /// reconcile held them while nobody had opened the machine, and nothing else re-runs it after a
+    /// claim. They are filed quietly into `windowID`; an ephemeral one goes to an incognito window
+    /// through the usual ephemeral placement. An incognito `windowID` takes none of them: closing it
+    /// would discard them, so reconcile gives them to a normal window.
+    func fileOpenedMachine(of workspaceID: String, into windowID: String) {
+        guard !fillingOpenedMachine, let daemon = services.machines.daemon(forWorkspace: workspaceID),
+              services.machines.session(daemon.machineID) != nil else { return }
+        fillingOpenedMachine = true
+        defer { fillingOpenedMachine = false }
+        let value = registry.value
+        // Only the ids that resolve to this machine, as reconcile counts them: a key a clone shares
+        // with another unopened machine resolves there, and filing it would open that machine.
+        for workspace in daemon.store.workspaces where !value.isIncognito(windowID) && workspace.id != workspaceID && value.owner(of: workspace.id) == nil
+            && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self)
+            && services.machines.workspace(id: workspace.id)?.1 === daemon {
+            pendingClaims[workspace.id] = windowID
+            quietClaims.insert(workspace.id)
+        }
+        reconcileMembership()
     }
 
     /// Moves workspaces into an existing window and selects the first there;
@@ -240,6 +302,16 @@ extension WindowManager {
         // A window an action run without view-change permission opens
         // appears behind, never key.
         let behind = behind || !ActionRunScope.viewChangeAllowed()
+        // Ephemeral workspaces no window lists (an unopened Cloud machine's) open an incognito window.
+        let incognito = incognito || (!workspaces.isEmpty && workspaces.allSatisfy(holdsUnownedEphemeral))
+        // Held Cloud workspaces of the other kind (a mixed batch) go to a window of their own kind after.
+        let misfits = workspaces.filter { isHeldCloudWorkspace($0) && EphemeralWorkspaces.isEphemeral($0, self) != incognito }
+        let workspaces = workspaces.filter { !misfits.contains($0) }
+        guard !workspaces.isEmpty else {
+            for id in misfits { fileHeldWorkspace(id, select: !behind) }
+            return misfits.first.flatMap { registry.value.owner(of: $0) }.flatMap { controller(for: $0) }
+        }
+        defer { for id in misfits { fileHeldWorkspace(id, select: false) } }
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
@@ -249,18 +321,24 @@ extension WindowManager {
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
         transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
+        // Every Cloud machine the batch opens, once each (a drag can carry several).
+        var machines = Set<String>()
+        for workspace in workspaces {
+            guard let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
+            fileOpenedMachine(of: workspace, into: id)
+        }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
     }
 
-    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
-    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
-    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
-    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes, screens, workspaces,
+    /// workspace groups): `ids` in a new window beside the window they left, stepped on from every open window's frame,
+    /// on screen yet or not (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of that
+    /// window's workspaces, the window itself moves there: none opens, none is left empty.
     func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
         let source = origin.window.flatMap(controller(for:))
-        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite, avoiding: controllers.compactMap { $0.window?.frame }) }
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
@@ -273,7 +351,7 @@ extension WindowManager {
     /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
-        if restoring || !restored { closedDuringRestore.insert(id) } // the restore must not open it again
+        if restoring || !restored { restoreClosed.closed(id) } // the restore must not open it again
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
         let keepsGroup = services.daemon.supports(DaemonCapability.windowRecords.rawValue)
@@ -288,7 +366,7 @@ extension WindowManager {
         var reopened: String?
         transition { registry in
             reopened = registry.reopen()
-            if let reopened { closedDuringRestore.remove(reopened) } // reopened on purpose: the restore keeps it open
+            if let reopened { restoreClosed.reopened(reopened) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard let reopened, let controller = controller(for: reopened) else { return false }
@@ -301,7 +379,7 @@ extension WindowManager {
         transition { registry in
             let changes = registry.releaseClosed(id)
             // Released with no heir it opens again, on purpose: the restore keeps it open.
-            if registry.window(id)?.isOpen == true { closedDuringRestore.remove(id) }
+            if registry.window(id)?.isOpen == true { restoreClosed.reopened(id) }
             return changes
         }
         if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
@@ -314,7 +392,7 @@ extension WindowManager {
         var reopened = false
         transition { registry in
             reopened = registry.reopen(id: id)
-            if reopened { closedDuringRestore.remove(id) } // reopened on purpose: the restore keeps it open
+            if reopened { restoreClosed.reopened(id) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard reopened, let controller = controller(for: id) else { return false }
@@ -350,9 +428,10 @@ extension WindowManager {
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)]
+                    + [Self.profileTags(of: machines.local)] + PhoneIncognitoHiding.ephemeralIDs(machines.local).sorted()
             }) {
                 self?.reconcileMembership()
+                self?.recordIncognitoWorkspaces()
             }
         }
     }
@@ -366,11 +445,18 @@ extension WindowManager {
     /// machine list and Cloud load changes.
     func reconcileMembership() {
         var live: [String] = []
+        var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            for id in Self.orderedIDs(of: daemon, machines: services.machines) {
+            let ids = Self.orderedIDs(of: daemon, machines: services.machines)
+            for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
+            }
+            // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
+            // workspace keys, and a window holding the other machine's copy does not open this one.
+            if services.machines.session(daemon.machineID) != nil {
+                cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
             }
         }
         var placements = pendingClaims
@@ -384,15 +470,22 @@ extension WindowManager {
                 placements[id] = home
             }
         }
-        placements.merge(EphemeralWorkspaces.placements(self, live: live, placements: placements)) { claimed, _ in claimed }
+        // Before the ephemeral placements: one there is not the person opening the machine, and an
+        // unopened machine's ephemeral workspace opens no incognito window either.
+        backgroundClaims.formIntersection(pendingClaims.keys)
+        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !backgroundClaims.contains($0)) }
+        // A background create's claim never places a held workspace (#28609): opening its machine does.
+        for id in unopened where backgroundClaims.remove(id) != nil { (pendingClaims[id], placements[id]) = (nil, nil); quietClaims.remove(id) }
+        placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
-        let held: Set<String> = FirstTabHold.held(live).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        // So does one claimed for the launch window before the restore (`awaitsRestore`).
+        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        })
-        for id in live where !held.contains(id) { pendingClaims[id] = nil }
+        }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
+        for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value
@@ -403,18 +496,40 @@ extension WindowManager {
         for id in live where !held.contains(id) { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
+        settleRestoreClosed()
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
             let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                              fallbackWindow: fallback)
-            keepClosedDuringRestore(&registry)
+            restoreClosed.keepClosed(&registry)
             return changes
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
+        settleRestoreClosed()
         rememberIncognitoTabs()
         applyPendingPlacements(live: Set(live))
+    }
+
+    /// After the restore, the closed launch window is remembered while a workspace it asked for can still come.
+    private func settleRestoreClosed() {
+        guard !restoring else { return }
+        restoreClosed.settle(in: registry.value, applied: services.daemon.store.appliedSequence) { services.workspace(id: $0) != nil }
+    }
+
+    /// Leo 2026-10-29, on agents' Cloud machines in his sidebar: "why is there all this weird stuff at
+    /// the bottom of the sidebar". The app connects every Cloud machine of the account, and a machine
+    /// starts with a workspace from its image, so reconcile gave the workspace of every lane-pool or
+    /// test VM to the most recent window. A Cloud machine's workspaces join a window only once the
+    /// person opened that machine here: one of its workspaces is in a window (open or closed) or
+    /// claimed for one (Open Machine, New Cloud Workspace, a run with focus). Until then reconcile
+    /// holds them, in no sidebar. Returns the workspaces of each Cloud machine in `machines` (its
+    /// live workspace ids) that has none `opened` says is in a window or claimed for one.
+    static func unopenedCloudWorkspaces(_ machines: [[String]], opened: (String) -> Bool) -> Set<String> {
+        var held = Set<String>()
+        for workspaces in machines where !workspaces.contains(where: opened) { held.formUnion(workspaces) }
+        return held
     }
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
@@ -427,8 +542,13 @@ extension WindowManager {
     func isDead(_ id: String) -> Bool {
         if pendingClaims[id] != nil || services.machines.workspace(id: id) != nil { return false }
         if let machine = seenMachine[id] {
-            guard let daemon = services.machines.daemon(machine: machine) else { return cloudSettled }
-            return daemon.store.isLoaded
+            // Its machine connected and loaded without it: gone. Connecting or paused: it waits.
+            if let daemon = services.machines.daemon(machine: machine) { return daemon.store.isLoaded }
+            // An SSH machine or server with no session this run was forgotten (it is in no Cloud list).
+            guard MachineRegistry.isCloudMachineID(machine) else { return cloudSettled }
+            // A Cloud machine with no daemon this run is gone only if it left the account, never because
+            // the Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
+            return cloudList(services.cloud).machineLeft(listed: services.machines.anyDaemon(machine: machine) != nil)
         }
         return services.machines.local.store.isLoaded && cloudSettled
     }
@@ -439,11 +559,11 @@ extension WindowManager {
         seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
     }
 
-    /// Every Cloud machine that could still report workspaces has loaded.
+    /// Every Cloud machine that could still report workspaces has loaded (`CloudMachineListFacts.settled`).
     private var cloudSettled: Bool {
-        guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
-        guard cloud.hasLoadedMachines else { return false }
-        return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
+        cloudList(services.cloud).settled {
+            services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
+        }
     }
 
     /// Workspaces the daemon has not reported yet stay alive (and land in

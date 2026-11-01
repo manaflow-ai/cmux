@@ -236,9 +236,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const row = page.locator(".cv-received");
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
-      // Closed: one 26px line, the sender and the first line, nothing under it.
-      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(26);
-      expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(26);
+      // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
+      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
+      expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
       expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",
@@ -488,8 +488,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           .map((node) => node.getBoundingClientRect());
         return controls.slice(1).map((box, index) => Math.round(box.left - controls[index]!.right));
       });
-      expect(gaps.length).toBeGreaterThanOrEqual(1);
-      expect(new Set(gaps).size).toBe(1);
+      // Another session's waiting message has its ⋯ alone: no Pin and no hover Copy beside it (Leo,
+      // 2026-10-30: "weird to be able to pin them etc"), so no gap is left to differ.
+      expect(new Set(gaps).size).toBeLessThanOrEqual(1);
+      expect(await rows.locator(".cv-received__hover .cv-message-pin").count()).toBe(0);
+      expect(await rows.locator('.cv-received__hover .cv-message-footer-row [aria-label="Copy"]').count()).toBe(0);
       expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
       expect(hovered.shown).toBe("1");
       expect(hovered.right).toBe(lines[1]!.right);

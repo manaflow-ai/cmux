@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
-import { isGoPlanEnabled } from "./goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "./goPlanFlag";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,

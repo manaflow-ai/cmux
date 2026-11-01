@@ -26,6 +26,10 @@ import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("streaming-text-frames.test.ts", async () => {
   setDefaultTimeout(180_000);
+  /// A follow step larger than this in one frame reads as a jump (streaming-text.harness.tsx SNAP_PX).
+  const SNAP_PX = 8;
+  /// One line of the reply at the chat font.
+  const LINE_PX = 22.75;
   /// The budget a streaming reply keeps.
   const BUDGET = {
     /// The 95th percentile of a frame's work while the reply streams, and the most any frame takes.
@@ -75,7 +79,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     await vite?.close();
   });
 
-  async function stream(name: string, cadence: Cadence): Promise<StreamReport> {
+  async function stream(name: string, cadence: Cadence, liveLine = false, eased = true): Promise<StreamReport> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/streaming-text.html`);
@@ -85,11 +89,15 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // fixed-wait: nothing marks the page's start-up as done
     await page.waitForTimeout(500);
     const report = await page.evaluate(
-      (cadence) =>
+      ({ cadence, liveLine, eased }) =>
         (
-          window as unknown as { __streamingText: { run(options: { cadence: string }): Promise<unknown> } }
-        ).__streamingText.run({ cadence }),
-      cadence,
+          window as unknown as {
+            __streamingText: {
+              run(options: { cadence: string; liveLine: boolean; eased: boolean }): Promise<unknown>;
+            };
+          }
+        ).__streamingText.run({ cadence, liveLine, eased }),
+      { cadence, liveLine, eased },
     );
     await page.close();
     return report as StreamReport;
@@ -146,4 +154,47 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       expect(overWork(again)).toEqual([]);
     },
   );
+
+  // Leo, 2026-10-27: "i feel like the text streaming feels just a little jumpy... the animation or
+  // lack thereof". With the running turn's line under the reply (the app's default), the followed
+  // view takes each new line as an eased rise (followGlide.ts) instead of a line-high jump in one
+  // frame; and the end of the turn moves nothing (Leo, 2026-10-24: "it snapped back"). The same
+  // stream runs with the steps eased and not, in the same page, for the before/after.
+  test.each(engines.map(([name]) => name))("%s: a followed reply rises line by line without jumps", async (name) => {
+    const stepped = await stream(name, "claude", true, false);
+    const eased = await stream(name, "claude", true, true);
+    const summary = (report: StreamReport) => ({
+      follow: report.follow,
+      settle: { moves: report.settle.moves, snaps: report.settle.snaps, reversals: report.settle.reversals },
+      runway: {
+        min: report.runway.min,
+        framesUnderDock: report.runway.framesUnderDock,
+        under: report.runway.underDock,
+      },
+      bounces: report.pin.bounceEvents,
+      work: report.work.totalMs,
+      layoutShifts: report.layout.shifts,
+    });
+    console.log(
+      `streaming-text-frames ${name} follow motion: ${JSON.stringify({ stepped: summary(stepped), eased: summary(eased) }, null, 2)}`,
+    );
+    // Stepped, the view moves the reply a whole line in one frame (22.75 px at the chat font).
+    expect(stepped.follow.p50).toBeGreaterThan(SNAP_PX);
+    // Eased, a usual frame moves it a few pixels. A block taller than the live line's room (a
+    // heading, a code card) still takes the rest at once, so some frames remain over SNAP_PX, but
+    // far fewer than stepped (CI, 2026-10-31: 71 stepped, 25 eased in Chromium). How many of those
+    // land in the top 5% depends on frame timing: a starved WebKit runner put p95 at 8.11 and 9.47
+    // (stepped 45.5), so the tail is held under half a line and the usual frame under SNAP_PX.
+    expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX / 2);
+    expect(eased.follow.p95).toBeLessThan(LINE_PX / 2);
+    expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap / 2);
+    // A measured line lands in the live line's room, over the bottom stack. The frames under the
+    // stack are the ones both runs have: a new block (a code card, a paragraph after a table) drawn
+    // a frame before its row is measured. Eased, such a frame can sit lower by what the glide still
+    // holds back, under one line (CI, 2026-10-31, WebKit: -34.37 stepped, -48.95 eased). The turn's
+    // end moves nothing, and the reply never comes back down.
+    expect(eased.runway.min).toBeGreaterThanOrEqual(stepped.runway.min - LINE_PX);
+    expect(eased.settle).toMatchObject({ moves: 0, snaps: 0, reversals: 0 });
+    expect(overLayout(eased)).toEqual([]);
+  });
 });

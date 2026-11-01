@@ -193,10 +193,12 @@ import Testing
         #expect(tail, "no tail under the card quote's left end")
     }
 
-    /// Messages shows a 3-line quote whole (the reference's 182-character root).
-    @Test func aThreeLineRootShowsThreeLines() throws {
+    /// A group quote shows a multi-line root whole (user, 2026-10-30, "handle like multi-multi line"): this 230-character
+    /// root wraps to 7 lines in the group quote's column at 628 pt, all shown, with no "…".
+    @Test func aLongRootShowsEveryLine() throws {
         let (_, pv) = try Self.preview(Self.rows(root: Self.long + " " + Self.long))
-        #expect(pv.textLines.count == 3, "the quote has \(pv.textLines.count) lines")
-        #expect(pv.box.height == 45.5)
+        #expect(pv.textLines.count == 7, "the quote has \(pv.textLines.count) lines: \(pv.textLines)")
+        #expect(pv.textLines.last?.hasSuffix("…") == false)
+        #expect(pv.box.height == ThreadPreview.textHeight(lines: 7))
     }
 }

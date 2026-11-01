@@ -15,13 +15,24 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
 
     /// What reopening recreates for one tab (`ClosedTabRecord`).
     public struct Tab: Sendable, Hashable, Decodable {
-        /// `terminal` or `browser`.
+        /// `terminal`, `browser`, or `conversation` (closed-conversation-tabs-v1).
         public var kind: String
         public var name: String?
         public var cwd: String?
         public var url: String?
         public var browserProfileID: String?
         public var pinned: Bool
+        /// The safe public identity of a closed agent chat; host/install metadata is never exposed.
+        public struct AgentSession: Sendable, Hashable, Decodable {
+            public var session: String?
+            public var harness: String?
+
+            public init(session: String? = nil, harness: String? = nil) {
+                self.session = session
+                self.harness = harness
+            }
+        }
+        public var agentSession: AgentSession?
         /// The page a closed page tab showed (`page-tabs-v1`); its `url` is then `about:blank`.
         public var page: String?
         /// True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no
@@ -29,18 +40,19 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         public var empty: Bool
 
         enum CodingKeys: String, CodingKey {
-            case kind, name, cwd, url, pinned, page, empty
+            case kind, name, cwd, url, pinned, agentSession = "agent_session", page, empty
             case browserProfileID = "browser_profile_id"
         }
 
         public init(kind: String, name: String? = nil, cwd: String? = nil, url: String? = nil,
-                    browserProfileID: String? = nil, pinned: Bool = false, empty: Bool = false) {
+                    browserProfileID: String? = nil, pinned: Bool = false, empty: Bool = false, agentSession: AgentSession? = nil) {
             self.kind = kind
             self.name = name
             self.cwd = cwd
             self.url = url
             self.browserProfileID = browserProfileID
             self.pinned = pinned
+            self.agentSession = agentSession
             self.empty = empty
         }
 
@@ -52,6 +64,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
             url = try c.decodeIfPresent(String.self, forKey: .url)
             browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+            agentSession = try c.decodeIfPresent(AgentSession.self, forKey: .agentSession)
             page = try c.decodeIfPresent(String.self, forKey: .page)
             empty = try c.decodeIfPresent(Bool.self, forKey: .empty) ?? false
         }

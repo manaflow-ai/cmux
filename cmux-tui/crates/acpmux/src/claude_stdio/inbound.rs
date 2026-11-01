@@ -433,8 +433,14 @@ impl Translator {
                             Some(diffs) if !is_err => {
                                 settle_write(diffs, &text, line.get("tool_use_result"))
                             }
+                            // The text, then any images it returned (a Read of a PNG, an MCP
+                            // screenshot), so a chat on another machine shows them inline.
                             _ => {
-                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                                let mut blocks = vec![
+                                    json!({"type": "content", "content": {"type": "text", "text": text}}),
+                                ];
+                                blocks.extend(result_images(c.get("content")));
+                                Value::Array(blocks)
                             }
                         };
                         out.push(upd(json!({

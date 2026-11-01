@@ -56,7 +56,10 @@ enum AgentPaneHandshakeReply {
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
             // A chat on another machine names that machine (its host set it), never this Mac.
-            if handshake.machineName == nil { handshake.machineName = await AgentPaneModel.localMachineName?.value }
+            let localName = await AgentPaneModel.localMachineName?.value
+            if handshake.machineName == nil { handshake.machineName = localName }
+            // This Mac's own name for the picker's This Mac row, which a seeded chat's machine never replaces.
+            handshake.localMachineName = localName
             // A pane attaches only to the exact session its tab recorded: a session the
             // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
             // available", never another chat (P1 2026-10-09).
@@ -127,5 +130,17 @@ enum AgentPaneHandshakeReply {
         guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
+    }
+
+    /// `acpmux.restartStuck`: the waiting line's "Restart agent service", while the page's
+    /// handshake waits for this app's acpmux. The person decides; the app never restarts a daemon
+    /// that is only slow on its own (rule R5). Page script cannot make a gesture, and the host
+    /// stops a daemon only while a lookup waits on it. Answers `{stopped}`; the page then asks for
+    /// a handshake again, which starts a new daemon.
+    static func restartStuckAcpmux(in model: AgentPaneModel) async -> [String: Any] {
+        guard model.transport.gestures.consume() else {
+            return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
+        }
+        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
     }
 }

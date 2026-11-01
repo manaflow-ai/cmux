@@ -28,6 +28,8 @@ public final class HangEpisodeRecorder: Sendable {
         /// was killed mid-hang, or the hang is still running).
         public var ongoing: Bool
         public var topFrames: [String]
+        /// The main thread's CPU and the process's page-ins over the hang (``HangLoad``).
+        public var load = HangLoad()
     }
 
     public let directory: URL
@@ -165,17 +167,17 @@ public final class HangEpisodeRecorder: Sendable {
 
     // MARK: Watchdog thread
 
-    /// A hang started `elapsed` ago: opens its file. Returns at once (the toggle is read on
+    /// A hang started `elapsed` ago: opens its file, with the `load` measured so far. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample]) {
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad()) {
         let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
             // Raw addresses first: the evidence is on disk before anything can block.
             let raw = Self.render(main: main.map(Self.hex), others: others.map { (name: $0.name, frames: $0.addresses.map(Self.hex)) })
             let entry = Entry(url: directory.appending(path: Self.fileName(started)), started: started, duration: elapsed,
-                              ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)))
+                              ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)), load: load)
             state.withLock { state in
                 state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others)))
                 // A symbolicator that never finishes leaves its episodes here; keep a bounded few.
@@ -188,12 +190,14 @@ public final class HangEpisodeRecorder: Sendable {
         }
     }
 
-    /// The hang of `beat` is still running at a checkpoint, or ended (`ongoing` false).
-    func update(beat: UInt64, duration: Duration, ongoing: Bool) {
+    /// The hang of `beat` is still running at a checkpoint, or ended (`ongoing` false). A nil
+    /// `load` keeps the last one measured.
+    func update(beat: UInt64, duration: Duration, ongoing: Bool, load: HangLoad? = nil) {
         queue.async { [self] in
             change(beat: beat) { episode in
                 episode.entry.duration = duration
                 episode.entry.ongoing = ongoing
+                if let load { episode.entry.load = load }
             }
         }
     }
@@ -256,8 +260,8 @@ public final class HangEpisodeRecorder: Sendable {
         var text = (["cmux main-thread hang",
                      "started: \(Self.timestamp(entry.started))",
                      "duration: \(entry.ongoing ? "at least \(duration) (still blocked when written)" : duration)",
-                     "state: \(entry.ongoing ? "blocked" : "recovered")",
-                     "pid: \(ProcessInfo.processInfo.processIdentifier)"] + identity).joined(separator: "\n")
+                     "state: \(entry.ongoing ? "blocked" : "recovered")"] + entry.load.lines(duration: entry.duration)
+                    + ["pid: \(ProcessInfo.processInfo.processIdentifier)"] + identity).joined(separator: "\n")
         text += "\n\n" + stacks
         var data = Data(text.utf8)
         if data.count > maxBytes {
@@ -382,7 +386,7 @@ public final class HangEpisodeRecorder: Sendable {
                 duration = Double(number).flatMap { Int64(exactly: ($0 * 1_000).rounded()) }.map { .milliseconds($0) }
             } else if line == "state: blocked" {
                 ongoing = true
-            } else if line.hasPrefix("main thread") {
+            } else if line.hasPrefix("main thread (") {
                 inMain = true
             } else if inMain {
                 guard line.hasPrefix("  "), frames.count < topFrameCount else { break }

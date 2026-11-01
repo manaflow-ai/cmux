@@ -10,7 +10,7 @@
    pops in just after it; it leaves with a short fade and scale down (cardMotion.ts unmounts it when
    that ends). Motion off or reduced, each state shows at once. */
 /* The column's end while the card shows beside it (App.tsx sets data-cu-preview on .acpmux-main, only
-   in a pane wide enough and with the Inspector closed): the card's 180px, 12px from the edge and a 12px
+   in a pane wide enough and with Session Info closed): the card's 180px, 12px from the edge and a 12px
    gap, or the column's own inset when that is wider. The transcript's rows, the composer and the dock's
    bands read it; model.ts transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
 .acpmux-main[data-cu-preview] {
@@ -47,14 +47,14 @@
   transform: scale(0.96);
   pointer-events: none;
 }
-/* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
-   with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
-   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
-   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
-   top right. */
-.acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
-  top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
-  right: var(--acpmux-inspector-under-right, 12px);
+/* With Session Info open (either place), directly under its card: the layout's 8px gap, right-aligned
+   with it (the Codex app's preview under its summary panel). Session Info publishes the place on the
+   shell (session-info/underSessionInfo.ts, once per resize of the panel). Floating, the column keeps its
+   room (data-cu-preview stays), so opening or closing the panel never reflows the chat; Push always's
+   column keeps the chat clear of both instead. Closed, the card is back at the top right. */
+.acpmux-shell[data-session-info-chat-placement] .acpmux-cu-preview {
+  top: var(--acpmux-session-info-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
+  right: var(--acpmux-session-info-under-right, 12px);
 }
 
 .acpmux-cu-preview__open {
@@ -67,7 +67,7 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -176,7 +176,7 @@
   border-radius: 50%;
   background: var(--cu-preview-close-fill);
   color: white;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-cu-preview__close:hover {
   background: var(--cu-preview-close-hover);

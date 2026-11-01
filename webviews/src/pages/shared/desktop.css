@@ -206,7 +206,7 @@ a {
   -webkit-user-drag: none;
 }
 
-/* Opt-in content selection: the I-beam over its text (a clickable thing in it still shows the hand,
+/* Opt-in content selection: the I-beam over its text (a clickable thing in it shows the arrow,
    below; zero specificity, so it never beats a surface's own cursor). */
 .selectable,
 .selectable * {
@@ -236,16 +236,22 @@ input[type="range"] {
   cursor: default;
 }
 
-/* Everything clickable shows the pointing hand, its label and icons too; a disabled one keeps the
-   arrow (Leo 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO
-   CLICKABLE"; this replaces the R139 arrow on buttons and links). Zero specificity (:where), so a
-   surface's own cursor still wins: text in a field, a resize or drag cursor, zoom-in on an image.
-   A surface never sets `default` or `auto` on a clickable element (clickable-cursor.test.ts); a
-   clickable div gets a role instead of a cursor rule.
-   What is inside a clickable thing takes its cursor (`inherit`, not `pointer`): the hand inside
-   selectable text, where `.selectable *` would give its label the I-beam, and a surface's own
-   cursor on the clickable thing too, so a sent or queued image's thumbnail keeps the button's
-   zoom-in. This rule comes first so a clickable thing nested in another still gets the hand. */
+/* Everything clickable shows the arrow, its label and icons too, as in a native macOS app (user
+   2026-10-30: "change all pointers back to cursor-default"; this replaces Leo's 2026-10-21 pointing
+   hand). Zero specificity (:where), so a surface's own meaningful cursor still wins: text in a
+   field, a resize or drag cursor, zoom-in on an image. No sheet sets `cursor: pointer`
+   (clickable-cursor.test.ts, scripts/cmux-next/check-default-cursor.py).
+   What is inside a clickable thing takes its cursor (`inherit`): the arrow inside selectable text,
+   where `.selectable *` would give its label the I-beam, and a surface's own cursor on the
+   clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. This rule
+   comes first so a clickable thing nested in another still gets the arrow.
+   What is inside any label takes the label's cursor too: a choice's arrow (the label's own rule
+   below), a locked choice's arrow, a field label's I-beam in selectable text. A field inside keeps
+   the text cursor (its own rule outranks this one). Never `label:has(...) *` here, nor any `:has()`
+   before a combinator whose last compound has no class or attribute (`*`, `:not(...)`): Chromium
+   then restyles the whole page on every node inserted anywhere under the elements it tracks for
+   `:has()`, about 850 elements per streamed row or rail tick in the agent pane
+   (pane-has-restyle.browser.test.ts). */
 :where(
     button,
     a[href],
@@ -261,8 +267,7 @@ input[type="range"] {
     [role="checkbox"],
     [role="radio"],
     summary,
-    label[for],
-    label:has(input[type="checkbox"], input[type="radio"])
+    label
   )
   * {
   cursor: inherit;
@@ -286,7 +291,14 @@ input[type="range"] {
     label:has(input[type="checkbox"], input[type="radio"]),
     select
   ) {
-  cursor: pointer;
+  cursor: default;
+}
+/* The user agent sheet gives a link the hand (`:link, :visited { cursor: pointer }`): the same
+   selector here (one pseudo-class, as specific as it, so a surface's class rule still wins) gives
+   it the arrow, in any engine's cascade. */
+:link,
+:visited {
+  cursor: default;
 }
 input:is(
     [type="checkbox"],
@@ -297,17 +309,18 @@ input:is(
     [type="color"],
     [type="file"]
   ) {
-  cursor: pointer;
+  cursor: default;
 }
-/* A disabled thing never shows the hand, whatever a surface's rule for it says, nor does anything
+/* A disabled thing never shows a surface's own cursor, whatever a surface's rule for it says, nor does anything
    in it: a disabled control, anything aria-disabled (ARIA disables its descendants too), and a
    disabled fieldset except its first legend (HTML leaves that legend enabled; what is disabled on
    its own in it still is) and the links and other clickables in it, which still work. Nor does a
    locked choice's label (no `for`, a disabled field inside and no enabled one: Cloud's locked
    memory sizes), apart from a link or button in it. CSS cannot follow `for` to its control, so a
-   `for` label keeps the hand. A surface that shows another cursor there (`not-allowed`) says so
+   `for` label keeps the arrow. A surface that shows another cursor there (`not-allowed`) says so
    with !important on a :disabled rule. Inert content takes no pointer input at all (a sheet's
-   background, a closing popup), so it and everything in it keep the arrow too. */
+   background, a closing popup), so it and everything in it keep the arrow too. The locked label's
+   contents take its arrow by inheritance (the label rule above), not through a `label:has(...) *`. */
 [inert],
 [inert] *,
 [aria-disabled="true"],
@@ -319,11 +332,7 @@ fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, s
 fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
 label:not([for]):has(:is(input, select, textarea):disabled):not(
     :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  ),
-label:not([for]):has(:is(input, select, textarea):disabled):not(
-    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  )
-  :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *) {
+  ) {
   cursor: default !important;
 }
 
@@ -576,6 +585,77 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --cmux-menu-state-text-x: 42px;
 }
 /* menu-metrics:end */
+/* layout-grid:begin. GENERATED by scripts/cmux-next/gen-layout-grid.py from schemas/layout-grid/layout-grid.json; do not edit. */
+:root {
+  /* Scaled lengths follow the interface scale; native values remain points. */
+  --grid-base: calc(4px * var(--cmux-interface-scale, 1)); /* Base spacing unit. */
+  --grid-half-step: 2px; /* Named half-step unit. */
+  --grid-icon-box: calc(16px * var(--cmux-interface-scale, 1)); /* Compact icon box. */
+  --grid-icon-box-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Comfortable sidebar and Home list icon box only. */
+  --grid-glyph: calc(12px * var(--cmux-interface-scale, 1)); /* Small glyph centered inside its icon box. */
+  --grid-gap: calc(8px * var(--cmux-interface-scale, 1)); /* Space after an icon or control box. */
+  --grid-row: calc(28px * var(--cmux-interface-scale, 1)); /* Compact row height. */
+  --grid-row-comfortable: calc(32px * var(--cmux-interface-scale, 1)); /* Comfortable row height. */
+  --grid-pill-inset: calc(2px * var(--cmux-interface-scale, 1)); /* Vertical inset above and below a row highlight. */
+  --grid-pill: calc(24px * var(--cmux-interface-scale, 1)); /* Compact highlight height. */
+  --grid-pill-comfortable: calc(28px * var(--cmux-interface-scale, 1)); /* Comfortable highlight height. */
+  --grid-composer-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
+  --grid-composer-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
+  --grid-composer-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
+  --grid-composer-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-composer-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
+  --grid-strip-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
+  --grid-strip-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
+  --grid-strip-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
+  --grid-strip-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-strip-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
+  --grid-trust-bar-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
+  --grid-trust-bar-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
+  --grid-trust-bar-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
+  --grid-trust-bar-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-trust-bar-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
+  --grid-tray-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
+  --grid-tray-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
+  --grid-tray-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
+  --grid-tray-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-tray-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
+  --grid-queue-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
+  --grid-queue-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
+  --grid-queue-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
+  --grid-queue-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
+  --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
+  --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
+  --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
+  --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
+  --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
+  --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */
+  --grid-sidebar-highlight-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Highlight inset from the sidebar edge. */
+  --grid-sidebar-lead: calc(16px * var(--cmux-interface-scale, 1)); /* Leading icon box left edge. */
+  --grid-sidebar-text: calc(40px * var(--cmux-interface-scale, 1)); /* Compact text start. */
+  --grid-sidebar-text-comfortable: calc(44px * var(--cmux-interface-scale, 1)); /* Comfortable text start. */
+  --grid-sidebar-depth-indent: calc(16px * var(--cmux-interface-scale, 1)); /* Additional inset per nested depth. */
+  --grid-sidebar-trail-center: calc(24px * var(--cmux-interface-scale, 1)); /* Compact trailing center from the sidebar edge. */
+  --grid-sidebar-trail-center-comfortable: calc(24px * var(--cmux-interface-scale, 1)); /* Trailing center remains fixed across densities. */
+  --grid-sidebar-second-mark-pitch: calc(20px * var(--cmux-interface-scale, 1)); /* Compact secondary trailing mark pitch. */
+  --grid-sidebar-second-mark-pitch-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Secondary trailing mark pitch remains fixed across densities. */
+  --grid-transcript-icon-box: calc(16px * var(--cmux-interface-scale, 1)); /* Tool thinking and status row leading box. */
+  --grid-transcript-text-gap: calc(24px * var(--cmux-interface-scale, 1)); /* Text start relative to the column lead. */
+  --grid-gap-block: calc(24px * var(--cmux-interface-scale, 1)); /* Gap between transcript blocks. */
+  --grid-gap-turn: calc(32px * var(--cmux-interface-scale, 1)); /* Gap between transcript turns. */
+  --grid-gap-inner: calc(12px * var(--cmux-interface-scale, 1)); /* Gap inside a transcript tool group. */
+  --grid-gap-composer: calc(16px * var(--cmux-interface-scale, 1)); /* Gap from the last transcript block to the composer. */
+  --grid-gap-foot: calc(4px * var(--cmux-interface-scale, 1)); /* Gap from the composer box to its quiet row. */
+  --grid-transcript-action-control: calc(28px * var(--cmux-interface-scale, 1)); /* Row action box ending on the column edge. */
+  --grid-transcript-action-trail-center: calc(14px * var(--cmux-interface-scale, 1)); /* Row action center from column right edge. */
+  --grid-cards-padding: calc(12px * var(--cmux-interface-scale, 1)); /* Card content padding. */
+  --grid-cards-lead: calc(12px * var(--cmux-interface-scale, 1)); /* Card header icon left edge. */
+  --grid-cards-text: calc(36px * var(--cmux-interface-scale, 1)); /* Card header and body text start. */
+  --grid-cards-control: calc(28px * var(--cmux-interface-scale, 1)); /* Card trailing control box. */
+  --grid-cards-trail-center: calc(26px * var(--cmux-interface-scale, 1)); /* Trailing center from card right edge. */
+  --grid-cards-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Card corner radius. */
+}
+/* layout-grid:end */
 
 /* Interface size (opt-in, Debug Settings): the host updates one multiplier for the shared chrome tokens. */
 :root {
@@ -617,6 +697,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 :root {
   --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
+  --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {
   to {
@@ -637,18 +718,22 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
    compositor runs: the masked band crosses the line, its lit words move back by as much. */
 @keyframes cmux-shimmer-band {
-  from {
+  0%,
+  10% {
     transform: translateX(-100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(100%);
   }
 }
 @keyframes cmux-shimmer-lit {
-  from {
+  0%,
+  10% {
     transform: translateX(100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(-100%);
   }
 }

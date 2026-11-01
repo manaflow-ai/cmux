@@ -49,7 +49,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
+  cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -61,24 +61,10 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-/* A sent message's first line after the row's words (SentMessageLine.tsx). */
-.cv-sent__preview {
-  margin-inline-start: 8px;
-}
+/* A sent message's line takes the message rows' grammar from AgentMessageRow.css: its recipient
+   is the chip (`.cv-agentmsg__name`), its first line `.cv-agentmsg__preview`. */
 
-/* The target of a sent message, when its chat is listed: opens it beside this one. */
-.cv-sent__target {
-  all: unset;
-  cursor: pointer;
-  color: var(--cv-text);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 2px;
-}
-.cv-sent__target:hover {
-  text-decoration-color: currentColor;
-}
-.cv-sent__target:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  border-radius: 3px;
+.cv-sent__file {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: 0.92em;
 }

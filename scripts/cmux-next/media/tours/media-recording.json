@@ -1,0 +1,10 @@
+{
+  "title": "Continuous window recording",
+  "steps": [
+    {"title": "New recording workspace", "cmux": ["workspace", "new", "--name", "Recording"], "wait": 0.2},
+    {"title": "Show the recording workspace", "cmux": ["workspace", "name:Recording", "focus"], "wait": 0.2},
+    {"title": "Record changing terminal content", "daemon": true,
+     "cmux": ["workspace", "name:Recording", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "python3 -c 'import time; [(print(\"\\rRecording frame %03d\" % i, end=\"\", flush=True), time.sleep(1/60)) for i in range(240)]'\r"], "wait": 5},
+    {"title": "Record a split", "cmux": ["action", "run", "splitRight"], "wait": 1}
+  ]
+}

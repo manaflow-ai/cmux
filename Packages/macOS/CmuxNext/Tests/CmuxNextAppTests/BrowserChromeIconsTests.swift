@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextIcons
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// just use the same exact icons that Chrome uses"). Chromium's vector icons are vendored in
 /// design/icons/chromium and generated into the pack as `browser.toolbar.*`, `browser.omnibox.*`,
 /// `browser.find.*`, `browser.extensions.*`, `browser.tab.*` and `browser.menu.*`.
-@MainActor @Suite struct BrowserChromeIconsTests {
+@MainActor @Suite(.closesItsWindows) struct BrowserChromeIconsTests {
     /// The pack families generated from Chromium's icons.
     private static let chromiumFamilies = ["browser.toolbar.", "browser.omnibox.", "browser.find.", "browser.extensions.", "browser.tab.", "browser.menu."]
 
@@ -71,6 +72,7 @@ import Testing
         tab.showsExtensionToolbar = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = window.contentLayoutRect

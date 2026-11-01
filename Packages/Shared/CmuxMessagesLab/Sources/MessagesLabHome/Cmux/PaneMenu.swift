@@ -91,6 +91,9 @@ extension ChatController {
                 let playing = intents.videoState(ref) == .playing
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+                menu.addItem(MenuAction(title: CmuxStrings.viewVideoLarger, symbol: "arrow.up.left.and.arrow.down.right") { [weak self] in
+                    self?.intents?.openVideo(ref, a.id)
+                })
             }
             content.attachmentItems(name: a.fileName, resolve: attachmentResolver(ref.messageId, a.id)) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
@@ -102,6 +105,9 @@ extension ChatController {
         if intents?.canRetrySend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
+            menu.addItem(.separator())
+        } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })

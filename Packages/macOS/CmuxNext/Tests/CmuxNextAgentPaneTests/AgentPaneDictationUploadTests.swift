@@ -41,6 +41,13 @@ struct AgentPaneDictationUploadTests {
         var failsAtChunk: Int?
         /// Runs as each chunk arrives (the page's × landing mid-upload).
         var onChunk: (@MainActor () async -> Void)?
+        /// Runs while the finish is pending, before it commits (the remote transfer in flight): the
+        /// finish is released when this returns.
+        var duringFinish: (@MainActor () async -> Void)?
+        /// The files a finish committed on the chat's machine. A finish whose task was cancelled
+        /// before it commits commits nothing, as the real stagers' transfers stop on cancellation
+        /// (Cloud's `cmux link access upload` child is killed by ProcessRunner).
+        var committed: [String] = []
         private var chunkCount = 0
 
         var stage: AgentPaneUploadStager {
@@ -57,6 +64,9 @@ struct AgentPaneDictationUploadTests {
                     received.append(data)
                     return AgentPaneReply.success(["offset": offset + data.count])
                 case .finish:
+                    await duringFinish?()
+                    if Task.isCancelled { return AgentPaneReply.failure(code: "upload_failed", message: "The transfer was stopped.") }
+                    if finish["ok"] as? Bool == true, let path = (finish["value"] as? [String: Any])?["path"] as? String { committed.append(path) }
                     return finish
                 case .cancel:
                     return AgentPaneReply.success()
@@ -307,5 +317,52 @@ struct AgentPaneDictationUploadTests {
         let reply = await AgentPaneDictationUpload.send(try issued(file), through: stager.stage, session: "chat-a")
         #expect(Self.errorCode(reply) == "upload_failed")
         #expect(stager.requests.last == .cancel(token: "t1"))
+    }
+
+    /// Review of #27012: cancellation was checked before the stager's finish but not during it, so
+    /// a × while the finish's remote transfer ran (Cloud's `cmux link access upload`, a peer's
+    /// file_put) let it commit a file on the chat's machine after the page dropped the chip. The
+    /// finish runs in its own task, which the × cancels; the upload answers `cancelled` and does not
+    /// give the recording back.
+    @Test func aCancelWhileTheFinishIsPendingStopsItBeforeItCommits() async throws {
+        let (file, _) = try recordingFile(bytes: 1_300_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        stager.duringFinish = { [model] in
+            _ = await model.respond(to: AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": file.path]]))
+        }
+        model.onUploadStage = { stager.stage }
+        let recording = try issued(file)
+        model.onDictationRecording = { _, _ in recording }
+        let givenBack = GivenBack()
+        model.onDictationRecordingUnsent = { recording, session in givenBack.recordings.append((recording, session)) }
+        let reply = await upload(file.path, in: model)
+        #expect(stager.requests.contains(.finish(token: "t1")))
+        #expect(stager.committed.isEmpty, "no file is left on the chat's machine")
+        #expect(Self.errorCode(reply) == "cancelled")
+        #expect((reply["value"] as? [String: Any])?["path"] == nil)
+        #expect(givenBack.recordings.isEmpty, "a removed recording is not given back for Retry")
+        #expect(model.dictationUploads.running.isEmpty && model.dictationUploads.cancelled.isEmpty)
+        #expect(model.dictationUploads.finishing.isEmpty)
+    }
+
+    /// Review of #27012 at 6a9fa4bf: a finish that ignored the cancel and committed answered its
+    /// path, as if the × had never come. It answers `cancelled`; the committed copy stays, since no
+    /// stager can delete one.
+    @Test func aFinishThatCommitsDespiteTheCancelStillAnswersCancelled() async throws {
+        let (file, _) = try recordingFile(bytes: 1_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let stager = Stager()
+        var asked = 0
+        let reply = await AgentPaneDictationUpload.send(try issued(file), through: stager.stage, session: "chat-a", cancelled: {
+            // False through the chunks and the check before the finish; true once the finish ran.
+            defer { asked += 1 }
+            return stager.requests.contains(.finish(token: "t1"))
+        })
+        #expect(asked > 0)
+        #expect(stager.requests.contains(.finish(token: "t1")))
+        #expect(Self.errorCode(reply) == "cancelled")
+        #expect((reply["value"] as? [String: Any])?["path"] == nil)
     }
 }

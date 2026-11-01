@@ -22,7 +22,9 @@ fn nightly_identify() -> Value {
 
 fn ready_updates() -> Value {
     json!({
-        "track": "nightly",
+        // NEXT keeps its raw feed identity in updates.status; cmux version's
+        // public app.channel must continue to say "nightly".
+        "track": "nightly-next",
         "phase": "idle",
         "detected_version": "1.0.0-nightly.3937900000000",
         "probing": false,
@@ -72,6 +74,7 @@ fn the_report_names_the_running_app_and_its_update_state() {
     assert_eq!(app["pid"], 14047);
     assert_eq!(report["app_error"], Value::Null);
     let updates = &report["updates"];
+    assert_eq!(updates["track"], "nightly-next");
     assert_eq!(updates["phase"], "idle");
     assert_eq!(updates["ready"], "ready");
     assert_eq!(updates["detected_version"], "1.0.0-nightly.3937900000000");

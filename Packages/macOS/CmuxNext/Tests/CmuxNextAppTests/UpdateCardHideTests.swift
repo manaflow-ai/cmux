@@ -6,6 +6,7 @@ import CmuxNextActions
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The Update Ready card's Hide button (Lawrence 2026-10-20, cmux NEXT: "clicking Hide does
 /// nothing"). The card's highlights popup opens while the pointer is on the card, in the app's one
@@ -14,7 +15,7 @@ import Testing
 /// corner, where Hide sits: the window server gives the click to the popup's window, which found
 /// no view there and dropped it. Hide must hide this version's card (kept across a relaunch) until
 /// a newer version or a check the person asks for; the card fades out, at once under Reduce Motion.
-@MainActor @Suite(.serialized) struct UpdateCardHideTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateCardHideTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -68,9 +69,11 @@ import Testing
         }
 
         func close() {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             feed.cancel()
             window.close()
+            popup?.closeAfterTest()
         }
     }
 

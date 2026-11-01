@@ -52,6 +52,12 @@ const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out/i;
+/// The connection-drop words acpmux retries by itself (`hub/turn_errors.rs` `says_connection_dropped`)
+/// that UNREACHABLE lacks. Codex's commonest network failure is "stream disconnected before completion:
+/// error sending request for url (…)" (cmuxterm-hq#4879, finding 10). Like acpmux (`is_transport_error`),
+/// they count only when no sign-in or key is named beside them. Not "broken pipe": an agent that quit.
+const DROPPED =
+  /stream disconnected|error sending request|connection (?:aborted|lost)|upstream connect error|premature close|other side closed|gateway timeout/i;
 const INVALID_KEY =
   /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY/i;
 const SUBSCRIPTION =
@@ -61,6 +67,9 @@ const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
+/// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
+/// This exact family is the only auth failure eligible for silent cached-login recovery.
+const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -110,6 +119,10 @@ export function isAuthenticationFailure(message: string | undefined): boolean {
   return kind === "subscription-login" || kind === "auth";
 }
 
+export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
+  return route?.hostKind === "cloud" && CLOUD_REJECTED_CREDENTIAL.test(message ?? "");
+}
+
 /// The proxy or endpoint a failure names: a host in the message that is not the provider's, else the
 /// profile's known proxy. Undefined for a direct route.
 export function failureVia(message: string | undefined, route?: FailureRoute): string | undefined {
@@ -143,6 +156,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (TAILSCALE.test(message) && !answered && (dialFailed || UNREACHABLE.test(words) || TAILNET_DOWN.test(words)))
     return "tailscale";
   if (UNREACHABLE.test(words)) return "unreachable";
+  const signIn = [INVALID_KEY, SUBSCRIPTION, AUTH, MISSING_CREDENTIAL, EXPIRED_CREDENTIAL].some((re) => re.test(words));
+  if (DROPPED.test(words) && !signIn) return "unreachable";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
@@ -159,7 +174,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 }
 
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
-/// Retry after it), or compact a chat that outgrew its context window (with Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
+/// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 /// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
@@ -169,10 +185,13 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
-export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | undefined {
+export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | "sign-in" | undefined {
   switch (kind) {
     case "context-full":
       return "compact";
+    case "subscription-login":
+    case "auth":
+      return "sign-in";
     // Capacity passes: Continue (or Retry) leads, Switch model beside it (Lawrence 2026-10-29: "should
     // have a try again/continue type button here").
     case "invalid-key":
@@ -181,8 +200,6 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "trust-pending":
     case "trust-untrusted":
     case "no-team-account":
-    case "subscription-login":
-    case "auth":
       return undefined;
     default:
       return "retry";

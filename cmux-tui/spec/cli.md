@@ -238,7 +238,11 @@ longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
 retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another.
+another. An owner at its connection limit refuses each new connection with a
+`type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
+capacity instead of starting another owner and fails with `server.busy` after
+10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
+owner that refuses every connection for that long.
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin
@@ -597,7 +601,8 @@ attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+  [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -609,6 +614,7 @@ git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+  [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -724,6 +730,12 @@ status and line counts, adds patches only with `--patch` (each cut at
 hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+`--after-path` (`after_path`) lists the files after a path, so the reply's
+`next_path` reads the next page. With `--patch` and exactly one file path,
+`--patch-offset` (`patch_offset`, a decimal byte offset; start at 0) returns a
+bounded `patch_page` of that file's whole raw patch instead of the clipped
+`patch`; a later page passes the first page's `revision` as `--patch-revision`
+(`patch_revision`). `git checkpoint diff` takes the same three flags.
 The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
 one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
@@ -1031,6 +1043,8 @@ cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group create --remote <host> [--name <name>]   # app: New Remote Group (remote.newGroup)
+cmux workspace group create --parent <group> --name <name>    # app: New Subgroup (workspaceGroup.newSubgroup)
 cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```

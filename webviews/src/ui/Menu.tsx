@@ -20,6 +20,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
+import { usePopupPadding } from "./popupInset";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
@@ -217,6 +218,7 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -313,6 +315,7 @@ export function MenuPopup({
 }: MenuPopupProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const padding = usePopupPadding();
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
@@ -354,6 +357,7 @@ export function MenuPopup({
         anchor={anchor}
         side={side}
         collisionAvoidance={popupCollision(flip)}
+        collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}

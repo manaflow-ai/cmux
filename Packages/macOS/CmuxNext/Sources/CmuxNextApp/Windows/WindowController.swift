@@ -26,9 +26,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
-    /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
-    /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
-    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
+    /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
+    /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
@@ -82,7 +82,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container)
+        root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -108,14 +108,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
-        window.install(kind: .main, content: root, scope: themeScope)
+        window.install(kind: .main, content: root, scope: themeScope, activeLook: services.activeLook)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
-        focus.send(.appActive(NSApp.isActive))
+        focus.send(.appActive(services.appActiveSource()))
         startShortcutHints()
         observeWorkspace()
         observePreviewFeatures()
@@ -268,7 +268,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
-        if let current = content { park(current) }
+        // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
+        if let current = content { park(current, leaving: workspace.id) }
         DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
@@ -340,6 +341,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
         services.canvasContextDidChange()
+        BackdropImageStore.shared.desktop.windowDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -365,7 +367,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard window?.inLiveResize != true else { return }
         services.windows.recordSaver.geometryDidChange(state)
     }
-    func windowDidChangeScreen(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidChangeScreen(_ notification: Notification) {
+        services.windows.recordSaver.geometryDidChange(state)
+        BackdropImageStore.shared.desktop.windowDidChange()
+    }
+    /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now.
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange() }
 
     var sidebarObservation: Task<Void, Never>?
 
@@ -421,7 +428,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowControlsAvoidanceHosting {
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).
@@ -447,6 +454,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
+    /// Views that keep clear of the top row (Home's header in a pane with no tab bar): they
+    /// re-check when the top row, the main pane card or a pane moves (`WindowController+Sidebar`).
+    let windowControlsAvoiders = WindowControlsAvoiders()
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
@@ -538,7 +548,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }
     func releasePlane(_ plane: OverlayPlane) { overlayLayer.release(plane) }
-    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane) { overlayLayer.interactiveRectsDidChange() }
+    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane, shapesChanged: Bool) { overlayLayer.interactiveRectsDidChange(shapesChanged: shapesChanged) }
     func planeDidLayout(_ plane: OverlayPlane) { overlayLayer.planeDidLayout(plane) }
     func paneShapesDidChange(_ plane: OverlayPlane) { overlayLayer.paneShapesDidChange() }
 
@@ -554,8 +564,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
-        let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
+        let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self) }
         return accepted
     }
 }

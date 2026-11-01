@@ -47,7 +47,7 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  /** The trailing cluster's controls, left to right by position (mic, then Send or Stop). */
   trailing: string[];
   /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
@@ -122,13 +122,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         .map((button) =>
           button.classList.contains("acpmux-mic")
             ? "mic"
-            : button.classList.contains("acpmux-steer-now")
-              ? "steer"
-              : button.classList.contains("acpmux-cancel")
-                ? "stop"
-                : button.classList.contains("acpmux-send")
-                  ? "send"
-                  : button.className,
+            : button.classList.contains("acpmux-cancel")
+              ? "stop"
+              : button.classList.contains("acpmux-send")
+                ? "send"
+                : button.className,
         ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
@@ -149,7 +147,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           '.acpmux-context, .acpmux-context-ring, [role="progressbar"], [class*="spinner"], [class*="-ring"]',
         ),
       ].map((element) => element.className.toString() || element.tagName),
-      // LockIcon (ComposerPickers.tsx): its shackle path.
+      // A lock's shackle path: the row draws none (the mode menu no longer holds grants).
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
       effortChip: document.querySelector(".acpmux-effort") !== null,
@@ -367,19 +365,21 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop has Send's footprint as a plain glyph in the secondary text color`, async () => {
-      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
-      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
-      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
-      // and line, not its x.
+    test(`at ${width} px Stop takes Send's slot as a plain glyph in the secondary text color`, async () => {
+      // One send control (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"): no Send until there is
+      // a draft, so the idle row Stop is held against has a prompt typed; there Send comes before
+      // the mic, which keeps the right edge (Claude desktop's ↵). While a turn runs with an empty
+      // prompt, Stop stands in that same slot.
       const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
+      const off = (["width", "left", "top", "bottom"] as const).filter(
+        (side) => Math.abs(send[side] - stop[side]) > 0.5,
+      );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(idle.trailing.slice(-2)).toEqual(["send", "mic"]);
       expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
       // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"; then the secondary text
       // color, only a hover background): no fill, the square in the secondary text color, a step

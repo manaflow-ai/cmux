@@ -88,6 +88,12 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
 }
+# Release publication controls are trusted release-environment jobs. They must
+# stay on the trusted Blacksmith fallback for forks too; a hosted runner cannot
+# receive release credentials.
+RELEASE_PUBLICATION_JOBS = {
+    "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
+}
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
@@ -748,6 +754,8 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
+        if name == "nightly.yml" and job in RELEASE_PUBLICATION_JOBS:
+            continue
         if matrix_branch and re.search(r'"hosted_runner":\s*"macos-[^"]+"', raw):
             continue
         label = BLACKSMITH_LABEL.search(raw).group(0)
@@ -1050,11 +1058,21 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
                 )
 
+                # A mixed macOS/Linux selector (cmux-next.yml's fast tier, whose
+                # fleet-client fallback runs on vars.LINUX_RUNNER) is fork-safe when
+                # its first clause is a hosted fork branch: a fork's own repository
+                # stops there and never reads the Linux label, and a fork PR into
+                # manaflow-ai still has to pass the macOS checks below.
+                fork_short_circuits = any(
+                    re.search(r"runs-on:\s*\$\{\{\s*" + re.escape(branch) + r"\s*\|\|", line)
+                    for branch in FORK_BRANCHES
+                )
+
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:
                         saw_linux += 1
                         self.assertTrue(
-                            hosted_linux,
+                            hosted_linux or (fork_short_circuits and hosted_macos),
                             f"{path.name}:{number} has no GitHub-hosted Linux fork branch",
                         )
                     if "vars.MACOS_RUNNER" in line:
@@ -1290,6 +1308,116 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "    runs-on: blacksmith-32vcpu-ubuntu-2404\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+
+
+
+# ci-macos.yml's compile admission runs on an owned Mac by design: the picker's
+# pull-request route (pr_runner_pool.py), and on other events MACOS_RUNNER_15,
+# which the overflow switch can point at the owned std pool. A reused machine
+# must hold no secret, so admission reads the Chromium engine only from the
+# Mac's own verified cache and the tailnet controller store, never with the
+# CEF R2 key. ci.yml passes ci-macos.yml no CEF key (118e52e14907) and the
+# job's environment holds none, so the key reference there was dead; this keeps
+# it from coming back with a `secrets:` pass from the caller.
+CI_MACOS = WORKFLOWS / "ci-macos.yml"
+COMPILE_ADMISSION_JOB = "macos-compile-admission"
+# secrets.NAME or secrets[...]; any other read of the context (toJSON(secrets)) too.
+SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*\w+|\[[^\]]*\])", re.IGNORECASE)
+SECRETS_CONTEXT = re.compile(r"\bsecrets\b", re.IGNORECASE)
+CEF_R2_SECRET = re.compile(r"CMUX_CEF_R2_(?:ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY)", re.IGNORECASE)
+CEF_FETCH_SCRIPT = re.compile(r"scripts/cmux-next/ensure-(?:cef|remote-browser-host)\.sh")
+# What keeps ensure-cef.sh and ensure-remote-browser-host.sh off every key source
+# on the runner: no R2 at all, and no ~/.secrets/cmux-cef.env.
+CEF_FETCH_NO_KEY_ENV = {
+    "CMUX_CEF_NO_R2": "1",
+    "CMUX_RB_HOST_NO_R2": "1",
+    "CMUX_CEF_R2_ENV_FILE": "/dev/null",
+}
+
+
+def _load_workflow(path: Path) -> dict:
+    import yaml  # noqa: PLC0415 (only these tests parse YAML)
+
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def compile_admission_secret_errors(document: dict) -> list[str]:
+    """Why ci-macos.yml's compile admission could hold a secret on the Mac it runs on."""
+    errors: list[str] = []
+    triggers = document.get("on") or {}
+    call = (triggers.get("workflow_call") or {}) if isinstance(triggers, dict) else {}
+    declared = sorted(name for name in (call.get("secrets") or {}) if CEF_R2_SECRET.fullmatch(name))
+    if declared:
+        errors.append(f"workflow_call declares {', '.join(declared)}; no job of ci-macos.yml takes the CEF R2 key")
+    job = (document.get("jobs") or {}).get(COMPILE_ADMISSION_JOB)
+    if not isinstance(job, dict):
+        return errors + [f"no {COMPILE_ADMISSION_JOB} job"]
+    text = json.dumps(job)
+    references = sorted(set(SECRET_REFERENCE.findall(text)))
+    errors.extend(f"{COMPILE_ADMISSION_JOB} references {reference}" for reference in references)
+    if not references and SECRETS_CONTEXT.search(text):
+        errors.append(f"{COMPILE_ADMISSION_JOB} reads the secrets context")
+    permissions = job.get("permissions")
+    if not isinstance(permissions, dict) or any(value != "read" for value in permissions.values()):
+        errors.append(f"{COMPILE_ADMISSION_JOB} permissions must all be read: {permissions!r}")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not CEF_FETCH_SCRIPT.search(str(step.get("run", ""))):
+            continue
+        env = step.get("env") or {}
+        label = step.get("name") or step.get("id") or "<step>"
+        for name, value in CEF_FETCH_NO_KEY_ENV.items():
+            if str(env.get(name, "")) != value:
+                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} must set {name}: {value!r} (got {env.get(name)!r})")
+        for name in env:
+            if CEF_R2_SECRET.fullmatch(name):
+                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} sets {name}")
+    return errors
+
+
+class CompileAdmissionHoldsNoSecretTests(unittest.TestCase):
+    def test_compile_admission_holds_no_secret(self) -> None:
+        self.assertEqual(compile_admission_secret_errors(_load_workflow(CI_MACOS)), [])
+
+    def test_rule_rejects_a_secret_on_admission(self) -> None:
+        document = {
+            "on": {"workflow_call": {"secrets": {"CMUX_CEF_R2_ACCESS_KEY_ID": {"required": "false"}}}},
+            "jobs": {
+                COMPILE_ADMISSION_JOB: {
+                    "permissions": {"contents": "read", "actions": "write"},
+                    "steps": [
+                        {
+                            "name": "fetch",
+                            "env": {"CMUX_CEF_R2_ACCESS_KEY_ID": "${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}"},
+                            "run": "scripts/cmux-next/ensure-cef.sh --optional",
+                        },
+                        {"name": "token", "env": {"T": "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}, "run": "true"},
+                    ],
+                }
+            },
+        }
+        errors = compile_admission_secret_errors(document)
+        joined = "\n".join(errors)
+        self.assertIn("workflow_call declares CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+        self.assertIn("references secrets.CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+        self.assertIn("references secrets['GLAEDA_ROUTE_APP_KEY']", joined)
+        self.assertIn("permissions must all be read", joined)
+        self.assertIn("must set CMUX_CEF_NO_R2", joined)
+        self.assertIn("sets CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+
+    def test_rule_accepts_a_keyless_admission(self) -> None:
+        document = {
+            "on": {"workflow_call": {"secrets": {"GLAEDA_ROUTE_APP_KEY": {"required": "false"}}}},
+            "jobs": {
+                COMPILE_ADMISSION_JOB: {
+                    "permissions": {"contents": "read", "actions": "read"},
+                    "steps": [
+                        {"name": "fetch", "env": dict(CEF_FETCH_NO_KEY_ENV), "run": "scripts/cmux-next/ensure-cef.sh --optional"},
+                        {"name": "gh", "env": {"GH_TOKEN": "${{ github.token }}"}, "run": "true"},
+                    ],
+                }
+            },
+        }
+        self.assertEqual(compile_admission_secret_errors(document), [])
 
 
 if __name__ == "__main__":

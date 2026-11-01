@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextCompat
 import CmuxNextIcons
 public import CmuxNextRemoteView
 import Foundation
@@ -34,11 +35,12 @@ public final class RemoteViewPageTab: BrowserTab {
     @ObservationIgnored private let session: RemoteViewPageSession?
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `cloudTransport`
-    /// reaches a Cloud machine's desktop over the app's Cloud tunnel.
+    /// reaches a Cloud machine's desktop over the app's Cloud tunnel; `loginKeychain` is the app's one
+    /// guard of the Keychain UI switch (a VNC sign-in).
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
          cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
-         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil) {
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil, loginKeychain: LoginKeychain) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -55,6 +57,7 @@ public final class RemoteViewPageTab: BrowserTab {
         case let .connect(record):
             let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
                                                      displayName: displayName)
+            session?.useLoginKeychain(loginKeychain)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):

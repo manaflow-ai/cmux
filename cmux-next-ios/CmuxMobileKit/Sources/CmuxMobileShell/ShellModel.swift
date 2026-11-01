@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
@@ -7,13 +8,16 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileVoice
 import CmuxMobileWorkspaces
-import Observation
 import OSLog
+import Observation
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 private let shellLog = Logger(subsystem: "dev.cmux.mobile", category: "shell")
@@ -84,6 +88,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
+    private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
     /// The team an email invite is being written for (live mode).
@@ -92,6 +98,15 @@ final class ShellModel {
     var shareURL: ShareItem?
     /// Connected Devices for the terminal on screen (its title menu).
     var connectedDevices: ConnectedDevicesItem?
+    var cloudChats: CloudChatsPresentation? {
+        didSet { if cloudChats == nil { cloudMacID = nil } }
+    }
+    var cloudMacID: String? { didSet { updateShownMacs() } }
+
+    struct CloudChatsPresentation: Identifiable {
+        let id = UUID()
+        let attention: CloudChatAttention?
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -200,6 +215,7 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        attachScreenSharing(signedIn: live != nil)
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -244,6 +260,11 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
+            NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
@@ -265,6 +286,14 @@ final class ShellModel {
     /// Mac inside it, every Mac on the Workspaces list and the Feed, none on
     /// Home and Settings (their links close after `MacLinkPolicy.idleAfter`).
     func updateShownMacs() {
+        if cloudChats != nil {
+            // The Cloud sheet may be opened while Workspaces or the Feed has
+            // links to other Macs. Keep the full directory shown while the
+            // sheet is up; narrowing this to the selected Cloud Mac makes the
+            // link policy evict the other Macs from its bounded set.
+            live?.showing(macIDs: nil)
+            return
+        }
         guard let live else { return }
         switch tab {
         case .workspaces:
@@ -304,7 +333,7 @@ final class ShellModel {
             return ChiefSession.conversationOnScreen == id
         }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
-              let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
+              let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID, macID: route.mac) else { return false }
         return destination == shown
     }
 
@@ -594,5 +623,33 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+extension ShellModel {
+    /// Signed in: one Screen Sharing service for the account (it opens the
+    /// device hub when its page first shows). Signed out: it ends and forgets the hub.
+    func attachScreenSharing(signedIn: Bool) {
+        guard signedIn else {
+            screenSharing?.stop()
+            screenSharing = nil
+            ScreenSharingService.current = nil
+            return
+        }
+        guard screenSharing == nil else { return }
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        let auth = auth
+        let configuration = ScreenSharingService.Configuration(
+            baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
+            deviceName: UIDevice.current.name,
+            tokens: DeviceHubAccountToken { try await auth.accessToken() }
+        )
+        let service = ScreenSharingService(configuration: configuration)
+        screenSharing = service
+        ScreenSharingService.current = service
+    }
 }
 #endif

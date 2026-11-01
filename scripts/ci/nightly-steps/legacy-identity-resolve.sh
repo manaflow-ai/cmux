@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly-identity-legacy: "Resolve the attempt". Moved out of the workflow to
 # keep nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# Apple's answer as the signing job saw it (a notary log or a stapled ticket).
 set -euo pipefail
 apple="$APPLE"
 refused="$REQUIREMENT_REFUSED"

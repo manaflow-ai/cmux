@@ -19,6 +19,8 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
+    /// The app refuses every `action.run`, as for a path it cannot open.
+    refuse_actions: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -41,6 +43,11 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// The app's `browser` with `caller`: the browser nearest it; unset
+    /// answers as an app from before #26648 (no `browser`).
+    browser: Option<Value>,
+    /// Every `.list` read answers no items (with `resource_result` set).
+    empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
     identity_fails: bool,
     /// What `Backend::caller_terminal` answers (none by default, whatever
@@ -209,8 +216,12 @@ impl Backend for Fake {
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            // A list answers an array: the record as its one item.
+            // A list answers an array: the record as its one item, or none when the
+            // test says lists are empty.
             let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            if list && self.empty_lists {
+                return Ok(json!([]));
+            }
             return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
         }
         let mut live = self.live.borrow_mut();
@@ -265,6 +276,13 @@ impl Backend for Fake {
             return Err(CallFailure {
                 kind: FailureKind::NotRun,
                 error: json!({"code": "transport.unavailable", "message": "app is down"}),
+                idempotency_key: None,
+            });
+        }
+        if self.refuse_actions && method == "action.run" {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "invalid_argument", "message": "no such file"}),
                 idempotency_key: None,
             });
         }
@@ -330,6 +348,37 @@ impl Backend for Fake {
         }
     }
 
+    // The fake's chat rows stand in for scoped acpmux info, separate from the
+    // daemon's terminal/agent records and the app's visible tab topology.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        let super::super::agents::chat::ChatCommand::State { target } = command else {
+            return Err(CallFailure::local(FailureKind::NotRun, "usage.invalid", "read only"));
+        };
+        self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        let chat = live
+            .daemon
+            .as_ref()
+            .or(self.daemon_snapshot.as_ref())
+            .and_then(|daemon| daemon["chats"].as_array())
+            .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
+        match chat {
+            Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
+            None => Err(CallFailure::local(
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
+            )),
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -350,7 +399,13 @@ impl Backend for Fake {
         if self.identity_fails {
             return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
         }
-        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+        Ok(self.caller.clone().map(|caller| {
+            let mut identity = json!({"caller": caller, "beside": self.beside});
+            if let Some(browser) = &self.browser {
+                identity["browser"] = browser.clone();
+            }
+            identity
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -809,7 +864,7 @@ fn json_rpc_lifecycle_and_errors() {
         .handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize",
                         "params": {"protocolVersion": "1999-01-01"}}))
         .unwrap();
-    assert_eq!(newest["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
+    assert_eq!(newest["result"]["protocolVersion"], acpmux::secret_mcp::PROTOCOL_VERSIONS[0]);
     assert_eq!(
         server.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})),
         None
@@ -821,6 +876,17 @@ fn json_rpc_lifecycle_and_errors() {
                         "params": {"name": "no_such_tool"}}))
         .unwrap();
     assert_eq!(missing["error"]["code"], -32602);
+    assert_eq!(missing["error"]["message"], "unknown tool: no_such_tool", "{missing}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["code"], -32602);
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: workspace_lst; did you mean workspace_list?",
+        "{typo}"
+    );
 
     let listed = server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"}));
     let tools = listed.unwrap()["result"]["tools"].as_array().cloned().unwrap();
@@ -1451,6 +1517,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod machine_catalog;
+mod retained;
 mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
@@ -1476,6 +1543,20 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
     assert!(all.len() > 100, "the full list stays the API");
+    // An unknown name's hint names only what tools/list offers here.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["message"], "unknown tool: workspace_lst", "{typo}");
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "x", "method": "tools/call",
+                        "params": {"name": "cmux_exce"}}))
+        .unwrap();
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
+        "{typo}"
+    );
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
     // Docs returns a matching tool's schema, best match first: the daemon's
@@ -1677,6 +1758,18 @@ fn cmux_docs_finds_a_tool_from_a_sentence() {
     // A tool's own name finds that tool first, not a longer one that holds it.
     let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
     assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+    // A query of exact names answers only those tools; the other matches by name.
+    let tools = exact["structuredContent"]["tools"].as_array().map(Vec::len);
+    assert_eq!(tools, Some(1), "{exact}");
+    assert!(!exact["structuredContent"]["more"].as_array().is_none_or(Vec::is_empty), "{exact}");
+    let pair = call(&mut server, "cmux_docs", json!({"query": "tab_list pane_split"}));
+    let names: Vec<&str> = pair["structuredContent"]["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert_eq!(names, ["tab_list", "pane_split"], "{pair}");
 
     // A script that calls a name no tool has hears the near ones.
     let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
@@ -1847,6 +1940,189 @@ fn a_record_works_where_its_id_goes() {
     let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
     let add = add.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
+}
+
+/// A tab moved to a pane needs only the pane: its own id, screen and workspace are looked
+/// up and the tab goes last, where the daemon refused the move without all four
+/// (tests/tool-evals r13d: a docs lookup and two reads before each move). A workspace
+/// alone moves it to that workspace's active pane.
+#[test]
+fn a_tab_moves_to_a_pane_named_alone() {
+    let pane = "pane_00000000000000000000000000000007";
+    let screen = "screen_00000000000000000000000000000008";
+    let workspace = "ws_00000000000000000000000000000009";
+    let record = json!({"id": pane, "screen_id": screen, "workspace_id": workspace});
+    let fake = Fake { resource_result: Some(record), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let tab = "tab_00000000000000000000000000000001";
+    for arguments in [
+        json!({"tab": tab, "destination_pane": "pane_000000000000000000000000000000"}),
+        json!({"tab": tab, "destination_workspace": workspace}),
+    ] {
+        let result = server.call(&json!({"name": "tab_move", "arguments": arguments}));
+        let result = result.expect("a tool result");
+        assert_ne!(result["isError"], true, "{result}");
+    }
+    let sent = server.backend.sent.borrow();
+    let moves: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.move").collect();
+    assert_eq!(moves.len(), 2, "{sent:?}");
+    // A pane named by a prefix goes as its own id, with its parents; the tab goes last.
+    let first = &moves[0]["request"]["params"];
+    assert_eq!(first["destination_pane"], pane, "{}", moves[0]);
+    assert_eq!(first["destination_screen"], screen, "{}", moves[0]);
+    assert_eq!(first["destination_workspace"], workspace, "{}", moves[0]);
+    assert_eq!(first["index"], u32::MAX, "{}", moves[0]);
+    // A workspace alone: its active screen and pane.
+    let second = &moves[1]["request"]["params"];
+    assert_eq!(second["destination_screen"], "current", "{}", moves[1]);
+    assert_eq!(second["destination_pane"], "current", "{}", moves[1]);
+    drop(sent);
+
+    // A workspace made empty has no pane: the move is refused before it is sent, and
+    // the message names how to make one.
+    let empty = Fake {
+        resource_result: Some(json!({"id": workspace})),
+        empty_lists: true,
+        ..Fake::default()
+    };
+    let mut server = Server::new(empty, None);
+    let result = server
+        .call(&json!({"name": "tab_move",
+                       "arguments": {"tab": tab, "destination_workspace": workspace}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("pane_create"), "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|s| s["request"]["operation"] == "tab.move"), "{sent:?}");
+}
+
+/// `open` puts a file in one call: below this chat it splits this pane down and opens the
+/// file with that pane as the target; without the app it says so instead of opening
+/// nothing (tests/tool-evals open-r16b: 2 to 4 steps an open before).
+#[test]
+fn open_splits_and_opens_in_one_call() {
+    let pane = "pane_00000000000000000000000000000007";
+    let mut actions = fixture_actions();
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
+        "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "openBrowser", "title": "New Browser Tab", "cli_name": "tab new-browser",
+        "cli": true, "targets": ["tab"],
+        "arguments": [{"name": "url", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    // One record answers every daemon read: the split's new pane, the pane's one tab
+    // (`tab_list`) and the chat terminal's process (`terminal_process_get`).
+    let tab = "tab_0000000000000000000000000000000b";
+    let created = json!({"pane_id": pane, "id": tab, "focused": true, "cwd": "/work/chat"});
+    let fake = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created.clone()),
+        caller_terminal: Some("term_1".into()),
+        ..Fake::default()
+    };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "./docs/notes.md", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let split = sent.iter().find(|s| s["request"]["operation"] == "pane.split");
+    let split = split.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(split["request"]["params"]["direction"], "down", "{split}");
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], pane, "{run}");
+    // The app opens only an absolute path: a relative one is the chat's folder's.
+    assert!(run["params"].to_string().contains("\"/work/chat/docs/notes.md\""), "{run}");
+    drop(sent);
+
+    // A page opens beside a tab (`tab new-browser` takes a tab, not a pane).
+    server.backend.sent.borrow_mut().clear();
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "page", "url": "https://example.com", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], tab, "{run}");
+    drop(sent);
+
+    // A refused open closes the pane it split for the viewer.
+    let refusing = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created),
+        refuse_actions: true,
+        ..Fake::default()
+    };
+    let mut refused = Server::new(refusing, None);
+    let result = refused
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/nope.md", "where": "left"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    let sent = refused.backend.sent.borrow();
+    let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
+    let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
+    assert!(close["request"].to_string().contains(pane), "{close}");
+    drop(sent);
+
+    // `where` as an object names its workspace: the page goes there, not to the right.
+    let docs = "ws_00000000000000000000000000000009";
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "file", "path": "a.md",
+                                                     "where": {"workspace": docs}}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let listed = sent.iter().rev().find(|s| s["request"]["operation"] == "pane.list");
+    let listed = listed.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(listed["request"].to_string().contains(docs), "{listed}");
+    drop(sent);
+
+    // No app: `open` says so, where an agent would otherwise try a terminal.
+    let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "page", "url": "https://example.com"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("needs the cmux app"), "{result}");
+}
+
+/// A history read answers the scrollback as lines of plain text, unstyled, where the
+/// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
+/// r13a). Asked for `styled`, it answers the rows as the daemon sends them.
+#[test]
+fn terminal_history_reads_as_plain_lines() {
+    let rows = json!({"start": "0", "next": null, "rows": [
+        {"row": 0, "runs": [{"text": "row-1-v7", "fg": null, "bg": null, "attrs": 0}]},
+        {"row": 1, "runs": [{"text": "row-2-", "fg": null}, {"text": "v14", "fg": "#fff"}]},
+    ]});
+    let fake = Fake { resource_result: Some(rows), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    let plain = server
+        .call(&json!({"name": "terminal_history_read", "arguments": {"terminal": terminal}}))
+        .expect("a tool result");
+    assert_eq!(plain["structuredContent"]["text"], "row-1-v7\nrow-2-v14", "{plain}");
+    assert!(plain["structuredContent"].get("rows").is_none(), "{plain}");
+    let styled = server
+        .call(&json!({"name": "terminal_history_read",
+                       "arguments": {"terminal": terminal, "styled": true}}))
+        .expect("a tool result");
+    assert!(styled["structuredContent"]["rows"].is_array(), "{styled}");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.history.read").collect();
+    assert_eq!(reads[0]["request"]["params"]["styled"], false, "{}", reads[0]);
+    assert_eq!(reads[1]["request"]["params"]["styled"], true, "{}", reads[1]);
 }
 
 /// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits

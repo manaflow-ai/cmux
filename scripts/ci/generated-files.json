@@ -28,6 +28,12 @@
       "status": "build"
     },
     {
+      "id": "feature-tips",
+      "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
+      "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [

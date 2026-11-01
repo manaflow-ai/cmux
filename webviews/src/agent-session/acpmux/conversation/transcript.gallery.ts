@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -392,10 +393,88 @@ const shellDisclosureChecks = {
   },
 };
 
+/// A search call whose label (a long alternation) is cut at the row's edge until it is opened
+/// (ToolRow.tsx `is-whole-open`; Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis
+/// EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE").
+const CUT_PATTERN =
+  "useAnchoredCollapse|useTranscriptDisclosure|holdFold|keepFold|foldToggleAt|ANCHORED_COLLAPSE_EVENT|trimmedFoldRoom";
+const cutLineRows = [
+  user("Find every place that holds a fold", 3, { id: "gallery-cut-line-user" }),
+  activity(
+    [
+      tool(`Grep ${CUT_PATTERN}`, "search", "completed", {
+        output: "src/agent-session/acpmux/App.tsx:4268: const line = foldHoldTarget(toggle, node);",
+      }),
+    ],
+    2.8,
+    { id: "gallery-cut-line-activity" },
+  ),
+  assistant("Two places hold a fold: the click and the anchored-collapse event.", 2.6, {
+    id: "gallery-cut-line-answer",
+  }),
+  summary(2.6, { id: "gallery-cut-line-summary", status: "completed", toolCount: 1 }),
+];
+const cutLine = ".cv-tool.is-toggle";
+/// Opens Worked for, and with `open` the cut line too; fails when the opened label is still cut.
+const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(cutLine)));
+  if (!open) return;
+  await ctx.click({ selector: cutLine });
+  await ctx.waitFor(() => ctx.find({ selector: cutLine }).getAttribute("aria-expanded") === "true");
+  const text = ctx.find({ selector: `${cutLine} > .cv-tool__text` }) as HTMLElement;
+  if (text.scrollWidth > text.clientWidth + 1) throw new Error("the opened line's label is still cut");
+};
+
+/// A long command output at the transcript's end, opened with Show all: closing it from its Show
+/// less, scrolled down to, leaves the reader at the control they clicked, never on a view of blank
+/// room under rows that closed up above it (foldAnchor.ts `foldHoldTarget`, review BLOCK at 5e59e449).
+const SHOW_LESS_LOG = Array.from(
+  { length: 160 },
+  (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,
+).join("\n");
+const showLessAtEnd = async (ctx: PlayContext) => {
+  await openSingleShell(ctx);
+  const more = { selector: ".cv-shell .cv-output-more" };
+  await ctx.click(more);
+  await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
+  // The opened output lands first: its fold plays and the rows under it place by their drawn
+  // heights, so the content stops growing (three frames at one height, nothing animating).
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  let height = -1;
+  let still = 0;
+  await ctx.waitFor(() => {
+    still = scroller.scrollHeight === height ? still + 1 : 0;
+    height = scroller.scrollHeight;
+    return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
+  });
+  // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
+  // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
+  // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
+  // pixel, so its own glide moves nothing that matters.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
+  (ctx.find(more) as HTMLElement).scrollIntoView({ block: "end" });
+  scroller.dispatchEvent(new Event("scroll"));
+  const view = () => scroller.getBoundingClientRect();
+  await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
+  const row = ctx.find(more).closest(".acpmux-row")!;
+  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
+  await ctx.click(more);
+  const clicked = performance.now();
+  // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
+  await ctx.waitFor(
+    () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
+    { capMs: 5000 },
+  );
+  const control = (ctx.find(more) as HTMLElement).getBoundingClientRect();
+  if (control.bottom <= view().top || control.top >= view().bottom)
+    throw new Error("closing the output left the view on blank room: the control the reader clicked is out of view");
+};
+
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
 /// commands, short narration, a compaction and a subagent ending, two answers to the person, a
-/// command after the second and a closing line. Only the work folds, each stretch under its own
-/// line between the answers (turns.ts `foldSegments`).
+/// command after the second and a closing line. Once complete, everything before the closing
+/// answer folds under the turn's one Worked-for line.
 const takeawayTurnRows = [
   user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
   activity(
@@ -1117,6 +1196,33 @@ function renderTool(page: string, update?: string) {
 /// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
 const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
 
+/// A person's turn, then two turns the agent ran on its own (backgroundTurns.ts): a quiet one, one
+/// muted line that opens to its rows, and one with something to say, whose rows draw as they came.
+const backgroundTurnRows = [
+  user("Run the migration tests in the background and tell me if anything breaks", 9),
+  assistant("Started the migration tests in the background.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-quiet"),
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+  }),
+  activity(
+    [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
+    6.9,
+    { inBackground: "gallery-bg-quiet" },
+  ),
+  assistant("Nothing new for you yet.", 6.8, { inBackground: "gallery-bg-quiet" }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-loud"),
+    background: { id: "gallery-bg-loud", trigger: "task_notification", running: false, quiet: false },
+  }),
+  assistant(
+    "The migration tests finished: 2 of 14 failed in `orders_backfill`. Want me to look at the failures?",
+    4.9,
+    { inBackground: "gallery-bg-loud" },
+  ),
+];
+
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
 /// task's notification, a system reminder alone (no row) and another agent's message.
 const foldNoBlankRows = [
@@ -1719,11 +1825,11 @@ export default agentPaneEntry({
       },
     },
     "takeaways-stay-open": {
-      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      note: 'A long finished turn (synthetic text): the closing "Pushed." stays in sight, and the earlier dialogue folds into one Worked-for line.',
       snapshot: chat(takeawayTurnRows),
     },
     "takeaways-fold-open": {
-      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      note: "The same turn with Worked for opened: every command, intermediate answer, short note, and compaction remains in order.",
       snapshot: chat(takeawayTurnRows),
       play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
@@ -1812,9 +1918,9 @@ export default agentPaneEntry({
       ),
     },
     "steer-ended": {
-      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      note: "A turn Leo steered, once it ended: the whole connected turn folds under one Worked for keyed by its prompt, with the answer below it. Play: that fold opens on the call before the steer, the reply, the steer, then the call after it, in the order they ran.",
       snapshot: chat([
-        user("Fix the flaky login test", 3),
+        user("Fix the flaky login test", 3, { id: "steer-ended-prompt" }),
         activity(
           [
             thought("The login test fails one run in five; check how the retry waits for the session."),
@@ -1832,9 +1938,11 @@ export default agentPaneEntry({
         summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
       ]),
       play: async (ctx: PlayContext) => {
-        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        // A finished turn draws one fold, the prompt's; the steer and the work after it open inside it.
+        const fold = '[data-row-id="worked-steer-ended-prompt"] .cv-worked';
         await ctx.click({ selector: fold });
         await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="steer-ended-steer"]'));
       },
     },
     "working-tokens": {
@@ -2395,7 +2503,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {
@@ -2794,6 +2908,33 @@ export default agentPaneEntry({
         );
       },
     },
+    "failed-send-too-large": {
+      note: 'A prompt larger than one message (message.too_large): acpmux refuses it the same way at every Retry, so the card names the attachment to take out and offers Edit, Remove and Details, never Retry (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Why does the dashboard look like this on the staging build?", 1, {
+          failed: true,
+          error:
+            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 900,
+            hop: "acpmux",
+            code: "-32000",
+            reason: "message.too_large",
+            error: "message too large to send: 16907300 bytes, the limit is 15728640",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="too-large"]'));
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
@@ -2995,6 +3136,49 @@ export default agentPaneEntry({
             "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
         },
       },
+    },
+    "secret-card-unsent": {
+      note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
+        );
+      },
+    },
+    "markdown-fence-pipes": {
+      note: "A reply that quotes Markdown in a four-backtick fence (its inner three-backtick fence stays text) and a table whose cell holds an escaped pipe (a literal pipe, not a column break).",
+      snapshot: chat(
+        [
+          user("Show me the fence and the table", 2),
+          assistant(
+            [
+              "Quoting a reply keeps its own fence:",
+              "",
+              "````md",
+              "```js",
+              "console.log(1);",
+              "```",
+              "````",
+              "",
+              "| command | note |",
+              "| --- | --- |",
+              "| `ls \\| head` | the pipe stays in its cell |",
+            ].join("\n"),
+            1,
+          ),
+        ],
+        { isWorking: false },
+      ),
     },
     queued: {
       note: "Prompts queued behind a running turn.",
@@ -3298,6 +3482,47 @@ export default agentPaneEntry({
         await clickHoldsLine(ctx, ".cv-command", true);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
+    "cut-line-closed": {
+      note: "Leo, ask-486cb2cec3: \"why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE\". A search call's long pattern cut at the row's edge, closed. Play: open Worked for.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(cutLineRows),
+      play: showCutLine(false),
+    },
+    "cut-line-open": {
+      note: "The same line opened: its label wraps to the whole pattern above the output, never only its first words.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(cutLineRows),
+      play: showCutLine(true),
+    },
+    "show-less-keeps-place": {
+      note: "A long command output at the transcript's end, opened with Show all, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
+      checks: {
+        layoutShiftMax: {
+          value: 1,
+          reason:
+            "Show all and Show less open and close a 160-line output; the play checks the clicked control stays in view.",
+        },
+      },
+      snapshot: chat(
+        shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
+      ),
+      play: showLessAtEnd,
+    },
+    "background-turns": {
+      note: "A person's turn, then a turn the agent ran on its own after a background task finished with nothing new to tell: one muted line, Background task finished, closed. Then one that has something to say (a failure and a question), drawn as its rows came. No Worked for or footer for either. Play: open the quiet line.",
+      snapshot: chat(backgroundTurnRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the quiet line intentionally reveals its rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
+        await ctx.click(line);
+        await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
       },
     },
     "fold-no-blank-collapsed": {

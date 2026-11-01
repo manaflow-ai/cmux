@@ -3,9 +3,11 @@
 // second dot codex. since it's just all looks anyways. first 2 dots minimal on the new tab page, and
 // then when you're in a chat you can also switch the dots if you hover on that bottom area"). The
 // same chat and the same New Tab page in Claude's look (the first dot, the default: the composer as
-// it was) and Codex's (the second dot), and the dots on hover in a chat's bottom area. The
-// `codex-*-alt-*` variants are the other Codex layouts drawn for the pick (gallery-only CSS over the
-// shipped one): the shipped one, `codex-chat`, tucks the folder strip under the box as Codex does.
+// it was) and Codex's (the second dot), and the dots on hover in a chat's bottom area. Both looks lay
+// the buttons out as Claude's (Leo 2026-11-01: "the placement of the buttons are just really bad
+// compared to our claude code version", then "we already have a good version"); Codex's keeps its
+// folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
+// (gallery-only CSS over the shipped one), the replaced in-box row among them.
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
@@ -162,6 +164,41 @@ const ALT_TEXT_ROW = `
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
+/// Replaced (cmux #28901's in-box row, last good commit 8b44a8a1dc2): + and the mode left, the ring,
+/// the model, the mic and Send right, in one 52 px row inside the box under the prompt. Drawn here
+/// with gallery-only CSS over today's DOM (the quiet row pulled up into the box's last row), close to
+/// the replaced layout, not pixel-exact.
+const ALT_IN_BOX_ROW = `
+.acpmux-main .acpmux-dock > .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner):has(> .acpmux-composer-field-menu) { grid-template-rows: auto auto 52px; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-composer-field-menu > * { grid-column: 1 / -1; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-md-field { padding-left: 16px; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-md-placeholder { left: 16px; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-composer-inner > .acpmux-composer-plus { grid-row: 3; align-self: center; margin: 0 0 0 12px; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-composer-inner > .acpmux-composer-actions { grid-row: 3; align-self: center; margin: 0 12px 0 0; }
+.acpmux-composer[data-composer-look="codex"] > .acpmux-chrome-area > .acpmux-composer-foot {
+  position: relative; z-index: calc(var(--layer-raised, 1) + 1); height: 52px; margin: -52px 0 0; padding-inline: 50px 84px;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-access { margin-inline-start: 0; }`;
+
+/// The send control's designs (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS", then "THIS IS THE
+/// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
+/// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
+/// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
+/// state this replaced) is never drawn.
+const runningChat = () => {
+  const snapshot = startedChat();
+  return { ...snapshot, isWorking: true, summary: { ...snapshot.summary!, steering: true } };
+};
+const DRAFT = { draft: "Also cover the 503 path" };
+const ALT_AFTER_MIC = `
+.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
+const ALT_FILLED_DISC = `
+.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
+  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+}`;
+
 const chatHeight = 360;
 
 export default agentPaneEntry({
@@ -225,16 +262,27 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look (the pick): one row in the box under the prompt, + and the mode left, the context ring, the model and effort, the mic and Send right.",
+      note: "The second dot, Codex's look (the pick): Claude's button layout, + left of the prompt, the mic right of it, the mode, model, effort and ring in the quiet row under the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
+    "codex-chat-alt-in-box-row": {
+      note: "Replaced (cmux #28901, last good commit 8b44a8a1dc2): Codex's own 52 px row in the box under the prompt. Replaced on Leo's \"we already have a good version\" (2026-11-01). Gallery-only CSS, close to the old layout.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", ALT_IN_BOX_ROW),
+    },
+    "codex-chat-alt-send-after-mic": {
+      note: "Alternate (not shipped): the pick with Codex's send slot after the mic. Not picked: the mic would step left whenever a turn starts or a prompt is typed, and Leo's good version keeps it at the edge.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_AFTER_MIC),
+    },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the quiet row's empty middle: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");
-        await ctx.hover({ selector: ".acpmux-composer-under" });
+        await ctx.hover({ selector: ".acpmux-composer-foot" });
       },
     },
     "composer-glass-quiet-claude": {
@@ -253,7 +301,7 @@ export default agentPaneEntry({
       play: (ctx) => glassLevel(ctx, "claude", "clear"),
     },
     "composer-glass-balanced-codex": {
-      note: "The recommended 70% tint and 24px blur in Codex's one-row look, over the same busy backdrop.",
+      note: "The recommended 70% tint and 24px blur in Codex's look, over the same busy backdrop.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
     },
@@ -275,6 +323,40 @@ export default agentPaneEntry({
       snapshot: newChat(),
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
     },
+    "send-one-slot-claude-running": {
+      note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot before the mic is Stop; the mic keeps the right edge.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-claude-typed": {
+      note: "The pick, Claude's look: the first letter turns Stop's slot into Send, Claude desktop's ↵, which steers the turn as Return does (⌘Return queues). One send control, never two.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-codex-running": {
+      note: "The pick, Codex's look: the same one slot before the mic as Claude's, Stop while the prompt is empty.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-one-slot-codex-typed": {
+      note: "The pick, Codex's look: Send (↵) in the same slot once a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-alt-after-mic-claude": {
+      note: "Alternate (not shipped): Claude's look with the slot after the mic, as Codex's. Not picked: the mic would step left each time a turn starts or a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
+    },
+    "send-alt-filled-disc": {
+      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21), and the slot stays before the mic.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
+    },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",
       height: 520,
@@ -290,14 +372,14 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "newtab-classic-codex": {
-      note: "Classic New Tab with Codex's look: the page stays Classic (its dot marked among the styles), its box's row in Codex's order, the mode first and the model by Send.",
+      note: "Classic New Tab with Codex's look: the page stays Classic (its dot marked among the styles), its box's row in the same order as Claude's look.",
       height: 520,
       ready: newTab({ template: "classic" }),
       snapshot: noChat(manySessions(4)),
       play: (ctx) => look(ctx, "codex"),
     },
     "newtab-cards-codex": {
-      note: "Cards New Tab with Codex's look: the project strip is Codex's tray over the box, the model in the box's row, the chat cards under it.",
+      note: "Cards New Tab with Codex's look: the project strip is Codex's tray over the box, the model in the quiet row under it as Claude's look, the chat cards under it.",
       height: 560,
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),

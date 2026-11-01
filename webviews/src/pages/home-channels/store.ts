@@ -11,6 +11,7 @@ import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
+import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
 import {
@@ -985,7 +986,11 @@ export class HomeChannelsStore {
     if (activity) patch.activity = activity;
     // The open thread's view takes its root and replies from events too (a reply, an edit).
     const view = this.snapshot.threadView;
-    const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
+    // The merged copies: a reply without a root has its thread's root there (model `withThreadRoots`).
+    const merged = new Map((patch.messages ?? []).map((m) => [m.id, m]));
+    const threadIncoming = view
+      ? incoming.map((m) => merged.get(m.id) ?? m).filter((m) => m.id === view.root || threadOf(m) === view.root)
+      : [];
     if (view && threadIncoming.length > 0) {
       // Only what follows the loaded pages: a reply between pages comes with the next page.
       const tail = view.hasMore
@@ -1173,7 +1178,7 @@ export class HomeChannelsStore {
           // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
           // retry boundary; mounted cards alone must not retry failures in a loop.
           if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-          await this.loadRunSteps(run);
+          if (readPresentation(conversation) !== "transcript") await this.loadRunSteps(run);
         }
       }
     };

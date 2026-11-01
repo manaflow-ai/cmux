@@ -27,6 +27,8 @@ struct ContextMenuStandardTests {
                 nested += levels(children, path: "\(path) › \(id.rawValue)")
             case .folder(let folder, let children):
                 nested += levels(children, path: "\(path) › \(folder.title)")
+            case .group(let group, let children):
+                nested += levels(children, path: "\(path) › \(group.title)")
             }
         }
         return [(path, ids)] + nested
@@ -71,7 +73,7 @@ struct ContextMenuStandardTests {
 
     /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. The catalog
     /// also places Inspect Element (#24707) last, in its own group; the app leaves that row out
-    /// until Debug Settings' UI pointer inspector is on (PointerInspectorMenuGateTests).
+    /// while Debug Settings' UI pointer inspector is off (PointerInspectorMenuGateTests).
     @Test func newTabMenuListsTheKindsFirst() {
         let entries = menus.entries(for: .newTab)
         let ids = entries.map { entry -> String in
