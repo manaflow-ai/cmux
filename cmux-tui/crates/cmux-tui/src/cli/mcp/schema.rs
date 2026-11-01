@@ -160,10 +160,15 @@ fn primitive(expression: &Value) -> Value {
         "uint64" => json!({ "type": "integer", "minimum": 0 }),
         "int32" => json!({ "type": "integer", "minimum": i32::MIN, "maximum": i32::MAX }),
         "float64" => json!({ "type": "number" }),
+        // The wire takes a decimal string (a u64 is past JSON's safe
+        // integers). Agents send numbers, so `plan` (v2_tools.rs) takes a
+        // whole JSON number too (tests/tool-evals: `terminal_wait
+        // {timeout_ms: 10000}` failed). The type stays one string: some
+        // clients refuse a type array.
         "decimal" => json!({
             "type": "string",
             "pattern": "^(0|[1-9][0-9]{0,19})$",
-            "description": "An unsigned integer written as a decimal string.",
+            "description": "A whole number, as a decimal string; a JSON number is also taken.",
         }),
         "base64" => json!({ "type": "string", "contentEncoding": "base64" }),
         _ => json!({}),
@@ -175,12 +180,15 @@ fn primitive(expression: &Value) -> Value {
     schema
 }
 
-/// A public id, unique id prefix, session-qualified id, `current`, or name.
+/// A public id, unique id prefix, session-qualified id, `current`,
+/// `focused`, or name.
 pub(super) fn id(resource: &str) -> Value {
     let description = match id_prefix(resource) {
         Some(prefix) => format!(
             "The {resource}: its public id (`{prefix}_…`), a unique prefix of it, \
-             `<session>:{prefix}_…` for another session, `current`, or its exact name."
+             `<session>:{prefix}_…` for another session, `current` for the caller's own \
+             (the one that holds this chat), `focused` for the one the person looks at, \
+             or its exact name."
         ),
         None => format!("The {resource} id."),
     };

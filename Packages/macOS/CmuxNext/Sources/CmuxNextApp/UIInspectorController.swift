@@ -245,7 +245,7 @@ final class UIInspectorController {
         Task { @MainActor [weak self, weak window, weak view] in
             guard let self, let window, let view, self.selectionGeneration == generation else { return }
             guard let services = self.services else { return }
-            let image = try? await AppWindowImage(services: services).capture(window, masked: false)
+            let image = try? await AppWindowImage(services: services).capture(window)
             guard self.selectionGeneration == generation else { return }
             let png = image.flatMap { Self.crop($0, rect: view.convert(view.bounds, to: nil), window: window) }
             self.finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: nil)
@@ -316,7 +316,6 @@ final class UIInspectorController {
         "SidebarContainerView": "CmuxNextSidebar/Views/SidebarContainerView.swift:22",
         "SidebarRowView": "CmuxNextSidebar/Views/SidebarRowView.swift:8",
         "SidebarItemListRowView": "CmuxNextSidebar/Views/SidebarItemListRowView.swift:9",
-        "SidebarTabRowView": "CmuxNextSidebar/Views/SidebarTabRowView.swift:11",
         "TabStripView": "CmuxNextTabs/TabStripView.swift:15",
         "PaneToolbarView": "CmuxNextTabs/PaneToolbarView.swift:32",
     ]

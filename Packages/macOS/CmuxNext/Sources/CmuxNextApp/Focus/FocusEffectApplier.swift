@@ -35,6 +35,13 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard let window else { return }
             self?.ownedWindowDidBecomeKey(window)
             self?.childWindowDidBecomeKey(window)
+            // This window took the keys back from a page it focused, with no click (ChildPageFocus.keysReturned):
+            // the model re-applies its target, which grants the page the keys again. Sent, not reported
+            // as a responder change: that is dropped while effects apply, and the page would stay
+            // blurred; a send during an apply is reduced once the batch ends.
+            if let self, window === self.controller.window, self.pageFocus.keysReturned(to: window) {
+                self.controller.focus.send(.responder(.windowOrNone, source: .programmatic))
+            }
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in
@@ -109,7 +116,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
             // Not a bar leaving the window (its pane mid-move): an edit begun there ends at once (cx-p0fz).
             let bar = entry.chrome.addressBar
-            if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) { bar.focus() }
+            if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) {
+                if controller.focus.isReturningToOmnibar { bar.restoreFocus() } else { bar.focus() }
+            }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
@@ -188,10 +197,26 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            // Another of this window's Chromium page windows took the keys without a click (the New
+            // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
+            // Its own window being key ends it, so the ask runs once.
+            if pageFocus.page === page {
+                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                return
+            }
             // One key change (#24913): the old page blurs without this window taking the keys
             // back first; the grant moves them straight to the new page window.
             pageFocus.focus(page)
         }
+    }
+
+    /// Whether the key window is one of this window's Chromium page windows (the key rule's own,
+    /// never another cmux window's page or a popup's) other than `page`'s own.
+    private func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let key = NSApp.keyWindow, key !== window, key.isChromiumPageWindow,
+              paneShowingDevTools(window: key) == nil,
+              ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return false }
+        return (page as? CEFTab)?.isPageWindow(key) != true
     }
 
     /// The docked DevTools of `page` takes the keyboard (a separate target
@@ -250,7 +275,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func facts(of other: NSWindow, in window: NSWindow, clicked: Bool = false,
                        overPane: Bool = false, isDevTools: Bool = false) -> ChildWindowKeyRule.Facts {
         let parent: ChildWindowKeyRule.Parent = other.parent === window ? .thisWindow : other.parent == nil ? .none : .other
-        return ChildWindowKeyRule.Facts(parent: parent, isPanel: other is NSPanel, isChromiumPage: Self.isChromiumPageWindow(other),
+        return ChildWindowKeyRule.Facts(parent: parent, isPanel: other is NSPanel, isChromiumPage: other.isChromiumPageWindow,
                                         isDevTools: isDevTools, clicked: clicked, overPane: overPane,
                                         thisWindowIsActive: controller.services.windows.active === controller)
     }
@@ -352,14 +377,6 @@ final class FocusEffectApplier: FocusEffectApplying {
             controller.focus.responderDidChange(chosen ? .content(pane: pane.key) : .windowOrNone, source: chosen ? .mouse : .programmatic)
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
         }
-    }
-
-    /// Chromium's page windows (and docked DevTools) are CEF Views windows,
-    /// `CefNSWindow`; extension popups and other bubbles are plain
-    /// Chromium widget windows.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
     }
 
     private func paneShowingDevTools(window child: NSWindow) -> (key: String, tab: any BrowserDevToolsHosting)? {

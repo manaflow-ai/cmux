@@ -11,11 +11,8 @@ nonisolated enum NotificationSettingsSchema {
         let defaults = NotificationPreferences()
         let attention = AttentionSettings()
         let sameAsAbove = SettingsText.keyed("settings.default.sameAsAbove", "Same as above")
-        let sources: [(NotificationSource, SettingText)] = [
-            (.agent, SettingsText.keyed("settings.notifications.source.agent", "Agents")),
-            (.terminal, SettingsText.keyed("settings.notifications.source.terminal", "Terminal Programs")),
-            (.cli, SettingsText.keyed("settings.notifications.source.cli", "cmux notify")),
-        ]
+        let sources: [(NotificationSource, SettingText)] = [NotificationSource.agent, .terminal, .cli]
+            .map { ($0, $0.settingsTitle) }
         var rows = [
             SettingDescriptor(
                 ["notifications", "dismissal"], section: .notifications, group: dismissal,

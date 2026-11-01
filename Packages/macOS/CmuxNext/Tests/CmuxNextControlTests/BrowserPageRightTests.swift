@@ -84,7 +84,7 @@ import Testing
 
     func install(_ snapshot: ControlSnapshot = Self.homeSnapshot()) -> (ControlRouter, OpeningExecutor) {
         let executor = OpeningExecutor()
-        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         executor.router.withLock { $0 = router }
         BrowserPageService(engine: NoEngine()).install(on: router)
         router.snapshots.publish { $0 = snapshot }

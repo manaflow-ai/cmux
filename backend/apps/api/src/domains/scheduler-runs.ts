@@ -27,6 +27,8 @@ export const runLimitMs = (body: Body, wallClockSeconds: number | undefined): nu
   if (wallClockSeconds !== undefined) return wallClockSeconds * 1000
   // Agent and code runs may sleep and wait for hours; the 24 h default is the abuse limit (A18).
   if (body.type === "agent_prompt" || body.type === "code") return AGENT_RUN_DEFAULT_MS
+  // A Chief job's run only hands the prompt to the Chief's conversation (the turn is the Chief's own).
+  if (body.type === "chief") return RUN_GRACE_MS
   // Sleeps, and every machine or agent step's own timeout (org workflows), plus grace.
   return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : s.type === "machine" || s.type === "agent" ? s.timeout_seconds * 1000 : 0), 0) + RUN_GRACE_MS
 }

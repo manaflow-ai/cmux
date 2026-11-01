@@ -18,8 +18,17 @@ pub fn of_this_process() -> Option<String> {
 /// The machine the person's own send ran on (`_meta.acpmux.cliHost`): the transcript says
 /// "via CLI on big-red" under their prompt. None for an agent's send, named or in a session.
 pub fn person_host(named: bool) -> Option<String> {
-    let in_session = in_session(|key| std::env::var(key).ok());
-    (!named && !in_session).then(crate::host_pressure::host_name)
+    (!from_an_agent(named)).then(crate::host_pressure::host_name)
+}
+
+/// An agent sends it: one that names itself (`named`: `--from`, `ACPMUX_FROM`) or one running in
+/// an acpmux session. Its send steers into a running turn by default (`run/standard.rs`).
+pub fn from_an_agent(named: bool) -> bool {
+    agent_in(named, |key| std::env::var(key).ok())
+}
+
+fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
+    named || in_session(env)
 }
 
 /// It runs in an acpmux session that its caller token proves to the daemon.
@@ -69,6 +78,15 @@ mod tests {
             None
         );
         assert_eq!(implicit(env(&[(FROM_ENV, "  ")])), None);
+    }
+
+    #[test]
+    fn an_agent_sends_when_named_or_in_a_session_and_the_person_otherwise() {
+        assert!(agent_in(true, env(&[])), "--from or ACPMUX_FROM");
+        let inside = [("ACPMUX_SESSION_ID", "s1"), ("ACPMUX_SESSION_TOKEN", "t")];
+        assert!(agent_in(false, env(&inside)), "an agent in an acpmux session");
+        assert!(!agent_in(false, env(&[("ACPMUX_SESSION_ID", "s1")])), "no token proves it");
+        assert!(!agent_in(false, env(&[])), "the person's terminal");
     }
 
     #[test]

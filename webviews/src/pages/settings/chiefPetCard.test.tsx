@@ -35,6 +35,7 @@ test("the page shows every character, the chosen one checked while the pet is of
     "moon",
     "moon-blue",
     "fox",
+    "mochi",
   ]);
   // The pet is off by default, but every Chief surface wears the first character: it is the one checked.
   expect(checked(pet)).toBe("orb");

@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Leo 2026-10-20: "Using optchat: control · 6m 3s" with the typing dots for six minutes said nothing.
 /// The agent chat shows its progress narration and folds its tool calls ("Ran 3 commands ›"); Home
-/// keeps its compact column of short caption rows and shows the same, at most three rows.
+/// shows the same parts side by side on its one caption line (`HomeNoticeRows`).
 public enum HomeTurnProgressStyle: String, Sendable, CaseIterable {
     /// The default: the turn's finished steps folded into one row, the Chief's newest thought as a
     /// narration row, then the step running now with its time.
@@ -28,7 +28,7 @@ struct HomeTurnProgress: Equatable {
     /// The rows top to bottom.
     var rows: [String] { [summary, narration, current].compactMap { $0 } }
 
-    /// The status line's text: one row per line (`HomeNoticeRows` draws each in its own row).
+    /// The status line's text: one part per text line; `HomeNoticeRows` draws them side by side on one line.
     var text: String { rows.joined(separator: "\n") }
 
     /// Lines the owner sends for its own writing, not a step of the turn's work.
@@ -86,8 +86,9 @@ struct HomeTurnProgress: Equatable {
 
     /// The finished steps in one row: each kind with two or more steps by its fold label (the agent
     /// chat's words: "Ran 3 commands", "Read 2 files"), in the order the turn first did it; a single
-    /// other step by its own line, several as "N steps" ("N more steps" after a fold); then "›",
-    /// since a click on the line lists every step. Nil before any step finished.
+    /// other step by its own line, several not at all; then "›",
+    /// since a click on the line lists every step. Nil before any step finished, and when nothing
+    /// is left to name (only generic steps).
     static func summary(_ finished: [String]) -> String? {
         guard !finished.isEmpty else { return nil }
         var order: [Kind] = []
@@ -109,10 +110,10 @@ struct HomeTurnProgress: Equatable {
         }
         if rest.count == 1, let only = rest.first {
             parts.append(only)
-        } else if rest.count > 1 {
-            parts.append(parts.isEmpty ? CmuxStrings.turnSteps(rest.count) : CmuxStrings.turnMoreSteps(rest.count))
         }
-        return parts.joined(separator: " · ") + " ›"
+        // Several generic steps are never counted ("3 steps") and draw no lone "›" (user 2026-10-30: "›" over
+        // "Running · 4s" was not one line): a click on the line still lists them.
+        return parts.isEmpty ? nil : parts.joined(separator: " · ") + " ›"
     }
 
     static func foldLabel(_ kind: Kind, _ count: Int) -> String? {

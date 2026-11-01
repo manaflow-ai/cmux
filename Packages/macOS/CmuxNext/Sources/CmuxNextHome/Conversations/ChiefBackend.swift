@@ -69,15 +69,15 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         }
     }
 
-    /// The name to show for harness `id`: an official engine's title, else the id as it is
-    /// (`claude-cr`, a harness of the user's own acpmux config).
+    /// The name to show for harness `id`: an official engine's title, else the id made readable
+    /// (``Swift/String/chiefHarnessName``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
     public static func title(for id: String) -> String {
-        ChiefBackend(id: id)?.title ?? id
+        ChiefBackend(id: id)?.title ?? id.chiefHarnessName
     }
 
     /// The badge a Home row shows for a Chief whose effective harness is `harness`: nil for
     /// the default engine (no choice, `default`, or a Claude route such as `claude-cr`),
-    /// else the engine's name (an unknown id as it is).
+    /// else the engine's name (an unknown id made readable).
     public static func badge(for harness: String?) -> String? {
         guard let harness = harness?.trimmingCharacters(in: .whitespacesAndNewlines), !harness.isEmpty,
               harness != "default", !harness.hasPrefix(ChiefBackend.claude.id) else { return nil }

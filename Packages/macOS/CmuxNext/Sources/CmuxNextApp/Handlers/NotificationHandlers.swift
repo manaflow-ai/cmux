@@ -98,6 +98,7 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
+        SubagentLimitHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
         // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
         registry.bind("agentChat.view", run: { invocation in

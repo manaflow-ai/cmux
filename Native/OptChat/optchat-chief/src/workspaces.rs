@@ -5,7 +5,8 @@
 //! SAME acpmux session the Chief drives: the user watches its chat and tool
 //! calls live and can write to it. It is named after its task's short title,
 //! like any workspace (Leo 2026-10-21: no `aN · ` id in the sidebar; the id is
-//! the Chief's own), and goes into a sidebar group named by its topic. It stays after the subagent
+//! the Chief's own). It joins no sidebar group unless its task asks for the person's own
+//! "Chief agents" group (`spawn_group`, #27712); no group is ever made. It stays after the subagent
 //! finishes with its name untouched (Lawrence 2026-10-19: "I don't like the
 //! checkmark"): the chat tab's own idle state shows it is done, and a name
 //! the user gave it is never overwritten. Closing it only detaches the tab.
@@ -31,9 +32,12 @@ const TITLE_CHARS: usize = 32;
 pub trait Workspaces: Send + Sync {
     /// Opens workspace `key` (a fresh `new_key`, chosen before the session
     /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`
-    /// in the sidebar group named `group` (made when missing; best effort),
-    /// whose tab is acpmux session `session`'s chat (a terminal in `cwd`
-    /// beside it); returns its key.
+    /// in the person's existing sidebar group `group` when that is
+    /// ``AGENTS_GROUP_NAME`` (empty or any other name: ungrouped; no group is
+    /// ever made; best effort),
+    /// whose tab is acpmux session `session`'s chat; returns its key. The
+    /// daemon place opens the chat tab only (no shell); the app place may
+    /// still use `cwd`.
     fn open(
         &self,
         key: &str,
@@ -48,6 +52,11 @@ pub trait Workspaces: Send + Sync {
     /// goes to the closed history; the agent session stays.
     fn close(&self, _key: &str) -> Result<(), String> {
         Err("closing is not supported here".into())
+    }
+    /// Closes workspace `key` only when none of its terminals runs a command:
+    /// Ok(true) closed, Ok(false) kept (a busy terminal). A short task's close.
+    fn close_idle(&self, _key: &str) -> Result<bool, String> {
+        Ok(false)
     }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
@@ -243,171 +252,29 @@ fn clip(s: &str) -> String {
     out
 }
 
-/// Topic groups for subagent workspaces and the words that pick them; the
-/// first match wins (Lawrence 2026-10-19: "you need to group it better as
-/// well"). The words cover the groups a137 still moved spawns into by hand
-/// on 2026-10-20 (acp-chief-issues.md #9): lag is Performance, iOS, UI and
-/// migrations are the cmux-next app.
-pub const TOPICS: &[(&str, &[&str])] = &[
-    (
-        "Crashes & QA",
-        &[
-            "crash", "crashes", "sentry", "fuzz", "qa", "tester", "testers",
-        ],
-    ),
-    (
-        "Performance",
-        &[
-            "perf",
-            "performance",
-            "bench",
-            "benchmark",
-            "latency",
-            "power",
-            "wakeups",
-            "memory",
-            "cpu",
-            "lag",
-            "laggy",
-            "slow",
-            "fast",
-            "faster",
-            "speed",
-            "10x",
-            "100x",
-        ],
-    ),
-    (
-        "Markdown & editor",
-        &["markdown", "monaco", "editor", "mermaid"],
-    ),
-    (
-        "Home & chat",
-        &[
-            "home", "imessage", "composer", "chat", "chats", "dm", "dms", "messages",
-        ],
-    ),
-    (
-        "Browser & parity",
-        &[
-            "browser",
-            "chrome",
-            "chromium",
-            "webkit",
-            "web",
-            "webview",
-            "omnibar",
-            "extension",
-            "extensions",
-            "cookie",
-            "cookies",
-        ],
-    ),
-    (
-        "Sidebar & tabs",
-        &[
-            "sidebar",
-            "tab",
-            "tabs",
-            "unread",
-            "hover",
-            "workspace",
-            "workspaces",
-            "group",
-            "groups",
-        ],
-    ),
-    (
-        "Panes & layout",
-        &[
-            "pane", "panes", "split", "splits", "divider", "resize", "layout", "window",
-        ],
-    ),
-    (
-        "Nightly & CI",
-        &[
-            "nightly",
-            "nightlies",
-            "ci",
-            "release",
-            "landing",
-            "push",
-            "lint",
-            "quality",
-            "gate",
-        ],
-    ),
-    (
-        "cmux-next app",
-        &[
-            "ui",
-            "ios",
-            "iphone",
-            "mobile",
-            "migration",
-            "onboarding",
-            "dialog",
-            "dialogs",
-            "settings",
-        ],
-    ),
-    (
-        "Agents & routing",
-        &[
-            "acpmux",
-            "chief",
-            "agent",
-            "agents",
-            "subagent",
-            "subagents",
-            "subrouter",
-            "sr2",
-            "claude",
-            "codex",
-            "acp",
-            "pairing",
-        ],
-    ),
-    (
-        "Cloud & fleet",
-        &[
-            "cloud",
-            "fleet",
-            "vm",
-            "vms",
-            "mini",
-            "minis",
-            "tailscale",
-            "server",
-        ],
-    ),
-];
-
-/// The group of subagent workspaces no topic matches.
+/// The one sidebar group a subagent workspace may join (#27712): the person's own
+/// "Chief agents" group, when the sidebar has it. The host never makes a group and never picks
+/// one by topic or by a name close to the task's.
 pub const AGENTS_GROUP_NAME: &str = "Chief agents";
 
-/// The sidebar group for `task`: its `Group:` line, else the first of
-/// ``TOPICS`` whose words appear in its title, else in its first line, else
-/// ``AGENTS_GROUP_NAME``.
-pub fn topic_group(task: &str) -> String {
-    if let Some(g) = header(task, "group") {
-        return g;
+/// The group a spawn task asks for: ``AGENTS_GROUP_NAME`` when its `Group:` line names it (any
+/// case; a line that runs on after a full stop, "Chief agents. Repo ~/fun/…", still does), else
+/// empty (ungrouped). Any other `Group:` value is ignored.
+pub fn spawn_group(task: &str) -> &'static str {
+    let Some(group) = header(task, "group") else {
+        return "";
+    };
+    let named = group
+        .split(". ")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('.');
+    if named.trim().eq_ignore_ascii_case(AGENTS_GROUP_NAME) {
+        AGENTS_GROUP_NAME
+    } else {
+        ""
     }
-    for text in [title(task), first_line(task).to_owned()] {
-        let words: Vec<String> = text
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .map(str::to_owned)
-            .collect();
-        let topic = TOPICS
-            .iter()
-            .find(|(_, keys)| keys.iter().any(|k| words.iter().any(|w| w == k)));
-        if let Some((name, _)) = topic {
-            return (*name).to_owned();
-        }
-    }
-    AGENTS_GROUP_NAME.to_owned()
 }
 
 /// `key` as CMUX_WORKSPACE_ID: the uppercase UUID form a cmux terminal
@@ -480,7 +347,7 @@ impl AppWorkspaces {
 /// With the app it is the app's own daemon (`CMUX_APP_DAEMON_SOCKET`, the link the app keeps
 /// at `state/app-daemon.sock`): the session that holds the user's own workspaces (a423,
 /// Lawrence 2026-10-21: "all workspaces must be the same"). A subagent's workspace is then an
-/// ordinary workspace there, made with the same daemon ops, grouped by its topic and owned by
+/// ordinary workspace there, made with the same daemon ops, ungrouped unless it asked for "Chief agents", and owned by
 /// that daemon like any other; only its chat tab names the Chief home's acpmux as its host.
 /// It used to be the Chief's owner daemon (`cmux-chief-<id>`, hq-6d 2026-10-09), which the
 /// app showed apart under a "Chief" header.
@@ -685,6 +552,32 @@ pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
 
 /// One request on the app's control socket; Ok carries its result.
 pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result<Value, String> {
+    let (value, answer) = control_reply(socket, request, timeout)?;
+    reply_result(&value, &answer)
+}
+
+/// The app's reply `value` (its line `answer`): Ok with its result, else its error message.
+pub fn reply_result(value: &Value, answer: &str) -> Result<Value, String> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
+        _ => Err(value
+            .get("error")
+            .map(|e| {
+                e.get("message")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| e.to_string(), str::to_owned)
+            })
+            .unwrap_or_else(|| answer.to_owned())),
+    }
+}
+
+/// One request on the app's control socket and its reply line, parsed, whatever it says;
+/// Err only when the app did not answer (no socket, a closed one, a timeout, no JSON).
+pub fn control_reply(
+    socket: &Path,
+    request: &Value,
+    timeout: Duration,
+) -> Result<(Value, String), String> {
     let mut stream = UnixStream::connect(socket)
         .map_err(|e| format!("the app's control socket {}: {e}", socket.display()))?;
     stream
@@ -706,17 +599,7 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
         });
     }
     let value: Value = serde_json::from_str(answer).map_err(|e| format!("bad answer: {e}"))?;
-    match value.get("ok").and_then(Value::as_bool) {
-        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
-        _ => Err(value
-            .get("error")
-            .map(|e| {
-                e.get("message")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| e.to_string(), str::to_owned)
-            })
-            .unwrap_or_else(|| answer.to_owned())),
-    }
+    Ok((value, answer.to_owned()))
 }
 
 impl Workspaces for AppWorkspaces {
@@ -768,32 +651,12 @@ impl Workspaces for AppWorkspaces {
     }
 }
 
-/// The id the fallback group is made with (Lawrence 2026-10-18: "use groups
-/// more aggressively so that you can organize and the user feels less
-/// overwhelmed"). A fixed id makes the create idempotent: the daemon answers
-/// the stored group for the same id and name.
-pub const AGENTS_GROUP_ID: &str = "chief-agents";
 /// The daemon capability of workspace groups.
 const GROUPS: &str = "workspace-groups-v1";
 
-/// The id a topic group named `name` is made with when the session has none
-/// by that name: `chief-agents` for the fallback, else `chief-topic-<slug>`.
-pub fn group_id(name: &str) -> String {
-    if name == AGENTS_GROUP_NAME {
-        return AGENTS_GROUP_ID.to_owned();
-    }
-    let slug: String = name
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    format!("chief-topic-{slug}")
-}
-
-/// Puts `workspace` in the group named `name` (any case): the session's own
-/// group by that name when it has one (the user's groups are reused), else
-/// one made with ``group_id``. Only a failed move is an error.
+/// Puts `workspace` in the session's existing ``AGENTS_GROUP_NAME`` group when `name` asks for
+/// it (``agents_group``); any other name, or no such group, leaves it ungrouped. Never makes a
+/// group. Only a failed move is an error.
 /// `workspace` None moves it by its key (a workspace the app made).
 fn group_workspace(
     client: &mut cmux::raw::Client,
@@ -801,32 +664,17 @@ fn group_workspace(
     key: &str,
     name: &str,
 ) -> Result<(), String> {
-    use cmux::raw::{
-        CreateWorkspaceGroupRequest, ListWorkspaceGroupsRequest, MoveWorkspaceToGroupRequest,
-        Optional,
-    };
-    let existing = client
+    use cmux::raw::{ListWorkspaceGroupsRequest, MoveWorkspaceToGroupRequest, Optional};
+    if name.is_empty() {
+        return Ok(());
+    }
+    let listed = client
         .list_workspace_groups(ListWorkspaceGroupsRequest {})
         .ok()
-        .and_then(|listed| {
-            listed["groups"].as_array()?.iter().find_map(|g| {
-                let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
-                named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
-            })
-        });
-    let group = match existing {
-        Some(id) => id,
-        None => {
-            let id = group_id(name);
-            let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
-                collapsed: None,
-                color: Optional::Missing,
-                group: Optional::Value(id.clone()),
-                index: Optional::Missing,
-                name: name.to_owned(),
-            });
-            id
-        }
+        .map(|listed| groups_of(&listed["groups"]))
+        .unwrap_or_default();
+    let Some(group) = agents_group(name, &listed) else {
+        return Ok(());
     };
     client
         .move_workspace_to_group(MoveWorkspaceToGroupRequest {
@@ -888,38 +736,55 @@ pub fn resource_call(
     Err("the session daemon closed the connection".to_owned())
 }
 
+/// The user's home directory from the environment (`HOME`), empty when unset.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// The index a workspace takes in the personal group it joins, from the same
+/// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
+/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
+/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+pub fn new_group_index(home: &Path) -> Option<usize> {
+    let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
+        doc.pointer("/workspaces/newPlacement")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    match placement.as_deref() {
+        Some("bottom" | "afterCurrent") => None,
+        // No file, no key, or a value the app does not know: the app's default, `top`.
+        _ => Some(0),
+    }
+}
+
 /// Puts workspace `key` of the user's session (the app's daemon at `daemon`) in that
-/// session's personal sidebar group named `name` (any case), made when missing: the
-/// `workspace_group.list`, `workspace_group.create` and `workspace.place` operations `cmux
-/// workspace group <g> add` sends, so it sits in a group exactly as a workspace the user
-/// grouped does (a423).
+/// session's existing personal ``AGENTS_GROUP_NAME`` group when `name` asks for it
+/// (``agents_group``): the `workspace_group.list` and `workspace.place` operations `cmux
+/// workspace group <g> add` sends, so it sits in the group exactly as a workspace the user
+/// grouped does (a423). Any other name, or no such group, leaves it ungrouped; no group is made
+/// (#27712).
 pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    place_in_personal_group_from(daemon, key, name, &home_dir())
+}
+
+/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`: under
+/// `top` (the default) the workspace goes first in its group, else last.
+pub fn place_in_personal_group_from(
+    daemon: &Path,
+    key: &str,
+    name: &str,
+    home: &Path,
+) -> Result<(), String> {
+    if name.is_empty() {
+        return Ok(());
+    }
     let here = || json!({"machine": "current", "session": "current"});
     let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let existing = listed.as_array().and_then(|groups| {
-        groups.iter().find_map(|g| {
-            let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
-            named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
-        })
-    });
-    let group = match existing {
-        Some(id) => id,
-        None => {
-            let mut params = here();
-            params["name"] = json!(name);
-            let made = resource_call(
-                daemon,
-                "workspace_group.create",
-                params,
-                Some(&format!("optchat-subagent-group-create-{key}")),
-            )?;
-            // A mutation answers `{value: <the group>, revision, …}`.
-            made["value"]["id"]
-                .as_str()
-                .or_else(|| made["id"].as_str())
-                .ok_or("workspace_group.create named no group")?
-                .to_owned()
-        }
+    let Some(group) = agents_group(name, &groups_of(&listed)) else {
+        return Ok(());
     };
     let workspace = locate_by_key(daemon, key)
         .ok_or("the session does not list the new workspace")?
@@ -927,6 +792,11 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
     let mut params = here();
     params["workspace"] = json!(workspace);
     params["group"] = json!(group);
+    // Lawrence 2026-10-28: a new workspace made in a group goes to the top of that group under
+    // `top` (the default), as Cmd-N in a group does; without an index the daemon put it last.
+    if let Some(index) = new_group_index(home) {
+        params["index"] = json!(index);
+    }
     resource_call(
         daemon,
         "workspace.place",
@@ -976,13 +846,34 @@ pub struct DaemonWorkspaces {
     /// workspace group <g> add` sends), not the daemon's older shared groups, which the app
     /// does not show for that session (a423).
     pub personal: bool,
+    /// The daemon to use while nothing listens at `daemon`: the host's own session daemon,
+    /// for an app link (`state/app-daemon.sock`) that dangles because no cmux app opened
+    /// this Chief home (a scratch Chief the `cmux chief` CLI started). None: `daemon` only.
+    pub fallback: Option<PathBuf>,
 }
 
 impl DaemonWorkspaces {
-    fn client(&self) -> Result<cmux::raw::Client, String> {
+    /// The daemon to use now and whether it is the user's session (personal groups):
+    /// `daemon` while something listens there, else `fallback` (the host's own session).
+    /// Checked per call: an app that opens Home later points the link at its daemon.
+    fn target(&self) -> (&Path, bool) {
+        match &self.fallback {
+            Some(own) if std::os::unix::net::UnixStream::connect(&self.daemon).is_err() => {
+                (own.as_path(), false)
+            }
+            _ => (self.daemon.as_path(), self.personal),
+        }
+    }
+
+    fn client(&self, daemon: &Path) -> Result<cmux::raw::Client, String> {
         use cmux::raw::{Client, ClientConfig};
-        Client::connect(ClientConfig::from_socket_path(&self.daemon))
+        Client::connect(ClientConfig::from_socket_path(daemon))
             .map_err(|e| format!("the session daemon: {e}"))
+    }
+
+    /// The daemons that may hold workspace `key`: `daemon`, then `fallback`.
+    fn holders(&self) -> impl Iterator<Item = &Path> {
+        std::iter::once(self.daemon.as_path()).chain(self.fallback.as_deref())
     }
 }
 
@@ -996,11 +887,11 @@ impl Workspaces for DaemonWorkspaces {
         cwd: &Path,
     ) -> Result<String, String> {
         use cmux::raw::{
-            AgentSessionSource, CreateTerminalRequest, CreateWorkspaceRequest,
-            NewConversationTabRequest, Optional,
+            AgentSessionSource, CreateWorkspaceRequest, NewConversationTabRequest, Optional,
         };
         const TABS: &str = "agent-session-tabs-v1";
-        let mut client = self.client()?;
+        let (daemon, personal) = self.target();
+        let mut client = self.client(daemon)?;
         // Refused before any write: a workspace without its chat tab helps no one.
         let capabilities = client
             .identify_server()
@@ -1033,8 +924,8 @@ impl Workspaces for DaemonWorkspaces {
                 .map_err(|e| format!("create-workspace: {e}"))?
                 .workspace;
             // Best effort: a sidebar group never fails the subagent's start.
-            let grouped = if self.personal {
-                place_in_personal_group(&self.daemon, &key, group)
+            let grouped = if personal {
+                place_in_personal_group(daemon, &key, group)
             } else if groups {
                 group_workspace(&mut client, Some(workspace), &key, group)
             } else {
@@ -1043,22 +934,14 @@ impl Workspaces for DaemonWorkspaces {
             if let Err(e) = grouped {
                 eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
             }
-            let placement = client
-                .create_terminal(CreateTerminalRequest {
-                    workspace: Optional::Value(workspace),
-                    cwd: Optional::Value(cwd.display().to_string()),
-                    mutation_id: Optional::Value(format!("optchat-subagent-term-{key}")),
-                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
-                    ..Default::default()
-                })
-                .map_err(|e| format!("create-terminal: {e}"))?;
-            let pane = placement
-                .pane
-                .into_option()
-                .ok_or("create-terminal placed no pane")?;
+            // The chat tab only, in the workspace's first pane: no shell (Lawrence
+            // 2026-10-21). Every subagent's idle shell held a terminal host and a PTY
+            // until its workspace closed; 369 of them filled the Mac's 511 PTYs. The
+            // user opens a shell in the workspace when they want one.
+            let _ = cwd;
             client
                 .new_conversation_tab(NewConversationTabRequest {
-                    pane: Optional::Value(pane),
+                    workspace: Optional::Value(workspace),
                     agent_session: Optional::Value(AgentSessionSource {
                         host: self.host.clone(),
                         host_name: Optional::Value(self.host_name.clone()),
@@ -1076,25 +959,69 @@ impl Workspaces for DaemonWorkspaces {
             Ok::<(), String>(())
         })();
         client.close();
+        // A workspace made before a later step failed (new-conversation-tab refused, or
+        // earlier create-terminal's "failed to spawn PTY command", a622-a627) is closed,
+        // not left as an empty row with no chat.
+        if let Err(e) = &result
+            && !e.starts_with("create-workspace")
+            && let Err(close) = close_by_key(daemon, &key)
+        {
+            eprintln!("optchat: subagent workspace {key} stays after {e}: {close}");
+        }
         result.map(|()| key)
     }
 
+    fn close_idle(&self, key: &str) -> Result<bool, String> {
+        for daemon in self.holders() {
+            let Ok(tree) = LineClient::connect(daemon).and_then(|mut c| c.workspaces()) else {
+                continue;
+            };
+            let Some(ws) = tree["workspaces"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|w| w["key"].as_str() == Some(key))
+            else {
+                continue;
+            };
+            if busy_terminal(ws).is_some() {
+                return Ok(false);
+            }
+            return close_by_key(daemon, key).map(|()| true);
+        }
+        Err(format!("no session daemon lists workspace {key}"))
+    }
+
     fn close(&self, key: &str) -> Result<(), String> {
-        close_by_key(&self.daemon, key)
+        let mut first = None;
+        for daemon in self.holders() {
+            match close_by_key(daemon, key) {
+                Ok(()) => return Ok(()),
+                Err(e) => first = first.or(Some(e)),
+            }
+        }
+        Err(first.unwrap_or_default())
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
-        rename_by_key(&self.daemon, key, name)
+        let mut first = None;
+        for daemon in self.holders() {
+            match rename_by_key(daemon, key, name) {
+                Ok(()) => return Ok(()),
+                Err(e) => first = first.or(Some(e)),
+            }
+        }
+        Err(first.unwrap_or_default())
     }
 
     fn locate(&self, key: &str) -> Option<WorkspaceRef> {
-        locate_by_key(&self.daemon, key)
+        self.holders().find_map(|daemon| locate_by_key(daemon, key))
     }
 
     fn place(&self) -> String {
         // The app's daemon (tabs on `chief:<home id>`, the Chief home's acpmux): the user's
         // own session, beside the workspaces the user made (a423).
-        if self.host.starts_with("chief:") {
+        if self.host.starts_with("chief:") && self.target().1 {
             return "your cmux session on this Mac, beside your own workspaces".to_owned();
         }
         format!(
@@ -1147,7 +1074,7 @@ fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
 }
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
-/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// Closes workspace `key` and ends any terminal the user opened there; the
 /// agent session is acpmux's and stays.
 fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
@@ -1315,8 +1242,8 @@ fn shown_name(name: &str) -> String {
 /// app's daemon `app` (a423, Lawrence 2026-10-21: "all workspaces must be the same"); answers
 /// how many moved. Each becomes an ordinary workspace there with the same key (a running
 /// subagent's CMUX_WORKSPACE_ID still names it), the name the user saw, its tabs (each agent
-/// chat on the same acpmux session, each terminal as a new shell in the same directory, each
-/// page) and the user's personal group of the same name. The old one closes (to the owner's
+/// chat on the same acpmux session and each page; never an idle shell: a terminal tab is not
+/// re-created, Lawrence 2026-10-21) and the person's existing "Chief agents" group when it was in one of that name (no group is made). The old one closes (to the owner's
 /// closed history) only after every chat tab is in the new one; a copy that could not take
 /// every chat is closed instead, for the next start to try again. A workspace whose terminal
 /// runs a command stays. One that the user's session already holds by key is not copied twice.
@@ -1355,11 +1282,20 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
             );
             continue;
         }
+        // Only a chat makes a subagent workspace worth moving: without one, the copy
+        // would be an empty workspace (its idle shell is never re-created).
+        if !tree_tabs(ws)
+            .iter()
+            .any(|tab| tab["conversation"].is_object())
+        {
+            eprintln!("optchat: workspace {key} has no chat; it stays on the Chief's session");
+            continue;
+        }
         let group = ws["group"]
             .as_str()
             .and_then(|g| group_names.get(g))
             .cloned()
-            .unwrap_or_else(|| AGENTS_GROUP_NAME.to_owned());
+            .unwrap_or_default();
         if held.contains(key) {
             eprintln!(
                 "optchat: workspace {key} is already in the user's session; left on the Chief's"
@@ -1391,7 +1327,8 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
 }
 
 /// Makes tree workspace `ws` (key `key`) in the user's session at `app` (connection `to`) with
-/// its tabs, in personal group `group`. Err when any chat tab could not be made.
+/// its tabs, in the person's "Chief agents" group when `group` names it
+/// (``place_in_personal_group``). Err when any chat tab could not be made.
 fn copy_workspace(
     to: &mut LineClient,
     app: &Path,
@@ -1404,14 +1341,17 @@ fn copy_workspace(
         "mutation_id": format!("optchat-adopt-ws-{key}"), "origin": MUTATION_ORIGIN}))?;
     let workspace = made["workspace"].clone();
     let mut pane: Option<Value> = None;
+    // Pages open after the chats, which make the workspace's first pane: a page
+    // listed before any chat would otherwise have no pane to open in.
+    let mut pages = Vec::new();
     for (i, tab) in tree_tabs(ws).iter().enumerate() {
         let conversation = &tab["conversation"];
         if tab["kind"] == "pty" {
-            let cwd = tab["cwd"].as_str().unwrap_or("/");
-            let placed = to.call(json!({"cmd": "create-terminal", "workspace": workspace,
-                "cwd": cwd, "mutation_id": format!("optchat-adopt-term-{key}-{i}"),
-                "origin": MUTATION_ORIGIN}))?;
-            pane = pane.or_else(|| placed.get("pane").cloned().filter(|p| !p.is_null()));
+            // Never a new shell for an old one: a workspace whose terminal runs a
+            // command is not copied at all (`busy_terminal`), so every terminal here is
+            // an idle shell or ended. Re-creating them made 369 idle shells (one host and
+            // one PTY each) at one Chief start (a423, 2026-10-21).
+            continue;
         } else if conversation.is_object() {
             let mut request = json!({"cmd": "new-conversation-tab",
                 "mutation_id": format!("optchat-adopt-tab-{key}-{i}"), "origin": MUTATION_ORIGIN});
@@ -1438,7 +1378,18 @@ fn copy_workspace(
                 pane = pane_of(to, key);
             }
         } else if tab["kind"] == "browser" {
-            let Some(p) = pane.clone() else { continue };
+            pages.push((i, tab.clone()));
+        }
+    }
+    if pane.is_none() {
+        pane = pane_of(to, key);
+    }
+    for (i, tab) in &pages {
+        let Some(p) = pane.clone() else {
+            eprintln!("optchat: workspace {key}: a page did not move: no pane");
+            continue;
+        };
+        {
             let mut request = json!({"cmd": "new-frontend-browser-tab", "pane": p,
                 "url": tab["url"].as_str().unwrap_or("about:blank"),
                 "engine": tab["browser_engine"].as_str().unwrap_or("cef"), "activate": false,
@@ -1467,4 +1418,27 @@ fn pane_of(to: &mut LineClient, key: &str) -> Option<Value> {
         .find(|w| w["key"] == key)?
         .clone();
     ws["screens"][0]["panes"][0].get("id").cloned()
+}
+
+/// `(id, name)` of each group in a group list answer.
+fn groups_of(list: &Value) -> Vec<(String, String)> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| Some((g["id"].as_str()?.to_owned(), g["name"].as_str()?.to_owned())))
+        .collect()
+}
+
+/// The id of the existing group a workspace asked into `name` joins among `groups` (`(id,
+/// name)`): only ``AGENTS_GROUP_NAME`` (any case) is joined, and only when the session has it.
+/// None for any other name, an empty one, or no such group: the workspace stays ungrouped and
+/// no group is made (#27712).
+fn agents_group(name: &str, groups: &[(String, String)]) -> Option<String> {
+    if !name.trim().eq_ignore_ascii_case(AGENTS_GROUP_NAME) {
+        return None;
+    }
+    groups
+        .iter()
+        .find(|(_, g)| g.trim().eq_ignore_ascii_case(AGENTS_GROUP_NAME))
+        .map(|(id, _)| id.clone())
 }

@@ -1,3 +1,4 @@
+import type { MachineResources } from "../src/agent-session/acpmux/machineResources";
 // Saved environments on the New Tab page (preview, `labs.previewFeatures`), rebuilt from #20831 on
 // the environment picker of #22131: the host keeps named environments (`environment.list`,
 // `environment.save`, `environment.remove`), the picker lists them in a Saved section over the
@@ -9,6 +10,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -28,6 +31,10 @@ const keys = [
   "CustomEvent",
   "MutationObserver",
   "ResizeObserver",
+  "getSelection",
+  "addEventListener",
+  "removeEventListener",
+  "dispatchEvent",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -52,13 +59,11 @@ beforeAll(() => {
     HTMLInputElement: dom.window.HTMLInputElement,
     HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
-    Node: dom.window.Node,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     PointerEvent: dom.window.MouseEvent,
     Event: dom.window.Event,
     CustomEvent: dom.window.CustomEvent,
-    MutationObserver: dom.window.MutationObserver,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -68,6 +73,12 @@ beforeAll(() => {
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     localStorage: dom.window.localStorage,
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
+    // Milkdown (the field's editor) times its setup with global CustomEvents on the global
+    // target: they are jsdom's here, so the target is jsdom's window too.
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
+    dispatchEvent: dom.window.dispatchEvent.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
 });
@@ -105,11 +116,13 @@ async function mount({
   worktree = "ok",
   tabCwd = "/Users/you",
   peerStart = "ok",
+  peerResources,
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
   peerStart?: "ok" | "refused" | "none";
+  peerResources?: Record<string, MachineResources>;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -156,6 +169,7 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+          ...(peerResources ? { peerResources } : {}),
         })}
         lastAgent="claude"
         cwd={tabCwd}
@@ -208,11 +222,27 @@ const folderButton = () =>
   host.querySelector<HTMLButtonElement>(`.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`);
 const rows = () => $$(".acpmux-env-popover .acpmux-menu-item");
 const row = (text: string) => rows().find((item) => item.querySelector(".acpmux-menu-label")?.textContent === text);
-const ask = async (text: string) => {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field");
-  await type(field, text);
+/// The New Tab prompt (the composer's Markdown field), once its editor is made.
+const prompt = async () => {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field");
+  expect(field).toBeTruthy();
+  for (let turn = 0; turn < 200 && !(field!.acpmuxMarkdownField && field!.querySelector("[contenteditable]")); turn++)
+    await settle();
+  return field!;
+};
+const typePrompt = async (text: string) => {
+  const field = await prompt();
   await act(async () => {
-    field!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type(text);
+  });
+  await settle();
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
+};
+const ask = async (text: string) => {
+  const editor = await typePrompt(text);
+  await act(async () => {
+    editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
   await settle();
 };
@@ -264,6 +294,8 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
   expect(calls.some((call) => call.method === "git.worktree.create")).toBe(false);
   expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({
     text: "tail the logs",
+    expectedSessionId: "session-1",
+    accepted: expect.any(Function),
   });
 });
 
@@ -292,7 +324,7 @@ test("a refused worktree shows the host's reason, starts nothing and keeps the p
   await ask("fix the build");
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   expect(calls.some((call) => call.method === "chat.new")).toBe(false);
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("fix the build");
+  expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value()).toBe("fix the build");
 });
 
 test("picking a machine instead clears the saved environment", async () => {
@@ -306,6 +338,78 @@ test("picking a machine instead clears the saved environment", async () => {
   await click(machine);
   expect(environmentButton()?.getAttribute("aria-label")).not.toContain("Web");
   expect(folderButton()).not.toBeNull();
+});
+
+test("picking another machine acpmux lists starts the chat there", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  // The prompt takes the keyboard back, as after a folder pick.
+  expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
+  await ask("tail the logs");
+  const asked = calls.find((call) => call.method === "chat.new")!.params!;
+  expect(asked).toMatchObject({ harness: "claude", peer: "devbox" });
+  // Another machine's folder is not this Mac's: no local folder check.
+  expect(calls.some((call) => call.method === "workspace.useFolder")).toBe(false);
+  expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({
+    text: "tail the logs",
+    expectedSessionId: "session-1",
+    accepted: expect.any(Function),
+  });
+});
+
+test("the New Tab Computer menu carries cached machine health into its warning row", async () => {
+  await mount({
+    previews: false,
+    peerResources: {
+      devbox: { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  const computer = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer")),
+  );
+  await click(computer);
+  const machine = $$(".acpmux-location-menu .acpmux-menu-item").find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  );
+  expect(machine).toBeDefined();
+  expect(machine?.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
+  expect(machine?.querySelector(".acpmux-menu-description")?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
+});
+
+test("a chat started on another machine with no folder there does not take this tab's folder", async () => {
+  const { newSessionHost, newSessionParams } = await import("../src/agent-session/acpmux/direct");
+  const tab = { cwd: "/Users/you/src/app" };
+  expect(newSessionParams(newSessionHost(tab, undefined, "devbox", false), "claude")).toEqual({
+    mcpServers: [],
+    _meta: { acpmux: { harness: "claude", peer: "devbox" } },
+  });
+  expect(newSessionHost(tab, "/srv/api", "devbox", false)).toEqual({ cwd: "/srv/api", peer: "devbox" });
+  // This Mac with no folder picked still starts in the tab's.
+  expect(newSessionHost(tab, undefined, undefined, false)).toEqual({ cwd: "/Users/you/src/app", peer: undefined });
+});
+
+test("a machine picked after a saved environment is where the chat starts", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("Web"));
+  await click(environmentButton());
+  await click(row("devbox"));
+  await ask("tail the logs");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ peer: "devbox" });
+});
+
+test("picking this Mac again after another machine starts the chat here", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  await click(environmentButton());
+  await click(rows().find((item) => item.querySelector('.acpmux-env-row[data-kind="local"]')));
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
 });
 
 test("Create environment saves where the page would start and picks it", async () => {
@@ -379,7 +483,7 @@ test("New chat after a refused worktree leaves the page's create buttons working
   const calls = await mount({ worktree: "refused" });
   await click(environmentButton());
   await click(row("API worktree"));
-  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "fix the build");
+  await typePrompt("fix the build");
   await click(host.querySelector('[data-create="chat"]'));
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   await click(host.querySelector('[data-create="terminal"]'));
@@ -393,4 +497,103 @@ test("a start the SSH machine held without a chat sends the prompt nowhere", asy
   await ask("tail the logs");
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+});
+
+test("a chat started on another machine starts on the model the page showed", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: Call[] = [];
+  const noop = () => {};
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push({ method, ...(params ? { params } : {}) });
+      return method === "chat.new" ? "session-1" : undefined;
+    },
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "tail the logs", undefined, "claude-opus-5-5", undefined, undefined, { peer: "devbox" });
+  await settle();
+  expect(calls.find((call) => call.method === "chat.new")?.params).toEqual({
+    harness: "claude",
+    model: "claude-opus-5-5",
+    peer: "devbox",
+  });
+});
+
+test("a superseded SSH start never sends the retained prompt to a different chat", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: Call[] = [];
+  let current = true;
+  let leaves = 0;
+  let finish!: (session: string) => void;
+  const actions = newTabScreenActions({
+    callNative: (method, params) => {
+      calls.push({ method, params });
+      return method === "chat.new"
+        ? new Promise<string>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve();
+    },
+    startScope: () => () => current,
+    leave: () => {
+      leaves += 1;
+    },
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+  });
+  const started = Promise.resolve(
+    actions.onAsk("claude", "only for A", undefined, undefined, undefined, undefined, { peer: "devbox" }),
+  );
+  current = false;
+  finish("session-A");
+  await expect(started).rejects.toThrow();
+  expect(leaves).toBe(0);
+  expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+});
+
+test("a direct start keeps its draft until the first prompt is accepted, including a send preflight refusal", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  let left = 0;
+  let refuse: (error: Error) => void = () => {};
+  let finish: () => void = () => {};
+  let accepted: () => void = () => {};
+  const noop = () => {};
+  const actions = newTabScreenActions({
+    callNative: (method, params) =>
+      method === "chat.send"
+        ? new Promise((resolve, reject) => {
+            refuse = reject;
+            finish = () => resolve(undefined);
+            accepted = params!.accepted as () => void;
+          })
+        : Promise.resolve(method === "chat.new" ? "session-1" : undefined),
+    leave: () => {
+      left += 1;
+    },
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  const pending = Promise.resolve(
+    actions.onAsk("claude", "keep this draft", undefined, undefined, undefined, undefined, { peer: "devbox" }),
+  );
+  await Promise.resolve();
+  expect(left).toBe(0);
+  refuse(new Error("connection changed before send"));
+  await expect(pending).rejects.toThrow("connection changed before send");
+  expect(left).toBe(0);
+  const retry = Promise.resolve(
+    actions.onAsk("claude", "keep this draft", undefined, undefined, undefined, undefined, { peer: "devbox" }),
+  );
+  await Promise.resolve();
+  expect(left).toBe(0);
+  accepted();
+  expect(left).toBe(1);
+  finish();
+  await retry;
+  expect(left).toBe(1);
 });

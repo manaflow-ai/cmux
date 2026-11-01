@@ -19,13 +19,20 @@
 //! A host crash leaves `endpoint.json` behind: [`active_dir`] checks that
 //! its helper still runs and removes a stale file ([`liveness`], cx-zgk0).
 //!
-//! Phase 1 forwards `tools/list` and `tools/call` unchanged (upstream tool
-//! names and arguments). Argument mapping, per-session scope and the
-//! activity log are phase 2.
+//! Before every tool action, the admitted helper answers `machine/consent`
+//! with `{consentRequired: bool, consent: {screen, control}}`, each state
+//! `none` or `granted`. The helper obtains this from its established app-owned
+//! daemon connection; a child environment or request never picks the authority.
+//! Missing support, malformed replies and a two-second timeout deny the action.
+//!
+//! Tool names and arguments stay upstream-shaped. The trusted bridge adds
+//! the session's target allow-list to the helper envelope, outside model
+//! arguments; the Swift host resolves targets and enforces the policy.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
@@ -194,12 +201,61 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         name: Option<&str>,
         arguments: Value,
     ) -> Result<Value> {
+        if method == "tools/call" {
+            // Only the admitted host can select the machine's consent authority.
+            // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
+            let status = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                self.exchange("machine/consent", None, Value::Null),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED))?;
+            // Only the admitted driver's inventory can classify an operation.
+            // Refresh when a screen-only grant needs that distinction: tool names
+            // and model-supplied annotations are never an authority.
+            let read_only = if status["consentRequired"] == true
+                && status["consent"]["screen"] == "granted"
+                && status["consent"]["control"] == "none"
+            {
+                let inventory = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    self.exchange("tools/list", None, Value::Null),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok);
+                inventory.as_ref().is_some_and(|inventory| {
+                    let tools = inventory.as_array().or_else(|| inventory["tools"].as_array());
+                    let mut matching =
+                        tools.into_iter().flatten().filter(|tool| tool["name"].as_str() == name);
+                    let declared = matching
+                        .next()
+                        .is_some_and(|tool| tool["annotations"]["readOnlyHint"] == true);
+                    declared && matching.next().is_none()
+                })
+            } else {
+                false
+            };
+            require_tool_consent(read_only, &status)?;
+        }
+        self.exchange(method, name, arguments).await
+    }
+
+    async fn exchange(
+        &mut self,
+        method: &str,
+        name: Option<&str>,
+        arguments: Value,
+    ) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
         if let Some(name) = name {
-            message["name"] = json!(name);
-            message["arguments"] = arguments;
+            message.set("name", json!(name));
+            message.set("arguments", arguments);
+            // The helper owns target policy. This process's env is caller-controlled.
         }
         self.send(&message).await?;
         // One request at a time, so the next reply is ours.
@@ -272,7 +328,7 @@ where
         let method = message["method"].as_str().unwrap_or_default();
         let reply = match method {
             "initialize" => Ok(json!({
-                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "protocolVersion": crate::secret_mcp::protocol_version(&message["params"]),
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
@@ -289,7 +345,7 @@ where
                     {
                         Ok(result) => call_result(result),
                         Err((_, text)) => {
-                            json!({"content": [{"type": "text", "text": text}], "isError": true})
+                            json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
                     },
                 )
@@ -303,6 +359,28 @@ where
             }
         };
         write_line(&mut output, &response).await?;
+    }
+    Ok(())
+}
+
+/// A trusted inventory readOnlyHint requires screen consent; unknown and action
+/// tools require both independent grants, including their post-action captures.
+fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
+    let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
+    let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
+    let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
+    let control = status["consent"]["control"].as_str().ok_or_else(denied)?;
+    if !matches!(screen, "none" | "granted") || !matches!(control, "none" | "granted") {
+        return Err(denied());
+    }
+    if !required {
+        return Ok(());
+    }
+    if screen != "granted" {
+        return Err(denied());
+    }
+    if !read_only && control != "granted" {
+        return Err(denied());
     }
     Ok(())
 }
@@ -329,6 +407,9 @@ where
         match current.request(method, name, arguments.clone()).await {
             Ok(result) => return Ok(result),
             Err(e) => {
+                if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
+                    return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
                     return Err((-32000, format!("{e:#}")));

@@ -35,7 +35,13 @@ export const connectMysql = async (target: MysqlTarget, options: { readonly time
     dateStrings: true,
     connectTimeout: options.timeoutMs ?? 10_000
   })
-  await conn.query("SET time_zone = '+00:00'")
+  try {
+    await conn.query("SET time_zone = '+00:00'")
+  } catch (error) {
+    // The caller never gets a client to close, so close the socket here.
+    conn.destroy()
+    throw error
+  }
   return {
     query: (sql, values) => conn.query(sql, values),
     end: () => conn.end(),

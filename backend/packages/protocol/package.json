@@ -19,7 +19,7 @@
     "catalog:link-vectors": "bun scripts/export-link-token-vectors.ts && bun scripts/export-keyset-vectors.ts"
   },
   "dependencies": {
-    "effect": "4.0.0-rc.117"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@types/node": "26.6.2",

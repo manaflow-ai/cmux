@@ -42,6 +42,12 @@ Pin/Unpin); Cmd-Shift-P, the CLI (`workspace archive-unarchive`, `workspace-grou
 `sidebar toggle-item-archive`) and MCP run the same actions. A band tile (Pinned, custom and app
 sections) does not offer it: tiles draw no dimmed look, and app sections are provider-owned.
 
+## Auto-archive and groups (2026-10-25)
+
+auto-archive-DESIGN.md: a group whose last unarchived member archives is archived too
+(`extra.archived_by`), Unarchive of a member restores its groups, and a live drop into an archived
+group restores it. Idle workspaces archive per `workspaces.autoArchive.style` (default: suggest).
+
 ## Open
 
 - Band tiles: the CLI can still archive one (it moves last, undimmed).

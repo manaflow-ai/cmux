@@ -15,8 +15,13 @@ extension HomeCloudChiefs {
     /// into its main conversation (``HostedChiefMigration``), so a cloud
     /// Chief takes the tab also when the local Chief has history. Without
     /// one (a service with no Cloud Chief brains), a placed chief takes the
-    /// tab only when the local Chief has no history to hide.
-    public func chiefTab(local: String?, localHasHistory: Bool, choice: HomeChiefChoice) -> String? {
+    /// tab only when the local Chief has no history to hide. `prefersLocal`
+    /// (the default Chief is this Mac's, `HomeChiefDefault`) gives the tab to `local`, and never
+    /// to a cloud Chief: while this Mac's conversation is not listed yet the tab waits (nil) rather
+    /// than open the cloud composer the person's choice sends nothing to. `ensureChiefTab` waits
+    /// for the Chief owner and looks the conversation up in that case, so the tab arrives.
+    public func chiefTab(local: String?, localHasHistory: Bool, choice: HomeChiefChoice, prefersLocal: Bool = false) -> String? {
+        if prefersLocal { return local }
         if hosted == nil, let local, localHasHistory { return local }
         return shown(choice: choice)?.mainConversation ?? local
     }

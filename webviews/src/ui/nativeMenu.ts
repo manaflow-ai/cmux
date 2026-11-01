@@ -11,6 +11,8 @@ export interface NativeMenuRow {
   /** The row's icon: an SF Symbol, or an icon pack name the app pairs with one. */
   symbol?: string;
   disabled?: boolean;
+  /** A toggle's state, rendered as a native checkmark. */
+  checked?: boolean;
   separator?: boolean;
 }
 
@@ -36,6 +38,14 @@ export function installNativeMenu(menu: NativeMenu | null): void {
 /** The page's native menu, or null where the page draws its own. */
 export function nativeMenu(): NativeMenu | null {
   return installed;
+}
+
+/**
+ * Legacy hosts can acknowledge an unknown native-menu operation with an empty reply rather than
+ * rejecting it. Only the pick envelope proves a menu appeared; {picked: null} is a real dismissal.
+ */
+export function hasNativeMenuPick(reply: unknown): reply is { picked: unknown } {
+  return typeof reply === "object" && reply !== null && "picked" in reply;
 }
 
 /** The chosen row's id in the host's reply, or null when the menu was dismissed. */

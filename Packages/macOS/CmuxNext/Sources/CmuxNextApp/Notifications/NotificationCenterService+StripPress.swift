@@ -16,6 +16,8 @@ extension NotificationCenterService {
         /// The pane's selected tab once the press was dispatched (the one it selected), taken then:
         /// by the mouse-up a close under the press has already selected a neighbor.
         let tab: String
+        /// The exact tab and store pressed; its window can show another workspace before release.
+        let target: TabInteractionTarget?
         /// Where it went down (screen coordinates; a torn-off tab's mouse-up comes in another window).
         let screenLocation: NSPoint
         /// The pointer went past the tab drag distance at some point: a drag, even if it came back.
@@ -25,8 +27,8 @@ extension NotificationCenterService {
     /// A strip press began on `tab` at `screenLocation`. A press whose mouse-up a tracking loop took
     /// before this ran (the titlebar row's window drag, `WindowTitlebar`) is already over: it
     /// resolves now, from where the pointer is. The app's own input has no hardware button to ask.
-    func beginStripPress(tab: String, at screenLocation: NSPoint, synthetic: Bool) {
-        stripPress = StripPress(tab: tab, screenLocation: screenLocation)
+    func beginStripPress(tab: String, target: TabInteractionTarget?, at screenLocation: NSPoint, synthetic: Bool) {
+        stripPress = StripPress(tab: tab, target: target, screenLocation: screenLocation)
         viewHolds.insert(tab)
         if !synthetic, !leftButtonIsDown() { noteMouseUp(in: nil, at: pointerLocation()) }
     }
@@ -51,7 +53,7 @@ extension NotificationCenterService {
         if press.dragged || Self.beyondDragDistance(up, press.screenLocation) { return }
         // A click: the hold ends here, also for a tab the click closed (no tab left to read).
         viewHolds.remove(press.tab)
-        interacted(.click, tabID: press.tab)
+        if let target = press.target { interacted(.click, target: target) }
     }
 
     /// The person's next input after a move (a key-down; a press calls it too): every hold ends,

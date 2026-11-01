@@ -29,7 +29,35 @@ export const QUICK_MESSAGES = {
 /// on their own element and stop it there (preventDefault or stopPropagation), so only an Escape
 /// that nothing claimed reaches the document. The decision is deferred until the event has bubbled
 /// through the page: a panel may own Escape from a window listener. Off while `enabled` is false.
-export function useEscapeToDismiss(enabled: boolean, onDismiss: () => void) {
+type EscapeDismissOptions = {
+  /**
+   * A surface such as the status card can sit above the composer. Capture its Escape before the
+   * composer consumes it, but let an already-open menu or popover answer first.
+   */
+  capture?: boolean;
+};
+
+function escapeSurfaceOpen(document: Document): boolean {
+  return [
+    ...document.querySelectorAll<HTMLElement>(
+      '[role="menu"], [role="listbox"], [role="dialog"], .ui-popup, [aria-haspopup][data-popup-open], ' +
+        '.acpmux-summary-card[data-placement="popover"], .acpmux-minimap__card:focus-within',
+    ),
+  ].some((element) => {
+    // Summary is a popover only in its narrow placement; the minimap claims Escape only while
+    // its preview has focus. Their inline or hover-only forms must not block status dismissal.
+    // Base UI keeps closing surfaces mounted for their fade after their Escape owner has stopped.
+    // They must not defer the next press to the composer or Quick Composer behind the card.
+    if (element.closest('[hidden], [inert], [aria-hidden="true"], [data-closed], [data-ending-style]')) return false;
+    for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+      const style = document.defaultView?.getComputedStyle(current);
+      if (style?.display === "none" || style?.visibility === "hidden") return false;
+    }
+    return true;
+  });
+}
+
+export function useEscapeToDismiss(enabled: boolean, onDismiss: () => void, options: EscapeDismissOptions = {}) {
   const latest = useRef(onDismiss);
   latest.current = onDismiss;
   useEffect(() => {
@@ -39,13 +67,22 @@ export function useEscapeToDismiss(enabled: boolean, onDismiss: () => void) {
       // During IME composition Escape cancels the composition, and closes nothing.
       if (event.isComposing || event.keyCode === 229) return;
       if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+      if (options.capture) {
+        // Menus and popovers own Escape. Their portalled surface or open trigger is present by
+        // the time this event is dispatched, so the card waits for them instead of stealing it.
+        if (escapeSurfaceOpen(document)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        latest.current();
+        return;
+      }
       queueMicrotask(() => {
         if (event.defaultPrevented) return;
         event.preventDefault();
         latest.current();
       });
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [enabled]);
+    document.addEventListener("keydown", onKey, options.capture);
+    return () => document.removeEventListener("keydown", onKey, options.capture);
+  }, [enabled, options.capture]);
 }

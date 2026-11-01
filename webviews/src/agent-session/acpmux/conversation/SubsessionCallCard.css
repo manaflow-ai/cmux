@@ -6,6 +6,7 @@
 .cv-subsession__raw {
   margin-inline-start: 24px;
   min-width: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__under {
   margin: -3px 0 4px 22.5px;
@@ -48,14 +49,22 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
+  cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__toggle:hover,
 .cv-subsession__toggle:focus-visible {
   color: var(--cv-text);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+/* A sent message's line takes the message rows' grammar from AgentMessageRow.css: its recipient
+   is the chip (`.cv-agentmsg__name`), its first line `.cv-agentmsg__preview`. */
+
+.cv-sent__file {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: 0.92em;
 }

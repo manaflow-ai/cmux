@@ -31,12 +31,26 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// A tall group (ten members) among short groups and loose rows, for group drag captures
         /// (`debug.sidebar_group_drag`; Lawrence 2026-10-23, "groups that are too tall").
         case tallGroup
+        /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
+        /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
+        case needsYou
+        /// Groups of one workspace named as the group (what `acpmux new --group X` makes), top level and nested,
+        /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
+        /// this weird stuff at the bottom of the sidebar").
+        case soleMember
     }
 
     /// The state this fixture captures.
     public let scenario: Scenario
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
+
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    public var parents: [WorkspaceID: WorkspaceID] {
+        guard scenario == .needsYou else { return [:] }
+        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
+    }
 
     /// The sidebar width the scenario is captured at.
     public var width: Double { scenario == .narrow ? 196 : 288 }
@@ -85,13 +99,27 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.sixLevels(folded: ["g-builders", "g-sidebar"])
         case .tallGroup:
             nodes = Self.tallGroup
+        case .needsYou:
+            nodes = Self.needsYouRows.map(SidebarNode.workspace)
+        case .soleMember:
+            nodes = Self.soleMembers
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false) -> SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: busy ? .busy(progress: nil) : .idle)
+    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false,
+                           activity: StatusIndicatorState? = nil) -> SidebarWorkspace {
+        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: activity ?? (busy ? .busy(progress: nil) : .idle))
     }
+
+    /// ``Scenario/needsYou``'s rows, in model order (``parents`` nests them).
+    private static let needsYouRows: [SidebarWorkspace] = [
+        ws("release", "Release week"), ws("settings", "Settings pass"),
+        ws("shrink", "Shrink large files", activity: .waiting(kind: .question)),
+        ws("notes", "Release notes", activity: .working), ws("changelog", "Changelog", activity: .waiting(kind: .permission)),
+        ws("flaky", "Flaky test hunt", activity: .error), ws("login", "Cloud sign-in", activity: .waiting(kind: .auth)),
+        ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
+    ]
 
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,
                               _ members: [SidebarWorkspace]) -> SidebarNode {
@@ -143,6 +171,15 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         .workspace(ws("notes", "Notes")),
     ]
 
+    private static let soleMembers: [SidebarNode] = [
+        .workspace(ws("readme", "README pass")),
+        group("coord", "release-coord", .purple, [ws("coord", "release-coord", busy: true)]),
+        group("design", "Design review", .blue, [ws("sketches", "Sketches")]),
+        group("visual", "visual-check", .orange, parent: "design", [ws("visual", "visual-check", busy: true)]),
+        group("notes", "Release notes", .green, [ws("changelog", "Changelog draft", unread: .dot)]),
+        group("nightly", "Nightly & CI", .red, [ws("updates", "nightly-ci"), ws("nightly", "Nightly & CI")]),
+    ]
+
     private static func sixLevels(folded: Set<String>) -> [SidebarNode] {
         [
             group("sidebar", "Sidebar & tabs", .blue, folded: folded.contains("g-sidebar"), [ws("unread-dot", "Pinned unread dot")]),
@@ -151,8 +188,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             group("minis", "Mac minis", .cyan, parent: "cloud", [ws("mini-health", "Mini health")]),
             group("builders", "Builders", .yellow, parent: "minis", folded: folded.contains("g-builders"),
                   [ws("queue", "Build queue", busy: true)]),
-            group("lawrence", "cmux-lawrence", .orange, parent: "builders", [ws("controller", "Controller")]),
-            group("xcode", "Xcode 26", .pink, parent: "lawrence", [ws("toolchain", "Toolchain pin")]),
+            group("studio", "studio-mac", .orange, parent: "builders", [ws("controller", "Controller")]),
+            group("xcode", "Xcode 26", .pink, parent: "studio", [ws("toolchain", "Toolchain pin")]),
             group("caches", "Caches", .red, parent: "xcode", [
                 ws("derived", "DerivedData sweep", unread: .dot), ws("spm", "SwiftPM cache", busy: true),
             ]),

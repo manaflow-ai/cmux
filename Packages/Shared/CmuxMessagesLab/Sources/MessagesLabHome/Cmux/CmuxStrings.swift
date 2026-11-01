@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import Foundation
 
 /// cmux's own transcript strings (Resources/CmuxHome.xcstrings, every app
@@ -39,14 +40,6 @@ enum CmuxStrings {
     }
     static func turnRanSearches(_ n: Int) -> String {
         String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: .module)
-    }
-    /// Finished steps of other kinds, alone in the row.
-    static func turnSteps(_ n: Int) -> String {
-        String(localized: "home.turn.steps", defaultValue: "\(n) steps", table: "CmuxHome", bundle: .module)
-    }
-    /// Finished steps of other kinds, after a folded kind ("Ran 3 commands · 2 more steps").
-    static func turnMoreSteps(_ n: Int) -> String {
-        String(localized: "home.turn.moreSteps", defaultValue: "\(n) more steps", table: "CmuxHome", bundle: .module)
     }
 
     /// The message menu's permalink item (tree threads, cx-och3h).
@@ -91,10 +84,6 @@ enum CmuxStrings {
     }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
-    }
-    /// The placeholder of the thread header's rename field.
-    static var threadTitlePlaceholder: String {
-        String(localized: "home.thread.titlePlaceholder", defaultValue: "Thread Title", table: "CmuxHome", bundle: .module)
     }
     static var notDelivered: String {
         String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
@@ -142,11 +131,45 @@ enum CmuxStrings {
     }
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var viewVideoLarger: String {
+        String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
+    }
+    static var closeVideoViewer: String {
+        String(localized: "home.video.closeViewer", defaultValue: "Close Video", table: "CmuxHome", bundle: .module)
+    }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
     /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
     static var copyAttachment: String { Strings.menuCopy }
     static var saveAttachmentAs: String {
         String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// A notes row's label: why its `count` agents stopped with no report ("Disconnected (5)");
+    /// nil `reason`: they stopped for different reasons.
+    static func agentNotes(_ reason: HomeAgentMessageRow.StatusNote?, _ count: Int) -> String {
+        let format: String
+        switch reason {
+        case .stopped(let session)? where session == "Disconnected":
+            format = String(localized: "home.agentNotes.disconnected", defaultValue: "Disconnected (%lld)", table: "CmuxHome", bundle: .module)
+        case .stopped(let session)? where session == "Closed":
+            format = String(localized: "home.agentNotes.closed", defaultValue: "Session closed (%lld)", table: "CmuxHome", bundle: .module)
+        case .gone?:
+            format = String(localized: "home.agentNotes.gone", defaultValue: "Gone (%lld)", table: "CmuxHome", bundle: .module)
+        case .unreadable?:
+            format = String(localized: "home.agentNotes.unreadable", defaultValue: "Report unreadable (%lld)", table: "CmuxHome", bundle: .module)
+        default:
+            format = String(localized: "home.agentNotes.stopped", defaultValue: "Stopped without a report (%lld)", table: "CmuxHome", bundle: .module)
+        }
+        return String(format: format, count)
     }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
@@ -171,13 +194,12 @@ enum CmuxStrings {
 
     // MARK: The Chief's plan card (HomeTableRowProvider.swift)
 
-    /// The card's header: "Plan · 6 steps", or "Plan · 6 steps, 3 active" while some still run.
+    /// The card's header: "Plan", or "Plan · 3 active" while some steps still run. Never a step count.
     static func planHeader(steps: Int, active: Int) -> String {
         if active == 0 {
-            return String(format: String(localized: "home.plan.steps", defaultValue: "Plan · %lld steps", table: "CmuxHome", bundle: .module), steps)
+            return String(localized: "home.plan.title", defaultValue: "Plan", table: "CmuxHome", bundle: .module)
         }
-        return String(format: String(localized: "home.plan.stepsActive", defaultValue: "Plan · %1$lld steps, %2$lld active", table: "CmuxHome", bundle: .module),
-                      steps, active)
+        return String(format: String(localized: "home.plan.activeCount", defaultValue: "Plan · %lld active", table: "CmuxHome", bundle: .module), active)
     }
 
     /// A step's state pill.

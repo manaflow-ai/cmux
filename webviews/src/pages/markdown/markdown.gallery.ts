@@ -237,11 +237,29 @@ export default markdownPageEntry({
       githubRepository: "manaflow-ai/cmux",
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
     },
+    find: {
+      note: "Cmd-F: the find pill over the document, every match highlighted, the active one apart.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      githubRepository: "manaflow-ai/cmux",
+      find: "retr",
+    },
     "github-references": {
       note: "Bare and qualified GitHub references link in the rich viewer; code remains literal.",
       path: "/Users/you/src/atlas-web/REFERENCES.md",
       text: "# Review links\n\nFollow #18325 and manaflow-ai/cmux#18321.\n\n`#18325`\n\n```text\n#18321\n```\n",
       githubRepository: "manaflow-ai/cmux",
+    },
+    "edit-cue-rich": {
+      note: "Chosen version: the default rich editor has a compact Edit button beside its save status.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+    },
+    "edit-cue-source": {
+      note: "Comparison version: source mode keeps the existing Rich text / Source toggle while editing.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      settings: { defaultMode: "source" },
     },
     // The link editor (Cmd-K, or Edit link in the bubble): a liquid glass popover whose one edge is
     // the glass rim (test/glass-one-edge.test.ts).

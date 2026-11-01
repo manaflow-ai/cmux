@@ -98,13 +98,12 @@ row's context menu.
 The app half landed first (#21441, #21445):
 
 - `WorkspaceAutoNamer` (`CmuxNextWorkspaceNaming/WorkspaceAutoNamer.swift`)
-  renames a default-named workspace once, from its front agent chat's title,
+  persist naming follows the focused chat's generated title until the user renames the workspace,
   with `source: auto`, the daemon generation and `expected_name_revision`. It
-  only writes to a daemon that serves `workspace-name-source-v1`, which no
-  daemon does until #20710 lands, so today it stays a live sidebar label.
+  only writes to a daemon that serves `workspace-name-source-v1`.
 - `workspaces.autoName.variant` (`WorkspaceAutoNameTunables.swift`, Debug
-  Settings, DEV and NIGHTLY) picks the prototype: `live` (sidebar label only;
-  Release always uses it) or `persist` (the one-time daemon rename above).
+  Settings, DEV and NIGHTLY) picks the prototype: `live` (sidebar label only)
+  or `persist` (the daemon name follows the focused chat's generated title until user rename).
 - The user setting is `workspaces.autoName`, a bool ("Name Workspaces from
   Tabs"). The `workspaceList.autoName` `off` / `onCreate` / `keepUpdated`
   setting proposed under Behavior would replace it once the variant is picked:

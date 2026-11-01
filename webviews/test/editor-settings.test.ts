@@ -140,3 +140,14 @@ test("an editor section without the new keys resolves as before", () => {
   expect(large.quickSuggestions).toBe(false);
   expect((large.guides as { bracketPairs: boolean }).bracketPairs).toBe(false);
 });
+
+test("the editor types through its textarea, never Chromium's EditContext", () => {
+  // The app's key router delivers typing only once a page reports an input, textarea or
+  // contenteditable focused (PageInputReadiness); an EditContext element never qualifies.
+  const options = monacoOptions(resolveEditorSettings(undefined), undefined, {
+    readOnly: false,
+    large: false,
+    ariaLabel: "x",
+  });
+  expect(options.editContext).toBe(false);
+});

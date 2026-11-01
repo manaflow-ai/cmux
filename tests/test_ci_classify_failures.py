@@ -377,12 +377,15 @@ class RerunDecisionTests(unittest.TestCase):
             self.assertIn("`job 1`", line)
 
     def test_an_automatic_re_run_on_blacksmith_is_not_re_run_again(self) -> None:
-        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it.
-        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
-                                        {"run_attempt": 3, "status": "completed",
-                                         "triggering_actor": {"login": cf.BOT}})
-        self.assertFalse(rerun)
-        self.assertIn("attempt 3", line)
+        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it. The rescue
+        # re-runs as GITHUB_TOKEN's actor or as the cmux-bot App, and either one ends the chain.
+        for actor in (cf.BOT, "cmux-bot[bot]"):
+            with self.subTest(actor=actor):
+                rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
+                                                {"run_attempt": 3, "status": "completed",
+                                                 "triggering_actor": {"login": actor}})
+                self.assertFalse(rerun)
+                self.assertIn("attempt 3", line)
 
     def test_an_automatic_attempt_2_a_mini_failed_goes_to_blacksmith_once(self) -> None:
         # The bot's attempt 2 goes back to the minis; an online but broken one (a full

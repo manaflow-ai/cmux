@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -206,6 +206,11 @@ export type CloseTerminalResult = {
   "terminal_revision": bigint;
 };
 
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
+};
+
 export type ColorHex = string;
 
 export type ColumnMoveDirection = "left" | "right";
@@ -215,6 +220,8 @@ export type ColumnPin = {
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */
@@ -572,6 +579,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "build_time"?: (bigint) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -1020,6 +1028,12 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
+export type ServerStatsHookQueue = {
+  "queued_events": bigint;
+  "reset_dropped_events": bigint;
+  "undeliverable_events": bigint;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1036,6 +1050,18 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockDetail = {
+  "by_hold_p99": Array<ServerStatsLockSiteDetail>;
+  "by_hold_total": Array<ServerStatsLockSiteDetail>;
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "sites": bigint;
+  "stalls": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1048,10 +1074,26 @@ export type ServerStatsLockSite = {
   "site": string;
 };
 
+export type ServerStatsLockSiteDetail = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_p99_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+  "wait_max_us": bigint;
+  "wait_p99_us": bigint;
+  "wait_total_us": bigint;
+};
+
 export type ServerStatsLockStall = {
   "blocker": (string) | null;
   "waited_us": bigint;
   "waiter": string;
+};
+
+export type ServerStatsLocks = {
+  "registry": ServerStatsLockDetail;
+  "state": ServerStatsLockDetail;
 };
 
 export type ServerStatsRegistryLock = {
@@ -1086,7 +1128,9 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;

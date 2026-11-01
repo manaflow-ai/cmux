@@ -107,9 +107,10 @@ pub struct StatsSummary {
     pub permission_wait_ms: u64,
     pub permission_wait_max_ms: u64,
     /// Times an agent could not serve on its account (`hub::is_limit_error`,
-    /// the failover rule: usage, rate or credit limits, rejected credentials,
-    /// an overloaded provider): a turn that failed on one, or a failover to
-    /// the fallback (which may fail too, and then counts again).
+    /// the failover rule: usage, rate or credit limits, rejected credentials;
+    /// not an overloaded provider, which retries in place): a turn that failed
+    /// on one, or a failover to the fallback (which may fail too, and then
+    /// counts again).
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
@@ -680,14 +681,6 @@ fn streak(days: &BTreeSet<i64>, today: i64) -> Streak {
 /// `YYYY-MM-DD` for a count of days since 1970-01-01 (Howard Hinnant's
 /// civil-from-days).
 pub fn civil_date(days: i64) -> String {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
+    let (year, month, day) = crate::server::civil_from_days(days);
     format!("{year:04}-{month:02}-{day:02}")
 }

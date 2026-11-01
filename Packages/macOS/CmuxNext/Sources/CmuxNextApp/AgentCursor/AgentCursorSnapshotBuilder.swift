@@ -28,7 +28,7 @@ struct AgentCursorSnapshotBuilder {
 
     /// The workspace and pane of tab `id` (daemon tabs, then this session's local browser tabs).
     private func locate(_ id: String, _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
-        if let (_, pane) = services.locateTab(id), let workspace = workspaceID(containingPane: pane.id, services) {
+        if let (_, pane) = services.locateTabOnAnyMachine(id), let workspace = workspaceID(containingPane: pane.id, services) {
             return .init(workspace: workspace, pane: pane.id)
         }
         for controller in services.windows.controllers {
@@ -47,23 +47,26 @@ struct AgentCursorSnapshotBuilder {
 
     // MARK: Windows
 
-    /// Windows front to back (`NSApp.orderedWindows`); unordered ones last.
+    /// Windows front to back (`NSApp.orderedWindows`, a sync WindowServer query: skipped for one window, 3.0 s hang 2026-10-31).
     private func orderedControllers(_ services: AppServices) -> [WindowController] {
-        let order = NSApp.orderedWindows
-        func rank(_ controller: WindowController) -> Int {
-            order.firstIndex { $0 === controller.window } ?? Int.max
-        }
-        return services.windows.controllers.sorted { rank($0) < rank($1) }
+        let controllers = services.windows.controllers
+        guard controllers.count > 1, let order = NSApp?.orderedWindows else { return controllers }  // NSApp: nil in a test process
+        func rank(_ controller: WindowController) -> Int { order.firstIndex { $0 === controller.window } ?? Int.max }
+        return controllers.sorted { rank($0) < rank($1) }
     }
 
     private func window(_ controller: WindowController, target: String,
-                        location: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
+                        location own: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
         let window = controller.window
         let content = controller.content
         let space = window?.contentView.map(AgentCursorContentSpace.init)
         // The Home page draws the home workspace's chief conversation: that workspace is on screen.
         let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
         let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
+        // A tab mirrored into the shown workspace (`TabMirrors`) is there for this window: its
+        // cursor follows the mirror, which holds the live page (plans/cmux-next/shared-browser-tabs.md).
+        let location = own.flatMap { own in own.workspace == shown ? own : nil }
+            ?? Self.mirror(of: target, inWorkspace: shown, content: content, services) ?? own
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []
         if let location, let space {
@@ -95,6 +98,20 @@ struct AgentCursorSnapshotBuilder {
             sidebarRows: rows,
             panes: panes
         )
+    }
+
+    /// Where the shown workspace mirrors `target`, if it does.
+    private static func mirror(of target: String, inWorkspace shown: String?, content: WorkspaceContentController?,
+                               _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
+        guard let shown else { return nil }
+        let workspace = content.map(\.workspace) ?? services.workspace(id: shown)
+        guard let workspace, workspace.id == shown else { return nil }
+        for screen in workspace.screens {
+            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) }) {
+                return .init(workspace: shown, pane: pane.id)
+            }
+        }
+        return nil
     }
 
     // MARK: Pane

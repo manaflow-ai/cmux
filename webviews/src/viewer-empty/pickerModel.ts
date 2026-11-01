@@ -11,6 +11,8 @@ export interface PickerRow extends PickerEntry {
 /** Rows to render at most; the rest are reached by typing. */
 export const PICKER_ROW_LIMIT = 300;
 
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
 /**
  * The rows of one level: folders (and markdown files in file mode), recent ones first, then
  * folders before files, then by name; then the fuzzy query filters and ranks them.
@@ -29,7 +31,7 @@ export function pickerRows(
     (a, b) =>
       Number(b.recent) - Number(a.recent) ||
       Number(b.kind === "dir") - Number(a.kind === "dir") ||
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+      byName.compare(a.name, b.name),
   );
   return fuzzyFilter(rows, query, (row) => row.name);
 }

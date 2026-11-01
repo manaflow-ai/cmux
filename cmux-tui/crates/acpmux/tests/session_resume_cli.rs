@@ -121,6 +121,23 @@ impl Daemon {
     }
 }
 
+impl Daemon {
+    /// Runs `acpmux --json retry <session>` as an agent would.
+    async fn retry(&self, session: &str) -> (bool, Value, String) {
+        let out = daemon_env::tokio_command(&self.home, daemon_env::Agents::Deny)
+            .args(["--json", "retry", session])
+            .env("ACPMUX_HOME", &self.home)
+            .env("ACPMUX_SOCKET", &self.socket)
+            .output()
+            .await
+            .expect("run acpmux retry");
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        let v = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
+        (out.status.success(), v, format!("{stdout}{stderr}"))
+    }
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -181,4 +198,27 @@ async fn session_resume_runs_the_prompts_a_failed_turn_held() {
     rpc.wait_for("session/update", |p| p["update"]["content"]["text"] == "echo: a").await;
     let after = info_until(&mut rpc, &id, |i| i["queuePaused"] == false).await;
     assert_eq!(after["queuePaused"], false, "{after}");
+}
+
+/// `acpmux retry NAME`: the failed last turn goes again in the same session, as its next attempt
+/// (`hub/auto_resume/retry_turn.rs`); once it ran, nothing is left to retry.
+#[tokio::test]
+async fn retry_sends_a_failed_turn_again_from_the_cli() {
+    let daemon = Daemon::start("rty").await;
+    let mut rpc = Rpc::connect(&daemon.socket).await;
+    let made = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().expect("session id").to_owned();
+    let (ok, _, out) = daemon.retry(&id).await;
+    assert!(!ok && out.contains("retry.nothing_failed"), "{out}");
+
+    rpc.send("session/prompt", text_prompt(&id, "p-f", "fail-once: again")).await;
+    info_until(&mut rpc, &id, |i| i["lastTurn"]["status"] == "failed").await;
+    let (ok, v, out) = daemon.retry(&id).await;
+    assert!(ok, "{out}");
+    assert_eq!(v["promptId"], "p-f~resume-1", "{out}");
+    assert_eq!(v["kind"], "turn", "{out}");
+    rpc.wait_for("session/update", |p| p["update"]["content"]["text"] == "echo: again").await;
+    info_until(&mut rpc, &id, |i| i["lastTurn"]["status"] == "completed").await;
+    let (ok, _, out) = daemon.retry(&id).await;
+    assert!(!ok && out.contains("retry.nothing_failed"), "{out}");
 }

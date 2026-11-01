@@ -27,6 +27,31 @@ import Testing
     }
 }
 
+/// The phone, the Mac and acpmux name the same modes Full access: the phone's markers are the
+/// ones in cmux-tui/spec/full-access-modes.json (the Mac's FullAccessModeRuleTests checks its own).
+@Suite struct PhoneFullAccessModeRuleTests {
+    @Test func theMarkersMatchTheSharedSpec() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        while !FileManager.default.fileExists(atPath: root.appendingPathComponent("cmux-tui/spec").path) {
+            let parent = root.deletingLastPathComponent()
+            try #require(parent.path != root.path, "no cmux-tui/spec above \(#filePath)")
+            root = parent
+        }
+        let data = try Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/full-access-modes.json"))
+        let spec = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(spec["markers"] as? [String] == ACPMode.fullAccessMarkers)
+    }
+
+    @Test func idsAreFoldedBeforeMatching() {
+        for id in ["bypassPermissions", "agent-full-access", "danger-full-access", "yolo", "Auto Approve"] {
+            #expect(ACPMode.isFullAccess(id), "\(id)")
+        }
+        for id in ["default", "agent", "ask", "read-only", "plan", "acceptEdits", "full-auto"] {
+            #expect(!ACPMode.isFullAccess(id), "\(id)")
+        }
+    }
+}
+
 @MainActor
 @Suite struct ComposerPreferenceTests {
     /// Settings writes through `SettingsStore`; the terminal, code cards and

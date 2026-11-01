@@ -12,7 +12,7 @@ extension HomeFirstRunView {
     /// The bottom edge of the lowest part the panel shows, in its own
     /// coordinates; nil when it shows none (`home-chief-long-draft`).
     var debugShownBottom: CGFloat? {
-        ([hero, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
+        ([hero, starters, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
             .map { convert($0.bounds, from: $0).maxY }.max()
     }
 

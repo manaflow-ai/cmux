@@ -113,8 +113,14 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
+mod exit_with;
 mod install_key;
 mod replace;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use exit_with::exit_with;
+pub(crate) use exit_with::{
+    EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
+};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
@@ -140,11 +146,14 @@ pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, Strin
 
 /// Whether `arg` is a private owner startup option `claim_owner_arg` parses.
 pub(crate) fn is_owner_arg(arg: &str) -> bool {
-    arg == OWNER_READY_FD_ARG || arg == OWNER_INSTALL_KEY_FD_ARG || install_key::is_stdin_arg(arg)
+    arg == OWNER_READY_FD_ARG
+        || arg == OWNER_INSTALL_KEY_FD_ARG
+        || arg == EXIT_WITH_PID_ARG
+        || install_key::is_stdin_arg(arg)
 }
 
-/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG` (each once,
-/// taking its value from `values`) or, on Windows, the value-less
+/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG`, `EXIT_WITH_PID_ARG`
+/// (each once, taking its value from `values`) or, on Windows, the value-less
 /// `OWNER_INSTALL_KEY_STDIN_ARG`.
 pub(crate) fn claim_owner_arg(
     arg: &str,
@@ -155,6 +164,13 @@ pub(crate) fn claim_owner_arg(
         return install_key::claim_install_key_stdin();
     }
     let value = values.next().ok_or_else(|| format!("{arg} needs a value"))?;
+    if arg == EXIT_WITH_PID_ARG {
+        let exit_with = parse_owner_exit_with(&value)?;
+        if args.exit_with_pid.replace(exit_with).is_some() {
+            return Err(format!("{arg} may be supplied only once"));
+        }
+        return Ok(());
+    }
     let fd = claim_inherited_fd(arg, &value)?;
     let slot = if arg == OWNER_READY_FD_ARG {
         &mut args.owner_ready_fd
@@ -206,6 +222,8 @@ pub(crate) struct OwnerSpec {
     /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
+    /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
+    pub exit_with_pid: Option<ExitWith>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
@@ -266,8 +284,14 @@ enum Attempt {
     /// back: a stale or dying peer, or a live owner refusing extra clients.
     Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
-    /// when its identity carried one).
+    /// when its identity carried one). Also an owner that holds the identify
+    /// unanswered, as one restoring its session does.
     Starting(Option<u64>),
+    /// The identify went unanswered and the process listening on the socket
+    /// is stopped (SIGSTOP, a debugger): it restores nothing until someone
+    /// continues it, so ensure reports it unavailable now instead of waiting
+    /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
+    Stopped,
     Ready(ReadyOwner),
 }
 
@@ -313,6 +337,7 @@ pub(crate) fn ensure_owner(
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -379,6 +404,7 @@ fn wait_while_starting(
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
             Attempt::Starting(pid) => progress.restoring(pid),
+            Attempt::Stopped => return Err(EnsureError::NotReady),
         }
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
@@ -409,6 +435,7 @@ fn wait_until_ready(
                 seen_alive = true;
                 progress.restoring(pid);
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // Accepted but unanswered: keep what is known about the owner.
             Attempt::Unanswered => {}
             Attempt::Gone => {
@@ -515,10 +542,15 @@ fn attempt(
             Ok(stream) => stream,
             Err(_) => return Ok(Attempt::Gone),
         };
+    let listener = stream.peer_process_key();
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
-        // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer (or a full one).
+        // A timeout is a live but busy server (one restoring holds its
+        // connections unanswered), unless its process is stopped; anything
+        // else on a fresh connection is a dying or stale peer (or a full one).
+        Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
+            return Ok(Attempt::Stopped);
+        }
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
@@ -723,6 +755,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
+    }
+    if let Some(exit_with) = spec.exit_with_pid {
+        command.arg(EXIT_WITH_PID_ARG).arg(exit_with.arg());
     }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");

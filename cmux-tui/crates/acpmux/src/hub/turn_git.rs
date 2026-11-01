@@ -10,6 +10,7 @@
 
 use super::{Hub, Session};
 use crate::git_state::GitState;
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -52,9 +53,21 @@ impl Hub {
         mut msg: Value,
         git: Map<String, Value>,
     ) {
+        if msg.get("cancelForced") == Some(&Value::Bool(true))
+            && session
+                .cancel_forced_result_turn
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .replace(msg["turnId"].as_str().unwrap_or_default().to_owned())
+                .is_some_and(|id| id == msg["turnId"].as_str().unwrap_or_default())
+        {
+            return;
+        }
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
+            o.insert("unread".into(), Value::Bool(!self.shown(session)));
         }
+        msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
     }

@@ -497,6 +497,11 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
             "mcp__optchat__control",
             json!({"action": "answer", "id": "a1", "option": "allow"}),
         ),
+        // A billed Cloud machine runs only in the owner's turn.
+        (
+            "mcp__optchat__cloud_workspace",
+            json!({"title": "crypto miner"}),
+        ),
     ] {
         assert!(h.brain.turn_gate(tool, &input).is_err(), "{tool}");
     }
@@ -511,6 +516,11 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
     h.settle();
     let upload = json!({"text": "here", "attachments": ["/tmp/report.txt"]});
     assert_eq!(h.brain.turn_gate("mcp__optchat__send", &upload), Ok(()));
+    let cloud = json!({"title": "fix login bug"});
+    assert_eq!(
+        h.brain.turn_gate("mcp__optchat__cloud_workspace", &cloud),
+        Ok(())
+    );
 }
 
 // No request of a Chief turn or of its subagents waits on an answer nobody
@@ -581,6 +591,7 @@ fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
             id: "a1".into(),
             key: "workspace:7".into(),
             name: "deploy the docs".into(),
+            ws: None,
         });
     }
     h.brain.step(permission_in(
@@ -726,6 +737,7 @@ fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
         id: "a1".into(),
         key: "workspace:7".into(),
         name: "deploy the docs".into(),
+        ws: None,
     });
     assert!(h.brain.unanswered_permissions().is_empty());
     h.brain.deny_overdue_permissions_at(T0 + 3_600_000);

@@ -5,6 +5,13 @@
 //! item never lands below an archived one. Unarchive puts the item back after
 //! the sibling it followed when it was archived, while that sibling is still
 //! there and not archived; else last among the unarchived siblings.
+//!
+//! Groups follow their members (auto-archive-DESIGN.md "Groups"): when an
+//! archive leaves a group with members and none of them unarchived, the
+//! group archives too (`extra.archived_by = "members"`), and so on up the
+//! tree. Unarchiving an item, or moving a live item into an archived group,
+//! unarchives its archived groups first, so a restored row never draws
+//! dimmed under a dimmed header.
 
 use std::collections::HashSet;
 
@@ -19,6 +26,12 @@ use super::reduce::{Tx, neighbors, place};
 /// Every sibling before is read before anything moves, so items archived
 /// together come back in their order.
 pub(super) fn archive(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    archive_marked(tx, ids)?;
+    roll_up(tx, ids)
+}
+
+/// Archive `ids` themselves, without the roll-up of their groups.
+fn archive_marked(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     let mut befores = Vec::with_capacity(ids.len());
     for id in in_list_order(tx.doc, ids)? {
         let item = tx.doc.item(&id).ok_or(Refusal::UnknownItem)?;
@@ -50,10 +63,84 @@ pub(super) fn archive(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// The groups that hold `ids` and now have members, none of them unarchived,
+/// archive too (marked `archived_by: "members"`), nearest first, so a nested
+/// group that empties out empties its parent the same way.
+fn roll_up(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    let mut parents: Vec<ItemId> =
+        ids.iter().filter_map(|id| tx.doc.item(id)?.parent.clone()).collect();
+    // A group is looked at again when one of its child groups archives: an
+    // outer group checked before its inner one emptied must not be skipped.
+    while let Some(group_id) = parents.pop() {
+        let Some(group) = tx.doc.item(&group_id) else { continue };
+        if !group.body.is_group() || group.archived() {
+            continue;
+        }
+        let above = group.parent.clone();
+        let emptied = {
+            let mut members = tx.doc.list(&group.section, Some(group.id.as_str())).peekable();
+            members.peek().is_some() && members.all(Item::archived)
+        };
+        if !emptied {
+            continue;
+        }
+        archive_marked(tx, std::slice::from_ref(&group_id))?;
+        tx.edit_item(&group_id, |item| {
+            item.extra.insert(ARCHIVED_BY_KEY.into(), Value::String(ARCHIVED_BY_MEMBERS.into()));
+            Ok(())
+        })?;
+        if let Some(above) = above {
+            parents.push(above);
+        }
+    }
+    Ok(())
+}
+
+/// The archived groups that hold `ids`, outermost first: Unarchive and a
+/// live drop into one restore them, so the item does not draw dimmed.
+pub(super) fn archived_ancestors(doc: &Doc, ids: &[ItemId]) -> Vec<ItemId> {
+    let mut out: Vec<(usize, ItemId)> = Vec::new();
+    for id in ids {
+        let Some(item) = doc.item(id) else { continue };
+        for (depth, group) in doc.ancestors(item).into_iter().rev().enumerate() {
+            if group.archived() && !out.iter().any(|(_, seen)| *seen == group.id) {
+                out.push((depth, group.id.clone()));
+            }
+        }
+    }
+    out.sort_by_key(|(depth, _)| *depth);
+    out.into_iter().map(|(_, id)| id).collect()
+}
+
+/// Unarchive the archived groups above the live items of `ids` (after a move
+/// or an adopt put them there).
+pub(super) fn wake_groups_of(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    let live: Vec<ItemId> = ids
+        .iter()
+        .filter(|id| tx.doc.item(id).is_some_and(|item| !item.archived()))
+        .cloned()
+        .collect();
+    let groups = archived_ancestors(tx.doc, &live);
+    if groups.is_empty() {
+        return Ok(());
+    }
+    unarchive_marked(tx, &groups)
+}
+
 /// Unarchive `ids`: clear the mark and put each back where it was archived
 /// from (see the module docs). Items that are not archived are skipped.
 /// In list order, so each one's remembered sibling is back before it is.
+/// The archived groups above them come back first (outermost first).
 pub(super) fn unarchive(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    let groups = archived_ancestors(tx.doc, ids);
+    if !groups.is_empty() {
+        unarchive_marked(tx, &groups)?;
+    }
+    unarchive_marked(tx, ids)
+}
+
+/// Unarchive `ids` themselves, in list order.
+fn unarchive_marked(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     for id in &in_list_order(tx.doc, ids)? {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
         if !item.archived() {
@@ -82,6 +169,7 @@ pub(super) fn unarchive(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
         tx.edit_item(id, |item| {
             item.extra.remove(ARCHIVED_KEY);
             item.extra.remove(UNARCHIVE_TO_KEY);
+            item.extra.remove(ARCHIVED_BY_KEY);
             Ok(())
         })?;
         place(tx, std::slice::from_ref(id), &to)?;

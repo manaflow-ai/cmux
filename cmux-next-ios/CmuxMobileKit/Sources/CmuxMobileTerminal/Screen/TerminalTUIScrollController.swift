@@ -77,6 +77,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         momentum = fling
         lastStep = 0
         let link = CADisplayLink(target: self, selector: #selector(stepMomentum(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         self.link = link
     }

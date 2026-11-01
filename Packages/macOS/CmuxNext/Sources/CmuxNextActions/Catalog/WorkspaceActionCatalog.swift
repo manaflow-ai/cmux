@@ -132,6 +132,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace clear-name",
                 mainMenu: .file
             ),
+            // Asks the cheapest model for a name from the workspace's tabs and applies it as the
+            // person's own rename (WorkspaceActivityName). Leo 2026-10-26: "just run it on the cheapest model."
+            ActionDescriptor(
+                id: "workspace.nameFromActivity",
+                title: String(localized: "action.workspace.nameFromActivity", defaultValue: "Name from Activity", bundle: .module),
+                keywords: ["title", "name", "rename", "auto", "summarize", "ai"], category: .workspace, symbol: "sparkles",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace name-from-activity"
+            ),
             ActionDescriptor(
                 id: "editWorkspaceDescription",
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
@@ -304,7 +312,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "copyWorkspaceSSHError",
                 title: String(localized: "action.copyWorkspaceSSHError", defaultValue: "Copy SSH Error", bundle: .module),
                 keywords: ["ssh", "remote", "error"], category: .workspace, symbol: "exclamationmark.bubble",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
             ),
             ActionDescriptor(
                 id: "clearWorkspaceNotifications",
@@ -316,7 +324,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "revealWorkspaceInFinder",
                 title: String(localized: "action.revealWorkspaceInFinder", defaultValue: "Show Workspace in Finder", bundle: .module),
                 keywords: ["finder", "reveal", "directory"], category: .workspace, symbol: "folder.badge.gearshape",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
             ),
             ActionDescriptor(
                 id: "palette.copyWorkspaceID",
@@ -346,7 +354,10 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.newSubgroup",
                 title: String(localized: "action.workspaceGroup.newSubgroup", defaultValue: "New Subgroup", bundle: .module),
                 keywords: ["group", "nest", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
-                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
+                surfaces: [.palette, .contextMenu],
+                // The CLI's `workspace group create --parent GROUP --name N` and MCP name both.
+                arguments: [CatalogArgument.groupWorkspaceGroup.optional, CatalogArgument.nameString.optional],
+                targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.rename",
@@ -358,12 +369,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.togglePin",
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
-                targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
                 title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
-                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
@@ -437,6 +448,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ] + classicImportActions()
+        ] + classicImportActions() + sessionTransferActions()
     }
 }

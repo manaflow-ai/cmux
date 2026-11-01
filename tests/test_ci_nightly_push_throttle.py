@@ -13,6 +13,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -370,6 +371,48 @@ def test_decide_checks_out_before_it_classifies() -> None:
     assert checkout < names.index("decide"), "decide must classify a checked-out tree"
 
 
+def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
+    """NEXT needs only its controls; other branches still classify the full tree."""
+    import yaml
+
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+    assert len(checkouts) == 2
+    sparse = next(step for step in checkouts if "sparse-checkout" in step["with"])
+    full = next(step for step in checkouts if "sparse-checkout" not in step["with"])
+    assert sparse["if"] == "github.ref == 'refs/heads/nightly-next'"
+    assert full["if"] == "github.ref != 'refs/heads/nightly-next'"
+    assert sparse["with"]["sparse-checkout-cone-mode"] is False
+    for checkout in checkouts:
+        assert checkout["with"]["ref"] == "${{ github.sha }}"
+        assert checkout["with"]["fetch-depth"] == 1
+        assert checkout["with"]["persist-credentials"] is False
+        assert steps.index(checkout) < next(i for i, step in enumerate(steps) if step.get("id") == "decide")
+
+    # Execute from precisely the declared files, without the full checkout on
+    # sys.path. Import-time dependencies must work even when no job is placed.
+    paths = sparse["with"]["sparse-checkout"].split()
+    assert all(path.startswith("/scripts/ci/") and path.endswith(".py") for path in paths)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for path in paths:
+            relative = path.lstrip("/")
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+        marker = subprocess.run(
+            [sys.executable, "scripts/ci/nightly-publication-marker.py"],
+            cwd=root, input=f"<!-- cmux-published-sha: {HEAD_SHA} -->", text=True,
+            capture_output=True, check=True,
+        )
+        assert marker.stdout.strip() == HEAD_SHA
+        placement = subprocess.run(
+            [sys.executable, "scripts/ci/portable_job_placement.py"],
+            cwd=root, env={"JOBS": ""}, text=True, capture_output=True, check=True,
+        )
+        assert "portable placement:" in placement.stdout
+
+
 def test_a_failing_classifier_builds() -> None:
     """The PR claims a fail-open here; drive it rather than assume it."""
     for command in ("false", "printf 'not json\\n'"):
@@ -457,13 +500,19 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
     # cx-f76kf: one writer, NIGHTLY_NEXT_WRITER (mac, linux or none). A
     # nightly-next run that publishes builds only while it is mac; the main
     # track ignores it. publish-nightly reads it again live.
-    for writer in ("linux", "none", "", " mac-mini"):
+    for writer in ("linux", "none", " mac-mini"):
         result = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                             extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=writer))
         assert not should_build(result), writer
     padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                         extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
     assert should_build(padded)
+    # Unset is mac. The vars context gives '' for a variable that does not
+    # exist, so decide cannot tell it from an empty value; the final gate,
+    # which reads the variable live, refuses an empty one before any write.
+    unset = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                       extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=""))
+    assert should_build(unset)
     main_track = run_decide(event="push", tag_age_hours=2.5, extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER="linux"))
     assert should_build(main_track)
 
@@ -492,7 +541,7 @@ def test_nightly_next_publishes_its_own_track() -> None:
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
 
 
-def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> None:
+def test_nightly_next_summary_ignores_the_retired_hold_and_explains_the_notary_exemption() -> None:
     held = run_decide(
         event="push",
         ref="refs/heads/nightly-next",
@@ -502,11 +551,11 @@ def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> Non
             "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
         },
     )
-    assert not should_build(held)
+    assert should_build(held)
     held_summary = summary_values(held)
-    assert "69be4c7e0c5" in held_summary["publication hold"]
+    assert "publication hold" not in held_summary
     assert "deterministic checks" in held_summary["required hold verification"]
-    assert "SIGTRAP" in held["warnings"][0]
+    assert not any("SIGTRAP" in warning for warning in held["warnings"]), held["warnings"]
 
     compiled_out = run_decide(
         event="push",

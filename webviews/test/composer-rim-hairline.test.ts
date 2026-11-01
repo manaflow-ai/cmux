@@ -142,13 +142,15 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
 
   // The glass card adds a top-lit rim, one device pixel (--cmux-hairline): over art under Lens the
   // liquid glass's specular line, under Plain glass the composer's light rim (composerStates.css).
-  // Under a strip or a queue the card's ring is drawn once, by the ::before layer round strip and
-  // card together (composerLocation.css), so the card itself must not draw the ring a second time.
+  // Under a queue the card's ring is drawn once, by the ::before layer whose sides the queue carries
+  // on up (composerLocation.css), so the card itself must not draw the ring a second time. Under a
+  // new chat's location strip the card keeps its own whole ring and no layer (#25304, Leo
+  // 2026-10-25: the strip's chips stand over the started chat's card).
   for (const [mode, rim] of [
     ["lens", "0px 0.5px 0px 0px inset"],
     ["plain", "0px 0.5px 0px 0px inset"],
   ] as const) {
-    test(`over art a card under a strip or a queue draws the ${mode} rim but not a second ring`, async () => {
+    test(`over art a card under a queue draws the ${mode} rim but not a second ring; under a strip its own`, async () => {
       const page = await open(2);
       await page.evaluate((mode) => {
         document.documentElement.setAttribute("data-cmux-see-through", "");
@@ -161,11 +163,12 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           [id, pseudo],
         );
       expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
-      for (const id of ["strip-composer", "queue-composer"]) {
-        expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
-        expect(await shadow(id), `${id} keeps the glass rim`).toContain(rim);
-        expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
-      }
+      expect(await ring("queue-composer"), "queue-composer draws no ring of its own").toEqual([]);
+      expect(await shadow("queue-composer"), "queue-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("queue-composer", "::before"), "queue-composer's ring layer").toMatch(/inset/);
+      expect((await ring("strip-composer")).length, "strip-composer keeps its one ring").toBe(1);
+      expect(await shadow("strip-composer"), "strip-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("strip-composer", "::before"), "no ring layer round the strip").toBe("none");
       await page.close();
     });
   }

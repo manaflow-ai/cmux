@@ -97,9 +97,11 @@ extension HomeNativeTranscriptView {
     /// The part limit counts what earlier intakes (a drop's promised files) added.
     func attach(_ inputs: [HomeDraftInput]) {
         guard let preparer = attachmentPreparer else { return }
+        starterIntakes += 1
         let previous = intake
         let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
+            defer { self?.starterIntakes -= 1 }
             await previous?.value
             await self?.checkAndPrepare(inputs, with: preparer, keepLocation: keepLocation)
         }
@@ -110,11 +112,13 @@ extension HomeNativeTranscriptView {
     /// `standIn`: the drag's own picture, read at the drop, for when no file comes.
     func attachPromised(_ promised: HomePromisedFiles, standIn: [HomeDraftInput]) {
         guard let preparer = attachmentPreparer else { return promised.discard() }
+        starterIntakes += 1
         drop.pending += 1
         showNotice(pendingNotice)
         let previous = intake
         let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
+            defer { self?.starterIntakes -= 1 }
             let files = await promised.files.value
             await previous?.value
             defer { promised.discard() }
@@ -154,20 +158,16 @@ extension HomeNativeTranscriptView {
         }
     }
 
-    /// The inputs the checks passed that fit the part limit; the first refusal shows as the notice.
+    /// The inputs the checks passed, any number of them (a send past the owner's parts per message
+    /// goes as several messages, `HomeStore.send`); the first refusal shows as the notice.
     private func admit(_ inputs: [HomeDraftInput], _ problems: [(error: HomeAttachmentError, name: String?)?]) -> [HomeDraftInput] {
         var accepted: [HomeDraftInput] = []
         var refusals: [String] = []
-        // Attachments plus the text part fit the owner's part limit.
-        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - transcript.draftAttachments.count
         for (input, problem) in zip(inputs, problems) {
             if let problem {
                 refusals.append(HomeComposerCheck.notice(problem))
-            } else if room <= 0 {
-                refusals.append(HomeStrings.attachmentRefusal(.tooManyParts(limit: CmuxHomeCore.HomeAttachmentPolicy.maxParts)))
             } else {
                 accepted.append(input)
-                room -= 1
             }
         }
         // A clean batch clears an earlier refusal (not "on its way" while a drop's files still come,
@@ -274,6 +274,7 @@ extension HomeNativeTranscriptView {
     /// Every key typed into the composer ends here (`ChatController.textDidChange`, vendored MessagesLab, carries
     /// the other home-key marker): a notice the person typed past goes. Keep it O(1): no transcript or row work.
     func draftTextChanged() { // perf-hot: 0.1ms home-key (every key typed into the Home composer)
+        updateStarterAvailability()
         guard notice != nil, !transcript.draftText.isEmpty else { return }
         showNotice(nil)
     }

@@ -11,6 +11,9 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// A raw Claude `control_response` line.
+const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -24,6 +27,11 @@ const MODEL_UPDATES: [&str; 8] = [
     "compaction_summary",
     "subagent_progress",
 ];
+
+/// The `session/update` kinds that show the model at work now, never only an error it ends a
+/// turn with: a tool call it starts, a thought, a plan. A chat marked stuck
+/// (`session_liveness.rs`) whose agent sends one is not stuck (`Hub::unstick_on_work`).
+const WORK_UPDATES: [&str; 3] = ["tool_call", "agent_thought_chunk", "plan"];
 
 /// The raw harness lines only a responding model produces, which often come long before any
 /// update a client shows: Claude's stream (its first event is the model's answer starting), its
@@ -69,7 +77,30 @@ pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
             || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
 }
 
+/// Whether an agent's message is one of [`WORK_UPDATES`].
+fn shows_work(msg: &Message) -> bool {
+    matches!(msg, Message::Notification { method, params: Some(p) }
+        if method == crate::rpc::method::SESSION_UPDATE
+            && p.pointer("/update/sessionUpdate")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| WORK_UPDATES.contains(&kind)))
+}
+
 impl Hub {
+    /// A chat marked stuck whose agent works again (`shows_work`) is not stuck: its failures are
+    /// forgotten at once, not at its next completed turn (2026-10-29: a coordinator read
+    /// `stuck` while it made tool call after tool call). Logged `unstuck`, so watchers re-read it.
+    pub(super) fn unstick_on_work(&self, session: &Session) {
+        let reason = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let Some((reason, ..)) = m.harness_failures.stuck() else { return };
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            reason
+        };
+        self.save_meta(session);
+        self.append(session, "mux", "unstuck", json!({"stuckReason": reason}));
+    }
+
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
     /// The tap that logs one session's wire traffic (and the agent host
@@ -77,22 +108,41 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
+        // The epoch its reports count in (`FloorState::report_epoch`).
+        let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
+        let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
-            if matches!(dir, Direction::In) && from_the_model(msg) {
+            if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
+                // Not a history replay (`session/load`): the agent works now.
+                if !tap_session.loading.load(Ordering::SeqCst) && shows_work(msg) {
+                    tap_hub.unstick_on_work(&tap_session);
+                }
             }
-            if matches!(dir, Direction::In)
+            if !muted
+                && matches!(dir, Direction::In)
                 && let Message::Notification { method, params: Some(p) } = msg
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                // Counted before it is logged, so no check waits for the inbound loop to apply
+                // it (review 69 of #23322).
+                if super::full_access_bound::own_full_access_report(&tap_session, p) {
+                    // Under the meta lock the view reads it under (`FullAccessView::of_session`).
+                    let _m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if tap_session.floor.report_epoch.load(Ordering::SeqCst) == report_epoch {
+                        tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -115,8 +165,15 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional =
-                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && tap_session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(
+                            tap_session.status(),
+                            SessionStatus::Idle | SessionStatus::Closed
+                        );
+                    tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -124,7 +181,11 @@ impl Hub {
                             &tap_session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                             host_seq,
                         )
                         .1;
@@ -133,22 +194,36 @@ impl Hub {
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
-                    if method == RAW_STREAM_EVENT && !timing {
+                    // Claude Code's whole /context answer (its grid, every MCP tool) is not
+                    // logged either: the breakdown translated from it follows.
+                    let context = method == RAW_CONTROL_RESPONSE
+                        && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
+                    if (method == RAW_STREAM_EVENT && !timing) || context {
                         // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return true;
                     }
                     if method.starts_with("claude.") {
-                        // Raw stream-json line; translated messages follow.
-                        return tap_hub
-                            .append_logged(
-                                &tap_session,
-                                "in",
-                                &kind,
-                                params.clone().unwrap_or(Value::Null),
-                                host_seq,
-                            )
-                            .1;
+                        // Claude Code's turn, its own ones too (`Session::harness_turn`).
+                        if method == "claude.system.init" {
+                            tap_session.harness_turn.store(true, Ordering::SeqCst);
+                        } else if method.starts_with("claude.result") {
+                            tap_session.harness_turn.store(false, Ordering::SeqCst);
+                        } else if (method == "claude.system.task_started"
+                            || method == "claude.system.task_notification")
+                            && let Some(line) = params.as_ref()
+                        {
+                            // A failed subagent's resume, and its end when only these lines
+                            // show it (`subagent_retry.rs`).
+                            tap_hub.observe_task_line(&tap_session, line);
+                        }
+                        // Raw stream-json line; translated messages follow. Claude's echo of a
+                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
+                        // its assistant and user lines the bodies those messages carry.
+                        let mut line = params.clone().unwrap_or(Value::Null);
+                        crate::model_copies::scrub_logged(&mut line);
+                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
+                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -171,14 +246,10 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    let mut line = params.clone().unwrap_or(Value::Null);
+                    crate::model_copies::scrub_logged(&mut line);
                     return tap_hub
-                        .append_logged(
-                            &tap_session,
-                            "out",
-                            "claude.stdin",
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        )
+                        .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
@@ -188,21 +259,38 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
+            // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
+            crate::model_copies::scrub_logged(&mut value);
+            // The agent's own display line on its ask is neither logged nor shown
+            // (`permissions/display.rs`): only acpmux writes the line a person reads.
+            if d == "in"
+                && msg.method() == Some(crate::rpc::method::SESSION_REQUEST_PERMISSION)
+                && let Some(params) = value.get_mut("params")
+            {
+                super::drop_display_lines(params);
+            }
             let mut subagent = None;
+            // Whether this update changed which background subagents run: a root learned late
+            // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
+            let mut background_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                // The chat's own thread is never one of its subagents.
-                let own = tap_session
-                    .meta
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .agent_session_id
-                    .clone();
+                // The chat's own thread is never one of its subagents. Seed the
+                // native roots (the current one and the earlier ones a daemon restart
+                // forgot) before handling updates so echoed root activity cannot
+                // create a phantom child; replay keeps live/background semantics.
+                let (own, retired) = {
+                    let meta = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
+                };
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
-                subagent = tree.annotate(params);
+                let before = tree.background_running();
+                tree.set_roots(own.iter().chain(&retired).map(String::as_str));
+                subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
+                background_changed = tree.background_running() != before;
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -221,6 +309,11 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
+            // An update that starts or ends a subagent may change the work that runs past the
+            // chat's turn (`work_below.rs`).
+            let subagent_events = d == "in"
+                && !kind.ends_with(".replay")
+                && value.pointer("/params/_meta/acpmux/subagents").is_some();
             // A shell's output file stays in the registry, off the record.
             let output = if d == "in" && kind == "background_task_update" {
                 super::processes::take_output_file(&mut value)
@@ -231,9 +324,20 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
+            if subagent_events || background_changed {
+                tap_hub.refresh_work_below(&tap_session);
+            }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+            }
+            // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.observe_subagents(&tap_session, events);
             }
             logged
         })
@@ -256,3 +360,7 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "tap_bodies_tests.rs"]
+mod bodies_tests;

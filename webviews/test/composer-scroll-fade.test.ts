@@ -139,7 +139,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
 
   /// Pastes `count` texts of 30 lines each, every one a Pasted text chip (over pastedText.ts's 20
   /// lines), so the attachment row holds `count` more chips.
+  /// The row is Settings' attachment strip (the default inline view puts chips in the text), so the
+  /// strip is turned on first.
   async function pasteChips(page: Page, count: number) {
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
     await page.locator(EDITABLE).click();
     const held = await page.locator(CHIP).count();
     for (let chip = held + 1; chip <= held + count; chip++) {
@@ -420,7 +423,9 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const box = (await page.locator(ROW).boundingBox())!;
         const chip = (await page.locator(CHIP).first().boundingBox())!;
         const y = chip.y + chip.height / 2;
-        const sides = [box.x + 1, box.x + box.width - 1];
+        // Two pixels in from each end: the row runs to the composer box's edge, so its outermost
+        // pixel is the box's one-device-pixel rim, which brightens on focus (#23745), not the fade.
+        const sides = [box.x + 2, box.x + box.width - 2];
         // Nothing lies over the faded sides: a point in each hits the row's own chips.
         const hits = await page.evaluate(
           ({ row, sides, y }) => {

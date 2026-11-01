@@ -9,17 +9,11 @@ import CmuxNextActions
 typealias WorkspaceSpawn = CmuxNextAppCore.WorkspaceSpawn
 typealias WorkspaceClose = CmuxNextAppCore.WorkspaceClose
 typealias WorkspaceSpawnSidebar = CmuxNextAppCore.WorkspaceSpawnSidebar
+typealias WorkspaceSelectionCloseFlow = CmuxNextAppCore.WorkspaceSelectionCloseFlow
+typealias BulkClosePlan<Object> = CmuxNextAppCore.BulkClosePlan<Object>
 
 @MainActor extension SidebarBridge: WorkspaceSpawnSidebar {
     var sections: [SidebarRowSection] { model.sections }
-}
-
-extension WorkspaceSpawn {
-    /// `tabs.terminalFirst` (cmux Classic Mode, #23021): a person's new workspace or window opens
-    /// a terminal, as in cmux classic, not the New Tab page. A first chat or session still opens.
-    @MainActor mutating func followClassicMode(_ services: AppServices) {
-        if NewTabKind.terminalFirst(services) { opensNewTabPage = false }
-    }
 }
 
 extension AppServices: DaemonRoutingProviding {

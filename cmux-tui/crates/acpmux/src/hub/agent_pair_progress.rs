@@ -3,14 +3,15 @@
 
 use super::*;
 
-/// The cmux-subsessions tools (`subsession_mcp.rs`) that only message, read, wait on or stop
-/// another session of the family: never progress. `start_session` is not one: it hands work off.
+/// The cmux-subsessions tools (`subsession_mcp.rs`) that only message, read, wait on, stop or
+/// retry another session of the family: never progress. `start_session` is not one: it hands work off.
 const SUBSESSION_TOOLS: &[&str] = &[
     "send_message",
     "list_sessions",
     "get_session",
     "wait_for_sessions",
     "stop_session",
+    "retry_session",
     "set_session_limits",
 ];
 /// The cmux MCP tools that message or read another chat (`cmux-tui` `cli/mcp/agent_tools.rs`):

@@ -43,6 +43,8 @@ final class BrowserDownloadList {
     /// The tab each download of this run came from. Rows restored from an
     /// earlier run have none, so they never show a tab's Downloads button.
     private var origins: [ObjectIdentifier: String] = [:]
+    /// Agent waits on these downloads (`browser.page.download.wait`).
+    @ObservationIgnored let waits = BrowserDownloadWaits()
 
     /// Adds `item` (from tab `key`); `notice` shows a line over that tab.
     /// With `keep` false (an incognito tab) it is never written down.
@@ -55,11 +57,15 @@ final class BrowserDownloadList {
         pruneOrigins()
         logger.notice("download \(item.id, privacy: .public) started in tab \(key, privacy: .public)")
         onDownload?(item, key)
+        waits.started(item, tab: key)
         item.onFinish { [weak self] item in
             if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)
         }
     }
+
+    /// The tab `item` came from, when it started in this run.
+    func origin(of item: BrowserDownload) -> String? { origins[ObjectIdentifier(item)] }
 
     /// True while a download tab `key` started in this run is still in progress (the page
     /// does not hibernate meanwhile).
@@ -98,6 +104,7 @@ final class BrowserDownloadList {
     private func pruneOrigins() {
         let listed = Set(items.map(ObjectIdentifier.init))
         if origins.keys.contains(where: { !listed.contains($0) }) { origins = origins.filter { listed.contains($0.key) } }
+        waits.keep(only: listed)
     }
 
     /// Retry in the Downloads menu: starts `item` again; the new download

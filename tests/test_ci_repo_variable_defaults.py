@@ -197,9 +197,50 @@ def top_level_conjuncts(condition: str) -> list[str]:
     return parts
 
 
-def gated_on_every_read(condition: str, reads: list[re.Match]) -> bool:
+def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
     conjuncts = top_level_conjuncts(condition)
-    return all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads)
+    if all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads):
+        return True
+    # `runs-on: ${{ vars.A || vars.B }}` is non-empty when either is set, so a
+    # job gated on `(vars.A != '' || vars.B != '')` never schedules on an empty
+    # runs-on either. Only a pure `||` chain of the same variables qualifies.
+    names = {read.group(1) for read in reads}
+    chain = re.fullmatch(r"\$\{\{\s*(vars\.[A-Z0-9_]+(?:\s*\|\|\s*vars\.[A-Z0-9_]+)*)\s*\}\}", expression.strip())
+    if chain is None:
+        return False
+    for conjunct in conjuncts:
+        inner = conjunct.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        terms = [term.strip() for term in inner.split("||")]
+        gated = set()
+        for term in terms:
+            matched = re.fullmatch(r"vars\.([A-Z0-9_]+) != ''", term)
+            if matched is None:
+                gated = set()
+                break
+            gated.add(matched.group(1))
+        if gated and gated == names:
+            return True
+    return False
+
+
+# The one routing source (scripts/ci/runner_pools.py on main): RUNNER_POOLS has no literal fallback on purpose.
+# Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
+# not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
+# never reaches the read: the fork pull request branch in front of it names its own label. Same rule as main's.
+FORK_PULL_REQUEST_BRANCH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
+    r" && '[^']+' \|\| "
+)
+
+
+def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it."""
+    if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
+        return False
+    return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
 
 
 def check_runs_on(path: Path, errors: list[str]) -> None:
@@ -212,9 +253,11 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         reads = list(VARS_REFERENCE.finditer(expression))
         if not reads:
             continue
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
+            continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
-        if gated_on_every_read(job_if(lines, number - 1), reads):
+        if gated_on_every_read(job_if(lines, number - 1), reads, expression):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
@@ -335,7 +378,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
 
 
 def self_test_runs_on_gate(errors: list[str]) -> None:
-    """Only a job-level `vars.X != ''` conjunct for every read excuses a bare runs-on."""
+    """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
     import tempfile
 
     def job(condition: str, runs_on: str = "${{ vars.A_RUNNER }}") -> str:
@@ -350,6 +393,12 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
         (job("(vars.A_RUNNER != '' || vars.B != '') && github.ref == 'x'"), 1, "a gate inside parentheses"),
         (job("vars.B_RUNNER != ''"), 1, "a gate on another variable"),
         (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 0,
+         "a `||` chain gated on either of its variables"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.C_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1,
+         "a `||` chain gated on another variable"),
+        (job("(vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER && vars.B_RUNNER }}"), 1,
+         "an `&&` read gated on either variable"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
          1, "another job's gate"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
@@ -369,6 +418,17 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
                 )
 
 
+def self_test_pool_reads(errors: list[str]) -> None:
+    fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+    good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
+    bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+    for text, expected in ((good, True), (bad, False)):
+        reads = list(VARS_REFERENCE.finditer(text))
+        if all(pool_read_after_fork_branch(text, read) for read in reads) != expected:
+            errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -377,6 +437,7 @@ def main() -> int:
         return 1
     self_test_gate_matcher(errors)
     self_test_runs_on_gate(errors)
+    self_test_pool_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)

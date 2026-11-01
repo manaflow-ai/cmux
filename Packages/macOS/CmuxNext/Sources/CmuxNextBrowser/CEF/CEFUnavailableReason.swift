@@ -37,6 +37,15 @@ public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
         }
     }
 
+    /// True when a Chromium tab must wait in place instead of loading in WebKit: Chromium failed to start in this
+    /// process (`CefInitialize` runs once per process), and WebKit has none of Chromium's cookies, so a signed-in
+    /// page would come back signed out (github.com/login?return_to=…, field log 2026-10-26). A build without
+    /// Chromium or one still downloading it keeps the WebKit fallback.
+    public var keepsChromiumTabsOutOfWebKit: Bool {
+        if case .startFailed = self { return true }
+        return false
+    }
+
     /// True while the runtime is still on its way (downloading or retrying):
     /// a Chromium request should start or hurry the download.
     public var isAwaitingDownload: Bool {

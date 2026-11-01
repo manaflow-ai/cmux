@@ -18,7 +18,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 SHADOWS = [
     # (workflow file, shadow job id, the job whose output it compares)
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "publish"),
-    # The x86_64 run-time half runs the shadow job's binaries on an Intel Mac.
+    # The x86_64 run-time half runs the shadow job's binaries under Rosetta on an Apple silicon Mac.
     ("cmux-tui-artifacts.yml", "macos-cross-runtime-x86_64", "macos-cross-shadow"),
     ("app-ffi-release.yml", "macos-cross-shadow", "build"),
 ]

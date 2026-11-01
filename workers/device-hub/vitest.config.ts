@@ -20,8 +20,10 @@ export default defineConfig({
           TICKET_KEY: await testKey(),
           STACK_PROJECT_IDS: `${TEST_STACK_PROJECT},${TEST_STACK_DEV_PROJECT}`,
           STACK_API_URL: "https://stack.test",
-          // Hub user ids are "<projectId>:<sub>".
-          PAID_USER_IDS: `${TEST_STACK_PROJECT}:paid-user`,
+          // cmux web backend per Stack project; the hub asks it for the caller's plan.
+          BILLING_ORIGINS: `${TEST_STACK_PROJECT}=https://billing.test,${TEST_STACK_DEV_PROJECT}=https://billing-dev.test`,
+          // A short billing deadline so the "billing hangs" test ends quickly (default 5 s).
+          BILLING_TIMEOUT_MS: "300",
           TURN_KEY_ID: "turn-key",
           TURN_KEY_API_TOKEN: "turn-token",
           // Short provisional window for socket-close end reasons (default 3 s).

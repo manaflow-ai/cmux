@@ -9,6 +9,7 @@
     "check": "vp fmt --check && vp lint && vp check --no-fmt --no-lint",
     "check:fix": "vp check --fix",
     "fmt": "vp fmt",
+    "test": "vp test",
     "lint": "vp lint",
     "typecheck": "vp check --no-fmt --no-lint"
   },

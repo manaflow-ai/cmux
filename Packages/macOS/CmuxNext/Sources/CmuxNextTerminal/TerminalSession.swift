@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextTerminalFind
+import CmuxNextDesign
 import CmuxNextWakeups
 import GhosttyNextKit
 
@@ -90,6 +91,16 @@ public final class TerminalSession {
     /// background, foreground, cursor, selection), with no restart and no
     /// grid change, and to every surface a later replay swaps in.
     public private(set) var theme: GhosttyThemeConfig?
+    /// The App Theme's veil this terminal draws on (a see-through window under an App Theme), set by
+    /// its host; nil draws on its own colors. Its colors are then raised to read on it
+    /// (``GhosttyThemeColors/contrastLines(over:minimum:)``) in a config of this surface's own.
+    private var veil: ThemeRGB?
+    /// ``theme`` (or the app config) with the veil's contrast lines, while they change any color.
+    private var veilConfig: GhosttyThemeConfig?
+    /// Whether the last theme apply to the live surface animated its colors (diagnostics and tests).
+    private(set) var lastThemeApplyAnimated = false
+    /// A theme has been applied to this session, so the next change animates.
+    private var themeWasApplied = false
     /// The light/dark scheme the live surface draws a light/dark theme in.
     public var surfaceIsDark: Bool { surfaceView.colorSchemeIsDark }
 
@@ -100,7 +111,26 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
+        // The first theme this terminal takes (a restored one on its first show) lands at once: its
+        // surface has not painted those colors yet, so a blend would start from the unpainted ones.
+        let animated = themeWasApplied
+        if config != nil { themeWasApplied = true }
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: animated)
+    }
+
+    /// Sets the veil this terminal draws on and re-applies its colors when that changes them.
+    func setVeil(_ veil: ThemeRGB?) {
+        guard veil != self.veil else { return }
+        self.veil = veil
+        applyTheme(to: surfaceView, clearing: true, animated: themeWasApplied)
+    }
+
+    /// ``theme`` or the app config, with the veil's contrast lines when they change any color.
+    private func rebuildVeilConfig() -> GhosttyThemeConfig? {
+        guard let veil, let base = theme?.config ?? GhosttyRuntime.shared.config,
+              let colors = theme?.colors ?? GhosttyRuntime.shared.themeColors,
+              let raised = GhosttyRuntime.surfaceConfig(base, lines: colors.contrastLines(over: veil)) else { return nil }
+        return GhosttyThemeConfig(config: raised, themeName: theme?.themeName ?? "", colors: GhosttyRuntime.themeColors(of: raised, backgroundOpacity: colors.backgroundOpacity))
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -151,6 +181,7 @@ public final class TerminalSession {
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
+        view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
@@ -467,11 +498,16 @@ public final class TerminalSession {
     /// `animated`: the live surface blends to the new colors on the GPU from the colors on
     /// screen (a theme change); a fresh surface takes its first colors at once.
     private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
+        lastThemeApplyAnimated = animated
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
-        if let theme {
+        let hadVeil = veilConfig != nil
+        veilConfig = rebuildVeilConfig()
+        if let veilConfig {
+            ghostty_surface_update_config(surface, veilConfig.config)
+        } else if let theme {
             ghostty_surface_update_config(surface, theme.config)
-        } else if clearing, let config = GhosttyRuntime.shared.config {
+        } else if clearing || hadVeil, let config = GhosttyRuntime.shared.config {
             ghostty_surface_update_config(surface, config)
         }
     }

@@ -1,3 +1,4 @@
+import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxRow } from "../model";
 import { continuesTurn } from "../turnStart";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -6,6 +7,8 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 export const SUBAGENT_ROW = "subagent";
 /// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
 export const SUBAGENT_OF = "subagentOf";
+/// The known child has no recorded messages or tool calls yet.
+export const SUBAGENT_EMPTY = "subagentEmpty";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
@@ -36,7 +39,7 @@ export function childView(
   id: string,
   rows: readonly AcpmuxRow[],
   views: Record<string, AcpmuxRow[]> | undefined,
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   chat: string,
 ): AcpmuxRow[] | undefined {
   const agents = subagentsIn(rows, views);
@@ -51,7 +54,12 @@ export function childView(
     subagents: [agent],
     text: parent,
   };
-  return [pill, ...withSubagentRows(views?.[id] ?? [], expanded)];
+  const content = withSubagentRows(views?.[id] ?? [], expanded);
+  // Views are populated by recorded child events, not a separate fetch. An absent entry does
+  // not mean a request is pending; describe the empty transcript without claiming it is loading.
+  return content.length
+    ? [pill, ...content]
+    : [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
@@ -87,11 +95,7 @@ export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; row
 
 /// ``withSubagentRows``, building on `previous`: in a chat without subagent groups, only the rows
 /// after the first that differs from `previous.source` (by object) can bring one.
-export function subagentRowsFrom(
-  rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
-  previous?: SubagentRows,
-): SubagentRows {
+export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
     let from = 0;
@@ -107,7 +111,7 @@ export function subagentRowsFrom(
 /// An open group's subagents as rows below it, one line each, so every line keeps a fixed
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
-export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
+export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some(isSubagentGroup)) return rows as AcpmuxRow[];
   const out: AcpmuxRow[] = [];
   for (const row of rows) {

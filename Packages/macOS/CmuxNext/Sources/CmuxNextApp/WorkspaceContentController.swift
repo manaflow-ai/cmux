@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -18,7 +19,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
+    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll).
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self,
+                                                      pageCommandScroll: services.cache.cef)
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -45,13 +48,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
-    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
-    var pendingCreate: Task<Void, Never>?
+    /// The last key-turn pane create (Cmd-D's split, New Column, New Row) still sending: the next one sends after
+    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`, `PaneHandlers.split`).
+    var pendingCreate: ActionWork?
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    #if DEBUG
+    /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
+    /// process-wide counters also count every other workspace (tests run side by side).
+    var debugApplies: UInt64 = 0
+    var debugTopologySends: UInt64 = 0
+    #endif
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
     /// Parked and not on screen beside the shown workspace: it draws nothing, so its panes do no
@@ -144,8 +153,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
             // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
-            // So does every empty workspace in cmux Classic Mode (`tabs.terminalFirst`, #23021).
-            if !NewTabKind.terminalFirst(services), services.agentTabs.opensFirstPage(on: daemon) {
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -161,6 +169,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
+        // several daemon replies): it stays clear until its conversation is in, never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
+            services.launchReveal.hold(contentView, until: .home)
+        }
     }
 
     func teardown() {
@@ -172,6 +185,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
+        // A Home closed before its page came stops counting toward `.home`'s wait.
+        services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
     }
 
@@ -258,6 +273,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
+        debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
         let wasApplying = isApplying
@@ -382,7 +398,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             let apps = services.apps
             Task { apps.windowDidShowContent() }
         }
+        // So does a link from another app that waited for a workspace made to hold it (#27897):
+        // the workspace shows before its first pane mounts.
+        if panes.count == 1, !services.externalOpen.pending.isEmpty {
+            let open = services.externalOpen
+            Task { open.flush() }
+        }
         return controller.view
+    }
+
+    func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {
+        guard let content = panes[pane]?.currentContent else { return false }
+        if case .agent = content { return true }
+        return false
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {

@@ -6,7 +6,16 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { envelopeImages, losesNumbers, oneLine, peelEnvelope, printable, toolResult } from "./toolResult";
+import {
+  envelopeImages,
+  formatToolText,
+  losesNumbers,
+  oneLine,
+  peelEnvelope,
+  printable,
+  toolResult,
+} from "./toolResult";
+import { stripAnsi } from "./toolOutput";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -90,6 +99,53 @@ function words(tool: string): string[] {
 
 export function mcpAction(call: McpCall): McpAction {
   return VERBS[words(call.tool)[0] ?? ""] ?? "call";
+}
+
+/// Whether a parsed MCP call is explicitly observational, regardless of its generic ACP kind. The first verb supplies the parsed
+/// action; a later mutating word makes names such as `read_and_write` fail closed rather than
+/// becoming read-only because they happen to start with `read`.
+const MCP_MUTATING_WORDS = new Set([
+  "write",
+  "append",
+  "truncate",
+  "overwrite",
+  "mutate",
+  "modify",
+  "execute",
+  "run",
+  "send",
+  "post",
+  "reply",
+  "create",
+  "add",
+  "new",
+  "start",
+  "launch",
+  "spawn",
+  "update",
+  "edit",
+  "set",
+  "rename",
+  "patch",
+  "delete",
+  "remove",
+  "archive",
+  "close",
+  "replace",
+  "upload",
+  "copy",
+  "save",
+  "put",
+]);
+
+export function mcpIsObservational(call: McpCall): boolean {
+  const tokens = words(call.tool);
+  const action = mcpAction(call);
+  return (
+    (action === "read" || action === "list" || action === "search") &&
+    !tokens.slice(1).some((token) => MCP_MUTATING_WORDS.has(token) || VERBS[token] === "message") &&
+    !tokens.slice(1).some((token) => VERBS[token] !== undefined && !["read", "list", "search"].includes(VERBS[token]!))
+  );
 }
 
 /// Arguments that name what a call acts on, in the order they are tried.
@@ -310,6 +366,13 @@ export function prettyOutput(output: string | undefined, strip = false): string 
   // each other part as the JSON it is, never cleaned or parsed again (toolResult.ts).
   if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
   return prettyValue(mcpValue(output));
+}
+
+/// The response as both its readable body and Find see it. Keep the MCP reader's recursive
+/// context cleaning, then remove terminal controls and classify without peeling its text again.
+export function mcpOutputResult(output: string | undefined, strip: boolean, name: string) {
+  const text = prettyOutput(output, strip);
+  return text ? formatToolText(stripAnsi(text), { title: name }) : undefined;
 }
 
 function flat(value: unknown): string | undefined {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { lintFile } from "../migrate.ts"
+import { concurrentIndexOf, lintFile } from "../migrate.ts"
 
 const expand = (sql: string) => lintFile("0002_x.sql", `-- phase: expand\n${sql}`)
 
@@ -48,6 +48,22 @@ describe("migration lint (parsed SQL)", () => {
   it("requires a phase header and forbids transaction statements", async () => {
     expect((await lintFile("0002_a.sql", "ALTER TABLE users ADD COLUMN plan text;")).join()).toContain("phase")
     expect((await expand("BEGIN; ALTER TABLE users ADD COLUMN x text; COMMIT;")).join()).toContain("BEGIN")
+  })
+
+  it("keeps a CONCURRENTLY statement alone in its file and retry-safe", async () => {
+    expect(await expand("CREATE INDEX CONCURRENTLY IF NOT EXISTS users_locale ON users (locale);")).toEqual([])
+    expect(await lintFile("0003_drop.sql", "-- phase: contract\nDROP INDEX CONCURRENTLY IF EXISTS users_locale;")).toEqual([])
+    expect((await expand("ALTER TABLE users ADD COLUMN x text;\nCREATE INDEX CONCURRENTLY IF NOT EXISTS users_x ON users (x);")).join()).toContain("only statement")
+    expect((await expand("CREATE INDEX CONCURRENTLY users_x ON users (x);")).join()).toContain("IF NOT EXISTS")
+    expect((await lintFile("0003_drop.sql", "-- phase: contract\nDROP INDEX CONCURRENTLY users_locale;")).join()).toContain("IF EXISTS")
+  })
+
+  it("finds the concurrent index the runner applies outside a transaction", async () => {
+    expect(await concurrentIndexOf("-- phase: expand\nCREATE INDEX CONCURRENTLY IF NOT EXISTS i ON s.t (c);")).toEqual({ kind: "create", schema: "s", name: "i" })
+    expect(await concurrentIndexOf("CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (c);")).toEqual({ kind: "create", schema: undefined, name: "i" })
+    expect(await concurrentIndexOf("DROP INDEX CONCURRENTLY IF EXISTS i;")).toEqual({ kind: "drop" })
+    expect(await concurrentIndexOf("CREATE INDEX i ON t (c);")).toBeUndefined()
+    expect(await concurrentIndexOf("SELECT 1; CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (c);")).toBeUndefined()
   })
 
   it("allows destructive statements only in a contract migration", async () => {

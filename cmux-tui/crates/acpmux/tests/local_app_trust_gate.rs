@@ -256,6 +256,13 @@ async fn a_running_chat_is_not_held_by_an_open_trust_question() {
 
     app.trust(&folder, "untrusted").await;
     assert_eq!(reason(&app.prompt(&s, "after-dont-trust").await), "trust.untrusted");
+    // A reconnect starts an MCP server's command again in the folder: gated as set_tools is.
+    let r = app.call("_acpmux/mcp/reconnect", json!({"sessionId": s, "server": "github"})).await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+    let r = app
+        .call("_acpmux/set_tools", json!({"sessionId": s, "id": "mcp:github", "enabled": true}))
+        .await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

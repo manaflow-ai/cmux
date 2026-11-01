@@ -15,7 +15,8 @@ public import Foundation
 /// cmux terminals set `BROWSER` to the bundled `cmux-open-url`, and put `open` and `xdg-open`
 /// shims first on `PATH` that send an http(s) URL there (any other `open` goes to `/usr/bin/open`).
 /// It asks the app (`browser.open_link`), which picks the target here: the first rule that
-/// matches, else ``defaultTarget``. A `BROWSER` the user sets wins over all of it. When the app
+/// matches, else ``defaultTarget``. A `BROWSER` the user sets wins over all of it, except
+/// `BROWSER=open` (prezto's default when unset), which names no browser. When the app
 /// cannot be reached the URL goes to the default browser. The macOS default browser never changes.
 public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
     /// The target when no rule matches. `cmux` by default.
@@ -49,6 +50,16 @@ public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
             return Decision(target: rules[index].target, rule: index)
         }
         return Decision(target: defaultTarget, rule: nil)
+    }
+
+    /// ``decide(_:callers:)``, then a sign-in or device-code page that no rule matched opens in
+    /// cmux whatever ``defaultTarget`` says, when `routing` keeps sign-in pages in cmux
+    /// (``LinkRouting/keepsSignInPageInCmux(_:)``, `browser.openSignInPagesInCmux`). A rule is the
+    /// person's explicit choice and still wins; any other link keeps the default.
+    public func decide(_ url: URL, callers: [String], routing: LinkRouting) -> Decision {
+        let decision = decide(url, callers: callers)
+        guard decision.rule == nil, routing.keepsSignInPageInCmux(url) else { return decision }
+        return Decision(target: .cmux, rule: nil)
     }
 
     static func parse(_ root: JSONValue) -> (TerminalLinkOpener, [SettingsDiagnostic]) {

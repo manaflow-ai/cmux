@@ -25,6 +25,8 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
+// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// Tools, AI, Interaction, Accounts and Devices, Data and System.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
@@ -33,17 +35,19 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "terminal",
     "editor",
+    "browser",
     "agents",
     "chief",
     "notifications",
-    "browser",
-    "import",
     "keyboard",
-    "privacy",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "accounts",
     "mobile",
-    "server",
     "devices",
+    "server",
+    "import",
+    "privacy",
     "advanced",
     "experimental",
     "development",
@@ -64,12 +68,16 @@ test("the Development category shows only in DEV builds", () => {
   const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
   expect(ids(false)).not.toContain("development");
   expect(ids(true)).toContain("development");
-  expect(ids(false)).not.toContain("devices");
+  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual(["development"]);
+});
+
+test("Devices shows in every build: NIGHTLY and Release use the built-in device hub", () => {
+  // Mac Screen's sharing switch, device permissions and relays live only in Settings > Devices.
+  const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
+  expect(ids(false)).toContain("devices");
   expect(ids(true)).toContain("devices");
-  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual([
-    "devices",
-    "development",
-  ]);
+  expect(shownSection("devices", false)).toBe("devices");
+  expect(shownSection(parseLocation("/settings/devices").section, false)).toBe("devices");
 });
 
 test("old section routes and focused keys open the category that holds the row", () => {

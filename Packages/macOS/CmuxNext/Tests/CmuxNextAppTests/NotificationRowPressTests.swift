@@ -1,20 +1,21 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19: "mouse down to immediately open". A row of the notifications panel opens its
 /// notification on the press, once; the release opens nothing more.
-@MainActor @Suite(.serialized) struct NotificationRowPressTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NotificationRowPressTests {
     final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         let view: NotificationRowView
         private(set) var opened = 0
 
-        init() {
+        init(source: String? = "terminal") {
             let row = NotificationsPanelRow(id: "n1", title: "Build finished", subtitle: nil, body: "All green", level: .info,
-                                            workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
+                                            source: source, workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
                                             surface: nil, terminal: nil)
             var open: () -> Void = {}
             view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60),
@@ -35,10 +36,26 @@ import Testing
 
     @Test func aNotificationRowOpensOnThePressAndOnlyOnce() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.view.mouseDown(with: try harness.event(.leftMouseDown))
         #expect(harness.opened == 1, "the press did not open the notification")
         harness.view.mouseUp(with: try harness.event(.leftMouseUp))
         #expect(harness.opened == 1, "the release opened it a second time")
+    }
+
+    /// The producer the daemon reported reads before the workspace, in the
+    /// row's caption and to VoiceOver.
+    @Test func aNotificationRowNamesItsProducer() {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        #expect(harness.view.accessibilityLabel() == "Build finished, Terminal Programs, cmux, All green")
+    }
+
+    /// A ledger row from a daemon that does not report a source reads as it
+    /// did before: the workspace alone.
+    @Test func aRowWithoutAProducerKeepsTheWorkspaceAlone() {
+        let harness = Harness(source: nil)
+        defer { harness.window.closeAfterTest() }
+        #expect(harness.view.accessibilityLabel() == "Build finished, cmux, All green")
     }
 }

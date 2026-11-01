@@ -155,7 +155,11 @@ async fn redeem(url: &str, secret: &str, params: Value) -> Result<Value, Value> 
 }
 
 fn mint(h: &Hub, role: Role, url: &str) -> String {
-    h.pairing.mint(role, 900, None, url.to_owned(), "b".into()).unwrap().0.secret
+    h.pairing
+        .mint(role, 900, None, url.to_owned(), "b".into(), h.person.instance().to_owned())
+        .unwrap()
+        .0
+        .secret
 }
 
 async fn remote_session(b: &Arc<Hub>) -> String {
@@ -350,8 +354,10 @@ async fn pairing_wrong_and_revoked_tickets_and_credentials_are_refused_at_the_up
     let url = listen(b.clone()).await;
     // An unknown ticket, and a revoked one.
     assert!(dial(&url, &[(TICKET_HEADER, &"0".repeat(64))]).await.is_err());
-    let (ticket, record) =
-        b.pairing.mint(Role::Client, 900, None, url.clone(), "b".into()).unwrap();
+    let (ticket, record) = b
+        .pairing
+        .mint(Role::Client, 900, None, url.clone(), "b".into(), b.person.instance().to_owned())
+        .unwrap();
     b.pairing.revoke(&record.id).unwrap();
     assert!(dial(&url, &[(TICKET_HEADER, &ticket.secret)]).await.is_err());
     // Two ticket headers.
@@ -362,7 +368,10 @@ async fn pairing_wrong_and_revoked_tickets_and_credentials_are_refused_at_the_up
     let secret = mint(&b, Role::Daemon, &url);
     let e = redeem(&url, &secret, json!({"name": "nodaemon"})).await.unwrap_err();
     assert_eq!(e["data"]["reason"], "advertise_required", "{e}");
-    assert!(b.pairing.ticket_open(&secret), "a refused redeem keeps the ticket");
+    assert!(
+        b.pairing.ticket_open(&secret, b.person.instance()),
+        "a refused redeem keeps the ticket"
+    );
     // A wrong credential in place of the dashboard token.
     let wrong = format!("Bearer {}", "ab".repeat(32));
     assert!(dial(&url, &[("authorization", &wrong)]).await.is_err());

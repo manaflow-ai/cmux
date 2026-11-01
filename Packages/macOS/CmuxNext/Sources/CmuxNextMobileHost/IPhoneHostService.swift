@@ -1,6 +1,7 @@
 public import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextKeepAwake
 public import CmuxNextMobile
 public import Foundation
 public import Observation
@@ -102,6 +103,11 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
+    public let remoteControl = AgentPaneRemoteControl()
+    /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
+    /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
+    public internal(set) var servesPhones = false
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
@@ -116,6 +122,8 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
+    public let pairedStore: MobileHostPairedStore
+    @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -126,6 +134,11 @@ public final class IPhoneHostService {
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
+    /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
+    /// live one pairs without the prompt, once.
+    @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
+    @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
     @ObservationIgnored var pairDialog: (id: Int, request: MobileHostPairRequest)?
     /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
@@ -140,6 +153,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingFolders: Task<Void, Never>?
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
+    /// App-lifetime wake observer; released on stop or deinit.
+    @ObservationIgnored private var wakeObserver: MainActorObservation?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
@@ -150,7 +165,22 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init() {
+    public init(pairedStore: MobileHostPairedStore = MobileHostPairedStore()) {
+        self.pairedStore = pairedStore
+        pairedStore.observe { [weak self] _ in
+            // task-owner: one main-actor update per serialized list change
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                paired = self.pairedStore.current
+                pushPaired()
+            }
+        }
+        wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            guard let self, allowed, account != nil, !removed else { return }
+            let supervisor = supervisor
+            // task-owner: one control-line write per wake; ends after the actor hop.
+            Task { await supervisor.networkChanged() }
+        }
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -206,6 +236,12 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
+        if id.hasPrefix("iroh:") {
+            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
+            pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
+            phonesError = nil
+            return
+        }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
@@ -310,6 +346,8 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
+        KeepAwakeService.shared.setIPhoneServing(false)
+        pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
@@ -342,6 +380,8 @@ public final class IPhoneHostService {
         }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
+        // A pairing code shown before the switch went off pairs nothing afterwards.
+        if !allowed { pairTokens.revoke() }
         self.allowed = allowed
         // Turning connections off withdraws the waiting pairing requests and their prompt.
         if !allowed { resetPrompts() }
@@ -349,8 +389,11 @@ public final class IPhoneHostService {
         refreshPhones()
     }
 
-    /// App quit: hostd ends with the app (closing its stdin ends it too).
+    /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
+    /// `applicationWillTerminate`.
     public func stop() {
+        wakeObserver = nil
+        KeepAwakeService.shared.setIPhoneServing(false)
         running = nil
         following?.cancel()
         followingAccount?.cancel()
@@ -359,6 +402,9 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
+        // The paired list's queued saves (a removal's new list among them) finish before the app
+        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
+        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
@@ -366,6 +412,7 @@ public final class IPhoneHostService {
     }
 
     private func reconcile() {
+        KeepAwakeService.shared.setIPhoneServing(allowed && account != nil && !removed)
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
         guard key != running else { return }
@@ -389,6 +436,8 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
+                KeepAwakeService.shared.setIPhoneServing(false)
+                self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
             }
@@ -405,6 +454,7 @@ public final class IPhoneHostService {
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
+                self?.macPublicKey = identity.publicKey
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
                 await supervisor.start(.init(

@@ -20,20 +20,32 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
-//! `github_minter` (the thread that mints them off the poll loop),
-//! `role` (the Linux worker).
+//! [`handoff`] (hand-off reports for the machine's agent sessions, over the
+//! same socket), `github_minter` (the thread that answers both off the poll
+//! loop),
+//! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
+//! Cloud and restored into a replacement machine, #25584) and
+//! `trajectory_thread` (its thread).
 
 pub mod client;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
+pub mod handoff;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
 pub mod session;
+pub mod trajectory;
+#[cfg(unix)]
+pub mod trajectory_thread;
 pub mod wire;
 
 #[cfg(all(test, unix))]
 mod github_tests;
+#[cfg(all(test, unix))]
+mod handoff_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trajectory_tests;

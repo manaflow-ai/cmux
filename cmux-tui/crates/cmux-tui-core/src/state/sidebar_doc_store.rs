@@ -16,6 +16,9 @@ use super::store::{state_delete, state_upsert};
 
 /// `sidebar.*`, `extra.state.sidebar` and the sidebar change resources.
 pub const CAPABILITY: &str = "sidebar-doc-v1";
+/// The section patch field that preserves an explicit Remove Remote Group
+/// choice when false `host_group` values are omitted on the wire.
+pub const HOST_GROUP_OPTOUT_CAPABILITY: &str = "sidebar-host-group-opt-out-v1";
 pub(crate) const ITEM_RESOURCE: &str = "sidebar_item";
 pub(crate) const SECTION_RESOURCE: &str = "sidebar_section";
 /// One change per sidebar batch: `{revision, previous_revision,

@@ -1,15 +1,15 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { pathName } from "../chips/paths";
-import { EditDiff } from "../conversation/EditDiff";
 import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
-import { toolFiles } from "../diff";
-import { toolDiffs } from "../direct";
+import { permissionDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
+import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { ProposedEdits } from "./ProposedEdits";
 
 /// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
@@ -124,8 +124,7 @@ function AskRow({
   }, [expandSignal]);
   const detailsId = useId();
   const ask = askOf(item, t("permission.toolRequest"));
-  const diffs = toolDiffs(ask.tool?.content, ask.tool?.locations);
-  const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
+  const diffs = permissionDiffs(ask.tool);
   return (
     <>
       <div className="acpmux-ask-row">
@@ -174,10 +173,7 @@ function AskRow({
           <p>{t("permission.reach")}</p>
         </div>
       )}
-      {files.map((file) => (
-        // An edit awaiting approval shows whole: never under a fade.
-        <EditDiff key={file.path} file={file} whole />
-      ))}
+      <ProposedEdits permissionId={item.permissionId} diffs={diffs} />
     </>
   );
 }
@@ -211,6 +207,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     function respondToPending(decision: PermissionDecision) {
       const current = stateRef.current;
       if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
+      if (decision !== "deny" && current.allowRefused) return;
       const group = pendingRef.current.find(
         (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
       );
@@ -254,6 +251,11 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
   if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
+  // acpmux refuses this reader's group allows (a chat on another machine, whose daemon allows only
+  // from its own app): no Allow or Always that cannot count, and the reason in plain words.
+  const allowRefused = state.allowRefused
+    ? errorMessage({ reason: state.allowRefused }) || t("transport.personRequired")
+    : undefined;
   return (
     <section
       className="acpmux-permission acpmux-permission-panel"
@@ -265,7 +267,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
               {answers
-                .filter(([decision]) => group.decisions.includes(decision))
+                .filter(([decision]) => group.decisions.includes(decision) && (!allowRefused || decision === "deny"))
                 .map(([decision, label]) => (
                   <button
                     key={decision}
@@ -297,10 +299,11 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
             {group.state === "collecting" && <output className="acpmux-ask-note">{t("permission.collecting")}</output>}
             {/* What Always grants, in view while it can be chosen: hidden behind the row, the
                 bigger grant read as the same as Allow (cg-design-judge, 0-16 blind bouts). */}
-            {group.state === "pending" && group.decisions.includes("allow_chat") && (
+            {group.state === "pending" && allowRefused && <output className="acpmux-ask-note">{allowRefused}</output>}
+            {group.state === "pending" && !allowRefused && group.decisions.includes("allow_chat") && (
               <output className="acpmux-ask-note">{t("permission.alwaysScope")}</output>
             )}
-            {group.state === "pending" && !group.decisions.includes("allow_once") && (
+            {group.state === "pending" && !allowRefused && !group.decisions.includes("allow_once") && (
               <output className="acpmux-ask-note">{t("permission.denyOnly")}</output>
             )}
           </fieldset>

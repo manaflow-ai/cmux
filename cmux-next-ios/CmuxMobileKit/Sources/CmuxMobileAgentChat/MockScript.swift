@@ -302,6 +302,8 @@ struct MockScript {
     | Tests | 14 dialer tests, 31 link tests pass |
 
     The full write-up is in [the report](cmux-next-ios/verify/transport-report.html) with a [PDF copy](cmux-next-ios/verify/transport-report.pdf), the screenshot is `cmux-next-ios/verify/screenshots/terminal.png` and the recording `cmux-next-ios/verify/recordings/demo.mp4`. Relay timings are in `cmux-next-ios/verify/relay-rtt.csv`. Background: [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf) and [RFC 8445 (ICE)](https://www.rfc-editor.org/rfc/rfc8445).
+
+    The device build runs in [the xcodebuild tab](cmux://tab/tab_00000000000000000000000000000030).
     """
 
     /// A small generated image for the history turn's attachment.

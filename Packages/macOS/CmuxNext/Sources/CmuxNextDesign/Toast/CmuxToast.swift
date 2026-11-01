@@ -9,19 +9,32 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
         /// Cmd-Z runs it while the toast shows and the focused responder
         /// has nothing of its own to undo.
         public var isUndo: Bool
+        /// The button shows the toast in full where it is, and hides it again: the whole message
+        /// (no line limit) and its `detail` under it, selectable. It never ends the toast or runs
+        /// the handle's `onAction`; nothing opens elsewhere (Leo 2026-10-29: "the FUCKING details
+        /// are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????").
+        public var revealsDetails: Bool
 
-        public init(title: String, isUndo: Bool = false) {
+        public init(title: String, isUndo: Bool = false, revealsDetails: Bool = false) {
             self.title = title
             self.isUndo = isUndo
+            self.revealsDetails = revealsDetails
         }
 
         public static func undo(_ title: String = CmuxToastStrings.undo) -> Action { Action(title: title, isUndo: true) }
         public static func reopen(_ title: String = CmuxToastStrings.reopen) -> Action { Action(title: title) }
+        /// Details: the toast shows its details in place (``revealsDetails``).
+        public static func details(_ title: String) -> Action { Action(title: title, revealsDetails: true) }
     }
 
     /// A new toast with the same id replaces the one showing.
     public var id: String
     public var message: String
+    /// More about the message, shown in a tooltip when the pointer is on the
+    /// message (and read by VoiceOver as the toast's help); nil: none.
+    /// Keeps the toast short when the details are long (which subagents
+    /// could not be stopped, and why).
+    public var detail: String?
     public var action: Action?
     public var duration: Duration
 
@@ -29,9 +42,10 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// (the server-update prompt, which asks for a decision).
     public static let untilClosed: Duration = .zero
 
-    public init(id: String, message: String, action: Action? = nil, duration: Duration = .seconds(6)) {
+    public init(id: String, message: String, detail: String? = nil, action: Action? = nil, duration: Duration = .seconds(6)) {
         self.id = id
         self.message = message
+        self.detail = detail?.isEmpty == false ? detail : nil
         self.action = action
         self.duration = duration
     }

@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxHomeCore
+import CmuxNextTestSupport
 @testable import MessagesLabSidebar
 import Testing
 
@@ -17,7 +19,7 @@ import Testing
 ///
 /// The clicks run as AppKit runs them: a left mouse-down on the list's document view at the
 /// item's place, with its mouse-up queued for the list's press-and-drag loop.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct HomeOpenFocusesComposerTests {
     struct Harness {
         let services: AppServices
         let window: NSWindow
@@ -38,10 +40,42 @@ import Testing
                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             }
-            NSApp.postEvent(try event(.leftMouseUp), atStart: false)
-            document.mouseDown(with: try event(.leftMouseDown))
-            // A list that did not track the press leaves its mouse-up queued: drop it.
-            while NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) != nil {}
+            let up = try event(.leftMouseUp), down = try event(.leftMouseDown)
+            // The whole click, every step of it, inside one nested pass of the main run loop. Any
+            // CFRunLoopStop AppKit leaves behind then ends that pass instead of the test process's
+            // outermost loop. Isolating only the postEvent was not enough: the nextEvent drain
+            // below is the other half of the shape the repository already blames for ending the
+            // process (KeyDownDispatchTests.swift:18, ActionRunTimingTests.swift:324, "postEvent,
+            // then nextEvent, in any run loop mode"), and mouseDown runs the list's own
+            // press-and-drag tracking, which posts and dequeues events too.
+            //
+            // In the helper, not left to each caller. The caller that forgot was
+            // openingAConversationFromTheListPutsTheKeyboardInItsMessageBox below, which calls
+            // this seven times: on 2026-10-26 it started at 09:02:16.217 in the swift test job of
+            // cmux#25391 and the process exited 0 twenty-eight log lines later, with 2303 tests
+            // started and unfinished and no summary. aClickLeavesTheRunLoopItRanInRunning, which
+            // wrapped its own call, had passed on the line before.
+            Self.inANestedPass {
+                NSApp.postEvent(up, atStart: false)
+                self.document.mouseDown(with: down)
+                // A list that did not track the press leaves its mouse-up queued: drop it.
+                while NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) != nil {}
+            }
+        }
+
+        /// One nested pass of the main run loop around `body`, discarding how it ended: the point
+        /// is only that a stop `body` leaves behind ends THIS pass. `NSApp.postEvent` stops the run
+        /// loop running when it is called, to wake an event wait (`-[NSEvent _postAtStart:]` calls
+        /// `CFRunLoopStop`), and so does AppKit's own event tracking; from a test's main-actor job
+        /// the loop running is the test process's outermost one, swift-testing's async-main
+        /// `CFRunLoopRun`, whose return drops `main` through to `exit(0)`. The pass runs in a mode
+        /// of its own, so it runs `body` and nothing else (a default-mode pass would also run other
+        /// suites' main-actor jobs, and end as handled when it drained them), and the wake after
+        /// `body` ends the pass should AppKit not stop it.
+        ///
+        /// The suite's own `inANestedPass` reports the result instead, to assert this very property.
+        fileprivate static func inANestedPass(_ body: @escaping () -> Void) {
+            _ = HomeOpenFocusesComposerTests.inANestedPass(named: "harness-input", body)
         }
 
         /// A key-down on the list's document view (`keyCode` for arrows, `characters` for Return).
@@ -50,7 +84,9 @@ import Testing
                                                       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                       context: nil, characters: characters, charactersIgnoringModifiers: characters,
                                                       isARepeat: false, keyCode: keyCode))
-            document.keyDown(with: event)
+            // In a nested pass for the same reason as `click`: a key-down runs the list's own
+            // handling, which can post and dequeue events.
+            Self.inANestedPass { self.document.keyDown(with: event) }
         }
 
         /// The first responder's class name (never its `description`: AppKit views build it from
@@ -62,7 +98,14 @@ import Testing
         var keyboardInBox: Bool { box != nil && window.firstResponder === box }
         var keyboardOnList: Bool { window.firstResponder === document }
 
-        func close() { window.orderOut(nil) }
+        /// Closes the window and the Chief Settings popover's panel, which the Home makes up front
+        /// and only ever hides (its owner keeps it for the next open).
+        func close() {
+            if let host = page.host, let popup = Mirror(reflecting: host).descendant("settings", "popup") as? NativePopupHost {
+                popup.closePanel()
+            }
+            window.close()
+        }
     }
 
     static let rows = ["conv_open_focus_a", "conv_open_focus_b", "conv_open_focus_c"]
@@ -97,11 +140,14 @@ import Testing
         page.layoutSubtreeIfNeeded()
         page.show(ConversationID(rows[0]))
         let h = Harness(services: services, window: window, page: page)
+        var completed = false
+        defer { if !completed { h.close() } }
         await wait { h.box != nil }
         let hasBox = h.box != nil
         try #require(hasBox, "Home's message box never appeared")
         let listed = page.list.itemFramesInWindow.count == entries.count
         try #require(listed, "the list does not show the test items")
+        completed = true
         return h
     }
 
@@ -110,6 +156,47 @@ import Testing
     /// The keyboard sat on the list (the person used it last), as before any click on it.
     private static func keyboardOnList(_ h: Harness) {
         h.window.makeFirstResponder(h.document)
+    }
+
+    /// A click leaves the run loop it was called from running. In a test process that loop is the
+    /// process's outermost one: swift-testing's async main runs `CFRunLoopRun` and exits 0 when it
+    /// returns. The harness queued its mouse-up with `NSApp.postEvent`, and AppKit stops the
+    /// running loop to wake an event wait (`-[NSEvent _postAtStart:]` calls `CFRunLoopStop`); the
+    /// stop stayed on the outermost loop, which returned at the test's next suspension. The whole
+    /// CmuxNextAppTests process then ended with exit 0 and no summary, hundreds of tests unfinished
+    /// (the PR job's "no Test run with summary line", 2026-10-21).
+    ///
+    /// This asserted the property while leaving it to each caller to hold, and the other test in
+    /// this suite did not: it called `click` seven times bare and ended the process again on
+    /// 2026-10-26, 2303 tests unfinished. `click` and `key` now run their whole body in a nested
+    /// pass themselves, so this reads as it always should have: the pass around a click ends
+    /// FINISHED, because the click absorbed its own stop rather than because this caller wrapped
+    /// it. A regression that takes the pass back out of the helper fails here.
+    @Test func aClickLeavesTheRunLoopItRanInRunning() async throws {
+        let h = try await Self.harness()
+        defer { h.close() }
+        var clicked = false
+        let result = Self.inANestedPass { clicked = (try? h.click(Self.rows[1])) != nil }
+        #expect(clicked, "the click never ran")
+        #expect(result == .finished, "the click stopped the run loop it ran in")
+    }
+
+    /// Runs `body` in one nested pass of the main run loop and returns how that pass ended:
+    /// `.stopped` when `body` stopped it, else `.finished`. The pass runs in a mode of its own, so
+    /// it runs `body` and nothing else (a default-mode pass would also run other suites' main-actor
+    /// jobs, and end as handled when it drained them), and the wake after `body` ends it.
+    ///
+    /// `named` so the harness's own pass is a different mode from the one a test puts around it:
+    /// `aClickLeavesTheRunLoopItRanInRunning` nests this around a click that now nests it again,
+    /// and a block left in one mode must never be run by the other's activation.
+    private static func inANestedPass(named name: String = "nested-pass",
+                                      _ body: @escaping () -> Void) -> CFRunLoopRunResult {
+        let mode = CFRunLoopMode("com.cmuxterm.next.tests.\(name)" as CFString)
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+            MainActor.assumeIsolated { body() }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        return CFRunLoopRunInMode(mode, 5, true)
     }
 
     /// Every entry point on one Home (a second Home in the same test process does not get its

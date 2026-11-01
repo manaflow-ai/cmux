@@ -16,7 +16,18 @@ extension SidebarListViewComponents {
         if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        guard let row = clickHit(at: point) else {
+        let hit = clickHit(at: point)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // A double-click on a group's name renames it in place; its first click's fold never ran, so no row moves.
+        if case let .group(group)? = hit?.key, event.clickCount == 2, flags.isEmpty, isOnGroupName(group, at: point),
+           groupNameClick.take(group) {
+            press = nil
+            SidebarGroupKeys(list: self).setFocus(group, ring: false)
+            inlineRename.begin(.group(group), inPlace: true)
+            return
+        }
+        groupNameClick.flush()
+        guard let row = hit else {
             press = nil
             // Empty space: a double-click makes a workspace there.
             if event.clickCount == 2, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
@@ -26,10 +37,14 @@ extension SidebarListViewComponents {
             return
         }
         var press = Press(key: row.key, point: point)
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // A click anywhere but a group header or a disclosure takes keyboard focus off them (and off its ring),
+        // so a later Return, Space or arrow cannot act on the header or disclosure focused before.
+        switch row.key {
+        case .group, .doneFold, .showMore: break
+        default: SidebarGroupKeys(list: self).setFocus(nil)
+        }
         switch row.key {
         case let .workspace(id):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
             guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
@@ -41,10 +56,8 @@ extension SidebarListViewComponents {
                 return
             }
             let (oldItem, oldSelection) = (model.selectedItem, model.selection)
-            if flags.contains(.command) {
-                model.toggleSelection(id)
-            } else if flags.contains(.shift) {
-                model.extendSelection(to: id, visibleOrder: visibleWorkspaceOrder)
+            if modifierSelect(id, flags: flags) {
+                // Shift: the drawn range, pinned tiles too; Cmd: toggle; Cmd-Shift: add the range.
             } else if model.selection.contains(id), model.selection.count > 1 {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
@@ -65,11 +78,7 @@ extension SidebarListViewComponents {
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
             // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
-        case let .tab(workspace, tab):
-            // Selected at once; the press stays so a drag can take the tab.
-            model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
             // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
@@ -77,16 +86,17 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .doneFold, .showMore:
+            // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
+            // the next Space or Return; the release toggles it.
+            SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status:
             break
         }
         self.press = press
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
-        if case let .tab(workspace, tab) = press.key {
-            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
-        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard SidebarPress.movedPastThreshold(from: press.point, to: point),
@@ -99,7 +109,7 @@ extension SidebarListViewComponents {
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
-            finishDrag()
+            finishDrag(at: event.locationInWindow)
             return
         }
         guard let press, !press.cancelled else { return syncRowStates() }
@@ -124,8 +134,6 @@ extension SidebarListViewComponents {
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
             // (u2455: every click laid the whole list out and configured every row).
             return syncRowStates()
-        case .tab:
-            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
@@ -135,8 +143,16 @@ extension SidebarListViewComponents {
                 // expands it; the more button and a right-click open the editor and the menu.
                 // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
                 // user's own change, so it moves on the spring (calm-sidebar-movement).
-                model.noteUserIntent()
-                model.send(.toggleCollapse(.group(group)))
+                let fold: @MainActor () -> Void = { [weak self] in
+                    self?.model.noteUserIntent()
+                    self?.model.send(.toggleCollapse(.group(group)))
+                }
+                // On the name, the fold waits for a possible second click (a rename in place, `SidebarGroupNameClick`).
+                if event.clickCount == 1, isOnGroupName(group, at: press.point) {
+                    groupNameClick.schedule(group, fold: fold)
+                } else {
+                    fold()
+                }
                 return
             }
         case let .section(section):
@@ -147,10 +163,9 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case let .doneFold(fold):
-            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
-        case let .showMore(list):
-            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case .doneFold, .showMore:
+            _ = SidebarFoldAction(list: self).toggle(press.key)
+            return
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
@@ -159,6 +174,11 @@ extension SidebarListViewComponents {
             break
         }
         reload(animated: true)
+    }
+    /// Whether `point` (list coordinates) is on group `group`'s name or icon.
+    func isOnGroupName(_ group: GroupID, at point: NSPoint) -> Bool {
+        guard let header = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
+        return header.convert(header.nameHitFrame, to: self).contains(point)
     }
     // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
@@ -170,9 +190,8 @@ extension SidebarListViewComponents {
         // F2 renames the active workspace inline.
         if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
-            if drag != nil { return cancelDrag() }
-            // A held press that has not dragged yet: its release clicks nothing (`endPointerGesture`).
-            if press != nil { return endPointerGesture() }
+            // A held drag or press (a row's or a block item's) ends as a cancel: its release clicks nothing.
+            if escapeSeen() { return }
             if !model.filterText.isEmpty {
                 model.filterText = ""
                 reload(animated: true)
@@ -186,7 +205,7 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: visibleWorkspaceOrder)
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
             } else {
                 return super.keyDown(with: event)
             }

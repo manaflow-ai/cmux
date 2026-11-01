@@ -321,7 +321,7 @@
 				<string>https</string>
 			</array>
 			<key>LSHandlerRank</key>
-			<string>Default</string>
+			<string>$(CMUX_WEB_URL_HANDLER_RANK)</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>

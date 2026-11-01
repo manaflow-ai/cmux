@@ -18,7 +18,8 @@
 //!   (`claude --resume`, Codex `session/load`); the history it shows is already there.
 //! - The read position is saved with the session, so a watch goes on after a daemon restart
 //!   where it stopped.
-//! - A transcript over 64 MiB is read from its newest 64 MiB.
+//! - A Claude Code transcript is shown from its newest page of turns (`adopt_replay_page.rs`); a
+//!   Codex rollout over 64 MiB from its newest 64 MiB.
 
 use super::{Hub, Session, SessionStatus};
 use crate::adopt::IfLive;
@@ -52,32 +53,56 @@ pub(super) fn read_only() -> RpcError {
 /// The complete lines of `file` from `offset` (at most [`MAX_READ`] bytes), and the offset after
 /// the last complete one. A file shorter than `offset` was cut or replaced: it is followed from its
 /// end, so nothing shown is shown twice. A first read of a big file starts at its newest
-/// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped: its rest fails
-/// to parse and is dropped.
+/// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped in
+/// bounded chunks: each continuation checks the preceding byte before accepting a record.
 pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
+    read_lines_with_limits(file, offset, MAX_BYTES, MAX_READ)
+}
+
+// Same byte bounds as production; small ones make boundary tests inexpensive.
+fn read_lines_with_limits(
+    file: &Path,
+    offset: u64,
+    max_bytes: u64,
+    max_read: u64,
+) -> std::io::Result<(Vec<String>, u64)> {
     let mut f = std::fs::File::open(file)?;
     let len = f.metadata()?.len();
     let mut start = if offset > len { len } else { offset };
-    let skip_partial = start == 0 && len > MAX_BYTES;
-    if skip_partial {
-        start = len - MAX_BYTES;
+    if start == 0 && len > max_bytes {
+        start = len - max_bytes;
     }
     if start >= len {
         return Ok((Vec::new(), start));
     }
+    // An initial tail window or a prior overlong chunk can begin inside a JSONL
+    // record. The byte before the cursor survives a restart and tells us whether
+    // we are at a line boundary; no extra mutable or persisted skip flag is needed.
+    let partial = if start == 0 {
+        false
+    } else {
+        f.seek(SeekFrom::Start(start - 1))?;
+        let mut previous = [0u8; 1];
+        f.read_exact(&mut previous)?;
+        previous[0] != b'\n'
+    };
     f.seek(SeekFrom::Start(start))?;
     let mut buf = Vec::new();
-    f.take(MAX_READ.min(len - start)).read_to_end(&mut buf)?;
+    f.take(max_read.min(len - start)).read_to_end(&mut buf)?;
     let mut from = 0;
-    if skip_partial {
+    if partial {
         match buf.iter().position(|&b| b == b'\n') {
             Some(i) => from = i + 1,
-            None => return Ok((Vec::new(), start)),
+            // A giant record may cross several read windows. Advance by only
+            // bytes actually read, then continue skipping until its newline.
+            // The next read checks its preceding byte, so a fragment can never
+            // masquerade as a complete record (also after daemon restart).
+            None => return Ok((Vec::new(), start + buf.len() as u64)),
         }
     }
     // Only complete lines: the app may be halfway through writing the last one.
     let Some(end) = buf.iter().rposition(|&b| b == b'\n') else {
-        let skip = if buf.len() as u64 == MAX_READ { buf.len() as u64 } else { 0 };
+        let skip = if buf.len() as u64 == max_read { buf.len() as u64 } else { 0 };
         return Ok((Vec::new(), start + skip));
     };
     if end < from {
@@ -116,6 +141,7 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            hub.seek_watch_to_page(&session).await;
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -129,9 +155,10 @@ impl Hub {
                     // Gone or unreadable for now (the app rotates or rewrites it): try again.
                     _ => (Vec::new(), watching.offset),
                 };
-                let more = offset > watching.offset && !lines.is_empty();
+                // Even an oversized skipped chunk is progress; drain the backlog without a poll delay.
+                let more = offset > watching.offset;
                 if offset != watching.offset {
-                    hub.show_watched(&session, &lines, offset);
+                    hub.show_watched(&session, &lines, offset).await;
                 }
                 if !more {
                     tokio::time::sleep(POLL).await;
@@ -140,9 +167,62 @@ impl Hub {
         });
     }
 
+    /// A Claude Code watch that has read nothing yet starts at its transcript's newest page
+    /// (`adopt_replay_page.rs`): the newest turns show at once, instead of the newest 64 MiB read
+    /// oldest first. The older turns stay in the transcript, from the `native_history` record's
+    /// `before` back.
+    async fn seek_watch_to_page(&self, session: &Arc<Session>) {
+        let Some(watching) = session.meta().watching else { return };
+        if watching.offset != 0 || watching.family != "claude" {
+            return;
+        }
+        let file = watching.file.clone();
+        // The newest page that starts at a prompt, so the first turn followed opens as a turn.
+        let (start, mark) = tokio::task::spawn_blocking(move || {
+            let mut input = std::fs::File::open(&file).ok()?;
+            let start = crate::adopt_replay::newest_prompt_start_open(
+                &mut input,
+                crate::adopt_replay::PAGE_TURNS,
+            )?;
+            Some((start, super::native_history::mark(&mut input, start)))
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or((0, None));
+        if start == 0 || mark.is_none() {
+            return;
+        }
+        // Publishing the native-history marker belongs to the watched side of the
+        // takeover boundary, even if the file scan finished after Take Over began.
+        let _turn = session.turn_lock.lock().await;
+        {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match m.watching.as_mut() {
+                Some(w) if w.offset == 0 => w.offset = start,
+                _ => return,
+            }
+        }
+        self.save_meta(session);
+        self.append(
+            session,
+            "mux",
+            "native_history",
+            json!({"family": "claude", "before": start, "mark": mark}),
+        );
+    }
+
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
     /// chat was taken over meanwhile.
-    fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
+    async fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
+        // This journal is also written by a live turn. Keep the entire watched
+        // batch, its checkpoint and the takeover transition in one order.
+        let _turn = session.turn_lock.lock().await;
+        if session.purged.load(std::sync::atomic::Ordering::SeqCst)
+            || session.status() == SessionStatus::Closed
+        {
+            return;
+        }
         let Some(mut watching) = session.meta().watching else { return };
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
@@ -267,13 +347,20 @@ impl Hub {
                     .with_data(json!({"reason": "adopt.live", "details": live.details(&family)})));
             }
         }
+        // A file read can finish at the same time as Take Over. Wait for its
+        // complete journal append and checkpoint before removing watch ownership;
+        // hold the gate through watch_taken_over so later tails see no watch.
+        let _turn = session.turn_lock.lock().await;
+        if session.meta().watching.is_none() {
+            return Err(RpcError::invalid_params("this chat is no longer watching a conversation"));
+        }
         let fork = if_live == IfLive::Fork;
         let open = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let open = m.watching.take().and_then(|w| w.open);
             // A fork resumes nothing as itself: its first spawn branches the conversation off.
             if fork {
-                m.agent_session_id = None;
+                m.set_agent_session_id(None, &family);
             }
             open
         };
@@ -301,6 +388,80 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// The session's turn gate also fences the transition from following an outside transcript
+    /// to accepting a live harness. A takeover must wait while a watched tail is committing.
+    #[tokio::test]
+    async fn takeover_waits_for_the_watched_tail_gate() {
+        use crate::config::{Config, StoreMode};
+
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub
+            .new_session(crate::hub::NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.agent_session_id = Some("outside-session".to_owned());
+            meta.watching = Some(Watching {
+                family: "claude".to_owned(),
+                file: std::env::temp_dir().join("watched-outside-session.jsonl"),
+                offset: 0,
+                codex_items: false,
+                open: None,
+            });
+        }
+
+        // A tail holding this gate is still entitled to commit its watched events. The
+        // takeover must wait, then close the watch and publish the handoff in that order.
+        let tail_guard = session.turn_lock.lock().await;
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let taking = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move {
+                let _ = ready_tx.send(());
+                hub.watch_take_over(&session, IfLive::Open).await
+            }
+        });
+        ready_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
+        assert!(
+            session.meta().watching.is_some(),
+            "the view-only owner changed before the tail finished"
+        );
+
+        drop(tail_guard);
+        taking.await.unwrap().unwrap();
+        assert!(session.meta().watching.is_none());
+
+        // A file read can finish before Take Over and be scheduled afterward.
+        // Exercise that stale completion deterministically: the old reader
+        // must neither create a watched turn nor append any record to the live
+        // conversation's journal.
+        let before = session.meta().event_count;
+        let late_line =
+            json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
+        hub.show_watched(&session, &[late_line], 128).await;
+        assert_eq!(session.meta().turn_count, 0, "a watched turn was appended after Take Over");
+        assert_eq!(session.meta().event_count, before, "the stale reader wrote after Take Over");
+        assert!(
+            hub.watch_take_over(&session, IfLive::Open).await.is_err(),
+            "Take Over succeeded twice"
+        );
+        hub.shutdown_all().await;
+    }
+
     #[test]
     fn only_complete_lines_are_read_and_the_offset_follows_them() {
         let dir = std::env::temp_dir().join(format!("acpmux-watch-lines-{}", std::process::id()));
@@ -323,6 +484,97 @@ mod tests {
         assert!(lines.is_empty());
         std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
         assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A first 64 MiB window may begin halfway through a very large JSONL entry.
+    /// Once that entry ends, the reader must advance and reach the valid following row.
+    #[test]
+    fn oversized_first_window_line_advances_to_the_next_record() {
+        let dir = std::env::temp_dir().join(format!("acpmux-watch-long-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("oversized.jsonl");
+        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":true}}\n", "x".repeat(160));
+        std::fs::write(&file, content.as_bytes()).unwrap();
+        let window_start = content.len() as u64 - 64;
+
+        // The old code found no newline in the first 20 bytes, returned window_start,
+        // and repeated the same read forever with offset still zero.
+        let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
+        assert!(lines.is_empty());
+        assert!(after_large > window_start, "stalled at the overlong line");
+        let (mut at, mut received) = (after_large, Vec::new());
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
+            assert!(next > at);
+            received.extend(lines);
+            at = next;
+            if at == content.len() as u64 {
+                break;
+            }
+        }
+        assert_eq!(received, ["{\"next\":true}"]);
+        assert_eq!(at, content.len() as u64);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The source may still be writing its oversized first JSONL entry. Skip its
+    /// unfinished chunks across polls, then deliver complete rows after its newline.
+    #[test]
+    fn oversized_incomplete_window_line_resumes_when_terminated() {
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("partial.jsonl");
+        let unfinished = format!("{{\"large\":\"{}", "x".repeat(160));
+        std::fs::write(&file, unfinished.as_bytes()).unwrap();
+        let mut at = 0;
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
+            assert!(lines.is_empty());
+            assert!(next > at);
+            at = next;
+            if at == unfinished.len() as u64 {
+                break;
+            }
+        }
+        assert_eq!(at, unfinished.len() as u64);
+        // A larger source file continues the same unfinished line; the byte
+        // before the saved checkpoint still identifies it as a partial line.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(b"\"}\n{\"next\":1}\n")
+            .unwrap();
+        let (lines, done) = read_lines_with_limits(&file, at, 64, 20).unwrap();
+        assert_eq!(lines, ["{\"next\":1}"]);
+        assert_eq!(done, unfinished.len() as u64 + b"\"}\n{\"next\":1}\n".len() as u64);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A normal watched file can also append one huge line that spans several
+    /// chunks. Fragments of it must never appear as independent JSONL records.
+    #[test]
+    fn a_line_at_the_previous_checkpoint_skips_all_overlong_fragments() {
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-watch-fragments-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("fragments.jsonl");
+        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":2}}\n", "x".repeat(106));
+        std::fs::write(&file, content.as_bytes()).unwrap();
+        let (mut at, mut received) = (0, Vec::new());
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 4096, 20).unwrap();
+            assert!(next > at || at == content.len() as u64);
+            received.extend(lines);
+            at = next;
+            if at == content.len() as u64 {
+                break;
+            }
+        }
+        assert_eq!(at, content.len() as u64);
+        assert_eq!(received, ["{\"next\":2}"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

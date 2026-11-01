@@ -27,24 +27,39 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
+  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
+  DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
+  DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+  DEVBOX_MACHINE_HEALTH_STOP_COMMAND,
+  devboxBakedPayloads,
+  devboxHousekeepingDelay,
+  devboxMachineHealthRearmProblems,
+  devboxMachineHealthResumeProblems,
   devboxSourceDigest,
   devboxSourceManifest,
+  devboxTeamKindDefaultCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
   devboxDaemonUnit,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
+import { hostUnit } from "../scripts/cmux-vm-image/host-agent";
 import {
   DEVBOX_WORK_HOME,
   DEVBOX_WORK_UID,
   DEVBOX_WORK_USER,
   devboxWorkUserSetupCommand,
 } from "../services/vms/images/workUser";
+import { machineHealthBakeCommand, machineHealthSmokeCommand } from "../scripts/cmux-vm-image/machine-health";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -67,7 +82,9 @@ const ownerAgentConfig = path.join(agentConfigFixtureRoot, "agent-config.sh");
 writeFileSync(agentConfigFixtureKind, "owner\n");
 writeFileSync(
   ownerAgentConfig,
-  read("agent-config.sh").replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind),
+  read("agent-config.sh")
+    .replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind)
+    .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")),
 );
 afterAll(() => rmSync(agentConfigFixtureRoot, { recursive: true, force: true }));
 
@@ -152,6 +169,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -176,6 +194,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -723,6 +742,19 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
+  test("the cmux-tui units never give up after repeated failed starts", () => {
+    // Like acpmux.service: no start limit, retries back off to 60 s.
+    for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
+      const service = unit.indexOf("[Service]");
+      expect(unit.indexOf("StartLimitIntervalSec=0\n")).toBeGreaterThan(0);
+      expect(unit.indexOf("StartLimitIntervalSec=0\n")).toBeLessThan(service);
+      for (const line of ["Restart=always", "RestartSec=3", "RestartSteps=5", "RestartMaxDelaySec=60"]) {
+        expect(unit.split("\n")).toContain(line);
+      }
+      expect(unit).not.toContain("StartLimitBurst=");
+    }
+  });
+
   test("the Freestyle replay carries the ble.sh cache bake", () => {
     // The replay embeds its own copy of the Dockerfile bake; pin the guards
     // and both cache targets so the provider-specific path cannot silently
@@ -802,8 +834,8 @@ test "$daemon_pid" = fixture
     const desktop = devboxSourceManifest("desktop", dockerfile);
     // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
     // template edit each changes the digest; Dockerfile prose does not.
-    expect(DEVBOX_SOURCE_SCHEMA).toBe(2);
-    expect(base).toMatchObject({ schema: 2, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(DEVBOX_SOURCE_SCHEMA).toBe(3);
+    expect(base).toMatchObject({ schema: 3, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
     expect(typeof base.dockerfileInstructions).toBe("string");
     expect(typeof base.bakeScript).toBe("string");
     expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
@@ -819,7 +851,7 @@ test "$daemon_pid" = fixture
     // RUN, no ARG moved) and any non-blank line change in the bake script; a
     // Dockerfile comment moves nothing. Schema 1, the formula the first
     // promoted ladders were recorded with, ignores both.
-    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const withStep = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
@@ -837,7 +869,7 @@ test "$daemon_pid" = fixture
     // A comment edit to the bake script moves it too (stated trade-off: no lexer).
     expect(devboxSourceDigest("base", dockerfile, 2, () => `${bake}\n// one more comment\n`)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
     expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
-    expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
+    expect(() => devboxSourceDigest("base", dockerfile, 4)).toThrow(/unknown devbox source schema/);
     // The normalizers themselves: Dockerfile comments gone by the grammar
     // (a parser directive before the first instruction is kept, a `#` line
     // inside a continued RUN is a comment), bake-script lines kept verbatim
@@ -858,18 +890,21 @@ test "$daemon_pid" = fixture
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
-    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
-    // launch that it is falling back to its bundled copy (seen live on the
-    // termid ladder, 2026-09-09). Both recipes install it and prove it.
-    expect(dockerfile).toContain("    bubblewrap \\");
-    expect(dockerfile).toContain("bwrap --version");
+    // The Dockerfile and Freestyle bake select the same checksum-pinned
+    // upstream release; the Ubuntu integration test exercises the install.
+    const url = devboxBubblewrapUrl(dockerfile);
+    const sha256 = devboxBubblewrapSha256(dockerfile);
+    const version = devboxBubblewrapVersion(dockerfile);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
-    expect(bake).toContain("bwrap --version");
+    expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("bubblewrap-ok");
+    expect(verify).toContain("devboxBubblewrapCheckCommand()");
     // The work user's claude launch is the verifier's own
     // `claude-reaches-the-prompt`; these add root (the provider's exec API
     // runs as root) and codex for both accounts.
@@ -926,7 +961,7 @@ test "$daemon_pid" = fixture
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
@@ -1061,6 +1096,46 @@ test "$daemon_pid" = fixture
       rmSync(bin, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("the bake keeps caller model env through both owner checks, then verifies the team default", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    const ordered = ["vm-kind-bake-owner", "agent-config", "agent-hooks", "vm-kind-default", "model-plane-env", "settle-before-snapshot"];
+    for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
+    for (let i = 1; i < ordered.length; i++) {
+      expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
+  test("the bake team-default command resets owner and rejects any persisted caller model env", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-bake-team-default-"));
+    const kind = path.join(root, "kind");
+    const home = path.join(root, "home");
+    const config = path.join(root, "agent-config.sh");
+    try {
+      writeFileSync(kind, "owner\n");
+      writeFileSync(config, read("agent-config.sh")
+        .replaceAll("/etc/cmux/vm-kind", kind)
+        .replaceAll("/etc/cmux/model-plane.env", path.join(root, "no-baked-model-env"))
+        .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
+      const command = devboxTeamKindDefaultCommand(kind, home, config);
+      const result = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("team-kind-keeps-no-caller-env");
+      expect(readFileSync(kind, "utf8")).toBe("team\n");
+      expect(existsSync(home)).toBe(false);
+      // Prove the assertion rejects a generator that retains the caller key
+      // or endpoint, rather than merely checking that the reset ran.
+      for (const variable of ["OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+        writeFileSync(config, `mkdir -p "$HOME"; printf '%s' "$${variable}" > "$HOME/leak"\n`);
+        const leaked = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+        expect(leaked.status).not.toBe(0);
+        expect(leaked.stdout).not.toContain("team-kind-keeps-no-caller-env");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
@@ -1607,5 +1682,137 @@ describe("devbox terminfo overlay", () => {
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
     expect(dockerfile).toContain("xterm-ghostty; do");
     expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO_DIRS=/etc/terminfo:");
+  });
+});
+
+describe("devbox cmux-machine-health", () => {
+  const bake = readScript("build-devbox-freestyle.ts");
+  const at = (label: string) => {
+    const i = bake.indexOf(`await step("${label}"`);
+    expect({ label, found: i > 0 }).toEqual({ label, found: true });
+    return i;
+  };
+  const stepsAfter = (i: number) => bake.slice(i).match(/await step\("[^"]+"/g) ?? [];
+
+  test("the bake installs it after the daemon park with a check-only pass", () => {
+    const install = at("machine-health");
+    expect(install).toBeGreaterThan(at("cmux-tui-daemon-park"));
+    expect(bake).toContain('await step("machine-health", machineHealthBakeCommand());');
+    // The script and the hygiene command are written just before the install step.
+    expect(bake.lastIndexOf("machineHealthFiles()", install)).toBeGreaterThan(at("cmux-tui-daemon-park"));
+    expect(machineHealthBakeCommand()).toContain("install --no-start");
+    expect(machineHealthBakeCommand()).toContain("cmux-machine-health run --check-only");
+    expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.service");
+    expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.timer");
+  });
+
+  test("the timer is parked after clean, right before the settle, and never started during the bake", () => {
+    const parked = at("machine-health-parked");
+    expect(parked).toBeGreaterThan(at("clean"));
+    expect(stepsAfter(parked)).toEqual(['await step("machine-health-parked"', 'await step("settle-before-snapshot"']);
+    // A running timer at the snapshot would fire in a clone's first second; the clone's re-arm starts it.
+    expect(bake).not.toContain("MACHINE_HEALTH_ARM_COMMAND");
+    expect(bake).not.toContain("systemctl start cmux-machine-health");
+    expect(DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).toContain("rm -f /run/cmux/machine-health.json /run/cmux/machine-health-state.json");
+    expect(DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).toContain("! systemctl is-active --quiet cmux-machine-health.timer");
+    expect(/^HOUSEKEEPING_TIMERS="[^"\n]* cmux-machine-health\.timer"$/m.test(devboxBoot)).toBe(true);
+  });
+
+  test("park stops the re-arm, the timer, a pass and its hygiene units, proves none is left, then deletes the health files", () => {
+    // A derive clone parks again before its own snapshot, and its re-arm may have started all of them.
+    const park = devboxParkDaemonCommand();
+    const stop = park.indexOf(DEVBOX_MACHINE_HEALTH_STOP_COMMAND);
+    expect(stop).toBeGreaterThan(park.indexOf("cmux-tui server [s]tart' >/dev/null"));
+    expect(stop).toBeLessThan(park.indexOf("/run/cmux/machine-health.json /run/cmux/machine-health-state.json"));
+    const order = ["cmux-housekeeping-rearm.timer", "cmux-machine-health.timer", "cmux-machine-health.service", "'cmux-machine-health-hygiene-*'", "systemctl kill", "list-units"]
+      .map((needle) => DEVBOX_MACHINE_HEALTH_STOP_COMMAND.indexOf(needle));
+    expect(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1]))).toBe(true);
+  });
+
+  test("the stop fails while a health unit is still running, and passes once none is", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-health-stop-"));
+    try {
+      // Fake systemctl: logs each call; list-units prints a unit while $dir/stuck exists.
+      writeFileSync(path.join(dir, "systemctl"), `#!/bin/sh\necho "$*" >> '${dir}/calls'\ncase "$1" in list-units) [ -e '${dir}/stuck' ] && echo 'cmux-machine-health-hygiene-0.service loaded active running x';; esac\nexit 0\n`, { mode: 0o755 });
+      writeFileSync(path.join(dir, "timeout"), '#!/bin/sh\nshift\nexec "$@"\n', { mode: 0o755 });
+      writeFileSync(path.join(dir, "sleep"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+      expect((await runChild("bash", ["-c", DEVBOX_MACHINE_HEALTH_STOP_COMMAND], { env })).status).toBe(0);
+      const calls = readFileSync(path.join(dir, "calls"), "utf8").split("\n");
+      expect(calls[0]).toBe("stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service cmux-machine-health.timer cmux-machine-health.service cmux-machine-health-hygiene-*");
+      expect(calls[1]).toBe("kill --signal=SIGKILL cmux-machine-health.service cmux-machine-health-hygiene-*");
+      writeFileSync(path.join(dir, "stuck"), "");
+      expect((await runChild("bash", ["-c", DEVBOX_MACHINE_HEALTH_STOP_COMMAND], { env })).status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the source digest covers the machine-health payloads from schema 3", () => {
+    const payloads = devboxBakedPayloads();
+    expect(Object.keys(payloads).sort()).toEqual(["cmux-machine-health", "cmux-machine-hygiene", "cmux-vm-image/machine-health.ts"]);
+    const digest = (schema: number, over: Record<string, string> = {}) => devboxSourceDigest("desktop", dockerfile, schema, undefined, () => ({ ...payloads, ...over }));
+    for (const name of Object.keys(payloads)) {
+      expect(digest(3, { [name]: `${payloads[name]}\n# changed\n` })).not.toBe(digest(3));
+      // Older formulas never saw them, so entries recorded with them stay valid.
+      expect(digest(2, { [name]: "changed" })).toBe(digest(2));
+    }
+    expect(digest(3)).toBe(devboxSourceDigest("desktop", dockerfile));
+  });
+
+  test("the hygiene default reaches the work user's home", () => {
+    // cmux-machine-health runs cmux-machine-hygiene for /home/NAME accounts with uid 1000..59999.
+    expect(DEVBOX_WORK_HOME).toBe(`/home/${DEVBOX_WORK_USER}`);
+    expect(DEVBOX_WORK_UID).toBeGreaterThanOrEqual(1000);
+    expect(DEVBOX_WORK_UID).toBeLessThan(60000);
+  });
+
+  test("verify checks the resume state, then starts the timer through the real re-arm and runs the smoke", () => {
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("exec(DEVBOX_MACHINE_HEALTH_RESUME_COMMAND, 30_000)");
+    expect(verify).toContain("exec(`${DEVBOX_MACHINE_HEALTH_REARM_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`, 240_000)");
+    expect(verify).toContain("...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)");
+    expect(verify).toContain("pass = pass && healthOk;");
+    // The re-arm starts the other housekeeping timers too: after every other check.
+    expect(verify.indexOf("DEVBOX_MACHINE_HEALTH_REARM_COMMAND}")).toBeGreaterThan(verify.indexOf('pass = await runChecks("freestyle"'));
+    expect(verify).not.toContain("systemctl start cmux-machine-health");
+    expect(DEVBOX_MACHINE_HEALTH_REARM_COMMAND).toContain("systemctl start cmux-housekeeping-rearm.service");
+    expect(DEVBOX_MACHINE_HEALTH_REARM_COMMAND).not.toContain("systemctl start cmux-machine-health");
+  });
+
+  test("a broken re-arm fails verification", () => {
+    expect(devboxHousekeepingDelay()).toBe("10min");
+    const resume = (over: Record<string, string> = {}) => Object.entries({
+      timer: "inactive",
+      health: "absent",
+      rearm: "active",
+      rearmdelay: "{ OnActiveUSec=10min ; next_elapse=Mon 2026-10-26 02:40:00 UTC }",
+      rearmunit: "cmux-housekeeping-rearm.service",
+      rearmexec: `{ path=/bin/sh ; argv[]=/bin/sh -c systemd-analyze service-watchdogs yes; systemctl start ${/^HOUSEKEEPING_TIMERS="([^"]+)"$/m.exec(devboxBoot)![1]} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`,
+      ...over,
+    }).map(([k, v]) => `${k}=${v}`).join("\n");
+    expect(devboxMachineHealthResumeProblems(resume())).toEqual([]);
+    expect(devboxMachineHealthResumeProblems(resume({ timer: "active", health: "present", rearm: "inactive" }))).toHaveLength(3);
+    expect(devboxMachineHealthResumeProblems(resume({ rearmdelay: "{ OnActiveUSec=1s ; next_elapse=x }" }))[0]).toContain("re-arm delay");
+    expect(devboxMachineHealthResumeProblems(resume({ rearmunit: "other.service" }))[0]).toContain("re-arm target");
+    expect(devboxMachineHealthResumeProblems(resume({ rearmexec: "{ path=/bin/sh ; argv[]=/bin/sh -c systemctl start logrotate.timer ; }" }))[0]).toContain("does not start cmux-machine-health.timer");
+    expect(devboxMachineHealthResumeProblems("")).toHaveLength(6);
+    expect(devboxMachineHealthRearmProblems("rearmpath=started\nrearmed=active\nwatchdogs=yes")).toEqual([]);
+    expect(devboxMachineHealthRearmProblems("rearmpath=fired\nrearmed=active\nwatchdogs=yes")).toEqual([]);
+    expect(devboxMachineHealthRearmProblems("rearmpath=started\nrearmed=inactive\nwatchdogs=yes")).toEqual(["machine-health timer after the re-arm: inactive (want active)"]);
+    expect(devboxMachineHealthRearmProblems("rearmpath=start-failed\nrearmed=inactive\nwatchdogs=no")).toHaveLength(3);
+  });
+
+  test("every command parses", async () => {
+    for (const command of [
+      machineHealthBakeCommand(),
+      DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
+      DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+      DEVBOX_MACHINE_HEALTH_STOP_COMMAND,
+      devboxParkDaemonCommand(),
+      `${DEVBOX_MACHINE_HEALTH_REARM_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`,
+    ]) {
+      expect((await runChild("bash", ["-n"], { input: command })).status).toBe(0);
+    }
   });
 });

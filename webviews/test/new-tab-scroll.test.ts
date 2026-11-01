@@ -1,11 +1,4 @@
-// New Tab scrolls in one place (Leo 2026-10-12): the page had two scrollbars, the page's own at
-// the window edge and the Chats list's inside it, and the list was cut mid-row right above the
-// template dots. Now, as in Settings (cx-jh7kq), a page with the All chats list scrolls only in
-// that list, the document never scrolls, and the list's edges fade instead of slicing a row. In a
-// pane too short for two rows of list the page scrolls instead, so nothing is out of reach; the
-// page itself never fades (the composer's model menu opens inside it).
-// This measures the real gallery stages in Chromium in a short window (360 px), where the list's
-// minimum height pushed the page past the window.
+// New Tab uses one page scroll, including the virtualized All chats rows.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -87,13 +80,13 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
     return state;
   }
 
-  test("with All chats, the list is the page's only scroller and its edges fade", async () => {
+  test("with All chats, the page is the only scroller", async () => {
     // 400 px: Claude Code's split adds the quiet row (28 px and its 4 px gap) under the box, so at
     // 360 the list is already down to its two-row floor, where the page scrolls by design (below).
     expect(await look("many-chats", 400)).toMatchObject({
       documentScrolls: false,
-      scrollers: ["nt-all-list"],
-      fades: [true],
+      scrollers: ["nt-screen"],
+      fades: [false],
       pageFades: false,
     });
   });

@@ -9,11 +9,18 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
 /// under it with room for the request around its base64.
 pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;
+/// Bytes of a request line sent per socket write, so a caller watching
+/// progress hears of bytes moving within one part, not only after its answer.
+const SEND_SLICE_BYTES: usize = 256 * 1024;
+/// How long one socket read or write may block. A caller that times out a
+/// silent transfer waits longer than this (CloudAccessCLI's upload idle).
+pub(super) const IO_DEADLINE: Duration = Duration::from_secs(60);
 /// Bytes per `fs.read` answer asked for.
 const READ_BYTES: u64 = 8 * 1024 * 1024;
 /// Entries per `fs.list` page (the daemon's maximum).
@@ -77,23 +84,40 @@ impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
         let stream = UnixStream::connect(socket)
             .with_context(|| format!("cannot connect to {}", socket.display()))?;
-        stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+        stream.set_read_timeout(Some(IO_DEADLINE))?;
         // A machine that stops reading must not hold a write (and a
         // caller's lock) forever either.
-        stream.set_write_timeout(Some(Duration::from_secs(60)))?;
+        stream.set_write_timeout(Some(IO_DEADLINE))?;
         Ok(Self { reader: BufReader::new(stream), next_id: 1 })
     }
 
     /// Sends one request and returns its `data`; an `ok: false` answer is
     /// an [`FsRefusal`].
-    pub(super) fn call(&mut self, cmd: &str, mut params: Value) -> anyhow::Result<Value> {
+    pub(super) fn call(&mut self, cmd: &str, params: Value) -> anyhow::Result<Value> {
+        self.call_with_progress(cmd, params, &mut || {})
+    }
+
+    /// [`Remote::call`], calling `progress` after each [`SEND_SLICE_BYTES`]
+    /// of the request reach the socket and once more when its answer comes:
+    /// a slow link that is still taking bytes is heard from while a part of
+    /// [`PART_BYTES`] is in flight, so only a link silent past
+    /// [`IO_DEADLINE`] stalls.
+    fn call_with_progress(
+        &mut self,
+        cmd: &str,
+        mut params: Value,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.set("id", json!(id));
+        params.set("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
-        self.reader.get_mut().write_all(line.as_bytes())?;
+        for slice in line.as_bytes().chunks(SEND_SLICE_BYTES) {
+            self.reader.get_mut().write_all(slice)?;
+            progress();
+        }
         // The machine is not trusted: an answer line has a size limit, and
         // only so many answers for other requests are skipped.
         for _ in 0..=MAX_OTHER_ANSWERS {
@@ -114,6 +138,7 @@ impl Remote {
             if answer["id"] != json!(id) {
                 continue;
             }
+            progress();
             if answer["ok"] == json!(true) {
                 return Ok(answer["data"].clone());
             }
@@ -209,26 +234,44 @@ impl Remote {
         reader: &mut dyn Read,
         permissions: u32,
     ) -> anyhow::Result<String> {
+        let mut ignored = || {};
+        self.write_with_progress(path, reader, permissions, &mut ignored)
+    }
+
+    /// Writes a file while notifying the caller as its bytes reach the
+    /// socket (every [`SEND_SLICE_BYTES`]) and as each part's answer comes.
+    /// The callback is synchronous: upload callers use it to emit a stdout
+    /// heartbeat that keeps their bounded idle deadline alive.
+    pub(super) fn write_with_progress(
+        &mut self,
+        path: &str,
+        reader: &mut dyn Read,
+        permissions: u32,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<String> {
         let first = read_part(reader)?;
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
-            let entry = self.call(
+            let entry = self.call_with_progress(
                 "fs.write",
                 json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
+                progress,
             )?;
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
         let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
-        let mut revision = revision_of(&self.call(
+        let mut revision = revision_of(&self.call_with_progress(
             "fs.write",
             json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
+            progress,
         )?)?;
         let mut chunk = second;
         while !chunk.is_empty() {
-            revision = revision_of(&self.call(
+            revision = revision_of(&self.call_with_progress(
                 "fs.write",
                 json!({ "path": part, "bytes_base64": encode(&chunk), "mode": "append", "expected": revision }),
+                progress,
             )?)?;
             chunk = read_part(reader)?;
         }
@@ -336,13 +379,48 @@ pub(super) fn split(path: &str) -> anyhow::Result<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
     use serde_json::{Value, json};
 
-    use super::Remote;
+    use super::{PART_BYTES, Remote};
+
+    /// A part in flight on a slow link reports progress before its answer:
+    /// the machine takes the first MiB of one 8 MiB `fs.write` and waits to
+    /// hear of progress before taking the rest. Progress only after each
+    /// answer (the 30 s upload idle killing a healthy slow upload) never
+    /// comes, and the machine records that.
+    #[test]
+    fn a_part_in_flight_reports_progress_before_its_answer() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let (tick, ticks) = std::sync::mpsc::channel::<()>();
+        let machine = std::thread::spawn(move || {
+            let mut head = vec![0u8; 1 << 20];
+            server.read_exact(&mut head).unwrap();
+            let heard = ticks.recv_timeout(Duration::from_secs(5)).is_ok();
+            let mut rest = Vec::new();
+            BufReader::new(server.try_clone().unwrap()).read_until(b'\n', &mut rest).unwrap();
+            let line = [head, rest].concat();
+            let request: Value = serde_json::from_slice(&line).unwrap();
+            let answer =
+                json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
+            server.write_all(format!("{answer}\n").as_bytes()).unwrap();
+            heard
+        });
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1 };
+        let data = vec![7u8; PART_BYTES];
+        let mut progress = || {
+            let _ = tick.send(());
+        };
+        let revision = remote
+            .write_with_progress("/work/f.bin", &mut data.as_slice(), 0o600, &mut progress)
+            .unwrap();
+        assert_eq!(revision, "r1");
+        assert!(machine.join().unwrap(), "no progress while the part was in flight");
+    }
 
     /// A [`Remote`] whose machine is `serve`: it gets each request and the
     /// connection to answer on, then the connection stays open (a machine

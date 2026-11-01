@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use super::contract::{
     Target, conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
 };
+use cmux_json::JsonSet as _;
 
 /// A daemon event of `cloud-conversations-v1`.
 ///
@@ -109,6 +110,15 @@ pub enum CloudEvent {
         on: bool,
         account: Option<String>,
     },
+    /// Who views a subscribed conversation now (the owner's
+    /// `conversation-presence`: always the whole set, on every change and
+    /// once after each subscribe); ephemeral, never stored or replayed.
+    Presence {
+        conversation: String,
+        /// `(participant, viewing)`, as the owner sent them.
+        participants: Vec<(String, bool)>,
+        account: Option<String>,
+    },
 }
 
 impl CloudEvent {
@@ -124,7 +134,8 @@ impl CloudEvent {
             | Self::SubscriptionState { account, .. }
             | Self::RunChanged { account, .. }
             | Self::Live { account, .. }
-            | Self::Typing { account, .. } => {
+            | Self::Typing { account, .. }
+            | Self::Presence { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
             Self::SessionNeeded { .. } | Self::HostReplicaNeeded { .. } => {}
@@ -143,7 +154,8 @@ impl CloudEvent {
             | Self::SubscriptionState { account, .. }
             | Self::RunChanged { account, .. }
             | Self::Live { account, .. }
-            | Self::Typing { account, .. } => account.as_deref(),
+            | Self::Typing { account, .. }
+            | Self::Presence { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } | Self::HostReplicaNeeded { .. } => None,
         }
     }
@@ -189,24 +201,24 @@ impl CloudEvent {
                     "state": state,
                 });
                 if let Target::Conversation(id) = target {
-                    value["conversation"] = json!(id);
+                    value.set("conversation", json!(id));
                 }
                 if let Some(reason) = reason {
-                    value["reason"] = json!(reason);
+                    value.set("reason", json!(reason));
                 }
                 value
             }
             Self::SessionNeeded { reason, expires_at } => {
                 let mut value = json!({"event": "cloud-session-needed", "reason": reason});
                 if let Some(expires_at) = expires_at {
-                    value["expires_at"] = json!(expires_at);
+                    value.set("expires_at", json!(expires_at));
                 }
                 value
             }
             Self::HostReplicaNeeded { reason, expires_at } => {
                 let mut value = json!({"event": "cloud-host-replica-needed", "reason": reason});
                 if let Some(expires_at) = expires_at {
-                    value["expires_at"] = json!(expires_at);
+                    value.set("expires_at", json!(expires_at));
                 }
                 value
             }
@@ -227,9 +239,19 @@ impl CloudEvent {
                 "participant": participant,
                 "on": on,
             }),
+            Self::Presence { conversation, participants, .. } => json!({
+                "event": "cloud-conversation-presence",
+                "conversation": conversation,
+                "participants": participants
+                    .iter()
+                    .map(|(participant, viewing)| {
+                        json!({"participant": participant, "viewing": viewing})
+                    })
+                    .collect::<Vec<_>>(),
+            }),
         };
         if let Some(account) = self.account() {
-            value["account"] = json!(account);
+            value.set("account", json!(account));
         }
         value
     }
@@ -271,11 +293,19 @@ pub(crate) struct StreamState {
     /// owner sends their `off` only on a socket, so a socket that ends turns
     /// them off for the clients ([`StreamState::typing_ended`]).
     typing: std::collections::BTreeSet<String>,
+    /// The last presence this socket emitted was not empty: a socket that
+    /// ends empties it for the clients ([`StreamState::presence_ended`]).
+    presence_shown: bool,
 }
 
 /// At most this many participants are kept typing per socket (an owner that
 /// sends more is not a real conversation's).
 const MAX_TYPING: usize = 256;
+
+/// A `conversation-presence` with more participants, or a participant id
+/// longer than this, is not a real conversation's and is dropped.
+const MAX_PRESENCE: usize = 256;
+const MAX_PARTICIPANT_ID: usize = 256;
 
 impl StreamState {
     pub(crate) fn new(target: Target, backoff: SnapshotBackoff) -> Self {
@@ -291,6 +321,7 @@ impl StreamState {
             subscribed: false,
             progressed: false,
             typing: std::collections::BTreeSet::new(),
+            presence_shown: false,
         }
     }
 
@@ -346,7 +377,7 @@ impl StreamState {
     fn frame(&self, kind: &str) -> Value {
         let mut frame = json!({"t": kind});
         if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
-            frame["stream"] = json!(stream);
+            frame.set("stream", json!(stream));
         }
         frame
     }
@@ -358,7 +389,7 @@ impl StreamState {
             .map(|out| {
                 let mut frame = out.to_value();
                 if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
-                    frame["stream"] = json!(stream);
+                    frame.set("stream", json!(stream));
                 }
                 StreamAction::Send(frame.to_string())
             })
@@ -372,10 +403,10 @@ impl StreamState {
         let resume = self.mirror.resume(0);
         let mut frame = self.frame("subscribe");
         if let Some(after) = resume.after_seq {
-            frame["after_seq"] = json!(after);
+            frame.set("after_seq", json!(after));
         }
         if !resume.pending.is_empty() {
-            frame["pending"] = json!(resume.pending);
+            frame.set("pending", json!(resume.pending));
         }
         let mut actions = vec![StreamAction::Send(frame.to_string())];
         actions.extend(self.send(resume.send));
@@ -440,6 +471,9 @@ impl StreamState {
             // Someone types in this conversation (no seq: never replayed; the
             // owner turns a closed socket's typing off).
             Some("conversation-typing") => self.on_typing(&frame),
+            // Who views this conversation (no seq: the owner sends the whole
+            // set again after each subscribe).
+            Some("conversation-presence") => self.on_presence(&frame),
             Some("error") => {
                 let code = frame.get("code").and_then(Value::as_str).unwrap_or_default();
                 if code == "auth.forbidden" { vec![StreamAction::Forbidden] } else { Vec::new() }
@@ -512,6 +546,50 @@ impl StreamState {
                 account: None,
             })
             .collect()
+    }
+
+    /// The owner's `conversation-presence {conversation, participants:
+    /// [{participant, viewing}]}` of this conversation; another
+    /// conversation's, or a malformed or oversized one, is dropped.
+    fn on_presence(&mut self, frame: &Value) -> Vec<StreamAction> {
+        let Target::Conversation(conversation) = &self.target else { return Vec::new() };
+        if frame.get("conversation").and_then(Value::as_str) != Some(conversation.as_str()) {
+            return Vec::new();
+        }
+        let Some(entries) = frame.get("participants").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        if entries.len() > MAX_PRESENCE {
+            return Vec::new();
+        }
+        let participants: Option<Vec<(String, bool)>> = entries
+            .iter()
+            .map(|entry| {
+                let id = entry
+                    .get("participant")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty() && id.len() <= MAX_PARTICIPANT_ID)?;
+                Some((id.to_string(), entry.get("viewing").and_then(Value::as_bool)?))
+            })
+            .collect();
+        let Some(participants) = participants else { return Vec::new() };
+        self.presence_shown = !participants.is_empty();
+        vec![StreamAction::Emit(CloudEvent::Presence {
+            conversation: conversation.clone(),
+            participants,
+            account: None,
+        })]
+    }
+
+    /// The socket ended: the presence it showed empties, because the owner
+    /// sends the set again only to the next socket after its subscribe.
+    pub(crate) fn presence_ended(&mut self) -> Option<CloudEvent> {
+        let Target::Conversation(conversation) = &self.target else { return None };
+        std::mem::take(&mut self.presence_shown).then(|| CloudEvent::Presence {
+            conversation: conversation.clone(),
+            participants: Vec::new(),
+            account: None,
+        })
     }
 
     fn mine(&self, frame: &Value) -> bool {
@@ -642,4 +720,67 @@ enum Translated {
     Resync,
     /// The snapshot applied but has no daemon event: ask again after the backoff.
     SnapshotUnusable,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
+
+    fn presence(stream: &mut StreamState, frame: Value) -> Vec<Value> {
+        stream
+            .on_text(&frame.to_string(), 0)
+            .into_iter()
+            .filter_map(|action| match action {
+                StreamAction::Emit(event) => Some(event.wire_json()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `conversation-presence` of this conversation becomes the
+    /// `cloud-conversation-presence` event (the whole set); another
+    /// conversation's, a malformed one and an oversized one are dropped; a
+    /// socket that ends after a non-empty set empties it once.
+    #[test]
+    fn the_owners_presence_passes_for_this_conversation_and_empties_when_the_socket_ends() {
+        let mut stream =
+            StreamState::new(Target::Conversation(CONV.to_string()), SnapshotBackoff::default());
+        let frame = |conversation: &str, participants: Value| {
+            json!({"t":"conversation-presence","conversation":conversation,
+                   "participants":participants})
+        };
+        let one = json!([{"participant":"user_1","viewing":true}]);
+        assert!(presence(&mut stream, frame("conv_other", one.clone())).is_empty());
+        assert!(presence(&mut stream, frame(CONV, json!({"user_1":true}))).is_empty());
+        let unnamed = json!([{"participant":"","viewing":true}]);
+        assert!(presence(&mut stream, frame(CONV, unnamed)).is_empty());
+        let unbool = json!([{"participant":"user_1","viewing":"yes"}]);
+        assert!(presence(&mut stream, frame(CONV, unbool)).is_empty());
+        let many: Vec<Value> = (0..=MAX_PRESENCE)
+            .map(|n| json!({"participant":format!("user_{n}"),"viewing":true}))
+            .collect();
+        assert!(presence(&mut stream, frame(CONV, json!(many))).is_empty());
+        let long = json!([{"participant":"u".repeat(MAX_PARTICIPANT_ID + 1),"viewing":true}]);
+        assert!(presence(&mut stream, frame(CONV, long)).is_empty());
+        assert_eq!(stream.presence_ended(), None, "nothing was shown");
+
+        assert_eq!(
+            presence(&mut stream, frame(CONV, one.clone())),
+            vec![json!({"event":"cloud-conversation-presence","conversation":CONV,
+                        "participants":[{"participant":"user_1","viewing":true}]})]
+        );
+        let ended = stream.presence_ended().map(|event| event.with_account(Some("me")));
+        assert_eq!(
+            ended.map(|event| event.wire_json()),
+            Some(json!({"event":"cloud-conversation-presence","conversation":CONV,
+                        "participants":[],"account":"me"}))
+        );
+        assert_eq!(stream.presence_ended(), None, "emptied once");
+        // An empty set from the owner leaves nothing to empty.
+        presence(&mut stream, frame(CONV, one));
+        presence(&mut stream, frame(CONV, json!([])));
+        assert_eq!(stream.presence_ended(), None);
+    }
 }

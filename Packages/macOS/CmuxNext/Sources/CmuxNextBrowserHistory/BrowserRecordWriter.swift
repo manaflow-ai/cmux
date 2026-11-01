@@ -114,8 +114,20 @@ public struct BrowserRecordUpdate: Equatable, Sendable {
 /// each change of the tab's daemon record (`daemonRecord`, another client,
 /// a restore, this writer's own echo) re-bases it, so a difference is always
 /// computed against what the daemon holds. A web address another client
-/// wrote (not this writer's echo) is loaded in the page instead of being
-/// written back over (`workspace.open_url` reusing the tab, cx-ebm.59.6).
+/// wrote is loaded in the page instead of being written back over
+/// (`workspace.open_url` reusing the tab, cx-ebm.59.6).
+///
+/// Whose write a record change is comes from causal order, not from matching
+/// echoes against what was sent: `send` returns only once the store
+/// has applied every event up to the write's reply (`BrowserTabService.settled`,
+/// OWNERSHIP-PRINCIPLES "an intent leaves the log on its echo"). While a write
+/// is unsettled the record may still show older states, this writer's own
+/// echoes included, so nothing is followed; once every write settles, the
+/// record names this writer's address, the address it held before, or another
+/// client's (another client writing exactly one of those addresses meanwhile is
+/// not told apart), and from then on every change is another client's. Matching echoes
+/// by address dropped an echo the daemon published after its reply, and Google
+/// Maps (a new URL on every pan) reloaded at an old viewport every few seconds.
 public final class BrowserRecordWriter {
     public typealias Send = @MainActor (BrowserRecordUpdate) async -> Bool
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -138,9 +150,15 @@ public final class BrowserRecordWriter {
     /// Loads a web address another client wrote to the record (nil for a machine's page, whose
     /// record keeps the machine address).
     private let follow: (@MainActor (URL) -> Void)?
-    /// Addresses this writer is sending (oldest first, at most 8): their echo is this writer's
-    /// own write, never an address to follow. An entry goes with its echo or its reply.
-    private var sentURLs: [String] = []
+    /// The tab's daemon record as the store holds it now.
+    private let daemonRecord: (@MainActor () -> BrowserRecord?)?
+    /// Writes sent whose events the store has not applied yet. Record changes seen meanwhile
+    /// may be older than this writer's writes and are never followed.
+    private var unsettledWrites = 0
+    /// While writes are unsettled: the record's address when the first of them went out and
+    /// every address they sent. Once all settle, a record address outside these is another
+    /// client's write.
+    private var ownURLs: Set<String> = []
     /// The page's address when it was told to follow the record: until the page leaves it (a
     /// hibernated page loads on wake), its changes are not written back over the new address.
     private var followedFrom: URL?
@@ -155,6 +173,7 @@ public final class BrowserRecordWriter {
         self.delay = delay
         self.sleep = sleep
         self.send = send
+        self.daemonRecord = daemonRecord
         let current: @MainActor () -> BrowserTabState = { [tab] in
             var state = tab.state
             if let recordURL { state.url = state.url.map(recordURL) }
@@ -203,30 +222,42 @@ public final class BrowserRecordWriter {
 
     /// The daemon's record changed: compare the page against it from now on.
     private func rebase(_ record: BrowserRecord) {
-        var record = record
-        // Zoom and history are not compared when the daemon does not keep
-        // them; keep the local copy so they never look changed.
-        if !tracksState {
-            record.zoom = recorded.zoom
-            record.back = recorded.back
-            record.forward = recorded.forward
-        }
-        let echo = record.url.flatMap { sentURLs.firstIndex(of: $0) }
-        if let echo { sentURLs.removeFirst(echo + 1) }
+        let record = comparable(record)
         guard record != recorded else { return }
         let previous = recorded
         recorded = record
-        // Another client moved the record to a new web address (`workspace.open_url` reusing this
-        // tab, cx-ebm.59.6): the page loads it, as `cmux browser navigate` does, instead of writing
-        // its old address back. Other schemes are written back over as before.
-        let shown = current().url
-        if echo == nil, let follow, let text = record.url, text != previous.url, let url = URL(string: text),
-           url.absoluteString != shown?.absoluteString, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            pending?.cancel()
-            (pending, unsent, followedFrom) = (nil, nil, shown)
-            return follow(url)
-        }
+        // A change seen while a write is unsettled may be an older state or another client's:
+        // the end of the writes decides, so nothing is written over it before then (the page's
+        // own navigations still are). One seen with no write unsettled is ordered after every
+        // write of this writer: it is another client's.
+        guard unsettledWrites == 0 else { return }
+        if let text = record.url, text != previous.url, loadIfForeign(text) { return }
         if let page { pageDidChange(page) }
+    }
+
+    /// `record` with the fields the daemon does not keep taken from the local copy: zoom and
+    /// history are compared only when the daemon keeps them, so they never look changed.
+    private func comparable(_ record: BrowserRecord) -> BrowserRecord {
+        guard !tracksState else { return record }
+        var record = record
+        record.zoom = recorded.zoom
+        record.back = recorded.back
+        record.forward = recorded.forward
+        return record
+    }
+
+    /// Another client moved the record to the web address `text` (`workspace.open_url` reusing
+    /// this tab, cx-ebm.59.6): the page loads it, as `cmux browser navigate` does, instead of
+    /// writing its old address back. Other schemes, a machine's page and the address the page
+    /// shows are written back over as before. True when the page loads it.
+    private func loadIfForeign(_ text: String) -> Bool {
+        let shown = current().url
+        guard let follow, let url = URL(string: text), url.absoluteString != shown?.absoluteString,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }
+        pending?.cancel()
+        (pending, unsent, followedFrom) = (nil, nil, shown)
+        follow(url)
+        return true
     }
 
     private func pageDidChange(_ state: BrowserTabState) {
@@ -260,9 +291,26 @@ public final class BrowserRecordWriter {
     private func flush(_ state: BrowserTabState) async {
         guard let update = recorded.update(toward: state, state: tracksState) else { return }
         let base = recorded
-        if let url = update.url { sentURLs = Array((sentURLs + [url]).suffix(8)) }
-        defer { if let url = update.url, let at = sentURLs.firstIndex(of: url) { sentURLs.remove(at: at) } }
-        guard await send(update) else { return }
-        if recorded == base { recorded = base.applying(update) }
+        if unsettledWrites == 0, let url = base.url { ownURLs.insert(url) }
+        if let url = update.url { ownURLs.insert(url) }
+        unsettledWrites += 1
+        let sent = await send(update)
+        unsettledWrites -= 1
+        guard let daemonRecord else {
+            if sent, recorded == base { recorded = base.applying(update) }
+            return
+        }
+        guard unsettledWrites == 0 else { return }
+        // Every write settled: the store's record holds each of their events and every event
+        // before them. A failed send settles too, as the record command may have landed before
+        // a later step failed.
+        let own = ownURLs
+        ownURLs = []
+        guard let record = daemonRecord().map(comparable) else { return }
+        recorded = record
+        if let text = record.url, !own.contains(text), loadIfForeign(text) { return }
+        // A page that moved on while the write was out writes again; a failed send waits for
+        // the next change, as before.
+        if sent, let page { pageDidChange(page) }
     }
 }

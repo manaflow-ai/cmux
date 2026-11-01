@@ -14,7 +14,7 @@ import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
+import { FileDoc, Folder, GitHubMark, Globe } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
@@ -33,6 +33,7 @@ export function PathChip({ path, label, written }: { path: string; label?: React
 }
 
 function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+  const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
     info?.place === "denied" ||
@@ -46,18 +47,19 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
+      /* tooltip-allow: the label omits the full path and the outside-project boundary */
+      title={outside ? `${t("chip.outsideProject")}\n${path}` : path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
-      {outside && <Lock size={11} className="cv-chip__lock" />}
     </button>
   );
 }
 
-/// A file on the machine an agent's message came from: its name with a lock, the path and the
+/// A file on the machine an agent's message came from: its name, the path and the
 /// machine in its tooltip. Not a button: this Mac has no way to it.
 export function ElsewhereChip({ path, host, label }: { path: string; host: string; label?: ReactNode }) {
   const t = useT();
@@ -71,7 +73,6 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
     >
       <FileDoc size={15} className="cv-chip__icon" />
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
-      <Lock size={11} className="cv-chip__lock" />
     </span>
   );
 }
@@ -88,7 +89,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const bare = typeof children === "string" && (children === href || /^[a-z][\w+.-]*:\/\//i.test(children));
   const label = bare ? redactUrlText(children as string) : children;
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
-  // pill with the GitHub mark and its text. Its title goes to the hover card only.
+  // link with the GitHub mark and its text. Its title goes to the hover card only.
   const ref = githubRefLabel(href);
   const mark = ref ? <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
   // The hover card always has an icon to show; a favicon cmux has fits there, not in the line.

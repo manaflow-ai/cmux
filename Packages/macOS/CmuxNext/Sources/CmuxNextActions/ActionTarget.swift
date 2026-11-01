@@ -133,6 +133,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case fileExplorerRow
     /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
     case priorityRow
+    /// A machine joined with a one-line token, in the right sidebar's Machines section (its "…"
+    /// button; Labs `labs.machineJoin`): Check, Rotate Credential and Revoke.
+    case joinedMachine
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -150,7 +153,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
         // The explorer's actions act on its selection, not a target.
         case .fileExplorerRow: nil
-        case .cloudMachine, .sshMachine, .machineSection: .machine
+        case .cloudMachine, .sshMachine, .machineSection, .joinedMachine: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark

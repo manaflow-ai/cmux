@@ -29,6 +29,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
         /// a subscript argument is a new object (and, the first time, a runtime type lookup) per
         /// call, 5-10 ms cold on a read path such as a tab switch (cx-8w027.25).
         package var keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]
+        /// Keys a tunable had before (`registerRename`): the old key's file value, mapped, when the file
+        /// has no value under the new key.
+        package var renames: [String: Rename] = [:]
+        /// Keys reset while the file read was pending (setting a choice back to its default is a reset):
+        /// the file's value for them is not applied when the read lands.
+        package var cleared: Set<String> = []
 
         package init(loading: Bool = false, overrides: [String: TunableValue] = [:], descriptors: [String: TunableDescriptor] = [:], revision: Int = 0, keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]) {
             self.loading = loading
@@ -39,12 +45,19 @@ public nonisolated final class TunableStore: Observable, Sendable {
         }
     }
 
+    package struct Rename: Sendable {
+        package let key: String
+        package let map: @Sendable (Any) -> Any?
+    }
+
     private let registrar = ObservationRegistrar()
     /// The inert fast path: false in Release and RC, so a read is one
     /// relaxed atomic load there.
     private let active = Atomic<Bool>(false)
     private let state = Mutex(State())
     private let writer = Mutex<TunableFileWriter?>(nil)
+    /// The override file `activate` read (nil without one).
+    private let file = Mutex<URL?>(nil)
 
     public init() {}
 
@@ -84,6 +97,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
         }
     }
 
+    /// A tunable that was called `old`: a file that still holds `old` (and not `new`) gives `new` the
+    /// value `map` makes of the old one (nil drops it). The next write keeps only `new`.
+    public func registerRename(from old: String, to new: String, map: @escaping @Sendable (Any) -> Any?) {
+        state.withLock { $0.renames[old] = Rename(key: new, map: map) }
+    }
+
     public var descriptors: [TunableDescriptor] {
         state.withLock { Array($0.descriptors.values) }
     }
@@ -96,10 +115,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// applies its values on the main actor (observers are told there),
     /// then writes every later change back, coalesced, off the main actor.
     public func activate(file: URL?) {
-        active.store(true, ordering: .relaxed)
-        guard let file else { return }
+        // `active` last (releasing): a reader that sees it also sees the file and the pending read.
+        guard let file else { return active.store(true, ordering: .releasing) }
+        self.file.withLock { $0 = file }
         writer.withLock { $0 = TunableFileWriter(url: file) }
         state.withLock { $0.loading = true }
+        active.store(true, ordering: .releasing)
         Task.detached(priority: .userInitiated) { [weak self] in
             let raw = TunableFile.readRaw(file)
             guard let self else { return }
@@ -114,6 +135,22 @@ public nonisolated final class TunableStore: Observable, Sendable {
     public func override(_ key: String) -> TunableValue? {
         guard active.load(ordering: .relaxed) else { return nil }
         registrar.access(self, keyPath: keyPath(key))
+        return state.withLock { $0.overrides[key] }
+    }
+
+    /// The override for `key` as the file holds it, also before `activate`'s read lands: while that
+    /// read is pending, the file is read here (blocking). For a setting read once at a launch step
+    /// that cannot wait for the main actor's load (Chromium's launch switches, `CEFRuntime`).
+    /// The value read is applied to the store at once (the load's later merge keeps it, as it keeps
+    /// any change made since launch), so what the caller launched with is what the store reports;
+    /// a `set` that lands during the read wins, and the caller gets that value.
+    public func settledOverride(_ key: String) -> TunableValue? {
+        guard active.load(ordering: .acquiring) else { return nil }
+        let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil && !state.cleared.contains(key) }
+        guard pending, let url = file.withLock({ $0 }) else { return state.withLock { $0.overrides[key] } }
+        // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
+        // store's own read of it is still pending (DEV and NIGHTLY)
+        if let value = validate(TunableFile.readRaw(url))[key] { merge([key: value]) }
         return state.withLock { $0.overrides[key] }
     }
 
@@ -141,14 +178,19 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// Removes the overrides of `keys`.
     public func reset(_ keys: [String]) {
-        let present = state.withLock { state in keys.filter { state.overrides[$0] != nil } }
+        let present = state.withLock { state in
+            if state.loading { state.cleared.formUnion(keys) }
+            return keys.filter { state.overrides[$0] != nil }
+        }
         guard !present.isEmpty else { return }
         mutate(present) { overrides in present.forEach { overrides[$0] = nil } }
     }
 
     /// Removes every override.
     public func resetAll() {
-        reset(state.withLock { Array($0.overrides.keys) })
+        // While the file read is pending its keys are not in `overrides` yet: every registered key is
+        // reset, so none of the file's values comes back when the read lands.
+        reset(state.withLock { $0.loading ? Array(Set($0.overrides.keys).union($0.descriptors.keys)) : Array($0.overrides.keys) })
     }
 
     /// Merges a file's raw values (`TunableFile.decode`) into the
@@ -159,9 +201,13 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     /// The file's values that fit their descriptors, clamped.
-    private func validate(_ values: [String: Any]) -> [String: TunableValue] {
+    private func validate(_ raw: [String: Any]) -> [String: TunableValue] {
         state.withLock { state in
-            values.reduce(into: [String: TunableValue]()) { result, entry in
+            var values = raw
+            for (old, rename) in state.renames where values[rename.key] == nil {
+                if let value = values[old].flatMap(rename.map) { values[rename.key] = value }
+            }
+            return values.reduce(into: [String: TunableValue]()) { result, entry in
                 guard let descriptor = state.descriptors[entry.key],
                       let value = TunableFile.value(entry.value, as: descriptor.kind),
                       let clamped = descriptor.clamp(value) else { return }
@@ -171,11 +217,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     @MainActor private func finishLoad(_ values: [String: TunableValue]) {
-        let changedBeforeLoad = state.withLock { state in
+        let (changedBeforeLoad, kept) = state.withLock { state in
             state.loading = false
-            return !state.overrides.isEmpty
+            defer { state.cleared = [] }
+            return (!state.overrides.isEmpty || !state.cleared.isEmpty, values.filter { !state.cleared.contains($0.key) })
         }
-        merge(values)
+        merge(kept)
         // A change made while the read was pending was held back; write the
         // merged set now.
         if changedBeforeLoad {
@@ -185,7 +232,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     private func merge(_ values: [String: TunableValue]) {
-        let fresh = state.withLock { state in values.filter { state.overrides[$0.key] == nil } }
+        let fresh = state.withLock { state in values.filter { state.overrides[$0.key] == nil && !state.cleared.contains($0.key) } }
         guard !fresh.isEmpty else { return }
         mutate(Array(fresh.keys), persist: false) { overrides in
             for (key, value) in fresh where overrides[key] == nil { overrides[key] = value }

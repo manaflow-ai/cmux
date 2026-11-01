@@ -10,10 +10,12 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. Each subagent also gets a cmux workspace whose tab is its
-//!   chat (workspaces.rs), so the user can watch and join it, when this host
-//!   has somewhere to make one. The answer says, per subagent, which
-//!   workspace it got and where, or that it got none and why: the Chief
+//!   ids at once. With `subagents.showWorkspaces` on, each subagent also
+//!   gets a cmux workspace whose tab is its chat (workspaces.rs), so the user
+//!   can watch and join it, when this host has somewhere to make one; off
+//!   (the default, #26386) it runs hidden and `control show` opens its
+//!   workspace later. The answer says, per subagent, which workspace it got
+//!   and where, that it is hidden, or that it got none and why: the Chief
 //!   repeats it to the user, so it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
@@ -224,12 +226,17 @@ pub struct SubagentSettings {
     pub claude_md: Option<String>,
 }
 
-/// A subagent session's tags: `mux.parent`, its spawn and its id.
-pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
+/// A subagent session's tags: `mux.parent`, its spawn and its id, and the
+/// names acpmux's approval cards give it (`mux.handle` its id, `mux.label`
+/// its `title`, the name of its workspace).
+pub fn tags(parent: &str, spawn: &str, id: &str, title: &str) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{HANDLE_TAG, LABEL_TAG, PARENT_TAG};
     BTreeMap::from([
-        (cmux_chief::rules::PARENT_TAG.to_owned(), parent.to_owned()),
+        (PARENT_TAG.to_owned(), parent.to_owned()),
         (SPAWN_TAG.to_owned(), spawn.to_owned()),
         (SUBAGENT_TAG.to_owned(), id.to_owned()),
+        (HANDLE_TAG.to_owned(), id.to_owned()),
+        (LABEL_TAG.to_owned(), title.to_owned()),
     ])
 }
 
@@ -391,11 +398,23 @@ impl CloudPlacement {
 
     /// The first message's task on the peer: the subagent system text (no
     /// preset there), where it runs and how it gets its own worktree.
+    ///
+    /// It opens with the task's own `Title:` line, and its `Group: Chief agents`
+    /// line when it has one (`workspaces::spawn_group`; no other group, #27712):
+    /// the workspace name and group are read from this text (`workspaces::title`)
+    /// and so is the peer session's title (acpmux `prompt_gist`). With the
+    /// instructions first, 31 workspaces read "You are a subagent of Chief, an…"
+    /// (Oct 22-25; since 82a981959a4, Oct 19).
     pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
         let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
         format!(
-            "{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
+            "Title: {title}\n{group}\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
             self.instructions.trim_end(),
+            title = crate::workspaces::title(task),
+            group = match crate::workspaces::spawn_group(task) {
+                "" => String::new(),
+                g => format!("Group: {g}\n"),
+            },
             fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
             dir = self.dir.display(),
@@ -445,6 +464,12 @@ pub struct Spawner {
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
     /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
     agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
+    /// The person profile `remember` writes (`optchat/person.md`); None: no
+    /// profile on this host.
+    person: Option<std::path::PathBuf>,
+    /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
+    /// None: no cmux app behind this host.
+    cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
 }
 
 impl Spawner {
@@ -472,7 +497,24 @@ impl Spawner {
             cloud_text: None,
             cloud_vms: None,
             agent_keys: None,
+            person: None,
+            cloud_workspaces: None,
         }
+    }
+
+    /// `cloud_workspace` makes Cloud workspaces through `cloud` (None: off).
+    pub fn with_cloud_workspaces(
+        mut self,
+        cloud: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
+    ) -> Spawner {
+        self.cloud_workspaces = cloud;
+        self
+    }
+
+    /// `remember` keeps preferences in the profile at `path`.
+    pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
+        self.person = Some(path);
+        self
     }
 
     /// Cloud subagents get their own sandbox key from `keys` (None: off).
@@ -634,7 +676,7 @@ impl Spawner {
 
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
-    /// where it lives, or that it has none and why.
+    /// where it lives, that it runs hidden, or that it has none and why.
     #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
@@ -677,6 +719,8 @@ impl Spawner {
             .workspaces
             .as_ref()
             .map(|_| crate::workspaces::new_key());
+        // Its workspace's name, also its name on an approval card it is in.
+        let name = crate::workspaces::title(task);
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -687,7 +731,7 @@ impl Spawner {
             effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
-                let mut t = tags(&s.parent, spawn, id);
+                let mut t = tags(&s.parent, spawn, id, &name);
                 if floor.is_some() {
                     t.insert(
                         crate::approval::POLICY_TAG.to_owned(),
@@ -766,6 +810,29 @@ impl Spawner {
                 "subagent {id}: {e}; its cmux calls may be sandboxed"
             ));
         }
+        // Where its workspace opens, recorded before it counts as started: a
+        // `control show` can only come after it, never open a second one.
+        // The terminal beside the chat runs on this Mac: a peer session's
+        // folder is on the VM (/home/agent/work), and a PTY spawned in a
+        // folder missing here fails, so the subagent got no workspace (a511).
+        let slot_place = (
+            crate::workspaces::spawn_group(task).to_owned(),
+            match &peer {
+                Some(_) => self.settings.cwd.clone(),
+                None => s.cwd.clone(),
+            },
+        );
+        if let Some(key) = &key {
+            let _ = self.to_brain(Input::SubagentWorkspaceSlot {
+                id: id.to_owned(),
+                name: name.clone(),
+                slot: crate::state::WorkspaceSlot {
+                    key: key.clone(),
+                    group: slot_place.0.clone(),
+                    cwd: slot_place.1.clone(),
+                },
+            });
+        }
         // Registered before its prompt: its turn end can only follow.
         self.to_brain(Input::SubagentStarted {
             id: id.to_owned(),
@@ -795,17 +862,24 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let name = crate::workspaces::title(task);
-        let group = crate::workspaces::topic_group(task);
+        let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The terminal beside the chat runs on this Mac: a peer session's
-        // folder is on the VM (/home/agent/work), and a PTY spawned in a
-        // folder missing here fails, so the subagent got no workspace (a511).
-        let term_cwd = match &peer {
-            Some(_) => &self.settings.cwd,
-            None => &s.cwd,
-        };
-        match workspaces.open(&key, &session, &name, &group, term_cwd) {
+        // Hidden by default (#26386: subagents' workspaces cluttered the
+        // sidebar between the user's own): its link in the Chief's reply
+        // opens its chat, and `control show` adds its workspace. One that
+        // runs with policy ask (the spawn floor, or MUX_POLICY) shows: only
+        // its tab can allow its prompts.
+        if spec.policy != crate::approval::ASK && !self.show_workspaces() {
+            self.trace.emit(
+                "subagent.hidden",
+                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group}),
+            );
+            return Ok(format!(
+                "hidden: no sidebar workspace (the setting {} is off); its link opens its chat, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
+                crate::chief_settings::SHOW_SUBAGENT_WORKSPACES
+            ));
+        }
+        match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
@@ -817,7 +891,7 @@ impl Spawner {
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                let mut note = format!("workspace \"{name}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
                         " (id {}; `{}` moves it to the top)",
@@ -829,11 +903,16 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.map(|r| r.id),
                 });
                 Ok(note)
             }
             Err(e) => {
                 (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
+                let _ = self.to_brain(Input::SubagentWorkspaceFailed {
+                    id: id.to_owned(),
+                    key: key.clone(),
+                });
                 self.trace.emit(
                     "subagent.workspace",
                     json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
@@ -886,6 +965,20 @@ impl Spawner {
             }
             Ok(dir) => (dir, None),
         }
+    }
+
+    /// Whether a subagent starting now gets its sidebar workspace
+    /// (`subagents.showWorkspaces`); hidden when the brain does not answer.
+    fn show_workspaces(&self) -> bool {
+        let (reply, answer) = channel();
+        if self.to_brain(Input::Settings { reply }).is_err() {
+            return false;
+        }
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .ok()
+            .and_then(|v| v["subagents"]["showWorkspaces"].as_bool())
+            .unwrap_or(false)
     }
 
     /// `Some("ask")` under the spawn floor (`Brain::spawn_policy`); `ask`
@@ -1563,6 +1656,26 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let Some(cloud) = &self.cloud_workspaces else {
+            return Err(
+                "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                    .into(),
+            );
+        };
+        let answer = cloud.call(request);
+        (self.log)(&format!(
+            "cloud_workspace {:?}: {}",
+            request.title,
+            answer.as_ref().unwrap_or_else(|e| e)
+        ));
+        self.trace.emit(
+            "chief.cloud_workspace",
+            serde_json::json!({"title": self.trace.text(&request.title), "ok": answer.is_ok()}),
+        );
+        answer
+    }
+
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Control { request, reply })?;
@@ -1630,9 +1743,30 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn remember(&self, text: &str) -> Result<String, String> {
+        let Some(person) = &self.person else {
+            return Err("this Chief host has no person profile to remember in".into());
+        };
+        let answer = crate::remember::remember(person, text, &crate::remember::today())?;
+        (self.log)(&format!("remember: {answer}"));
+        self.trace.emit(
+            "chief.remember",
+            serde_json::json!({"text": self.trace.text(text), "noop": answer.starts_with("outcome: noop")}),
+        );
+        Ok(answer)
+    }
+
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn watch(&self, call: crate::tools::WatchCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Watch { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

@@ -424,6 +424,11 @@ export function monacoOptions(
     readOnly: context.readOnly,
     readOnlyMessage: { value: context.readOnlyMessage ?? "" },
     domReadOnly: false,
+    // Typing goes through Monaco's hidden textarea, never Chromium's EditContext: the app holds a
+    // page's printable keys until it reports an input, textarea or contenteditable focused
+    // (PageInputReadiness), and an EditContext element is none of them, so in a Chromium page no
+    // typed key reached the editor until another field had taken focus once.
+    editContext: false,
     // A file is written only by the user's edits: Monaco never rewrites line terminators itself.
     unusualLineTerminators: "off",
     // Large files: everything that walks the whole document stays off.

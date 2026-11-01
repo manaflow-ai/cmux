@@ -165,7 +165,7 @@ async fn a_turn_quiet_inside_an_open_tool_call_gets_four_periods() {
     assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 240_000, "{ended:?}");
 }
 
-/// A turn that failed over to its fallback profile (a usage limit) and whose fallback then went
+/// A turn that failed over to its fallback profile (an authentication failure) and whose fallback then went
 /// quiet still ends: the fallback's prompt takes the forced end too.
 #[tokio::test]
 async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
@@ -183,7 +183,7 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
         policy: None,
     };
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[]));
+    agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[("FAKE_AUTH_FAIL", "1")]));
     // The fallback loads the chat, and its replayed history holds a tool call that never
     // ended: not this turn's, so it gives no grace.
     let pool_env = [("FAKE_FALLBACK", "1"), ("FAKE_LOAD_REPLAY_TOOL", "1")];
@@ -264,9 +264,12 @@ async fn a_turn_counts_from_its_prompt_being_written() {
     c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
     // The agent exits idle; the last word was 5 min ago, past one period.
     clock.advance(Duration::from_secs(301));
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let status = hub.session_summary(&hub.resolve("stall-written").unwrap())["status"].clone();
-    assert_eq!(status, "idle", "the agent did not exit idle");
+    // The idle pass lists the processes under the harness first (`hub/idle_census.rs`).
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while hub.session_summary(&hub.resolve("stall-written").unwrap())["status"] != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the agent did not exit idle");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 
     // An unattended prompt: its client lets go while the agent still starts.
     let mut other = connect(&hub).await;

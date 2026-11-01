@@ -67,6 +67,83 @@ import Testing
         #expect(overlays([menu, card, raisedCard, sheet, page], ordinary: other) == [85, 84])
     }
 
+    /// The window, its child windows and the app's windows over it go to the window server as one
+    /// composite (glass over the window then blurs it, as on screen; composited apart it came out
+    /// grey), topmost first. Windows it does not list on screen follow, last child first.
+    @Test func theWindowAndItsOverlaysAreOneCompositeTopmostFirst() {
+        // On screen, topmost first: a menu, a popover child, a page child, the window, another app's window.
+        let onScreen = [40, 31, 30, 10, 99]
+        #expect(NSWindow.frontToBack([10, 30, 31, 40], onScreen: onScreen) == [40, 31, 30, 10])
+        #expect(NSWindow.frontToBack([10, 30, 32, 33], onScreen: onScreen) == [30, 10, 33, 32])
+        #expect(NSWindow.frontToBack([10, 10, 30], onScreen: onScreen) == [30, 10])
+    }
+
+    /// A Chromium page image is painted over the window's composite and covers the popover over
+    /// the page. The composite cut to where the popover covers the window, painted over the page
+    /// image, shows the popover over the page as on screen.
+    @Test func aPopoverCutFromTheCompositeShowsOverAPageImage() throws {
+        let side = 40
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        func context(_ bytes: UnsafeMutableRawPointer? = nil) throws -> CGContext {
+            try #require(CGContext(data: bytes, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: space,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        }
+        func image(_ color: CGColor, width: Int) throws -> CGImage {
+            let drawing = try context()
+            drawing.setFillColor(color)
+            drawing.fill(CGRect(x: 0, y: 0, width: width, height: side))
+            return try #require(drawing.makeImage())
+        }
+        // The window server's composite: the popover (blue) over the window. The popover alone covers the left half.
+        let composite = try image(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1), width: side)
+        let coverage = try image(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), width: side / 2)
+        let cut = try #require(NSWindow.masked(composite, by: coverage))
+        #expect(cut.width == side && cut.height == side)
+        // Chromium's page image (green) fills the window, then the cut goes on top.
+        let page = try image(CGColor(srgbRed: 0, green: 1, blue: 0, alpha: 1), width: side)
+        var bytes = [UInt8](repeating: 0, count: side * side * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let result = try context(buffer.baseAddress)
+            let whole = CGRect(x: 0, y: 0, width: side, height: side)
+            result.draw(page, in: whole)
+            result.draw(cut, in: whole)
+        }
+        func pixel(_ x: Int) -> [UInt8] { Array(bytes[(side / 2 * side + x) * 4..<(side / 2 * side + x) * 4 + 4]) }
+        #expect(pixel(5) == [0, 0, 255, 255])
+        #expect(pixel(side - 5) == [0, 255, 0, 255])
+    }
+
+    /// A translucent overlay (half-transparent blue) over the window (red) shows over a page image
+    /// (green) as it would on screen, half blue and half green, not faded twice.
+    @Test func aTranslucentOverlayIsNotFadedTwice() throws {
+        let side = 8
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        func context(_ bytes: UnsafeMutableRawPointer? = nil) throws -> CGContext {
+            try #require(CGContext(data: bytes, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: space,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        }
+        func image(_ colors: [CGColor]) throws -> CGImage {
+            let drawing = try context()
+            for color in colors {
+                drawing.setFillColor(color)
+                drawing.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            }
+            return try #require(drawing.makeImage())
+        }
+        let blue = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 0.5)
+        let composite = try image([CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), blue])  // the window server's composite
+        let cut = try #require(NSWindow.masked(composite, by: try image([blue])))
+        var bytes = [UInt8](repeating: 0, count: side * side * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let result = try context(buffer.baseAddress)
+            let whole = CGRect(x: 0, y: 0, width: side, height: side)
+            result.draw(try image([CGColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)]), in: whole)
+            result.draw(cut, in: whole)
+        }
+        let pixel = bytes[0..<4].map(Int.init)
+        #expect(pixel[0] <= 1 && abs(pixel[1] - 128) <= 2 && abs(pixel[2] - 128) <= 2 && pixel[3] == 255, "\(pixel)")
+    }
+
     @Test func theRegionIsInGlobalDisplayCoordinates() {
         // The primary screen is 1000 points tall; a window 100 points above its bottom edge.
         let frame = NSRect(x: 50, y: 100, width: 400, height: 300)

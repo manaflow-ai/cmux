@@ -18,7 +18,7 @@ export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string
   ["--cmux-accent", "--agent-accent", "LinkText"],
   ["--cmux-control", "--agent-control", "color-mix(in srgb, CanvasText 7%, transparent)"],
   ["--cmux-control-hover", "--agent-control-hover", "color-mix(in srgb, CanvasText 11%, transparent)"],
-  ["--cmux-font", "--cv-font", "-apple-system, system-ui, sans-serif"],
+  ["--cmux-font", "--cv-font", '"Inter", system-ui, sans-serif'],
   ["--cmux-mono", "--font-mono", "ui-monospace, monospace"],
   ["--cmux-size-caption", "--text-caption", "11px"],
   ["--cmux-size-detail", "--text-detail", "12px"],

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextBrowserTabs
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
@@ -86,12 +87,17 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
+    /// How long a record write waits for the store to apply its events before the writer reads
+    /// the record anyway.
+    static let settleLimit: Duration = .seconds(2)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
+    /// Record addresses written with no page writer (``writeRecordURL(_:for:)``), awaited by ``flushRecords()``.
+    private var recordWrites: [String: Task<Void, Never>] = [:]
     /// Restored pages that start once their saved history is read.
     let historyStarts = BrowserHistoryStarts()
     /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
@@ -349,7 +355,7 @@ final class BrowserTabService {
         guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
-        let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
+        let update = update, updateState = updateState, settled = settled, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
         if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
         // The surface is looked up by tab id at send time. A moved tab (a
@@ -364,10 +370,21 @@ final class BrowserTabService {
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
             let daemon = daemonForTab(tab)
-            if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
-            guard fields.hasStateFields else { return true }
-            guard let resource = tab.resourceID else { return false }
-            return await updateState(daemon, resource, fields)
+            let write: @MainActor () async -> Bool = {
+                if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
+                guard fields.hasStateFields else { return true }
+                guard let resource = tab.resourceID else { return false }
+                return await updateState(daemon, resource, fields)
+            }
+            let sent = await write()
+            // The daemon publishes the record before it answers and the store applies it after:
+            // the writer reads the record only once the store holds the write's own events
+            // (BrowserRecordWriter, causal order). Bounded, so a store that stops applying (a
+            // resync that never lands) cannot hold quit, close or later writes.
+            _ = try? await ControlDeadline.shared.run(method: "browser.record.settle", deadline: .now + Self.settleLimit) {
+                @MainActor in await settled(daemon)
+            }
+            return sent
         }
         writers[id] = writer
         trackHistory(page, id: id, daemon: daemonForTab(tab), surface: tab.surface, recordURL: tab.url, while: writer)
@@ -417,6 +434,19 @@ final class BrowserTabService {
         if let tab = tabModel(tabID) { track(page, for: tab) }
     }
 
+    /// Writes `url` to `tab`'s record for a tab with no page to write it (a "Chromium unavailable" tab's typed
+    /// address), after any earlier such write of the tab; quit's ``flushRecords()`` awaits it. Never an
+    /// incognito, stand-in or another frontend's tab.
+    func writeRecordURL(_ url: URL, for tab: TabModel) {
+        guard tab.isFrontendOwned, !isIncognitoTab(tab.id), !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
+        let update = update, daemon = daemonForTab(tab), surface = tab.surface, previous = recordWrites[tab.id]
+        // task-owner: recordWrites; flushRecords awaits it before quit goes on.
+        recordWrites[tab.id] = Task {
+            await previous?.value
+            _ = await update(daemon, surface, BrowserRecordUpdate(url: url.absoluteString, title: nil, favicon: .unchanged))
+        }
+    }
+
     /// The page was released: stop writing.
     func untrack(_ key: String) {
         writers.removeValue(forKey: key)?.cancel()
@@ -434,5 +464,12 @@ final class BrowserTabService {
         // task-owner: every flush is awaited before quit goes on.
         let flushes = historyWriters.values.map { writer in Task { await writer.flushNow() } }
         for flush in flushes { await flush.value }
+        // Last, and until none is left: quit's run loop still takes input, and an address typed during any of
+        // the awaits above or below chains on (or adds) one. The function returns with no suspension after the
+        // final check, so no typed address of the flush's time is left behind.
+        while let (id, write) = recordWrites.first {
+            await write.value
+            if recordWrites[id] == write { recordWrites[id] = nil }
+        }
     }
 }

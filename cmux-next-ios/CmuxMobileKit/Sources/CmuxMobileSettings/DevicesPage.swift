@@ -19,6 +19,13 @@ public protocol SettingsDeviceDirectory: AnyObject {
     /// its pairing keys are replaced, and the next connection asks the Mac
     /// again. Sign-out does not do this (verify/persistence.md).
     func removeThisPhoneFromMacs() async
+    /// A scanned Mac pairing code (`cmux-next://pair?…`): the phone moves to
+    /// that Mac and pairs with it. False when the text is no live code for this account.
+    func openPairingCode(_ text: String) -> Bool
+}
+
+extension SettingsDeviceDirectory {
+    public func openPairingCode(_ text: String) -> Bool { false }
 }
 
 /// The account's devices from the service, shared by the Settings root (its
@@ -37,7 +44,7 @@ final class SettingsDeviceList {
             loadError = nil
         } catch is CancellationError {
         } catch {
-            loadError = "Couldn't load your devices. Pull to try again."
+            loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices. Pull to retry.", bundle: .module)
         }
     }
 
@@ -66,6 +73,8 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
+    /// "Scan QR on your Mac" is open.
+    @State private var scanning = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
@@ -77,7 +86,7 @@ struct DevicesPage: View {
                     CmuxMobileGutterRow {
                         SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
                     } content: {
-                        Text("Relay unavailable. Connections from outside your network may fail.")
+                        Text(String(localized: "mobile.devices.networkUnavailable", defaultValue: "Connections outside this network may be unavailable.", bundle: .module))
                     }
                     .font(theme.type.meta)
                     .foregroundStyle(theme.colors.label2)
@@ -86,7 +95,7 @@ struct DevicesPage: View {
             }
             Section {
                 if macs.isEmpty {
-                    Text(loadedMacs == nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
+                    Text(loadedMacs == nil ? "Loading…" : String(localized: "mobile.devices.empty", defaultValue: "Sign in to cmux on your Mac to connect it.", bundle: .module))
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                         .cmuxMobileTextColumn()
                 }
@@ -94,11 +103,23 @@ struct DevicesPage: View {
                     removableRow(mac)
                 }
                 .onDelete { offsets in pendingRemoval = offsets.first.map { macs[$0] } }
+                if directory != nil {
+                    Button {
+                        scanning = true
+                    } label: {
+                        CmuxMobileGutterRow {
+                            SettingsIcon("qrcode.viewfinder").accessibilityHidden(true)
+                        } content: {
+                            Text("Scan QR on your Mac").font(theme.type.rowTitle)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.scanMacCode")
+                }
             } header: {
-                Text("Macs").cmuxMobileTextColumn()
+                Text("Macs")
             } footer: {
                 if directory != nil {
-                    Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.").cmuxMobileTextColumn()
+                    Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module))
                 }
             }
             if directory != nil, !phones.isEmpty {
@@ -108,10 +129,9 @@ struct DevicesPage: View {
                     }
                     .onDelete { offsets in pendingRemoval = offsets.first.map { phones[$0] } }
                 } header: {
-                    Text("Phones").cmuxMobileTextColumn()
+                    Text("Phones")
                 } footer: {
-                    Text(directory != nil ? "To remove this iPhone, use Remove This iPhone from My Macs below." : "Sign out to remove this iPhone.")
-                        .cmuxMobileTextColumn()
+                    Text(directory != nil ? String(localized: "mobile.devices.phonesFooter", defaultValue: "Remove this iPhone with the button below.", bundle: .module) : "Sign out to remove this iPhone.")
                 }
             }
             if directory != nil {
@@ -125,8 +145,7 @@ struct DevicesPage: View {
                     .disabled(removingPhone)
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
-                    Text("Signing out keeps this iPhone allowed on your Macs. Remove it to make each Mac ask again before it connects.")
-                        .cmuxMobileTextColumn()
+                    Text(String(localized: "mobile.devices.approvalFooter", defaultValue: "Removal resets Mac approval; signing out keeps it.", bundle: .module))
                 }
             }
             if let loadError = list.loadError {
@@ -134,6 +153,9 @@ struct DevicesPage: View {
             }
         }
         .settingsPage("Devices")
+        .sheet(isPresented: $scanning) {
+            PairCodeScannerSheet { directory?.openPairingCode($0) ?? false }
+        }
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task { await list.load(directory) }
@@ -156,7 +178,7 @@ struct DevicesPage: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { Task { await removeThisPhone() } }
         } message: {
-            Text("Your Mac forgets this iPhone and its keys are replaced. The next time it connects, the Mac asks you to allow it again. You stay signed in.")
+            Text(String(localized: "mobile.devices.phoneRemoval", defaultValue: "Your Macs must approve this iPhone again; you stay signed in.", bundle: .module))
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -231,14 +253,14 @@ struct DevicesPage: View {
         guard device.kind == .mac else {
             // The account's device list is all this removes: a Mac keeps its approval of the
             // phone (its paired list) until it is removed there too.
-            return "It stops receiving notifications and leaves this list. Your Macs still allow it to connect until you remove it in Settings → Mobile on each Mac. It comes back here when cmux on it signs in again."
+            return String(localized: "mobile.devices.otherPhoneRemoval", defaultValue: "Stops notifications until it signs in again. To revoke access, remove it in each Mac’s Settings → Mobile.", bundle: .module)
         }
-        var parts = ["\(displayName ?? device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
-        if connected { parts.append("This iPhone disconnects from it now.") }
+        var parts = [String(localized: "mobile.devices.macRemoval", defaultValue: "Removes this Mac from your devices and clears this iPhone’s saved workspaces.", bundle: .module)]
+        if connected { parts.append(String(localized: "mobile.devices.disconnect", defaultValue: "Disconnects this iPhone.", bundle: .module)) }
         if device.online == true {
             parts.append(MacRemovalCopy.online(honorsRemoval: honorsRemoval))
         } else {
-            parts.append("To use it again, sign in to cmux on that Mac or turn on Settings → Mobile there.")
+            parts.append(String(localized: "mobile.devices.reconnect", defaultValue: "Re-enable Mobile or sign in again on that Mac.", bundle: .module))
         }
         return parts.joined(separator: " ")
     }
@@ -273,10 +295,7 @@ struct DevicesPage: View {
                     }
                 }
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                if device.kind == .mac, device.online == true,
-                   let link = device.ids.lazy.compactMap({ store.macLinkStatus[$0] }).first {
-                    Text(link).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(2)
-                }
+
             }
         }
         .accessibilityElement(children: .combine)
@@ -292,7 +311,7 @@ struct DevicesPage: View {
         }
         let presence: String
         if device.online == true {
-            presence = status(device)?.text ?? "Online"
+            presence = device.ids.lazy.compactMap { store.macLinkStatus[$0] }.first ?? status(device)?.text ?? "Online"
         } else if let seen = device.lastSeenAt {
             // The formatter and clock Workspaces uses ("Last seen 2h ago"); reading
             // the clock redraws the page on each minute tick.

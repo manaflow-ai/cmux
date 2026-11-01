@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_chief::acp::{AcpmuxEvent, SessionSummary};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::rpc::{Notification, RpcClient, RpcError};
@@ -54,6 +55,36 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
         (CHIEF_TAG.to_owned(), home_id.to_owned()),
         (CHIEF_ROLE_TAG.to_owned(), role.to_owned()),
     ])
+}
+
+/// On a turn session: the Chief's participant id (`agent_mux`, `agent_…`).
+/// acpmux stamps it as `fromChief` on a message the turn sends another chat
+/// (its `prompt_provenance::session_message_from`), and the app draws that
+/// Chief's name and picture there, not the turn's session name
+/// (manaflow-ai/cmux#27914).
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+
+/// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
+/// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
+/// Nightly train"): the asker is the Chief by its own name (`title`, else
+/// "Chief"), and its children are the sessions whose `mux.parent` is
+/// `parent`; and the Chief's `participant` id.
+pub fn turn_tags(
+    home_id: &str,
+    parent: &str,
+    participant: &str,
+    title: Option<&str>,
+) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
+    let mut tags = chief_tags(home_id, "turn");
+    let label = title
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(LABEL_TAG.to_owned(), label);
+    tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags.insert(CHIEF_PARTICIPANT_TAG.to_owned(), participant.to_owned());
+    tags
 }
 
 /// A harness's family, as acpmux reports it: it decides the layout and the
@@ -261,6 +292,22 @@ pub trait AgentPort: Send + Sync {
     /// `start_steer`, then its wait.
     fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
         self.start_steer(session, blocks, prompt_id)?()
+    }
+    /// `start_steer` read now (`_meta.acpmux.steerNow`): acpmux stops the agent's current step
+    /// so it reads the message at once, as the pane's Send now does; the turn runs on. A running
+    /// subagent or background shell is never stopped for it. The Chief's tell (Lawrence,
+    /// 2026-10-26: "interrupt by default"). An acpmux without it takes a plain steer.
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.start_steer(session, blocks, prompt_id)
+    }
+    /// `start_steer_now`, then its wait.
+    fn steer_now(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer_now(session, blocks, prompt_id)?()
     }
     /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
     /// app's pane never asks about a folder the host made itself.
@@ -513,6 +560,34 @@ impl Acpmux {
             .ok_or_else(|| "acpmux is not connected".to_owned())
     }
 
+    /// A steer into `session`'s running turn (`steerOnly`: refused, never queued, when it
+    /// cannot steer now); `now` asks acpmux to stop the agent's step for it (`steerNow`).
+    fn send_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<SteerWait, String> {
+        let mut mux = json!({"promptId": prompt_id, "steer": true, "steerOnly": true});
+        if now {
+            mux["steerNow"] = json!(true);
+        }
+        // Written now, on the caller's thread: steers keep their order.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": mux}}),
+        );
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }))
+    }
+
     /// Runs the connection loop on its own thread: start the daemon if needed,
     /// connect, report sessions, wait for the end, back off, again.
     pub fn spawn_link(self: &Arc<Self>, sink: Sink, log: Arc<dyn Fn(&str) + Send + Sync>) {
@@ -611,10 +686,19 @@ impl Acpmux {
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
                 )
                 .map_err(|e| format!("initialize: {e}"))?;
-            client
-                .request("_acpmux/watch", json!({"enabled": true}))
-                .map_err(|e| format!("watch: {e}"))?;
-            Ok::<_, String>((sessions(&client)?, builtin_presets(&init)))
+            // The watch answers with the session list: reading it again at once spent
+            // the connection's second paced list (acpmux `hub/list_guard.rs`).
+            let watched = whole_list(
+                |m, p| client.request(m, p),
+                "_acpmux/watch",
+                json!({"enabled": true}),
+            )
+            .map_err(|e| format!("watch: {e}"))?;
+            let list = match session_rows(&watched) {
+                Some(list) => list,
+                None => sessions(&client)?,
+            };
+            Ok::<_, String>((list, builtin_presets(&init)))
         })();
         match result {
             Ok((list, builtins)) => {
@@ -782,16 +866,182 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
 
 /// `_acpmux/sessions`, rows that do not parse skipped.
 pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    let result = client
-        .request("_acpmux/sessions", json!({}))
+    let result = whole_list(|m, p| client.request(m, p), "_acpmux/sessions", json!({}))
         .map_err(|e| format!("sessions: {e}"))?;
-    Ok(result
-        .get("sessions")
-        .and_then(Value::as_array)
+    Ok(session_rows(&result).unwrap_or_default())
+}
+
+/// The whole session list `method` (`_acpmux/sessions` or `_acpmux/watch`)
+/// answers for `params`, each request asked by `ask`. With no `limit`, a list
+/// too large for one acpmux message comes in pages, each with the `nextCursor`
+/// of the rest, read by `_acpmux/sessions` with the same params (less the
+/// watch's `enabled`) from that cursor; the answer is one `sessions` of every
+/// page. A list that fits is one answer with no cursor, as from an acpmux that
+/// never pages. A cursor that comes again is refused, never read in a loop.
+/// With a `limit`, the one page asked for (acpmux `Client::whole_list`).
+pub(crate) fn whole_list<E: std::fmt::Display>(
+    ask: impl Fn(&str, Value) -> Result<Value, E>,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let ask = |m: &str, p: Value| ask(m, p).map_err(|e| e.to_string());
+    if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+        return ask(method, params);
+    }
+    let mut reply = ask(method, params.clone())?;
+    let mut rest = params;
+    if let Some(p) = rest.as_object_mut() {
+        p.remove("enabled");
+    }
+    let mut read = HashSet::new();
+    while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+        let Value::String(cursor) = cursor else { break };
+        if !read.insert(cursor.clone()) {
+            return Err(format!(
+                "the session list answered cursor {cursor:?} again; it would never end"
+            ));
+        }
+        rest["cursor"] = Value::String(cursor);
+        let mut page = ask("_acpmux/sessions", rest.clone())?;
+        let rows = page
+            .get_mut("sessions")
+            .map(Value::take)
+            .unwrap_or_default();
+        if let (Some(all), Value::Array(rows)) = (
+            reply.get_mut("sessions").and_then(Value::as_array_mut),
+            rows,
+        ) {
+            all.extend(rows);
+        }
+        if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+            reply["nextCursor"] = next;
+        }
+    }
+    Ok(reply)
+}
+
+/// A list answer's rows (`_acpmux/sessions`, `_acpmux/watch`), those that do
+/// not parse skipped; None when it has no `sessions` (an acpmux whose watch
+/// answers without the list).
+pub(crate) fn session_rows(result: &Value) -> Option<Vec<SessionSummary>> {
+    Some(
+        result
+            .get("sessions")?
+            .as_array()?
+            .iter()
+            .filter_map(|s| SessionSummary::deserialize(s).ok())
+            .collect(),
+    )
+}
+
+/// acpmux's code for "no such session" (`RpcError::not_found`).
+const NOT_FOUND: i64 = -32002;
+/// acpmux's code for bad params (`RpcError::invalid_params`), a key that names
+/// several sessions among them.
+const INVALID_PARAMS: i64 = -32602;
+
+/// What `_acpmux/info` resolves a key to.
+enum Resolved {
+    One(Box<SessionSummary>),
+    None,
+    /// A name several sessions share, or a prefix of several (acpmux's
+    /// `Hub::resolve_here`: "... matches N sessions; use the id").
+    Several,
+}
+
+/// Why `_acpmux/info` gave no answer.
+enum InfoError {
+    /// acpmux answered with an error (a peer whose link is down, an acpmux
+    /// without info): the session list may still hold the row.
+    Refused(String),
+    /// No answer at all (closed, timed out): asking again does not help.
+    Unanswered(String),
+}
+
+/// `_acpmux/info` for `key` (an id, a name, a unique prefix of either).
+/// `waitLogs: false`: only the summary is read, so a daemon still loading chat
+/// logs answers at once.
+fn info(client: &RpcClient, key: &str) -> Result<Resolved, InfoError> {
+    match client.request("_acpmux/info", json!({"sessionId": key, "waitLogs": false})) {
+        Ok(detail) => SessionSummary::deserialize(&detail)
+            .map(|s| Resolved::One(Box::new(s)))
+            .map_err(|e| InfoError::Refused(format!("info: unreadable answer for {key:?}: {e}"))),
+        Err(RpcError::Remote {
+            code: Some(NOT_FOUND),
+            ..
+        }) => Ok(Resolved::None),
+        Err(RpcError::Remote {
+            code: Some(INVALID_PARAMS),
+            message,
+        }) if message.contains(" sessions; use the id") => Ok(Resolved::Several),
+        Err(e @ RpcError::Remote { .. }) => Err(InfoError::Refused(format!("info: {e}"))),
+        Err(e) => Err(InfoError::Unanswered(format!("info: {e}"))),
+    }
+}
+
+/// The session list, after `_acpmux/info` refused with `error`; an unanswered
+/// info is the error itself.
+fn listed(client: &RpcClient, error: InfoError) -> Result<Vec<SessionSummary>, String> {
+    match error {
+        InfoError::Refused(e) => sessions(client).map_err(|list| format!("{e}; {list}")),
+        InfoError::Unanswered(e) => Err(e),
+    }
+}
+
+/// One session's summary by id, from `_acpmux/info` (None: no such session).
+///
+/// Not from the session list: acpmux paces full lists per connection and for
+/// all clients together, and refuses one that would wait over 30 s ("session
+/// lists are paced"). The Chief asks this before every turn, subagent prompt
+/// and compactor session (`harness_gate::session_harness`), all on its one
+/// connection, so the lists it spent refused those, and the memory compactor
+/// stopped building summaries. The list is read only when acpmux refuses info.
+pub fn session_info(client: &RpcClient, id: &str) -> Result<Option<SessionSummary>, String> {
+    match info(client, id) {
+        // A name or an id prefix resolves too; only this exact session counts.
+        Ok(Resolved::One(s)) => Ok((s.session_id == id).then_some(*s)),
+        // A prefix of several: no session has this id.
+        Ok(Resolved::None | Resolved::Several) => Ok(None),
+        Err(e) => Ok(listed(client, e)?.into_iter().find(|s| s.session_id == id)),
+    }
+}
+
+/// Whether session `id` is this daemon's own, not a peer's that acpmux
+/// forwarded to: a qualified `local/` id resolves only here.
+fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
+    Ok(matches!(info(client, &format!("local/{id}"))?, Resolved::One(s) if s.session_id == id))
+}
+
+/// The id of the session named `name`, from `_acpmux/info` (unpaced, as
+/// [`session_info`]), as the session list names them: a bare name is this
+/// daemon's own session, a peer's is `peer/name`. The paced list only when
+/// acpmux names several (several share the name, or none has it and it is a
+/// prefix of several) or refuses info.
+pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
+    let error = match info(client, name) {
+        // acpmux resolves an exact id, then a name only one session has, then a
+        // unique prefix, here and then on its peers: a session of another name
+        // means none has it.
+        Ok(Resolved::One(s)) if s.name == name => match is_local(client, &s.session_id) {
+            // A peer's session of the same bare name is listed as `peer/name`.
+            Ok(local) => return Ok(local.then_some(s.session_id)),
+            Err(e) => e,
+        },
+        // A peer's session asked as `peer/name`: its peer answers with `name`.
+        Ok(Resolved::One(s)) => {
+            let qualified = name
+                .strip_suffix(s.name.as_str())
+                .is_some_and(|peer| peer.len() > 1 && peer.ends_with('/'));
+            return Ok(qualified.then_some(s.session_id));
+        }
+        Ok(Resolved::None) => return Ok(None),
+        Ok(Resolved::Several) => InfoError::Refused(format!("info: {name:?} names several")),
+        Err(e) => e,
+    };
+    Ok(listed(client, error)?
         .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect())
+        .find(|s| s.name == name)
+        .map(|s| s.session_id))
 }
 
 /// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
@@ -853,6 +1103,12 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     meta
 }
 
+/// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
+/// unless its config sets another), twice, since acpmux tries a start that failed at background
+/// CPU class once more, so acpmux's error arrives. That error says what the agent process was
+/// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -861,9 +1117,10 @@ pub fn new_session(
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
-        client.request(
+        client.request_within(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            SESSION_NEW_DEADLINE,
         )
     };
     let result = match request(&meta) {
@@ -995,16 +1252,11 @@ impl AgentPort for Acpmux {
     }
 
     fn find(&self, name: &str) -> Result<Option<String>, String> {
-        Ok(sessions(&*self.client()?)?
-            .into_iter()
-            .find(|s| s.name == name)
-            .map(|s| s.session_id))
+        find_named(&*self.client()?, name)
     }
 
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
-        Ok(sessions(&*self.client()?)?
-            .into_iter()
-            .find(|s| s.session_id == id))
+        session_info(&*self.client()?, id)
     }
 
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -1064,8 +1316,10 @@ impl AgentPort for Acpmux {
     }
 
     fn probe_models(&self, harness: &str) -> Result<(), String> {
+        let mut params = models_params(harness);
+        params["probe"] = json!([harness]);
         self.client()?
-            .request("_acpmux/models", json!({"probe": [harness]}))
+            .request("_acpmux/models", params)
             .map(|_| ())
             .map_err(|e| format!("models probe: {e}"))
     }
@@ -1073,7 +1327,7 @@ impl AgentPort for Acpmux {
     fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
         let catalog = self
             .client()?
-            .request("_acpmux/models", json!({}))
+            .request("_acpmux/models", models_params(harness))
             .map_err(|e| format!("models: {e}"))?;
         Ok(catalog["harnesses"]
             .as_array()
@@ -1138,19 +1392,16 @@ impl AgentPort for Acpmux {
         blocks: Vec<Value>,
         prompt_id: &str,
     ) -> Result<SteerWait, String> {
-        // Written now, on the caller's thread: steers keep their order.
-        let answer = self.client()?.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
-        );
-        // No timeout: acpmux answers when the harness took the message,
-        // however long the running tool (or the codex turn) takes.
-        Ok(Box::new(move || match answer.recv() {
-            // Claude Code: `steered` at its echo; codex-acp: its own answer.
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(format!("steer: {e}")),
-            Err(_) => Err("steer: the acpmux connection closed".into()),
-        }))
+        self.send_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.send_steer(session, blocks, prompt_id, true)
     }
 
     fn prewarm(
@@ -1259,6 +1510,20 @@ impl AgentPort for Acpmux {
     }
 }
 
+/// The `_acpmux/models` params for `harness`: this acpmux's own harnesses
+/// (`localOnly`) unless `harness` is a peer's (`peer/harness`). Without
+/// `localOnly` acpmux also asks every peer and waits up to 10 s for a slow
+/// one, with the brain's input loop held (cosmic-gray 2026-10-21: `cmux
+/// chief engine` gave up after the daemon's 10 s with "Resource temporarily
+/// unavailable"). An older acpmux ignores the field and asks its peers.
+fn models_params(harness: &str) -> Value {
+    if harness.contains('/') {
+        json!({})
+    } else {
+        json!({"localOnly": true})
+    }
+}
+
 /// The catalog fields of an `_acpmux/models` entry the Chief's model picker
 /// reads (Home's Chief card: family sections, alias dedupe, per-model efforts,
 /// the fast tier, context variants).
@@ -1275,3 +1540,32 @@ const PICKER_FIELDS: &[&str] = &[
     "releaseDate",
     "description",
 ];
+
+#[cfg(test)]
+mod whole_list_tests {
+    use std::cell::RefCell;
+
+    use serde_json::{Value, json};
+
+    use super::whole_list;
+
+    /// With a `limit` the caller pages itself: one request, its cursor kept.
+    #[test]
+    fn a_list_with_a_limit_is_one_request() {
+        let asked = RefCell::new(Vec::new());
+        let reply = whole_list(
+            |m: &str, p: Value| {
+                asked.borrow_mut().push((m.to_owned(), p));
+                Ok::<_, String>(json!({"sessions": [{"sessionId": "s-1"}], "nextCursor": "c1"}))
+            },
+            "_acpmux/sessions",
+            json!({"limit": 1}),
+        )
+        .unwrap();
+        assert_eq!(reply["nextCursor"], "c1");
+        assert_eq!(
+            asked.into_inner(),
+            [("_acpmux/sessions".to_owned(), json!({"limit": 1}))]
+        );
+    }
+}

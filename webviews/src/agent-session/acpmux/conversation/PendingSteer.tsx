@@ -1,15 +1,10 @@
-import { useContext, useState } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
-
-/// Under a steer the agent has not read yet: Send now stops the current step so the agent reads the
-/// message at once. The turn goes on; only Stop ends it (Leo, 2026-10-20). An agent that cannot
-/// stop one step reads it when the step ends, as before. `send` is `_acpmux/queue_edit` `send_now`
-/// with the steer's own promptId; it answers false once the steer was read. The control sits in the
-/// prompt's action row, before its receipt, age and message buttons (Leo, 2026-10-24).
 import { Close } from "./icons";
-import { TurnActionsContext } from "./turnActions";
+import { MessageCopy, MessageFooterRow, ROW_ICON } from "./MessageActions";
+import { TurnActionsContext, type TakeBack } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current
 /// step ends), Send now, which stops that step so the agent reads the message at once, and an X
@@ -19,80 +14,123 @@ import { TurnActionsContext } from "./turnActions";
 /// 2026-10-20). An agent that cannot stop one step reads it when the step ends, as before. `send`
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
-/// `beside` draws it at the bubble's left edge, on the bubble's first line and out of the layout
-/// (UserBubble.tsx), as Claude draws a queued prompt's controls: no line of its own under the
-/// bubble (Leo, 2026-10-21).
+/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it;
+/// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
+/// "i feel like im frequently missing the copy/whatever buttons on these steers").
+/// A refusal keeps the controls available. Accepted delivery removes them in the same render.
+/// An X acpmux refuses never does nothing: the row says "Read after this step", so it says why the
+/// message stays (Leo, 2026-10-29: "this fucking edit message thing. It doesn't even fucking work").
+/// The X stays beside it, as does one that failed on the way (an RPC error, attachments not read):
+/// acpmux also refuses for a moment right after the steer is sent, before it has registered it
+/// (it prepares the steer's large images first), and a later click takes the steer back then.
 export function PendingSteer({
   row,
   send,
+  children,
 }: {
   row: AcpmuxRow;
   send: (promptId: string, edit: QueueEdit) => Promise<boolean>;
+  children?: ReactNode;
 }) {
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const [sending, setSending] = useState(false);
-  if (row.steer !== "waiting") return null;
+  const waiting = row.steer === "waiting";
+  const [sentNow, setSentNow] = useState(false);
+  const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
+  // The transcript virtualizes rows: a remount must not offer an accepted send again.
+  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
+  if (!promptId) return null;
+  const busy = sending;
   return (
     <div className="cv-user__pending">
-      {promptId && (
-        <button
-          type="button"
-          className="cv-user__send-now"
-          // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
-          title={t("steer.sendNowHelp")}
-          disabled={sending}
-          onClick={() => {
-            setSending(true);
-            void send(promptId, { op: "send_now" })
-              .catch(() => false)
-              .finally(() => setSending(false));
-          }}
-        >
-          {t("steer.sendNow")}
-        </button>
-      )}
-      {promptId && unsteer && (
-        <button
-          type="button"
-          className="cv-user__take-back"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          disabled={sending}
-          onClick={() => {
-            setSending(true);
-            void unsteer(row)
-              .catch(() => false)
-              .finally(() => setSending(false));
-          }}
-        >
-          <Close size={13} />
-        </button>
-      )}
+      <MessageFooterRow>
+        {promptId && (
+          <button
+            type="button"
+            className="cv-user__send-now"
+            // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
+            title={t("steer.sendNowHelp")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void send(promptId, { op: "send_now" })
+                .catch(() => false)
+                .then((sent) => {
+                  if (!sent) return;
+                  sentNowIds.add(promptId);
+                  setSentNow(true);
+                })
+                .finally(() => setSending(false));
+            }}
+          >
+            {t("steer.sendNow")}
+          </button>
+        )}
+        {promptId && unsteer && (
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            title={t("composer.queueEditMessage")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void unsteer(row)
+                .catch((): TakeBack => "failed")
+                .then((result) => setKept(result === "refused"))
+                .finally(() => setSending(false));
+            }}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        )}
+        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {row.text?.trim() && <MessageCopy text={row.text} />}
+      </MessageFooterRow>
     </div>
   );
 }
 
+/// The steers whose Send now worked, by promptId, so a row drawn again while acpmux still says the
+/// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
+const sentNowIds = new Set<string>();
+
+/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
+/// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
+/// named (Leo's claude-sr2); `steering` alone does not, as other ACP agents steer too.
+export function takesSteersBack(summary: { backgroundsWork?: boolean } | undefined, connected: boolean): boolean {
+  return connected && summary?.backgroundsWork === true;
+}
+
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its
-/// text and attachments go back into the composer to edit. Its attachments are read first (the
-/// row goes with acpmux's `steer_withdrawn` record), and one that cannot be read keeps the steer:
-/// the composer never gets the text without its images. False, with nothing restored, when the
-/// steer stays (read already, or its attachments unreadable).
+/// text and attachments go back into the composer to edit (`back`). Its attachments are read first
+/// (the row goes with acpmux's `steer_withdrawn` record), and one that cannot be read keeps the
+/// steer: the composer never gets the text without its images (`failed`, as is a withdraw that
+/// never got its answer). `refused` when acpmux answered that the steer stays, or it was read.
 export async function takeBackSteer(
   row: AcpmuxRow,
   io: {
     withdraw: (promptId: string) => Promise<boolean>;
     attachments: (rowId: string) => Promise<ComposerAttachment[]>;
+    draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
-): Promise<boolean> {
+): Promise<TakeBack> {
   const promptId = row.steerPromptId;
-  if (!promptId || row.steer !== "waiting") return false;
-  const attachments = await io.attachments(row.id).catch(() => undefined);
+  if (!promptId || row.steer !== "waiting") return "refused";
+  const text = row.resend ?? row.text ?? "";
+  const draft = await (
+    io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
+  ).catch(() => undefined);
+  const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
   const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
-  if (!attachments || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
-  io.restore(row.resend ?? row.text ?? "", attachments);
-  return true;
+  if (!draft || images < (row.images?.length ?? 0)) return "failed";
+  const withdrawn = await io.withdraw(promptId).catch(() => undefined);
+  if (withdrawn === undefined) return "failed";
+  if (!withdrawn) return "refused";
+  io.restore(draft.input, draft.attachments);
+  return "back";
 }

@@ -60,17 +60,26 @@ public final class PushReplies {
     @ObservationIgnored private weak var live: LiveCoordinator?
     /// Foreground replies waiting for the app to be active, unlocked and live.
     private(set) var waiting: [PushReply] = []
-    /// Background deliveries in flight on the headless coordinator (one at a
-    /// time, review #8): it stops when the last one ends.
-    private(set) var headlessRunning = false
-    @ObservationIgnored private var headlessCount = 0
-    @ObservationIgnored private var headlessCoordinator: LiveCoordinator?
+    /// The headless coordinator stays alive until the last background delivery ends.
+    var headlessRunning: Bool { headlessSession.running }
+    @ObservationIgnored private let headlessSession = HeadlessPushSession<LiveCoordinator>()
     @ObservationIgnored private var draining = false
+    /// A reply or App Group read belongs to the account generation in which it began.
+    @ObservationIgnored private var accountEpoch = 0
+    @ObservationIgnored private var foregroundTask: Task<Void, Never>?
+    /// Sign-out's disk wipe must finish before the next account reads that outbox.
+    @ObservationIgnored private var outboxWipe: Task<Void, Never>?
     /// The first drain after a cold attach waits as long as a cold launch does (review #7).
     @ObservationIgnored private var coldAttach = true
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
     /// Settings → Require Face ID: Reply and Deny open the app (review L2).
-    @ObservationIgnored private(set) var requireFaceID = PushActions(defaults: PushReplies.preferences).requireFaceID
+    /// Read from the app's own defaults: launch never waits on the App Group
+    /// (its container lookup blocked the main thread past the launch watchdog
+    /// in a build signed without it, TestFlight 1.2.0 (20261026194905)).
+    @ObservationIgnored private var faceIDSync = PushFaceIDSync(local: PushActions(defaults: .standard).requireFaceID)
+    var requireFaceID: Bool { faceIDSync.local }
+    /// The last write of the choice for the content extension (serial, off main).
+    @ObservationIgnored private var sharedPreferenceWrite: Task<Void, Never>?
     /// Retries of "Couldn't reach" in the app's own storage (review H1).
     @ObservationIgnored let retries = PushRetryStore.app
 
@@ -85,9 +94,6 @@ public final class PushReplies {
         }
     }
 
-    /// Where the Require Face ID choice is shared with the content extension.
-    static var preferences: UserDefaults? { PushActions.sharedDefaults(.current()) ?? .standard }
-
     /// Registers every category (at launch, before any notification can arrive).
     public func registerCategories(center: UNUserNotificationCenter = .current()) {
         center.setNotificationCategories(PushActions(requireFaceID: requireFaceID).categories)
@@ -95,9 +101,19 @@ public final class PushReplies {
 
     /// Settings → Require Face ID changed (AppLock): the buttons follow it.
     func setRequireFaceID(_ on: Bool) {
-        PushActions.setRequireFaceID(on, defaults: Self.preferences)
-        guard on != requireFaceID else { return }
-        requireFaceID = on
+        // AppLock calls this on appear and on every change: an unchanged value writes nothing.
+        let writes = faceIDSync.set(on)
+        if writes.local { PushActions.setRequireFaceID(on, defaults: .standard) }
+        if writes.shared {
+            // The content extension reads it from the push keychain group (and the
+            // App Group, when the build has one), written off the main thread in order.
+            let previous = sharedPreferenceWrite
+            sharedPreferenceWrite = Task.detached(priority: .utility) {
+                await previous?.value
+                PushSharedPreference.live(group: await PushAppGroup.resolved()).setRequireFaceID(on)
+            }
+        }
+        guard writes.local else { return }
         // Only an app has a notification center (a test host has none, and asking it throws).
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         registerCategories()
@@ -108,6 +124,33 @@ public final class PushReplies {
     func attach(live: LiveCoordinator) {
         self.live = live
         drainOutbox()
+    }
+
+    /// Sign-out drops foreground replies and pending routes owned by this
+    /// account. A queued App Group read or send from an older generation
+    /// cannot populate or deliver into the next signed-in account.
+    func signedOut() {
+        accountEpoch &+= 1
+        foregroundTask?.cancel()
+        foregroundTask = nil
+        waiting.removeAll()
+        live = nil
+        draining = false
+        coldAttach = true
+        NotificationRouter.shared.opened()
+    }
+
+    /// Outbox cleanup is disk I/O, following the snapshot write barrier.
+    /// Serialize it with any prior account's wipe. The next account's outbox
+    /// read waits for this task before it opens the shared directory.
+    func clearOutboxForSignOut(after snapshotsCleared: Task<Void, Never>) {
+        let previous = outboxWipe
+        outboxWipe = Task.detached(priority: .utility) {
+            await previous?.value
+            await snapshotsCleared.value
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushOutbox(group: group)?.removeAll()
+        }
     }
 
     /// Waits for a headless delivery to end (RootView calls it before it
@@ -129,6 +172,8 @@ public final class PushReplies {
         /// False: the push may open the app but no button acts (an unsealed push
         /// from a Mac that seals, or a stale one; PR B security review H1).
         public var actionable: Bool
+        /// Photos and files the long look's "+" staged for Reply (outbox file names).
+        public var attachments: [String] = []
 
         public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
@@ -178,10 +223,16 @@ public final class PushReplies {
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
         let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
-        guard let reply = PushReply(payload: payload, button: button, text: response.text) else {
+        guard let reply = PushReply(payload: payload, button: button, text: response.text, attachments: response.attachments) else {
             return opensApp ? .open(payload) : .nothing
         }
         return opensApp ? .foreground(reply, open: payload) : .background(reply)
+    }
+
+    /// What the long look staged for the notification `requestID`'s Reply (off the main thread).
+    static func stagedAttachments(for requestID: String) async -> [String] {
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
+        return await Task.detached(priority: .userInitiated) { outbox.takeStaged(for: requestID) }.value
     }
 
     /// One notification response (the app delegate). Returns once a
@@ -197,27 +248,52 @@ public final class PushReplies {
             if let payload { NotificationRouter.shared.open(payload) } else { NotificationRouter.shared.open(reply: reply) }
             enqueueForeground(reply)
         case .background(let reply):
+            if case .text(_, let names) = reply.action {
+                log.info("push reply: \(reply.kind.rawValue, privacy: .public) text reply with \(names.count, privacy: .public) attachment(s)")
+            }
             await deliverInBackground(reply)
         }
     }
 
     /// The content extension's outbox and anything waiting: on launch and on
     /// every return to the foreground.
+    /// The App Group and its files are read off the main thread.
     public func drainOutbox() {
-        if let outbox = PushOutbox(group: .current()) {
-            for reply in outbox.takeAll() {
-                NotificationRouter.shared.open(reply: reply)
-                // Text into a terminal never comes from the outbox: anything in
-                // it may have been written while the phone was locked (PR B
-                // security review H2). Only the unlock-gated Reply button sends it.
-                if Self.fromOutboxRefused(reply) {
-                    log.error("push reply: a terminal reply in the outbox was dropped")
-                    continue
-                }
-                waiting.append(reply)
-            }
-        }
         drain()
+        Task { await takeOutbox() }
+    }
+
+    private func takeOutbox() async {
+        // A cold background reply uses its own headless coordinator; the
+        // foreground outbox only belongs to an authenticated, attached shell.
+        // This also avoids reading an old account's disk replies at Welcome.
+        guard live != nil, auth?.isSignedIn == true else { return }
+        let epoch = accountEpoch
+        await outboxWipe?.value
+        guard epoch == accountEpoch, live != nil, auth?.isSignedIn == true else { return }
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return }
+        guard epoch == accountEpoch, live != nil, auth?.isSignedIn == true else { return }
+        // `take` claims each file by renaming it, so two drains never both take one reply.
+        let replies = await Task.detached(priority: .userInitiated) { outbox.takeAll() }.value
+        acceptOutbox(replies, epoch: epoch)
+    }
+
+    /// An App Group read may finish after sign-out; its replies belong to the
+    /// previous account even if the next account has already attached.
+    func acceptOutbox(_ replies: [PushReply], epoch: Int) {
+        guard epoch == accountEpoch else { return }
+        for reply in replies {
+            NotificationRouter.shared.open(reply: reply)
+            // Text into a terminal never comes from the outbox: anything in
+            // it may have been written while the phone was locked (PR B
+            // security review H2). Only the unlock-gated Reply button sends it.
+            if Self.fromOutboxRefused(reply) {
+                log.error("push reply: a terminal reply in the outbox was dropped")
+                continue
+            }
+            waiting.append(reply)
+        }
+        if !replies.isEmpty { drain() }
     }
 
     /// Outbox replies the app never sends: text into a terminal.
@@ -240,10 +316,14 @@ public final class PushReplies {
         waiting = []
         let budget = coldAttach ? Self.coldBudget : LiveCoordinator.pushReplyBudget
         coldAttach = false
-        Task {
+        let epoch = accountEpoch
+        foregroundTask = Task {
             for reply in batch {
-                await self.send(reply, on: live, budget: budget)
+                guard !Task.isCancelled, epoch == self.accountEpoch else { return }
+                await self.send(reply, on: live, budget: budget, epoch: epoch)
             }
+            guard epoch == self.accountEpoch else { return }
+            self.foregroundTask = nil
             self.draining = false
             self.drain()
         }
@@ -253,27 +333,20 @@ public final class PushReplies {
     public func appStateChanged() { drain() }
 
     private func deliverInBackground(_ reply: PushReply) async {
+        let epoch = accountEpoch
         if let live {
-            await send(reply, on: live, budget: LiveCoordinator.pushReplyBudget)
+            await send(reply, on: live, budget: LiveCoordinator.pushReplyBudget, epoch: epoch)
             return
         }
         // One headless coordinator for every reply of a cold launch (the hub keeps one socket per device).
-        headlessCount += 1
-        headlessRunning = true
-        defer {
-            headlessCount -= 1
-            if headlessCount == 0 {
-                headlessCoordinator?.stop()
-                headlessCoordinator = nil
-                headlessRunning = false
+        await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
+            guard epoch == self.accountEpoch else { return }
+            guard let coordinator else {
+                await self.postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
+                return
             }
+            await self.send(reply, on: coordinator, budget: Self.coldBudget, epoch: epoch)
         }
-        if headlessCoordinator == nil { headlessCoordinator = await headless() }
-        guard let coordinator = headlessCoordinator else {
-            await postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
-            return
-        }
-        await send(reply, on: coordinator, budget: Self.coldBudget)
     }
 
     /// A coordinator for a cold background launch: the account restored from
@@ -289,17 +362,23 @@ public final class PushReplies {
         return coordinator
     }
 
-    private func send(_ reply: PushReply, on live: LiveCoordinator, budget: Duration) async {
+    private func send(_ reply: PushReply, on live: LiveCoordinator, budget: Duration, epoch: Int) async {
+        guard epoch == accountEpoch else { return }
         do {
             try await live.deliver(reply, budget: budget)
+            guard epoch == accountEpoch else { return }
             if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
             // Its photos leave the App Group once sent (review L4).
-            if case .text(_, let names) = reply.action, !names.isEmpty { PushOutbox(group: .current())?.removeAttachments(names) }
+            if case .text(_, let names) = reply.action, !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)) {
+                await Task.detached(priority: .utility) { outbox.removeAttachments(names) }.value
+            }
         } catch let failure as LiveCoordinator.PushReplyFailure {
+            guard epoch == accountEpoch else { return }
             switch failure.reason {
             case .unreachable:
                 // The link missed its budget: the service's mailbox, sealed to the Mac (PR B).
-                if await sendViaMailbox(reply, on: live) { return }
+                if await sendViaMailbox(reply, on: live, epoch: epoch) { return }
+                guard epoch == accountEpoch else { return }
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
@@ -307,6 +386,7 @@ public final class PushReplies {
                 break
             }
         } catch {
+            guard epoch == accountEpoch else { return }
             await postCouldNotReach(reply, reason: nil)
         }
     }
@@ -319,11 +399,14 @@ public final class PushReplies {
     /// Sends `reply` through the mailbox; true when the service took it.
     /// A Mac that was online is asked once, a moment later, whether it
     /// applied it; a refusal is posted with its reason.
-    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator) async -> Bool {
+    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator, epoch: Int) async -> Bool {
+        guard epoch == accountEpoch else { return true }
         let outcome: LiveCoordinator.MailboxOutcome
         do {
             outcome = try await live.deliverViaMailbox(reply)
+            guard epoch == accountEpoch else { return true }
         } catch let failure as LiveCoordinator.PushReplyFailure {
+            guard epoch == accountEpoch else { return true }
             switch failure.reason {
             case .unreachable: return false
             case .cancelled: return true
@@ -334,12 +417,15 @@ public final class PushReplies {
         } catch {
             return false
         }
+        guard epoch == accountEpoch else { return true }
         if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
         let mac = reply.macName ?? String(localized: "your Mac")
         var last: LiveAPI.MailboxState?
         for delay in Self.mailboxCheckDelays {
             try? await clock.sleep(for: delay)
+            guard epoch == accountEpoch else { return true }
             guard let state = await live.mailboxState(of: reply) else { continue }
+            guard epoch == accountEpoch else { return true }
             last = state
             switch Self.mailboxVerdict(state, signed: live.signedMailboxOutcome(reply, state: state)) {
             case .applied:
@@ -355,6 +441,7 @@ public final class PushReplies {
             }
         }
         // The Mac has not said: the service holds it, but nobody confirmed it (review M3).
+        guard epoch == accountEpoch else { return true }
         if outcome == .queued || last?.state == "queued" || last != nil {
             await postNotice(reply, title: String(localized: "Not confirmed by \(mac)"),
                              body: String(localized: "Your reply is waiting for \(mac) to come online. It expires in 10 minutes."))
