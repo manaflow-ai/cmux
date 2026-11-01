@@ -1,4 +1,4 @@
-import type { FindMatch } from "./model";
+import { foldFindText, type FindMatch } from "./model";
 
 export const FIND_HIGHLIGHT_NAME = "cmux-find-match";
 export const FIND_ACTIVE_HIGHLIGHT_NAME = "cmux-find-active";
@@ -228,7 +228,7 @@ export function collectFindPaintRanges(
   const activeRow = findActiveRow(container, rows, snapshot);
   for (const row of rows) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLowerCase();
+    const haystack = foldFindText(rowText.text);
     let from = 0;
     let occurrence = 0;
     for (;;) {
