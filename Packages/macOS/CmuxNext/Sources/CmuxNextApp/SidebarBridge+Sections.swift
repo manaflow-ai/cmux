@@ -30,6 +30,7 @@ extension SidebarBridge {
         .customize: "appearance.customize",
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
+        .automations: "automations.show",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -79,7 +80,7 @@ extension SidebarBridge {
     func observeSections() {
         let model = model
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
-        if let doc = SidebarDocStore.current { rows.followFolds(of: doc) }
+        if let doc = SidebarDocStore.current { rows.edits.followFolds(of: doc) }
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
@@ -144,7 +145,7 @@ extension SidebarBridge {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
-                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? closedWorkspaceInfo(item); continue }
+                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .closedWorkspace(item); continue }
                 if item.ref.kind == LayoutItemRef.appKind {
                     var info = app(item.ref.value)
                     if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { Self.markHomeUnread(&info, homeUnread) }
@@ -172,17 +173,6 @@ extension SidebarBridge {
     static func markHomeUnread(_ info: inout SidebarItemInfo, _ homeUnread: Int) {
         info.badge = nil
         info.unreadDot = homeUnread > 0
-    }
-
-    /// A workspace item no open workspace answers: dimmed under its stored
-    /// name, or hidden when it has none. Without a name it would be an
-    /// anonymous workspace glyph whose click does nothing (a pin from an old
-    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
-    /// The layout keeps it, so it draws again when its workspace comes back.
-    static func closedWorkspaceInfo(_ item: LayoutItem) -> SidebarItemInfo {
-        var info = SidebarItemInfo.fallback(for: item)
-        if item.label == nil { info.isHidden = true }
-        return info
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to

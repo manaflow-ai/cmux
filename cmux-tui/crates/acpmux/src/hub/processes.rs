@@ -97,11 +97,36 @@ pub(super) struct ProcessTable {
     /// The last log record the table holds.
     through: u64,
     processes: Vec<Process>,
+    /// Stable slots in `processes`: entries never move, even when an update replaces one.
+    by_id: std::collections::HashMap<String, usize>,
+    /// First process with a tool-call ID (the historical Vec::position behavior).
+    by_tool: std::collections::HashMap<String, usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
 }
 
+#[cfg(test)]
+#[path = "processes_index_tests.rs"]
+mod process_index_tests;
+
 impl ProcessTable {
+    /// All appends go here, including records replayed from a logged process update.
+    fn insert(&mut self, process: Process) -> usize {
+        let at = self.processes.len();
+        self.by_id.insert(process.id.clone(), at);
+        self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        self.processes.push(process);
+        at
+    }
+
+    fn find_tool(&self, tool: &str) -> Option<usize> {
+        self.by_tool.get(tool).copied()
+    }
+
+    fn find_id(&self, id: &str) -> Option<&Process> {
+        self.by_id.get(id).and_then(|&at| self.processes.get(at))
+    }
+
     /// Folds in the params of one `background_task_update` record, and the
     /// output file the update named (`take_output_file`); returns the
     /// process when it changed. A process ends once: a later end or
@@ -126,7 +151,7 @@ impl ProcessTable {
             _ if with_harness => ProcessState::Lost,
             _ => ProcessState::Killed,
         };
-        let found = self.processes.iter().position(|p| p.tool_call_id == tool);
+        let found = self.find_tool(tool);
         let i = match found {
             Some(i) => i,
             None => {
@@ -134,7 +159,7 @@ impl ProcessTable {
                     self.unused_id(format!("{}/{}", session.id, text("taskId").unwrap_or(tool)));
                 let meta = session.meta();
                 let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
-                self.processes.push(Process {
+                let process = Process {
                     id,
                     session_id: session.id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
@@ -154,8 +179,8 @@ impl ProcessTable {
                     output_bytes: None,
                     output_file: None,
                     logged: false,
-                });
-                self.processes.len() - 1
+                };
+                self.insert(process)
             }
         };
         // The output file may be named late (Claude's notification): it is
@@ -195,7 +220,7 @@ impl ProcessTable {
     /// `id`, or `id-2`, `id-3`, ... when a process already has it (a task id
     /// a later harness used again).
     fn unused_id(&self, id: String) -> String {
-        let taken = |id: &str| self.processes.iter().any(|p| p.id == id);
+        let taken = |id: &str| self.by_id.contains_key(id);
         if !taken(&id) {
             return id;
         }
@@ -209,12 +234,36 @@ impl ProcessTable {
         }
     }
 
-    /// A logged `process_update`: the record as it was decided wins.
+    /// A logged `process_update`: the record as it was decided wins. A rare
+    /// replacement with a changed tool ID keeps the *first* matching row in the index.
     fn upsert(&mut self, mut process: Process) {
         process.logged = true;
-        match self.processes.iter_mut().find(|p| p.id == process.id) {
-            Some(p) => *p = process,
-            None => self.processes.push(process),
+        if let Some(at) = self.by_id.get(&process.id).copied()
+            && let Some(slot) = self.processes.get_mut(at)
+        {
+            let new_tool = process.tool_call_id.clone();
+            let old_tool = std::mem::replace(slot, process).tool_call_id;
+            if old_tool == new_tool {
+                return;
+            }
+            if self.by_tool.get(&old_tool) == Some(&at) {
+                // A logged row can correct its tool-call ID. Repoint the old key to
+                // its next occurrence, if any; this exceptional correction may scan.
+                match self.processes.iter().position(|p| p.tool_call_id == old_tool) {
+                    Some(next) => {
+                        self.by_tool.insert(old_tool, next);
+                    }
+                    None => {
+                        self.by_tool.remove(&old_tool);
+                    }
+                }
+            }
+            self.by_tool
+                .entry(new_tool)
+                .and_modify(|first| *first = (*first).min(at))
+                .or_insert(at);
+        } else {
+            self.insert(process);
         }
     }
 
@@ -225,15 +274,10 @@ impl ProcessTable {
         p.clone()
     }
 
-    /// The processes as the wire carries them, each with its output's
-    /// length now.
-    fn values(&self) -> Vec<Value> {
-        let listed = |p: &Process| {
-            let mut p = p.clone();
-            p.output_bytes = p.output_file.as_deref().map(output_len);
-            serde_json::to_value(p).ok()
-        };
-        self.processes.iter().filter_map(listed).collect()
+    /// Snapshot the rows while the process table is locked. Output-file metadata may hit
+    /// a slow filesystem, so it is read only after the caller releases that lock.
+    fn snapshot(&self) -> Vec<Process> {
+        self.processes.clone()
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -250,6 +294,18 @@ impl ProcessTable {
         }
         lost
     }
+}
+
+/// Serialize a process-list snapshot after releasing the session's process-table mutex.
+/// Keep outputBytes live, even for completed tasks whose output file changes after exit.
+fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<Value> {
+    processes
+        .into_iter()
+        .filter_map(|mut process| {
+            process.output_bytes = process.output_file.as_deref().map(&length);
+            serde_json::to_value(process).ok()
+        })
+        .collect()
 }
 
 /// Takes the output file a shell's session update names
@@ -386,7 +442,7 @@ impl Hub {
                 // change is logged here, once. The log has no output file,
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
-                let i = table.processes.iter().position(|p| Some(p.tool_call_id.as_str()) == tool);
+                let i = tool.and_then(|tool| table.find_tool(tool));
                 let p = i.map(|i| &mut table.processes[i]);
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
@@ -429,18 +485,21 @@ impl Hub {
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
     pub fn list_processes(&self, session: Option<&Session>) -> Value {
-        let processes = match session {
-            Some(session) => self.process_table(session).values(),
+        // Taking the snapshot is the only operation that needs the process-table lock.
+        // File metadata reads and JSON conversion must not hold it: process updates
+        // from a running harness need to acquire the same mutex.
+        let processes: Vec<Process> = match session {
+            Some(session) => self.process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
                 .flat_map(|s| {
                     let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
-                    if table.loaded { table.values() } else { Vec::new() }
+                    if table.loaded { table.snapshot() } else { Vec::new() }
                 })
                 .collect(),
         };
-        json!({"processes": processes})
+        json!({"processes": process_values(processes, output_len)})
     }
 
     /// The session of the process `id` (`<sessionId>/<taskId>`).
@@ -467,8 +526,7 @@ impl Hub {
         let session = self.process_session(id)?;
         let (file, running) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id);
-            let p = p.ok_or_else(|| unknown_process(id))?;
+            let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
             }
@@ -511,7 +569,7 @@ impl Hub {
         }
         let (task, running, subagent) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
+            let p = table.find_id(id).ok_or_else(unknown)?;
             (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
         if !running {
@@ -618,4 +676,39 @@ pub(super) fn backgrounds_work(kind: crate::config::HarnessKind) -> bool {
 /// No process has the id.
 fn unknown_process(id: &str) -> RpcError {
     RpcError::not_found(format!("no background process {id:?}"))
+}
+
+#[cfg(test)]
+mod process_list_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
+        let process: Process = serde_json::from_value(json!({
+            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
+            "taskId": "task", "harness": "claude", "command": "cargo test",
+            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
+            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
+        }))
+        .unwrap();
+        let table = std::sync::Mutex::new(ProcessTable {
+            loaded: true,
+            processes: vec![process],
+            ..ProcessTable::default()
+        });
+        // Every caller first takes its snapshot, then drops the guard before
+        // collecting live file sizes and serializing the reply.
+        let snapshot = table.lock().unwrap().snapshot();
+        let rows = process_values(snapshot, |path| {
+            assert_eq!(path, "/tmp/task-output");
+            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
+            42
+        });
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "chat/task");
+        assert_eq!(rows[0]["state"], "exited");
+        assert_eq!(rows[0]["outputBytes"], 42);
+        // The saved table remains unchanged: a later list re-reads the file size.
+        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
+    }
 }

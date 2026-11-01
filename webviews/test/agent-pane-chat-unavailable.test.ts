@@ -266,6 +266,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
         return {
           root: rect('[data-unavailable="connecting"]'),
           stage: rect(".acpmux-stage"),
+          header: rect(".acpmux-stage > .acpmux-header"),
           composer: rect(".acpmux-composer-box"),
         };
       });
@@ -280,11 +281,14 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       expect(layout.root.top).toBeGreaterThanOrEqual(layout.stage.top);
       expect(layout.root.bottom).toBeLessThanOrEqual(layout.stage.bottom);
       expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
-      // #27163's contract: the loading area stays centered in the space above the composer,
-      // even though the intentional loading state has no spinner or copy to paint.
+      // #27163's contract: the loading area stays centered in the transcript's space, under the
+      // header and above the composer card, even though the intentional loading state has no
+      // spinner or copy to paint. An existing chat loading draws no new chat's location strip
+      // (#29017), so nothing sits between that space and the card.
       const rootCenter = (layout.root.top + layout.root.bottom) / 2;
-      const availableCenter = (layout.stage.top + layout.composer.top) / 2;
+      const availableCenter = (layout.header.bottom + layout.composer.top) / 2;
       expect(Math.abs(rootCenter - availableCenter)).toBeLessThanOrEqual(2);
+      expect(await page.locator(".acpmux-composer-strip").count()).toBe(0);
     }
     await page.close();
   });

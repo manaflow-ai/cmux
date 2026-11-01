@@ -40,13 +40,22 @@ export const ROW_WIDTH = 36;
 /// The tick's line box; a tick draws `tickLength(progress)` of it from the left.
 export const TICK_BOX = 26;
 /// Pure pane-edge geometry. CSS spacing tokens are read by useRailPlacement, once per layout change.
+/// The inset is the widest spacing step whenever the pane's own gutter leaves the full rail room for
+/// it, so a pane that only grows or shrinks (the sidebar toggle) never moves the rail; it shrinks
+/// toward the narrowest step only once that gutter runs short (Leo, 2026-11-01: "the left side scroll
+/// rail needs to not really get affected by most other layout things it shouldn't really shift much
+/// at all"). It reads the pane's width, never the chat column's (`textInset`), so Session Info pushing
+/// the column does not move it either; the column only compresses or occludes the rail.
 export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
-  spacing = { min: 8, max: 16, compact: 12 },
+  spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.round(paneWidth / 100)));
-  const minimumWidth = spacing.min + spacing.compact;
+  const paneInset = transcriptColumn(paneWidth).inset;
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
+  // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
+  // resting rail fits the page edge; the inset plus that step for the edge strip.
+  const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
@@ -305,6 +314,14 @@ export type MinimapTurns = {
   sessionId: string;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
+  /// Prompts indexed by the rail but not materialized in the transcript yet.
+  earlierRows?: readonly AcpmuxRow[];
+  /// The loaded portion is kept separately so prepending indexed prompts never changes the
+  /// incremental O(changed rows) work for a streamed reply.
+  loadedTurns?: readonly MinimapTurn[];
+  loadedTicks?: readonly MinimapTick[];
+  loadedStart?: number;
+  earlierTurns?: readonly MinimapTurn[];
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -316,6 +333,7 @@ const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[
 /// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
 /// rows before `from` in `rows` are the rows of `base`.
 export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
+const EMPTY_EARLIER_ROWS: readonly AcpmuxRow[] = [];
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
@@ -338,8 +356,16 @@ export function minimapTurns(
   sessionId = "",
   previous?: MinimapTurns,
   change?: RowsChange,
+  earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
 ): MinimapTurns {
-  const reuse = previous?.sessionId === sessionId ? previous : undefined;
+  const prior = previous?.sessionId === sessionId ? previous : undefined;
+  const reuse = prior
+    ? {
+        ...prior,
+        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.index >= 0),
+        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.index >= 0),
+      }
+    : undefined;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -430,9 +456,45 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  if (!old) return { rows, sessionId, turns: tail, ticks: ticksOf(tail, oldTicks) };
-  if (sameTurns)
-    return { rows, sessionId, turns: old, ticks: sameTicks ? oldTicks! : ticksOf(old, oldTicks), spare: reuse!.spare };
+  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
+  // rail lays out every turn from the first frame. The combined list is a new array whenever the
+  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
+  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
+  const withEarlier = (
+    loadedTurns: readonly MinimapTurn[],
+    loadedTicks: readonly MinimapTick[],
+    spare?: MinimapTurn[],
+  ): MinimapTurns => {
+    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
+    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
+    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
+      return { ...prior!, ...base };
+    const earlier = sameEarlier
+      ? prior!.earlierTurns!
+      : earlierRows.map((row): MinimapTurn => ({
+          index: -1,
+          id: row.id,
+          key: turnKey(sessionId, row),
+          prompt: (row.text ?? "").trim(),
+          reply: [],
+        }));
+    const turns = [...earlier, ...loadedTurns];
+    return {
+      ...base,
+      turns,
+      // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
+      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
+      earlierRows,
+      earlierTurns: earlier,
+      loadedStart: earlier.length,
+    };
+  };
+  if (!old) {
+    const loaded = ticksOf(tail, oldTicks);
+    return withEarlier(tail, loaded);
+  }
+  if (sameTurns) return withEarlier(old, sameTicks ? oldTicks! : ticksOf(old, oldTicks), reuse!.spare);
   const list = reuse!.spare ?? [];
   const agreement = agreed.get(list);
   for (let at = agreement?.list === old ? Math.min(agreement.same, keep) : 0; at < keep; at += 1) list[at] = old[at]!;
@@ -440,13 +502,8 @@ export function minimapTurns(
   for (const turn of tail) list.push(turn);
   agreed.set(list, { list: old, same: keep });
   agreed.set(old, { list, same: keep });
-  return {
-    rows,
-    sessionId,
-    turns: list,
-    ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
-    spare: old as MinimapTurn[],
-  };
+  const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
+  return withEarlier(list, loaded, old as MinimapTurn[]);
 }
 
 /// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it
@@ -520,16 +577,19 @@ export function currentTurn(
   tops: Float64Array,
   scrollTop: number,
   viewportHeight: number,
+  firstLoaded = 0,
 ): number {
+  if (firstLoaded >= turns.length) return 0;
   const anchor = scrollTop + viewportHeight / 3;
   let low = 0;
   let high = turns.length;
+  low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
     if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
-  return Math.max(0, low - 1);
+  return Math.max(firstLoaded, low - 1);
 }
 
 /// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them. Codex
@@ -545,9 +605,11 @@ export function visibleTurns(
   totalHeight: number,
   scrollTop: number,
   viewportHeight: number,
+  firstLoaded = 0,
 ): { first: number; last: number } {
+  if (firstLoaded >= turns.length) return { first: 0, last: 0 };
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
-  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0);
+  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
   while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
   return { first, last };

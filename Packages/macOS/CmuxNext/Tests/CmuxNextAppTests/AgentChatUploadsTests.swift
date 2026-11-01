@@ -8,6 +8,47 @@ import Testing
 /// Any file attaches in a chat on this Mac (Lawrence 2026-10-20): what the composer can't put in
 /// the prompt (a binary, a large text file) is saved owner-only and named by its path.
 @Suite struct AgentChatUploadsTests {
+    @Test @MainActor func stagingHasNoPerFileOrBatchByteCap() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "uncapped-stage-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stage = AgentChatUploads.stager(root: root, session: "new")
+        for size in [1_073_741_825, Int.max] {
+            let manifest = [AgentPaneUploadBatchEntry(name: "a.bin", size: size),
+                            AgentPaneUploadBatchEntry(name: "b.bin", size: size)]
+            let reply = await stage(.begin(name: "a.bin", size: size, batchToken: nil, batch: manifest), nil)
+            #expect(reply["ok"] as? Bool == true)
+            let value = try #require(reply["value"] as? [String: Any])
+            let token = try #require(value["token"] as? String)
+            let batchToken = try #require(value["batchToken"] as? String)
+            let file = root.appending(path: "staged-" + token).appending(path: "a.bin")
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            #expect((attributes[.size] as? NSNumber)?.intValue == 0)
+            let wrongSession = await stage(.chunk(token: token, offset: 0, data: Data([1])), "other-chat")
+            #expect(wrongSession["ok"] as? Bool == false)
+            let oversizedChunk = await stage(.chunk(token: token, offset: 0, data: Data(repeating: 0, count: 512 * 1024 + 1)), nil)
+            #expect(oversizedChunk["ok"] as? Bool == false)
+            let invalidOffset = await stage(.chunk(token: token, offset: Int.max, data: Data([1])), nil)
+            #expect(invalidOffset["ok"] as? Bool == false)
+            let chunk = await stage(.chunk(token: token, offset: 0, data: Data([1, 2])), nil)
+            #expect(chunk["ok"] as? Bool == true)
+            let prematureFinish = await stage(.finish(token: token), nil)
+            #expect(prematureFinish["ok"] as? Bool == false)
+            let second = await stage(.begin(name: "b.bin", size: size, batchToken: batchToken, batch: nil), nil)
+            #expect(second["ok"] as? Bool == true)
+            let secondValue = try #require(second["value"] as? [String: Any])
+            let secondToken = try #require(secondValue["token"] as? String)
+            let wrongCancel = await stage(.cancel(token: token), "other-chat")
+            #expect(wrongCancel["ok"] as? Bool == false)
+            #expect(FileManager.default.fileExists(atPath: file.path))
+            _ = await stage(.cancel(token: token), nil)
+            _ = await stage(.cancel(token: secondToken), nil)
+            #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+            #expect(!FileManager.default.fileExists(atPath: root.appending(path: "staged-" + secondToken).path))
+            let afterCancel = await stage(.chunk(token: token, offset: 2, data: Data([3])), nil)
+            #expect(afterCancel["ok"] as? Bool == false)
+        }
+    }
+
     @Test func savesEachFileOwnerOnlyUnderItsOwnName() throws {
         let folder = FileManager.default.temporaryDirectory
             .appending(path: "agent-chat-uploads-\(UUID().uuidString)", directoryHint: .isDirectory)

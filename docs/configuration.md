@@ -154,21 +154,6 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
-## `tabs.terminalFirst`
-
-What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Closing a pane's last tab (or the pane) and closing a window
@@ -11,6 +12,7 @@ import Testing
 /// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
 /// closes at once. Frames step at a fixed 120 Hz dt.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -90,6 +92,8 @@ struct PaneCloseMotionTests {
                 return (split, ratio)
             }
         }
+
+        func tearDown() { window.closeAfterTest() }
     }
 
     /// p1 | p2 | p3, even.
@@ -104,6 +108,7 @@ struct PaneCloseMotionTests {
 
     @Test func aLastTabCloseMovesEveryNeighbourFromTheKeysFirstFrame() throws {
         let screen = Screen(.splits(Self.row))
+        defer { screen.tearDown() }
         let p1 = try #require(screen.rect("p1")), p3 = try #require(screen.rect("p3"))
         let close = try #require(screen.close("p2"), "a pane with a sibling did not close in the key's turn")
         #expect(close.successor == "p3")
@@ -124,6 +129,7 @@ struct PaneCloseMotionTests {
     /// goes to the daemon once its tree lost the pane.
     @Test func theDaemonsEchoesOfTheCloseChangeNothingOnScreen() throws {
         let screen = Screen(.splits(Self.row))
+        defer { screen.tearDown() }
         _ = try #require(screen.close("p2"))
         for _ in 1...6 { screen.step() }
         let targets = try ["p1", "p3"].map { try #require(screen.target($0)) }
@@ -140,6 +146,7 @@ struct PaneCloseMotionTests {
 
     @Test func aRefusedCloseBringsThePaneBackWithItsSizes() throws {
         let screen = Screen(.splits(Self.row))
+        defer { screen.tearDown() }
         let before = try ["p1", "p2", "p3"].map { try #require(screen.rect($0)) }
         let close = try #require(screen.close("p2"))
         for _ in 1...4 { screen.step() }
@@ -155,6 +162,7 @@ struct PaneCloseMotionTests {
     /// that kept the pane shows it again instead of hiding it for good.
     @Test func aSettledCloseYieldsToTheNextSnapshot() throws {
         let screen = Screen(.splits(Self.row))
+        defer { screen.tearDown() }
         let close = try #require(screen.close("p2"))
         screen.model.settlePaneClose(close)
         screen.show(Self.row)
@@ -163,6 +171,7 @@ struct PaneCloseMotionTests {
 
     @Test func theFocusLeavesTheClosedPaneForThePaneTakingItsSpace() throws {
         let screen = Screen(.splits(Self.row), focused: "p2")
+        defer { screen.tearDown() }
         _ = try #require(screen.close("p2"))
         #expect(screen.model.focusedPane == "p3")
     }
@@ -170,9 +179,11 @@ struct PaneCloseMotionTests {
     /// The screen's last pane leaves with the daemon's tree.
     @Test func theScreensLastPaneLeavesWithTheDaemonsTree() {
         let lone = Screen(.splits(.leaf("p1")))
+        defer { lone.tearDown() }
         #expect(lone.close("p1") == nil)
         let strip = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
                                      LayoutColumn(id: "c2", width: 0.5, root: .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))]))
+        defer { strip.tearDown() }
         #expect(strip.close("p2")?.successor == "p3", "a pane with a sibling in its column did not close in the key's turn")
     }
 
@@ -191,6 +202,7 @@ struct PaneCloseMotionTests {
     /// left takes its final width in that turn, and it moves from the key's first frame.
     @Test func aColumnsOnlyPaneLeavesWithItsColumnInTheKeysTurn() throws {
         let screen = Screen(.columns(Self.strip), focused: "p2")
+        defer { screen.tearDown() }
         screen.model.newColumnWidthModeOverride = .fitScreen
         let start = try #require(screen.rect("p1"))
         let close = try #require(screen.close("p2"), "the right column's only pane waited for the daemon's tree")
@@ -214,6 +226,7 @@ struct PaneCloseMotionTests {
     /// and the width the close leaves goes to the daemon once, after its tree lost the column.
     @Test func theDaemonsEchoesOfAColumnCloseChangeNothingOnScreen() throws {
         let screen = Screen(.columns(Self.strip), focused: "p2")
+        defer { screen.tearDown() }
         screen.model.newColumnWidthModeOverride = .fitScreen
         _ = try #require(screen.close("p2"))
         for _ in 1...6 { screen.step() }
@@ -230,6 +243,7 @@ struct PaneCloseMotionTests {
 
     @Test func aRefusedColumnCloseBringsTheColumnAndItsWidthsBack() throws {
         let screen = Screen(.columns(Self.strip), focused: "p2")
+        defer { screen.tearDown() }
         screen.model.newColumnWidthModeOverride = .fitScreen
         let before = screen.model.screens.first?.layout
         let close = try #require(screen.close("p2"))
@@ -247,6 +261,7 @@ struct PaneCloseMotionTests {
     @Test func homesColumnBesideThePinnedDockLeavesInTheKeysTurn() throws {
         let dock = LayoutColumn(id: "c0", width: 0.35, root: .leaf("home"), dock: DockColumn(edge: .left, isPinned: true))
         let screen = Screen(.columns([dock, LayoutColumn(id: "c1", width: 0.65, root: .leaf("p1"))]), focused: "p1")
+        defer { screen.tearDown() }
         let close = try #require(screen.close("p1"))
         #expect(close.successor == "home")
         #expect(screen.model.focusedPane == "home")
@@ -260,9 +275,11 @@ struct PaneCloseMotionTests {
         let tree: SplitNode = .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p3"))
         let pair = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: tree), LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2"))]),
                           focused: "p2")
+        defer { pair.tearDown() }
         #expect(pair.close("p2")?.successor == "p1")
         #expect(pair.model.screens.first?.layout == .splits(tree))
         let docked = Screen(.columns(Array(Self.strip.dropLast()) + [LayoutColumn(id: "c3", width: 0.3, root: .leaf("p3"), dock: DockColumn(edge: .right))]))
+        defer { docked.tearDown() }
         _ = try #require(docked.close("p1"))
         let columns = docked.model.screens.first?.layout.columns ?? []
         #expect(columns.map(\.id) == ["c0", "c3"] && columns.allSatisfy { $0.dock == nil }, "\(columns)")
@@ -272,6 +289,7 @@ struct PaneCloseMotionTests {
     /// key: the right column's close sets its final layout in the key's turn (frame 0), not at the echo.
     @Test func aColumnCloseSetsItsFinalLayoutInTheKeysTurn() throws {
         let screen = Screen(.columns(Self.strip), focused: "p2")
+        defer { screen.tearDown() }
         screen.model.newColumnWidthModeOverride = .fitScreen
         _ = screen.close("p2")
         let echo = Int((0.1 / Self.dt).rounded())
@@ -297,6 +315,7 @@ struct PaneCloseMotionTests {
     @Test(arguments: [SplitAxis.horizontal, .vertical])
     func aCloseRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
         let screen = Screen(.splits(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))
+        defer { screen.tearDown() }
         let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
         let start = extent(try #require(screen.rect("p1")))
         _ = try #require(screen.close("p2"))
@@ -322,6 +341,7 @@ struct PaneCloseMotionTests {
     /// they spring into the closed pane's space.
     @Test func aCloseHoldsNoTerminalGrid() throws {
         let screen = Screen(.splits(Self.row))
+        defer { screen.tearDown() }
         _ = try #require(screen.close("p2"))
         for _ in 1...240 {
             #expect(!screen.root.holdsTerminalGrids, "the close holds the grids")
@@ -332,6 +352,7 @@ struct PaneCloseMotionTests {
 
     @Test func reduceMotionClosesInOneFrameAndHoldsNoGrid() throws {
         let screen = Screen(.splits(Self.row), reduceMotion: true)
+        defer { screen.tearDown() }
         _ = try #require(screen.close("p2"))
         for pane: PaneID in ["p1", "p3"] {
             #expect(screen.rect(pane) == screen.target(pane), "\(pane) animates under Reduce Motion")
@@ -349,6 +370,7 @@ struct PaneCloseMotionTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         var closes = 0
         let motion = WindowCloseMotion(window: window) { closes += 1 }
         motion.start(handingKeysTo: nil, driven: false)
@@ -385,6 +407,7 @@ struct PaneCloseMotionTests {
         let page = make()
         let panel = make(0.5)
         let nested = make()
+        defer { [window, page, panel, nested].forEach { $0.closeAfterTest() } }
         window.addChildWindow(page, ordered: .above)
         window.addChildWindow(panel, ordered: .above)
         page.addChildWindow(nested, ordered: .above)
@@ -419,6 +442,7 @@ struct PaneCloseMotionTests {
         let other = make()
         let panel = make()
         let palette = make()
+        defer { [window, other, panel, palette].forEach { $0.closeAfterTest() } }
         window.addChildWindow(panel, ordered: .above)
         window.addChildWindow(palette, ordered: .above)
         defer { [panel, palette].forEach { $0.parent?.removeChildWindow($0) } }
@@ -442,6 +466,7 @@ struct PaneCloseMotionTests {
     @Test func aWindowCloseUnderReduceMotionDoesNotFade() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         #expect(!WindowCloseMotion.fades(window, animates: false))
     }
 }

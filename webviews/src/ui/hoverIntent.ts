@@ -439,13 +439,56 @@ export class HoverBridge {
     if (containsRect(trigger, point, HOVER_BRIDGE_PADDING) || containsRect(card, point, HOVER_BRIDGE_PADDING))
       return true;
     if (!trigger || !card) return false;
+    if (insideCorridor(point, trigger, card)) return true;
     const from = nearestPoint(trigger, card);
     const to = nearestPoint(card, trigger);
     return distanceToSegment(point, from, to) <= HOVER_BRIDGE_PADDING;
   }
 }
 
+/** How far outside the trigger, the card and their corridor the pointer may stray. */
 const HOVER_BRIDGE_PADDING = 10;
+
+/**
+ * The gap between the trigger and the card, from the trigger's facing edge to the card's: a card
+ * that opens above its trigger is reached across the band from the trigger's top edge to the
+ * card's whole bottom edge, so a diagonal path to the card's far corner stays on it. The band
+ * stops at the two facing edges; it never reaches past them into a neighboring row.
+ */
+function insideCorridor(point: Point, trigger: Rect, card: Rect): boolean {
+  let edges: [Point, Point, Point, Point] | undefined;
+  if (card.bottom <= trigger.top)
+    edges = [
+      { x: trigger.left, y: trigger.top },
+      { x: trigger.right, y: trigger.top },
+      { x: card.right, y: card.bottom },
+      { x: card.left, y: card.bottom },
+    ];
+  else if (card.top >= trigger.bottom)
+    edges = [
+      { x: trigger.left, y: trigger.bottom },
+      { x: trigger.right, y: trigger.bottom },
+      { x: card.right, y: card.top },
+      { x: card.left, y: card.top },
+    ];
+  else if (card.left >= trigger.right)
+    edges = [
+      { x: trigger.right, y: trigger.top },
+      { x: trigger.right, y: trigger.bottom },
+      { x: card.left, y: card.bottom },
+      { x: card.left, y: card.top },
+    ];
+  else if (card.right <= trigger.left)
+    edges = [
+      { x: trigger.left, y: trigger.top },
+      { x: trigger.left, y: trigger.bottom },
+      { x: card.right, y: card.bottom },
+      { x: card.right, y: card.top },
+    ];
+  if (!edges) return false;
+  const [a, b, c, d] = edges;
+  return insideTriangle(point, a, b, c) || insideTriangle(point, a, c, d);
+}
 
 function containsRect(rect: Rect | undefined, point: Point, padding: number): boolean {
   return Boolean(

@@ -81,6 +81,10 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public init() {}
 
+    /// Only Reconnect may open the gate now: the machine's session is in use by another cmux
+    /// daemon. Nothing automatic (reconnect on use included) may take it over (HQ #4877 G5).
+    public var waitsForUser: Bool { blocked && onlyUserUnblocks }
+
     /// Whether the link may probe and dial now.
     public var mayAttempt: Bool {
         switch status {
@@ -91,7 +95,12 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public mutating func handle(_ event: Event) {
         if status == .offline, event != .connect { return }
-        if case .wake = event {} else { onlyUserUnblocks = false }
+        // A wake, or an automatic attempt the closed gate turns away, keeps an in-use session's
+        // user-only gate (HQ #4877 G5): `.attemptStarted` only ever reopens a gate that was open.
+        switch event {
+        case .wake, .attemptStarted: break
+        default: onlyUserUnblocks = false
+        }
         switch event {
         case .connect:
             status = .connecting

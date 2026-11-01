@@ -44,23 +44,20 @@
 .ui-positioner{z-index:var(--layer-dropdown);outline:none}
 .acpmux-chat-menu-popover .ui-submenu-chevron{flex:none;margin-inline-start:auto;width:6px;height:6px;border-block-start:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg);opacity:.6}
 .acpmux-chat-menu-popover .ui-submenu-chevron:dir(rtl){transform:rotate(-45deg)}
-/* Changes beside the transcript once the pane is wide enough for both, as in the Codex app; narrower, it covers the transcript. */
+/* Changes open on the right, beside the transcript, at every width: never over the chat (Leo, 2026-10-31: "why does it
+   still not open to the right"). The chat keeps 44% of the pane, and at least 320px while the pane has 640px.
+   test/agent-pane-changes-placement.test.ts keeps it so. */
 .acpmux-stage{container-type:inline-size}
-@container (min-width:1160px){
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
-  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
-}
+.acpmux-reviewing{--acpmux-review-chat:max(44%,min(320px,50%))}
+.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:calc(100% - var(--acpmux-review-chat))}
+.acpmux-reviewing>.acpmux-diff-panel{left:var(--acpmux-review-chat);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
 .acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
-.acpmux-thread-title-trigger{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:min(44vw,360px);height:var(--acpmux-header-control-height);padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis);cursor:default;white-space:nowrap;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-thread-title-trigger:hover,.acpmux-thread-title-trigger[data-popup-open]{background:var(--acpmux-menu-hover);color:var(--agent-text)}
-.acpmux-thread-title-trigger:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
-.acpmux-thread-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-thread-title-chevron{--acpmux-title-chevron-size:6px;width:var(--acpmux-title-chevron-size);height:var(--acpmux-title-chevron-size);flex:none;border-block-end:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);opacity:.65}
-.acpmux-header[data-tab-row] .acpmux-thread-title-trigger{max-width:min(24vw,230px);font-size:var(--text-detail)}
+/* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
+.acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+.acpmux-header[data-tab-row] .acpmux-thread-title{max-width:min(24vw,230px);font-size:var(--text-detail)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
 .acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
@@ -120,7 +117,9 @@
 .acpmux-pr-check[data-state=failed][data-on-base]::before{background:var(--agent-status-warning)}
 .acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
+/* A check's link fills the row's free width, and the row lights only while the pointer is on it: anywhere the row is lit, a click opens the check (the highlight covers only its control). */
+.acpmux-pr-check>a{flex:1 1 auto;align-self:stretch;line-height:26px}
+.acpmux-pr-check:has(>a:hover){background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */

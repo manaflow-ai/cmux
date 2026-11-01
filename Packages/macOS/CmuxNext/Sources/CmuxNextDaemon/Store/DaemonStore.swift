@@ -35,7 +35,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting { didSet { dropGrace.note(oldValue, connectionState) } }
+    public let dropGrace = DaemonDropGrace()
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -65,8 +66,8 @@ public final class DaemonStore: StateResourceQueries {
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
-    /// applies without needing a resync, and to a snapshot's barrier once
-    /// that snapshot is applied. Readers compare it with
+    /// applies without needing a resync. A snapshot can cover consumed tree events,
+    /// but cannot acknowledge session events still waiting in the inbox or pump. Readers compare it with
     /// `DaemonConnection.eventSequence()` taken after a write (read-your-writes
     /// without refetching the tree).
     public internal(set) var appliedSequence: UInt64 = 0
@@ -139,9 +140,12 @@ public final class DaemonStore: StateResourceQueries {
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
     /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
-    /// a create still in flight), by handle: the stand-in's public pane id, under which the
-    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
-    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// a create still in flight, a Ctrl-` on Cmd-N's pane), by handle: what made the stand-in, by
+    /// which the daemon's pane that takes it over is found (``daemonHandle(showing:)``).
+    @ObservationIgnored var standInTargets: [PaneID: StandInOrigin] = [:]
+    /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
+    /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
+    @ObservationIgnored var standInWaits: [StandInWait] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
@@ -173,6 +177,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
+    /// buffered and asks for no frame, as a daemon whose events arrive late; ``releaseHeldEvents()``
+    /// applies them. A test holds one report this way to order it after an app step deterministically.
+    @ObservationIgnored public var eventHold: (@MainActor ([DaemonEventEnvelope]) -> Bool)?
     @ObservationIgnored var isResyncing = false
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
@@ -211,6 +219,13 @@ public final class DaemonStore: StateResourceQueries {
     public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
+    /// The current tab records, invalidated only when the tab/pane topology
+    /// changes. Callers that need to inspect every tab without observing row
+    /// status should use this instead of walking ``workspaces``.
+    public var liveTabs: [TabModel] {
+        _ = tabListRevision
+        return Array(index.tabsByID.values)
+    }
     /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
     public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
         guard let tab = index.tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
@@ -367,15 +382,24 @@ public final class DaemonStore: StateResourceQueries {
         for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
-    /// Records a completed handshake before its `.connected` event drains,
-    /// so capability checks right after connect see this daemon.
+    /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
     public func noteHandshake(_ identity: DaemonIdentity) {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection failed: no retry can fix it, or it outlived the startup deadline (`DaemonStartupState.showsFailure`).
     public func markFailed(_ message: String) {
         connectionState = .failed(message)
+    }
+
+    /// A remote machine's reconnect spent its timed retries and waits for an event only
+    /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
+    /// #4877 G4). Cleared by the next connect and by a new attempt.
+    public private(set) var retriesSpent = false
+
+    public func noteRetriesSpent(_ spent: Bool) {
+        if spent, case .connected = connectionState { return }
+        if retriesSpent != spent { retriesSpent = spent }
     }
 
     // MARK: Derived state

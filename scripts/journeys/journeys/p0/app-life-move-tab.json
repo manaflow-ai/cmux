@@ -1,0 +1,54 @@
+{
+  "id": "app-life-move-tab",
+  "priority": "P0",
+  "title": "Move a terminal tab to the pane on its left (Cmd-Opt-Shift-Left): it arrives selected, keeps its text and shell",
+  "why": "Rearranging tabs between split panes is everyday window work. The moved tab must leave its pane, show in the other with its scrollback (no blank view, no new shell) and take input there.",
+  "source": "window life (holistic-quality.md 1): move a tab; shortcut moveSurfaceToPaneLeft",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-move", "as": "left"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo left-${nonce}-$((6*7))", "enter": true, "mark": "left"},
+    {"do": "expect", "title": "the left pane answers", "since": "left", "timeout": 10,
+     "all": [{"daemon_line": "left-${nonce}-42"}]},
+
+    {"do": "key", "key": "d", "modifiers": ["cmd"]},
+    {"do": "focused_terminal", "as": "right"},
+    {"do": "key", "key": "`", "modifiers": ["control"]},
+    {"do": "focused_terminal", "as": "moving"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo moving-${nonce}-$((6*7))", "enter": true, "mark": "seeded"},
+    {"do": "expect", "title": "before: the moving tab is the second tab of the right pane", "since": "seeded", "timeout": 10,
+     "all": [
+       {"daemon_line": "moving-${nonce}-42"},
+       {"app_layout": {"workspace": "jr-move", "panes": 2, "tabs": 3, "pane_tabs": 2, "selected": true}},
+       {"app_tab_pane": {"same_as": "right"}},
+       {"app_text_line": "moving-${nonce}-42"},
+       {"frame_text": "moving-${nonce}-42"}
+     ]},
+
+    {"do": "key", "key": "left", "modifiers": ["shift", "option", "cmd"], "mark": "move"},
+    {"do": "expect", "title": "the tab left the right pane and joined the left one", "since": "move", "within": 2, "timeout": 10,
+     "all": [
+       {"app_tab_pane": {"same_as": "left"}},
+       {"app_tab_pane": {"not_same_as": "right"}},
+       {"daemon_line": "moving-${nonce}-42"}
+     ]},
+    {"do": "use", "name": "moving"},
+    {"do": "expect", "title": "in the left pane it is selected, focused, attached and shows its text", "since": "move", "timeout": 10,
+     "all": [
+       {"app_layout": {"workspace": "jr-move", "panes": 2, "tabs": 3, "pane_tabs": 2, "selected": true}},
+       {"app_pane": {"focused": true, "link": "connected"}},
+       {"app_text_line": "moving-${nonce}-42"},
+       {"frame_text": "moving-${nonce}-42"}
+     ]},
+    {"do": "type", "text": "echo moved-${nonce}-$((6*7))", "enter": true, "mark": "moved"},
+    {"do": "expect", "title": "the moved tab's shell takes input in its new pane", "since": "moved", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "moved-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "moved-${nonce}-42"},
+       {"frame_text": "moved-${nonce}-42"}
+     ]}
+  ]
+}

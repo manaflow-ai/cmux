@@ -8,19 +8,18 @@ import CmuxNextDaemon
 /// never by a prompt. Move to Cloud with no machine to reuse and New Cloud Machine asked from a
 /// chat send the pick's `autosize` with the create, and the server answers the shape
 /// (``CloudSizePick``, kept on the machine's session as ``CloudMachineSession/sizePick`` for the
-/// hand-off).
-///
-/// Behind Labs preview features until the work-mode loop works end to end (the design's rule
-/// for new surfaces): with them off nothing is read and every create is as before.
+/// hand-off). Not behind Labs: every caller sizes the chat's machine.
 @MainActor
 struct CloudChatPick {
     let services: AppServices
 
     /// The pick for the chat in `folder` (its tab `tab`: the title for the task kind, the agent for
-    /// the Codex broker). Nil while Labs preview features are off, for no absolute folder, and on
-    /// the Cloud app server's link, whose create takes no `autosize` yet (``CloudService/createMachine``).
+    /// the Codex broker). Nil for no absolute folder and on the Cloud app server's link, whose
+    /// create takes no `autosize` yet (``CloudService/createMachine``). Not behind Labs (Leo,
+    /// 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
+    /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES").
     func read(folder: String?, tab: TabModel?) async -> CloudWorkPick? {
-        guard services.settings?.snapshot.previewFeatures == true, services.cloud.configuration.linkSource == .legacy,
+        guard services.cloud.configuration.linkSource == .legacy,
               let folder, folder.hasPrefix("/") else { return nil }
         return await CloudWorkPick.read(folder: folder, text: tab?.displayTitle, harness: tab?.agentSession?.harness, work: services.work)
     }

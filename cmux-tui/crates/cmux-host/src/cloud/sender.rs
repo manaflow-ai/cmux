@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use serde_json::{Value, json};
 
 use super::wire::{
-    Activity, ActivityChange, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
+    ATTENTION_EMIT_OP, Activity, ActivityChange, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
     REPORT_MIN_INTERVAL_MS, STATUS_REPORT_OP, check_event, retry_after_ms,
 };
 
@@ -23,6 +23,146 @@ pub struct Backoff {
     attempt: u32,
     initial_ms: u64,
     max_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct QueuedAttention {
+    event_id: String,
+    kind: String,
+    session: String,
+    title: String,
+    occurred_at: u64,
+}
+
+/// Durable attention transitions sent through the VM-principal op. The
+/// platform performs content/idempotency checks; this queue only handles
+/// transport and retryable server failures.
+#[derive(Debug)]
+pub struct AttentionQueue {
+    machine: String,
+    queue: VecDeque<QueuedAttention>,
+    in_flight: bool,
+    retry_at: Option<u64>,
+    backoff: Backoff,
+}
+
+impl AttentionQueue {
+    pub fn new(machine: &str) -> Self {
+        Self {
+            machine: machine.to_owned(),
+            queue: VecDeque::new(),
+            in_flight: false,
+            retry_at: None,
+            backoff: Backoff::new(1_000, 600_000),
+        }
+    }
+
+    pub fn emit(&mut self, event: &Value) -> Result<Option<OpRequest>, String> {
+        let text = |key: &str| event[key].as_str().unwrap_or("");
+        let event_id = text("event_id");
+        let kind = text("kind");
+        let session = text("session");
+        let title = text("title");
+        let occurred_at = event["occurred_at"].as_u64().unwrap_or(0);
+        if event_id.is_empty()
+            || event_id.len() > 128
+            || !event_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+            || !matches!(kind, "question" | "permission" | "done")
+            || session.is_empty()
+            || session.len() > 128
+            || title.is_empty()
+            || title.chars().count() > 200
+            || occurred_at == 0
+        {
+            return Err("invalid attention event".to_owned());
+        }
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err("attention queue full".to_owned());
+        }
+        self.queue.push_back(QueuedAttention {
+            event_id: event_id.to_owned(),
+            kind: kind.to_owned(),
+            session: session.to_owned(),
+            title: title.to_owned(),
+            occurred_at,
+        });
+        Ok(self.pump())
+    }
+
+    pub fn finished(
+        &mut self,
+        answer: &Answer,
+        now: u64,
+        random: f64,
+    ) -> (EventOutcome, Option<OpRequest>) {
+        self.in_flight = false;
+        let outcome = match answer {
+            a if a.ok() => {
+                self.queue.pop_front();
+                self.backoff.reset();
+                EventOutcome::Delivered
+            }
+            Answer::Http { status, body } => {
+                let code = body
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .or_else(|| body.field("code").as_str())
+                    .unwrap_or("");
+                if code == "cloud.rate_limited" {
+                    self.retry_at = Some(now + retry_after_ms(body).max(1));
+                    EventOutcome::Retrying
+                } else if *status >= 500 {
+                    self.retry_at = Some(now + self.backoff.next(0, random));
+                    EventOutcome::Retrying
+                } else {
+                    let kind = self.queue.pop_front().map(|e| e.kind).unwrap_or_default();
+                    EventOutcome::Dropped(format!(
+                        "{kind}: {}",
+                        if code.is_empty() { format!("HTTP {status}") } else { code.to_owned() }
+                    ))
+                }
+            }
+            Answer::Transport => {
+                self.retry_at = Some(now + self.backoff.next(0, random));
+                EventOutcome::Retrying
+            }
+        };
+        (outcome, self.pump())
+    }
+
+    pub fn fire(&mut self, now: u64) -> Option<OpRequest> {
+        if self.retry_at.is_some_and(|at| at <= now) {
+            self.retry_at = None;
+            self.pump()
+        } else {
+            None
+        }
+    }
+    pub fn next_deadline(&self) -> Option<u64> {
+        self.retry_at
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    fn pump(&mut self) -> Option<OpRequest> {
+        if self.in_flight || self.retry_at.is_some() {
+            return None;
+        }
+        let head = self.queue.front()?;
+        self.in_flight = true;
+        Some(OpRequest {
+            op: ATTENTION_EMIT_OP,
+            params: json!({ "machine": self.machine, "event_id": head.event_id, "kind": head.kind, "session": head.session, "title": head.title, "occurred_at": head.occurred_at }),
+            reason: format!("attention.{}", head.kind),
+        })
+    }
 }
 
 impl Backoff {
@@ -279,6 +419,10 @@ pub enum EventOutcome {
     Dropped(String),
 }
 
+/// Events a backed-off queue holds before it refuses more (each is at most
+/// 4 KB of data, so about 1 MB).
+pub const EVENT_QUEUE_MAX: usize = 256;
+
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a
 /// server error backs off, any other refusal drops the event.
 #[derive(Debug)]
@@ -301,9 +445,13 @@ impl EventQueue {
         }
     }
 
-    /// Queues one event; refuses an unknown kind or more than 4 KB of data.
+    /// Queues one event; refuses an unknown kind, more than 4 KB of data, or
+    /// a queue already holding `EVENT_QUEUE_MAX` events.
     pub fn emit(&mut self, kind: &str, at: u64, data: Value) -> Result<Option<OpRequest>, String> {
         check_event(kind, &data)?;
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err(format!("event queue full ({EVENT_QUEUE_MAX} waiting)"));
+        }
         self.queue.push_back(QueuedEvent { kind: kind.to_owned(), at, data });
         Ok(self.pump())
     }
@@ -385,5 +533,94 @@ impl EventQueue {
             }),
             reason: head.kind.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod event_queue_tests {
+    use super::{Answer, AttentionQueue, EventQueue};
+    use serde_json::json;
+
+    /// HQ#5351 item 2: nothing drains the queue while it backs off (up to 600 s), so
+    /// socket clients could grow the agent's memory without bound. Past its cap the
+    /// queue refuses new events and keeps the ones it holds, in order.
+    #[test]
+    fn a_backed_off_queue_refuses_events_past_its_cap() {
+        let mut queue = EventQueue::new("vm-1");
+        let first = queue.emit("agent.started", 1, json!({})).unwrap();
+        assert!(first.is_some());
+        let (_, next) = queue.finished(&Answer::Transport, 0, 0.5);
+        assert!(next.is_none());
+        let mut refused = 0;
+        for at in 2..1_000 {
+            if queue.emit("agent.started", at, json!({})).is_err() {
+                refused += 1;
+            }
+        }
+        assert_eq!(queue.len(), super::EVENT_QUEUE_MAX);
+        assert!(refused > 0);
+        let retry = queue.fire(u64::MAX).expect("the head retries");
+        assert_eq!(retry.params["at"], 1);
+    }
+
+    fn attention(id: &str, kind: &str) -> serde_json::Value {
+        serde_json::json!({
+            "event_id": id, "kind": kind, "session": "acp_s1", "title": "Cloud chat",
+            "occurred_at": 1_790_000_000_000u64
+        })
+    }
+
+    #[test]
+    fn attention_retry_preserves_payload_and_success_drains() {
+        let mut queue = AttentionQueue::new("vm-1");
+        let first = queue.emit(&attention("attn_1", "question")).unwrap().unwrap();
+        let (_, next) = queue.finished(&Answer::Transport, 10, 0.5);
+        assert!(next.is_none());
+        let retry = queue.fire(1_010).unwrap();
+        assert_eq!(retry.params, first.params);
+        let (_, next) = queue.finished(
+            &Answer::Http { status: 200, body: serde_json::json!({"ok": true}) },
+            1_011,
+            0.5,
+        );
+        assert!(next.is_none());
+        assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn attention_rate_limit_waits_and_denial_drops() {
+        let mut queue = AttentionQueue::new("vm-1");
+        queue.emit(&attention("attn_2", "permission")).unwrap();
+        let answer = Answer::Http {
+            status: 429,
+            body: serde_json::json!({"error": {"code": "cloud.rate_limited", "details": {"retry_after_ms": 20}}}),
+        };
+        let (outcome, next) = queue.finished(&answer, 100, 0.5);
+        assert_eq!(outcome, super::EventOutcome::Retrying);
+        assert!(next.is_none());
+        assert!(queue.fire(119).is_none());
+        assert!(queue.fire(120).is_some());
+        let (outcome, next) = queue.finished(
+            &Answer::Http {
+                status: 400,
+                body: serde_json::json!({"error": {"code": "policy.denied"}}),
+            },
+            121,
+            0.5,
+        );
+        assert!(matches!(outcome, super::EventOutcome::Dropped(_)));
+        assert!(next.is_none());
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn attention_queue_is_bounded() {
+        let mut queue = AttentionQueue::new("vm-1");
+        queue.emit(&attention("attn_0", "done")).unwrap();
+        for i in 1..super::EVENT_QUEUE_MAX {
+            queue.emit(&attention(&format!("attn_{i}"), "done")).unwrap();
+        }
+        assert_eq!(queue.len(), super::EVENT_QUEUE_MAX);
+        assert!(queue.emit(&attention("attn_overflow", "done")).is_err());
     }
 }

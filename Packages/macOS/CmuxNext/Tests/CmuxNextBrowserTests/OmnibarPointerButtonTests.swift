@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The browser toolbar's buttons show the arrow like the rest of the chrome, as native macOS apps
@@ -8,6 +9,7 @@ import Testing
 /// cursor on every pointer move (`ArrowCursorView`), and its rule
 /// (`OmnibarPointer.cursor(atWindowPoint:in:)`) gives the arrow over every button, enabled or not,
 /// and over the bookmark star. The omnibar's text area keeps the I-beam.
+@Suite(.closesItsWindows)
 @MainActor
 struct OmnibarPointerButtonTests {
     private func row(with button: NSView) -> (window: NSWindow, row: ArrowCursorView) {
@@ -28,6 +30,7 @@ struct OmnibarPointerButtonTests {
     @Test func anEnabledToolbarButtonShowsTheArrow() {
         let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         let host = row(with: button)
+        defer { host.window.closeAfterTest() }
         #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .arrow)
         withExtendedLifetime(host) {}
     }
@@ -35,6 +38,7 @@ struct OmnibarPointerButtonTests {
     @Test func aDisabledToolbarButtonShowsTheArrow() {
         let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         let host = row(with: button)
+        defer { host.window.closeAfterTest() }
         button.isEnabled = false
         #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .arrow)
         withExtendedLifetime(host) {}
@@ -43,6 +47,7 @@ struct OmnibarPointerButtonTests {
     @Test func theRowBesideAButtonShowsTheArrow() {
         let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         let host = row(with: button)
+        defer { host.window.closeAfterTest() }
         let beside = host.row.convert(NSPoint(x: 200, y: 20), to: nil)
         #expect(OmnibarPointer.cursor(atWindowPoint: beside, in: host.row) == .arrow)
         withExtendedLifetime(host) {}
@@ -52,6 +57,7 @@ struct OmnibarPointerButtonTests {
     @Test func aMoveOverAButtonSetsTheArrow() {
         let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         let host = row(with: button)
+        defer { host.window.closeAfterTest() }
         host.row.setCursor(at: windowPoint(atCenterOf: button))
         #expect(host.row.trackedCursor == .arrow)
         withExtendedLifetime(host) {}
@@ -60,6 +66,7 @@ struct OmnibarPointerButtonTests {
     @Test func anExtensionButtonShowsTheArrow() {
         let button = ExtensionActionButton(actionID: "test-extension")
         let host = row(with: button)
+        defer { host.window.closeAfterTest() }
         #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .arrow)
         button.isEnabled = false
         #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .arrow)
@@ -70,6 +77,7 @@ struct OmnibarPointerButtonTests {
         let star = BookmarkStarButton(frame: .zero)
         star.state = .off
         let host = row(with: star)
+        defer { host.window.closeAfterTest() }
         #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: star), in: host.row) == .arrow)
         withExtendedLifetime(host) {}
     }
@@ -78,6 +86,7 @@ struct OmnibarPointerButtonTests {
     @Test func theStarRegistersNoCursorRect() {
         let star = BookmarkStarButton(frame: .zero)
         let host = row(with: star)
+        defer { host.window.closeAfterTest() }
         star.recordedCursorRects = []
         star.resetCursorRects()
         #expect(star.recordedCursorRects?.isEmpty == true)

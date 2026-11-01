@@ -35,7 +35,7 @@ jobs:
   select:
     if: github.repository == 'manaflow-ai/cmux'
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -64,7 +64,7 @@ jobs:
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -98,8 +98,37 @@ jobs:
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr
-          fetch-depth: 0
+          # A depth-0 checkout fetches *every branch and tag* in this repo:
+          # 2026-10-31 runs spent 269-285 seconds here, often to discover an
+          # authored conflict and skip. Fetch just this PR's head first.
+          fetch-depth: 1
+          filter: blob:none
           persist-credentials: false
+
+      # An accurate three-way merge still needs the complete common ancestry.
+      # Unshallow this checked-out PR and the exact base SHA, without fetching
+      # thousands of unrelated branch refs/tags or historical file blobs.
+      # A full worktree remains available for generated-file rebuilds.
+      - name: Fetch just the PR and base ancestry
+        working-directory: pr
+        env:
+          BASE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ matrix.pr.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || {
+            echo "::error::checkout did not land on the selected PR head $HEAD_SHA"
+            exit 1
+          }
+          if [[ -f .git/shallow ]]; then
+            git fetch -q --no-tags --filter=blob:none --unshallow origin "$BASE_SHA"
+          else
+            git fetch -q --no-tags --filter=blob:none origin "$BASE_SHA"
+          fi
+          git merge-base HEAD "$BASE_SHA" >/dev/null || {
+            echo "::error::no common ancestor between the selected head and base $BASE_SHA"
+            exit 1
+          }
 
       - name: Merge feat-cmux-next
         id: merge
@@ -129,7 +158,8 @@ jobs:
           git config merge.pbxproj-v1.driver "$pbxproj"
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
-          git fetch --quiet origin "$BASE_SHA"
+          # The previous step fetched this exact base SHA and verified the
+          # common ancestor, so merge here uses only the selected history.
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0

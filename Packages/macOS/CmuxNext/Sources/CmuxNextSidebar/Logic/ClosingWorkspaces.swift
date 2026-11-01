@@ -36,11 +36,12 @@ public final class ClosingWorkspaces {
     }
 
     /// The close of `id` ended: the daemon refused it, or the store applied its result (the row is gone
-    /// from the store). A refusal lists the row again and shows the toast in `window`.
-    public func end(_ id: String, refused: Bool, in window: NSWindow?) {
+    /// from the store). A refusal lists the row again and shows the toast in `window`: `reason` when the
+    /// close knows why (its machine did not answer), else that it could not be closed.
+    public func end(_ id: String, refused: Bool, reason: String? = nil, in window: NSWindow?) {
         ids.remove(id)
         guard refused, let window else { return }
-        CmuxToastCenter.shared.show(CmuxToast(id: "workspace-close-refused", message: Strings.closeRefused), in: window)
+        CmuxToastCenter.shared.show(CmuxToast(id: "workspace-close-refused", message: reason ?? Strings.closeRefused), in: window)
     }
 
     /// `members` without the closing workspaces, unless that leaves none.

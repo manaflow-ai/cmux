@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import AppKit
 @testable import CmuxNextPages
@@ -5,7 +6,7 @@ import CmuxNextPagesTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct AgentPaneQuestionReturnGestureTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }

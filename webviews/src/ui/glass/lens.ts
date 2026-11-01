@@ -4,7 +4,8 @@
 // (`cmuxTheme.backdrop`), and this module draws it once more, on one WebGL canvas behind all content
 // (--layer-backdrop), composited under the same native tint and page color: outside the glass the
 // copy equals what is under the page, and inside each `.ui-glass` rounded rect it is bent inward at
-// the rim, frosted, and (Spectrum) split per channel.
+// the rim, frosted, (Spectrum) split per channel, lit along the rim (--glass-gloss) and, if a surface
+// asks, zoomed a little at the center (--glass-magnify).
 //
 // Cost: nothing at all (no canvas, no listeners but the mode and backdrop watchers) under plain
 // glass, Reduce Transparency, with no still, or with no glass in the document. Otherwise a
@@ -17,6 +18,7 @@ import {
   GLASS_ATTRIBUTE,
   GLASS_CLASS,
   LENS_ATTRIBUTE,
+  LIVE_BACKGROUND_ATTRIBUTE,
   NATIVE_GLASS_ATTRIBUTE,
   installBackdropFallback,
   powerOfTwo,
@@ -36,8 +38,8 @@ const JOIN_REACH = 240;
 /** Unchanged frames before the loop stops. */
 const STABLE_FRAMES = 20;
 /** Floats per vertex: position 2, rect 4, clip 4, shape 4 (radius, refraction, blur, dispersion),
- * extra 2 (opacity, unused). */
-const FLOATS = 16;
+ * extra 4 (opacity, gloss, magnify, unused). */
+const FLOATS = 18;
 const VERTICES = 6;
 const MAX_TEXTURE = 1024;
 const REDUCE_TRANSPARENCY = "(prefers-reduced-transparency: reduce)";
@@ -52,6 +54,10 @@ type Surface = {
   refraction: number;
   blur: number;
   dispersion: number;
+  /** --glass-gloss: the specular light the rim catches, 0 to 1 (none: 0). */
+  gloss: number;
+  /** --glass-magnify: how much the center zooms the wallpaper, 0 to 0.2 (none: 0). */
+  magnify: number;
   opacity: number;
   visible: boolean;
   /** Ancestors that clip it (overflow other than visible), nearest first. */
@@ -72,13 +78,13 @@ ATTR vec2 a_pos;
 ATTR vec4 a_rect;
 ATTR vec4 a_clip;
 ATTR vec4 a_shape;
-ATTR vec2 a_extra;
+ATTR vec4 a_extra;
 uniform vec2 u_view;
 VARY vec2 v_p;
 VARY vec4 v_rect;
 VARY vec4 v_clip;
 VARY vec4 v_shape;
-VARY vec2 v_extra;
+VARY vec4 v_extra;
 void main() {
   v_p = a_pos;
   v_rect = a_rect;
@@ -104,7 +110,7 @@ VARY vec2 v_p;
 VARY vec4 v_rect;
 VARY vec4 v_clip;
 VARY vec4 v_shape;
-VARY vec2 v_extra;
+VARY vec4 v_extra;
 OUT_DECL
 
 float sdRound(vec2 p, vec2 b, float r) {
@@ -162,15 +168,31 @@ void main() {
     n *= vec2(lp.x < 0.0 ? -1.0 : 1.0, lp.y < 0.0 ? -1.0 : 1.0);
     float sigma = sqrt(u_artBlur * u_artBlur + v_shape.z * v_shape.z);
     float d = v_shape.w;
-    vec2 at = v_p - n * bend;
+    // Magnify: the center reads the wallpaper a little closer, as a thick lens does.
+    vec2 base = v_p - lp * v_extra.z;
+    vec2 at = base - n * bend;
     if (d > 0.0) {
       color = vec3(
         frosted(at, sigma).r,
-        frosted(v_p - n * bend * (1.0 + d), sigma).g,
-        frosted(v_p - n * bend * (1.0 + 2.0 * d), sigma).b);
+        frosted(base - n * bend * (1.0 + d), sigma).g,
+        frosted(base - n * bend * (1.0 + 2.0 * d), sigma).b);
     } else {
       color = frosted(at, sigma);
     }
+    color = mix(color, u_tint.rgb, u_tint.a);
+    color = mix(color, u_surface.rgb, u_surface.a);
+    // Gloss: the rim facing the light (above, a little left) catches a bright line that thins
+    // away round the corners, the opposite rim a fainter one, as light through a thick edge.
+    // No texture taps: a few ALU ops per rim pixel.
+    float gloss = v_extra.y;
+    if (gloss > 0.0) {
+      float facing = dot(n, normalize(vec2(-0.42, -1.0)));
+      float rim = 1.0 - smoothstep(0.0, max(1.5, min(band * 0.4, 7.0)), -sd);
+      float light = pow(max(facing, 0.0), 2.0) + 0.4 * pow(max(-facing, 0.0), 3.0);
+      color += vec3(rim * light * gloss * 0.6);
+    }
+    OUT_COLOR = vec4(min(color, vec3(1.0)) * alpha, alpha);
+    return;
   }
   color = mix(color, u_tint.rgb, u_tint.a);
   color = mix(color, u_surface.rgb, u_surface.a);
@@ -189,7 +211,7 @@ function shaderSource(source: string, kind: "vertex" | "fragment", dialect: Glas
         .replaceAll("ATTR ", "in ")
         .replaceAll("VARY ", kind === "vertex" ? "out " : "in ")
         .replace("OUT_DECL", "out vec4 cmuxColor;")
-        .replace("OUT_COLOR", "cmuxColor")
+        .replaceAll("OUT_COLOR", "cmuxColor")
         .replaceAll("SAMPLE(", "textureLod(")
     );
   const lod = dialect === "webgl1-lod" && kind === "fragment";
@@ -200,7 +222,7 @@ function shaderSource(source: string, kind: "vertex" | "fragment", dialect: Glas
       .replaceAll("ATTR ", "attribute ")
       .replaceAll("VARY ", "varying ")
       .replace("OUT_DECL", "")
-      .replace("OUT_COLOR", "gl_FragColor")
+      .replaceAll("OUT_COLOR", "gl_FragColor")
       .replaceAll("SAMPLE(", lod ? "texture2DLodEXT(" : "texture2D(")
   );
 }
@@ -259,7 +281,7 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
   if (!buffer || !texture) return null;
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, MAX_RECTS * VERTICES * FLOATS * 4, gl.DYNAMIC_DRAW);
-  const sizes = [2, 4, 4, 4, 2];
+  const sizes = [2, 4, 4, 4, 4];
   let offset = 0;
   sizes.forEach((size, index) => {
     gl.enableVertexAttribArray(index);
@@ -358,7 +380,7 @@ class GlassLens {
     this.rootWatch = new MutationObserver(this.reconcile);
     this.rootWatch.observe(this.root, {
       attributes: true,
-      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, "data-reduce-transparency"],
+      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE, "data-reduce-transparency"],
     });
     this.mutations = new MutationObserver(this.onMutations);
     this.reconcile();
@@ -389,6 +411,8 @@ class GlassLens {
       this.capable &&
       this.mode !== "plain" &&
       !this.root.hasAttribute(NATIVE_GLASS_ATTRIBUTE) &&
+      // A live background (ui/liveBackground) is drawn in the page: the host's still would cover it.
+      !this.root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE) &&
       this.backdrop.image !== null &&
       this.backdrop.rect !== null;
     if (want !== this.armed) {
@@ -649,6 +673,8 @@ class GlassLens {
       refraction: 0,
       blur: 0,
       dispersion: 0,
+      gloss: 0,
+      magnify: 0,
       opacity: 1,
       visible: true,
       clippers: [],
@@ -662,6 +688,8 @@ class GlassLens {
     surface.blur = Math.max(0, px(style.getPropertyValue("--glass-blur"), 6));
     surface.dispersion =
       this.mode === "spectrum" ? Math.max(0, px(style.getPropertyValue("--glass-dispersion"), 0)) : 0;
+    surface.gloss = Math.min(1, Math.max(0, px(style.getPropertyValue("--glass-gloss"), 0)));
+    surface.magnify = Math.min(0.2, Math.max(0, px(style.getPropertyValue("--glass-magnify"), 0)));
     surface.visible = style.visibility !== "hidden" && style.display !== "none";
     surface.clippers.length = 0;
     let fixed = style.position === "fixed";
@@ -750,6 +778,8 @@ class GlassLens {
         out[at++] = surface.blur;
         out[at++] = surface.dispersion;
         out[at++] = Math.min(1, surface.opacity);
+        out[at++] = surface.gloss;
+        out[at++] = surface.magnify;
         out[at++] = 0;
       }
       count++;

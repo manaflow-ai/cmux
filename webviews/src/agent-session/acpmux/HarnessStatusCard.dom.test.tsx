@@ -61,7 +61,7 @@ const summary = (): NonNullable<AcpmuxSnapshot["summary"]> => ({
   agentInfo: { version: "2.1.309", authSource: "managed login" },
 });
 
-async function render(onDismiss = () => {}) {
+async function render(onDismiss = () => {}, extra: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}) {
   const container = installDom();
   const copied: string[] = [];
   Object.defineProperty(dom!.window.navigator, "clipboard", {
@@ -70,7 +70,7 @@ async function render(onDismiss = () => {}) {
   });
   await act(async () => {
     root = createRoot(container);
-    root.render(<HarnessStatusCard summary={summary()} rows={[]} onDismiss={onDismiss} />);
+    root.render(<HarnessStatusCard summary={{ ...summary(), ...extra }} rows={[]} onDismiss={onDismiss} />);
   });
   return { container, copied };
 }
@@ -271,4 +271,89 @@ test("the focused real minimap preview takes Escape before status", async () => 
   );
   expect(dismissed).toEqual([]);
   expect(container.querySelector(".acpmux-minimap__card")).toBeNull();
+});
+
+// acpmux sends a Claude Code chat's plan limits as an object (claude_stdio/usage_limits.rs):
+// `{ windows: [{ id, usedPercent, resetsAt? (unix seconds) }] }`. The card showed "Not reported".
+const RESET_AT = Date.UTC(2026, 9, 31, 22, 0, 0) / 1000;
+
+async function usageLimitsValue(usageLimits: unknown) {
+  const { container, copied } = await render(() => {}, {
+    usageLimits: usageLimits as NonNullable<AcpmuxSnapshot["summary"]>["usageLimits"],
+  });
+  const value = container
+    .querySelector<HTMLElement>('[data-copy-label="Usage limits"]')!
+    .querySelector<HTMLElement>(".acpmux-harness-status__value-text")!.textContent!;
+  const copyAll = container.querySelector<HTMLButtonElement>(".acpmux-harness-status__copy-all")!;
+  await act(async () => copyAll.click());
+  await settle();
+  return {
+    value,
+    copiedLine: copied
+      .at(-1)!
+      .split("\n")
+      .find((line) => line.startsWith("Usage limits: ")),
+  };
+}
+
+test("the usage limits acpmux reports show each window's use, and a reset time with its time zone", async () => {
+  const { value, copiedLine } = await usageLimitsValue({
+    windows: [
+      { id: "session", usedPercent: 38, resetsAt: RESET_AT },
+      { id: "weekly", usedPercent: 12.5 },
+    ],
+  });
+  expect(value).not.toContain("Not reported");
+  expect(value).toContain("Session (5 hours)");
+  expect(value).toContain("38% used");
+  expect(value).toContain("Weekly");
+  expect(value).toContain("12.5% used");
+  const zone = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
+    .formatToParts(RESET_AT * 1000)
+    .find((part) => part.type === "timeZoneName")!.value;
+  expect(value).toContain(zone);
+  // Only the session window has a reset time; the weekly one gets no guessed one.
+  expect(value.match(/resets/g)?.length).toBe(1);
+  expect(value.slice(value.indexOf("Weekly"))).not.toContain("resets");
+  expect(copiedLine).toBe(`Usage limits: ${value}`);
+});
+
+test("a usage limit window the card does not know shows its raw id", async () => {
+  const { value } = await usageLimitsValue({ windows: [{ id: "weekly_haiku", usedPercent: 3 }] });
+  expect(value).toContain("weekly_haiku");
+  expect(value).toContain("3% used");
+  expect(value).not.toContain("resets");
+});
+
+const MALFORMED_LIMITS: [string, unknown][] = [
+  ["windows that are not a list", { windows: "weekly" }],
+  ["no windows", { windows: [] }],
+  [
+    "windows without an id or a number",
+    { windows: [{ usedPercent: 5 }, { id: "weekly", usedPercent: "lots" }, { id: "session" }] },
+  ],
+  ["a window whose percent is not finite", { windows: [{ id: "session", usedPercent: Number.NaN }] }],
+];
+
+test.each(MALFORMED_LIMITS)("usage limits with %s read as Not reported", async (_case, malformed) => {
+  const { value } = await usageLimitsValue(malformed);
+  expect(value).toBe("Not reported");
+});
+
+test("a reset time outside the dates JavaScript can hold shows the window with no reset, not a crash", async () => {
+  const { value, copiedLine } = await usageLimitsValue({
+    windows: [
+      { id: "session", usedPercent: 38, resetsAt: 1e300 },
+      { id: "weekly", usedPercent: 12.5, resetsAt: 8.64e12 + 1 },
+    ],
+  });
+  expect(value).toContain("38% used");
+  expect(value).toContain("12.5% used");
+  expect(value).not.toContain("resets");
+  expect(copiedLine).toBe(`Usage limits: ${value}`);
+});
+
+test("usage limits a harness reports as plain text still show as they are", async () => {
+  const { value } = await usageLimitsValue("Weekly: 62% remaining");
+  expect(value).toBe("Weekly: 62% remaining");
 });

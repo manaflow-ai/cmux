@@ -141,7 +141,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
     public static func devicesLine(_ devices: MobileHostPairedDevices) -> Data {
         anyLine([
             "type": "devices",
-            "devices": devices.devices.map {
+            "devices": devices.hostdDevices.map {
                 ["id": $0.id, "identity_key": $0.identityKey, "approval_key": $0.approvalKey]
             },
             "denied": devices.denied.map { ["id": $0.id, "identity_key": $0.identityKey] },

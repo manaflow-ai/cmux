@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -99,6 +100,17 @@
       "title" : "Prompt Rail Side",
       "type" : "string"
     },
+    "agentPane.display.transcriptView" : {
+      "default" : "normal",
+      "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+      "enum" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Transcript View",
+      "type" : "string"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -169,6 +181,16 @@
       "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
       "title" : "Needs You",
       "type" : "boolean"
+    },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
     },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
@@ -267,7 +289,7 @@
       "type" : "boolean"
     },
     "agents.subsessions.maxChildren" : {
-      "default" : 50,
+      "default" : 1000,
       "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -283,7 +305,7 @@
       "type" : "number"
     },
     "agents.subsessions.maxRunning" : {
-      "default" : 16,
+      "default" : 1000,
       "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -1012,6 +1034,13 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabFontSize" : {
+      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
+      "maximum" : 18,
+      "minimum" : 10,
+      "title" : "Tab Text Size",
+      "type" : "number"
+    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1038,6 +1067,13 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabStripHeight" : {
+      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+      "maximum" : 44,
+      "minimum" : 22,
+      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1764,6 +1800,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.autoRouteSubagents" : {
+      "default" : false,
+      "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+      "title" : "Route Subagents to the Best Agent",
+      "type" : "boolean"
+    },
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -1786,6 +1828,22 @@
       "default" : true,
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
+      "type" : "boolean"
+    },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -2511,19 +2569,29 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.feedInChief" : {
+      "default" : true,
+      "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+      "title" : "Show the Feed in Chief",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",
@@ -3587,6 +3655,12 @@
       "title" : "Show Tips",
       "type" : "boolean"
     },
+    "sidebar.chromeGroups" : {
+      "default" : false,
+      "description" : "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+      "title" : "Chrome-Style Groups",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -3649,7 +3723,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 1300,
+      "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3883,6 +3957,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3913,12 +3993,6 @@
       "title" : "Show Timestamps",
       "type" : "boolean"
     },
-    "sidebar.showWorkspaceTabs" : {
-      "default" : false,
-      "description" : "Lists tabs beneath each workspace in the sidebar.",
-      "title" : "Show Workspace Tabs",
-      "type" : "boolean"
-    },
     "sidebar.side" : {
       "default" : "left",
       "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -3928,6 +4002,12 @@
       ],
       "title" : "Sidebar Side",
       "type" : "string"
+    },
+    "sidebar.sideBySide" : {
+      "default" : false,
+      "description" : "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+      "title" : "Workspaces Side by Side",
+      "type" : "boolean"
     },
     "sidebar.spacesPosition" : {
       "default" : "bottom",
@@ -4426,6 +4506,12 @@
       "title" : "Agent Working",
       "type" : "boolean"
     },
+    "sidebar.workspacesAsTabs" : {
+      "default" : false,
+      "description" : "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+      "title" : "Workspaces as Tabs",
+      "type" : "boolean"
+    },
     "ssh.linkAllowedHosts" : {
       "default" : [
 
@@ -4653,12 +4739,6 @@
       "default" : false,
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
-      "type" : "boolean"
-    },
-    "tabs.terminalFirst" : {
-      "default" : false,
-      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-      "title" : "cmux Classic Mode",
       "type" : "boolean"
     },
     "tabs.toolbarButtons" : {
@@ -4977,6 +5057,17 @@
       "title" : "Titlebar Buttons",
       "type" : "string"
     },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
+      "type" : "string"
+    },
     "workspaces.autoArchive.idleDays" : {
       "default" : 3,
       "description" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
@@ -4986,7 +5077,7 @@
       "type" : "number"
     },
     "workspaces.autoArchive.style" : {
-      "default" : "suggest",
+      "default" : "manual",
       "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
       "enum" : [
         "suggest",
@@ -5009,6 +5100,14 @@
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
     },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,
