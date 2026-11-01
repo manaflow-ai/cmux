@@ -13,11 +13,8 @@ extension WorkspaceRowView {
         let th = ceil(title.intrinsicContentSize.height)
         let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
-        let center = lines > 0 ? stackTop + th / 2 : b.midY
-        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: center, baseline: title.font.ascender,
-                                                                    capHeight: title.font.capHeight)
-        return (th, sh, top, center)
+        let top = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
+        return (th, sh, top, isExpanded ? top + th / 2 : b.height / 2)
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
@@ -34,10 +31,8 @@ extension WorkspaceRowView {
         // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
         let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
                     (bounds.width * 0.4).rounded(.down))
-        let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
-        timeLabel.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: height))
-        timeLabel.frame.origin.y = SidebarStyle.textY(timeLabel, centerY: cy)
-        return columns.trailingEdge(before: timeLabel.frame)
+        timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
+        return trailing - w - Metrics.space2
     }
 
     /// The Unpin button of an expanded pinned row, with the menu button (hover,
@@ -55,7 +50,7 @@ extension WorkspaceRowView {
             let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
             pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+            pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         }
         return showMore ? pinButton.frame.minX : nil
     }
@@ -66,11 +61,8 @@ extension WorkspaceRowView {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
         subtitle.isHidden = !hasSubtitle
-        let titleCenter = top + title.font.ascender - title.font.capHeight / 2
-        let subtitleCenter = titleCenter + th + lineGap
-        subtitle.frame = NSRect(x: x, y: SidebarStyle.textY(subtitle, centerY: subtitleCenter), width: lineWidth, height: sh)
+        subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        let metaCenter = hasSubtitle ? subtitleCenter + sh + lineGap : titleCenter + th + lineGap
-        metaLabel.frame = NSRect(x: x, y: SidebarStyle.textY(metaLabel, centerY: metaCenter), width: lineWidth, height: sh)
+        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + lineGap, width: lineWidth, height: sh)
     }
 }

@@ -28,6 +28,6 @@ extension SidebarRegionMetrics {
             favoriteHeight: row * 2 + Metrics.space2,
             // A row glyph's center from a line's leading edge (the line
             // starts at the inset; the row glyph at twice the inset).
-            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconColumnBox / 2)
+            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconBox / 2)
     }
 }
