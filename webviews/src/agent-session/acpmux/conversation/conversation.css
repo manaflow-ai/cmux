@@ -354,7 +354,8 @@
 }
 
 /* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
-   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+   collapsed to its first lines, with Show all leading its action row on the left so the toggle
+   adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
 .cv-user__from {
   margin-bottom: 2px;
   padding-right: 4px;
@@ -364,15 +365,30 @@
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-user__bubble--collapsed {
+/* The clamp is on an inner box: on the bubble itself, its bottom padding showed half of the next
+   line under the sixth (Leo 2026-10-31). */
+.cv-user__bubble--collapsed > .cv-user__clamp {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
   line-clamp: 6;
   overflow: hidden;
 }
+/* Show all, then the action row (time, copy, retry), on one line under the bubble's right edge.
+   The toggle stays visible while the actions fade in on hover. */
+.cv-user__chief-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: var(--cv-meta-row);
+  margin-top: var(--cv-meta-gap);
+}
+.cv-user__chief-footer > .cv-user__actions {
+  margin-top: 0;
+}
 .cv-user__expand {
-  margin-top: 2px;
+  flex: none;
   padding: 0 4px;
   border: 0;
   background: none;
