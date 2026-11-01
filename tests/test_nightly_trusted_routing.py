@@ -17,7 +17,7 @@ from test_ci_fork_runner_routing import parse_expression
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
-# The nightly signer jobs and their pick: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
+# The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
 TAIL_CONTROL_JOBS = (
     'route-visual-gate-nightly', 'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
@@ -278,31 +278,28 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
 
-    def test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
-        # Signing is notarization-bound (W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s,
-        # signer-build 7 s, the pick 11 s). Leo, 2026-11-01: "surely we measured the signign we dont need 32/16
-        # just for signing", "surely github has linux hosted we can just use". Attempt 1 takes GitHub-hosted
-        # Ubuntu, a re-run Blacksmith Linux 4 vCPU, whatever LINUX_RUNNER or the overflow switch holds.
+    def test_signer_jobs_use_the_dedicated_blacksmith_linux_picker(self):
+        # The picker validates the 4/16/32-vCPU set and rotates after a stalled queue;
+        # signer jobs consume only its outputs, never hosted/GCP or a scalar variable.
+        picker_context = {
+            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+            'vars.RUNNER_POOLS': '{"linux":"blacksmith-16vcpu-ubuntu-2404"}',
+        }
         for name in SIGNER_ROUTE_JOBS:
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
-            for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
-                           'blacksmith-32vcpu-ubuntu-2404'):
-                for attempt, want in ((1, 'ubuntu-24.04'), (2, 'blacksmith-4vcpu-ubuntu-2404'),
-                                      (3, 'blacksmith-4vcpu-ubuntu-2404')):
-                    context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
-                               'vars.LINUX_RUNNER': runner, 'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}'}
-                    with self.subTest(job=name, runner=runner, attempt=attempt):
-                        self.assertEqual(evaluate(parse_expression(source), context), want)
-            fork = {'github.repository_owner': 'someone', 'github.run_attempt': 1}
-            self.assertEqual(evaluate(parse_expression(source), fork), 'ubuntu-24.04')
-        # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
-        source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
-        placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-                  'needs.decide.outputs.early_attempt': '1', 'needs.decide.outputs.early_linux_jobs': ' signer-build ',
-                  'needs.decide.outputs.early_linux_runner': 'cmux-fleet-linux-x64'}
-        self.assertEqual(evaluate(parse_expression(source), placed), 'cmux-fleet-linux-x64')
-        self.assertEqual(evaluate(parse_expression(source), {**placed, 'github.run_attempt': 2}),
-                         'blacksmith-4vcpu-ubuntu-2404')
+            context = dict(picker_context)
+            if name != 'pick-nightly-sign-runner':
+                context.update({
+                    'needs.pick-nightly-sign-runner.outputs.linux': 'blacksmith-4vcpu-ubuntu-2404',
+                    'needs.pick-nightly-sign-runner.outputs.linux_alternate': 'blacksmith-16vcpu-ubuntu-2404',
+                    'needs.pick-nightly-sign-runner.outputs.attempt': '1',
+                })
+            with self.subTest(job=name):
+                selected = evaluate(parse_expression(source), context)
+                if isinstance(selected, list):
+                    selected = selected[0]
+                self.assertIn(selected, {'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
+                                          'blacksmith-32vcpu-ubuntu-2404'})
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds

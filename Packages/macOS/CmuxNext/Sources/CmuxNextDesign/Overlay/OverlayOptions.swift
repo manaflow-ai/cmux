@@ -81,6 +81,10 @@ public struct OverlayOptions: Equatable, Sendable {
 @MainActor
 public final class OverlayHandle {
     public var onDismiss: (() -> Void)?
+    /// The window resized, moved, changed screen or entered or left full screen, after the host
+    /// placed its overlays again. The host's one observer of its window calls it, so an overlay
+    /// that sizes itself from the window (a toast's detail cap) needs no observer of its own.
+    public var onWindowGeometryChange: (() -> Void)?
     public private(set) var isDismissed = false
     weak var host: WindowOverlayHost?
     let id: Int
@@ -133,6 +137,7 @@ public final class OverlayHandle {
     public func dismiss() {
         guard !isDismissed else { return }
         isDismissed = true
+        onWindowGeometryChange = nil
         host?.remove(self)
         let callback = onDismiss
         onDismiss = nil
