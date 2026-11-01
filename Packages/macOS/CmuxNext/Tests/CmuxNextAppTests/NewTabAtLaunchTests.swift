@@ -21,7 +21,7 @@ struct NewTabAtLaunchTests {
     /// The first snapshot after the create: Home (listed first, as a fresh session lists it) and the new workspace.
     private static func tree() -> DaemonTree {
         DaemonTree(workspaces: [homeOnly().workspaces[0],
-                                WorkspaceSnapshot(id: 2, key: created, name: "jr-type",
+                                WorkspaceSnapshot(id: 2, key: WorkspaceKey(rawValue: created), name: "jr-type",
                                                   screens: [ScreenSnapshot(id: 2, layout: .leaf(2), panes: [
                                                       PaneSnapshot(id: 2, name: "Main", tabs: [TabSnapshot(surface: 1, title: "zsh", cwd: "/tmp")]),
                                                   ])])])
