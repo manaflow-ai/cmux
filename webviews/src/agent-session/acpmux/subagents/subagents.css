@@ -593,14 +593,14 @@ button.cv-subagent > :last-child {
 }
 /* Stop is a button of its own, so it lies outside the line's button, over the line's Stop track: in
    the row's box, on its centre line (Leo's open tray, 2026-10-31: each Stop hung below and right of
-   its line). It is one row tall from the line's top, so a line with a second line of progress keeps
-   it beside its state, never between the two. */
+   its line). It spans the row so taller wide rows keep all trailing controls centered together.
+   Narrow rows place it over their separate controls line below the title. */
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
-  height: var(--ui-row-height, 28px);
+  height: 100%;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
   display: inline-flex;
@@ -721,6 +721,7 @@ button.cv-subagent > :last-child {
   }
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
+    grid-area: auto;
     top: 7px;
     left: var(--acpmux-tray-inset);
   }
@@ -733,6 +734,7 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
+    height: var(--ui-row-height, 28px);
   }
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
