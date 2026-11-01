@@ -58,11 +58,12 @@ export type QuickMenu = {
   /// Account presentation alternatives for the gallery; the compact submenu is the default. Every
   /// layout but inline lists Cmux routers under a Provider heading inside the Account choices.
   routeLayout?: "submenu" | "inline" | "grouped";
-  /// How wide the menu is, for the gallery's versions; `fit` is the default (Leo 2026-11-01: "i
+  /// How wide the menu is, for the gallery's versions; `stable` is the default (Leo 2026-11-01: "i
   /// also don't like the way this composer has so much space between stuff surely we can get more
-  /// compact horizontally" / "see claude code has that"). `fit`: as wide as the open tab's rows, as
-  /// Claude Code's menu is, with an effort column as wide as a level's name. `stable`: as wide as
-  /// every tab's rows, so switching tabs never moves the right edge. `snug`: `fit` with tighter
+  /// compact horizontally" / "see claude code has that"). `stable`: as wide as the rows every tab
+  /// shows (never its Legacy models), with an effort column as wide as a level's name, so a tab
+  /// switch keeps the menu's width (#25796). `fit`: as wide as the open tab's rows only, as Claude
+  /// Code's one-harness menu is; the right edge moves with the tab. `snug`: `stable` with tighter
   /// columns and a lower floor. `wide`: the fixed 480px menu with the 112px effort column (before).
   widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
@@ -1214,7 +1215,7 @@ export function QuickModelMenu({
   // pushing the segments past the narrow chat boundary.
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
-      {(menu.widthLook === "wide" || menu.widthLook === "stable" || !shownTab ? families.list : shownTab.routes)
+      {(menu.widthLook !== "fit" || !shownTab ? families.list : shownTab.routes)
         // The rows a tab shows, never its Legacy models: the longest model name of any harness's
         // Legacy list sized the whole menu, so every row's keys sat far from its name.
         .flatMap((family) => (menu.widthLook === "wide" ? [...family.models, ...family.more] : family.models))
@@ -1239,7 +1240,7 @@ export function QuickModelMenu({
         flip={false}
         align="start"
         label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "fit"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+        className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "stable"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
         // A native menu panel cannot draw the harness strip or the More models scroll area.
         // Keep this combined surface inside the window in both directions.
