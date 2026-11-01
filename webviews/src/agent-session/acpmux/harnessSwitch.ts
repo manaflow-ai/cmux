@@ -1,4 +1,4 @@
-import { errorMessage, isHostRefusal } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -14,8 +14,9 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 // picker, the composer and the session header in the frame it happens: the store records it and
 // the pane draws the snapshot through `applySwitch`. acpmux's work (start or reuse an adapter,
 // session/new, attach, then the picked model, mode and options) runs behind it. Prompts sent
-// before the new session is ready queue on the intent, drawn as the user's message with a quiet
-// "Starting Codex…" on it, and go out in order once it is. A newer pick replaces an older one
+// before the new session is ready queue on the intent, drawn as the user's message under which
+// the turn's Thinking line already runs (no start status, Leo 2026-11-01), and go out in order
+// once it is; the composer's Stop hands them back. A newer pick replaces an older one
 // (its session, if acpmux already started one, is discarded); a failure hands the queued prompts
 // back to the composer, marks the harness in the picker, and offers Retry. While a turn streams,
 // a harness pick applies to the next turn: the stream keeps drawing and the next prompt opens the
@@ -459,8 +460,22 @@ export class HarnessSwitch {
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
     this.handlers.restore?.(prompt.text, prompt.attachments);
     // Back in the composer (`handedBack`): the sender puts nothing back.
-    prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
+    prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
     this.changed();
+  }
+
+  /// The composer's Stop while the shown chat's prompts wait for its agent to start: they all go
+  /// back to the composer, in order, as Cancel on each did. The harness keeps starting. False when
+  /// no prompt waits here (Stop stops the running turn then).
+  cancelQueuedAll(): boolean {
+    const intent = this.intent;
+    if (!intent?.shown || intent.queued.length === 0) return false;
+    const held = intent.queued;
+    intent.queued = [];
+    this.handBack(held);
+    for (const prompt of held) prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
+    this.changed();
+    return true;
   }
 
   /// After the folder's Trust answer: the switch that waited for it starts the same harness in the
@@ -534,8 +549,7 @@ export class HarnessSwitch {
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued)
-        prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
+      for (const prompt of intent.queued) prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
       intent.queued = [];
     }
     intent.done.resolve(undefined);
@@ -815,16 +829,16 @@ export function applySwitch(
     ...(intent.error && { error: intent.error }),
     ...(intent.code && { code: intent.code }),
   };
-  const status = t("switch.starting", { agent: name });
+  // A held prompt reads as sent: no start status on it (the Thinking line under it covers the
+  // start, conversation/turns.ts), and its footer keeps the room the sent prompt's has.
   const queued: AcpmuxRow[] = intent.queued.map((prompt) => ({
     id: `local-${prompt.id}`,
-    // The sent prompt keeps this id as version 1, so its row draws again without the status.
+    // The sent prompt keeps this id as version 1, so its row draws again once it went.
     version: 0,
     at: prompt.at,
     kind: "user",
     text: prompt.text,
     pending: true,
-    status,
     queued: prompt.id,
   }));
   if (!intent.shown || attached)

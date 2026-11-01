@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 540,
+  "count": 542,
   "sections": [
     {
       "id": "general",
@@ -1499,6 +1499,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "title": "Hibernate Hidden Spaces After",
+          "help": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.hibernation.idleMinutes",
@@ -5111,6 +5124,14 @@
       "title": "Home",
       "rows": [
         {
+          "key": "chief.autoRouteSubagents",
+          "title": "Route Subagents to the Best Agent",
+          "help": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Subagents"
+        },
+        {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",
           "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -5239,16 +5260,20 @@
           "default": "orb",
           "group": "Chief Pet",
           "values": [
-            "orb",
-            "orb-spark",
-            "orb-hood",
+            "fox",
             "machine",
             "machine-cyan",
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox",
-            "mochi"
+            "mochi",
+            "fox-arctic",
+            "machine-violet",
+            "machine-gold",
+            "moon-rose",
+            "orb",
+            "orb-spark",
+            "orb-hood"
           ]
         },
         {

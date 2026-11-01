@@ -1058,11 +1058,21 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
                 )
 
+                # A mixed macOS/Linux selector (cmux-next.yml's fast tier, whose
+                # fleet-client fallback runs on vars.LINUX_RUNNER) is fork-safe when
+                # its first clause is a hosted fork branch: a fork's own repository
+                # stops there and never reads the Linux label, and a fork PR into
+                # manaflow-ai still has to pass the macOS checks below.
+                fork_short_circuits = any(
+                    re.search(r"runs-on:\s*\$\{\{\s*" + re.escape(branch) + r"\s*\|\|", line)
+                    for branch in FORK_BRANCHES
+                )
+
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:
                         saw_linux += 1
                         self.assertTrue(
-                            hosted_linux,
+                            hosted_linux or (fork_short_circuits and hosted_macos),
                             f"{path.name}:{number} has no GitHub-hosted Linux fork branch",
                         )
                     if "vars.MACOS_RUNNER" in line:

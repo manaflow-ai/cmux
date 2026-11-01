@@ -66,6 +66,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_status",
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
+    // Every live chat on this daemon (`host_notice.rs`).
+    "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
@@ -160,6 +162,48 @@ fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
     e
 }
 
+/// How long a file upload for a peer's chat waits for that peer's link to come back before it is
+/// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
+pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The upload methods that wait for a peer's link (`await_upload_link`).
+pub(super) fn waits_for_link(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_STATUS
+    )
+}
+
+/// A file the person dropped for a chat on `peer` waits, up to `within`, for the peer's link to be
+/// up instead of failing at once while it reconnects: the peer is wanted (`peer_wanted.rs`), so the
+/// next attempt comes within a second, and each settled attempt is checked. Before, the first
+/// try of a pasted video met a link that was reconnecting and failed, and only the person's Retry
+/// got it through (Leo, 2026-11-01: "i had to retry to get it to load???"). Whether it came up:
+/// a link still down is refused as unreachable by the request, as before.
+pub(super) async fn await_upload_link(
+    peer: &crate::peer::Peer,
+    within: std::time::Duration,
+) -> bool {
+    if peer.ready() {
+        return true;
+    }
+    let mut settled = peer.settled();
+    peer.want();
+    let deadline = tokio::time::Instant::now() + within;
+    while !peer.ready() {
+        match tokio::time::timeout_at(deadline, settled.changed()).await {
+            Ok(Ok(())) => {}
+            // The deadline passed, or the peer went (its sender dropped).
+            _ => break,
+        }
+    }
+    peer.ready()
+}
+
 pub(super) async fn forward(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -230,6 +274,13 @@ async fn forward_inner(
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
             return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
         }
+        // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
+        if waits_for_link(m) && !peer.ready() {
+            tokio::select! {
+                _ = await_upload_link(&peer, UPLOAD_LINK_WAIT) => {}
+                () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
+            }
+        }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
         if m == method::MUX_FILE_PUT {
@@ -243,15 +294,29 @@ async fn forward_inner(
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
         }
+        // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
+        // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.
+        // It goes on the link that listed the feature, never on one a reconnect brought since.
+        let held = m == method::SESSION_PROMPT
+            && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
+        let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
+        let feature = match m {
+            method::MUX_QUEUE_GET => Some(crate::author::QUEUE_GET_FEATURE),
+            _ => approval.then_some(crate::author::QUEUE_APPROVAL_FEATURE),
+        };
+        let bound = feature.map(|f| peer.lists_on(f));
+        if bound.is_some_and(|link| link.is_none()) {
+            return Err(crate::author::approval_unsupported(&peer));
+        }
         // So do a message's attachments, under their caps (`attach.rs`).
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
         {
             crate::attach::check_wire(params)?;
-            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+            if crate::attach::any(blocks) && !peer.lists(crate::attach::FEATURE) {
                 return Err(crate::attach::peer_unsupported(&peer));
             }
-            if crate::prompt_uploads::any(blocks) && !peer.supports_prompt_uploads() {
+            if crate::prompt_uploads::any(blocks) && !peer.lists(crate::prompt_uploads::FEATURE) {
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
@@ -259,14 +324,16 @@ async fn forward_inner(
         // naming it: refused before its bytes are sent, so none is left behind.
         if m == method::MUX_FILE_PUT_BEGIN
             && params.get("forPrompt") == Some(&Value::Bool(true))
-            && !peer.supports_prompt_uploads()
+            && !peer.lists(crate::prompt_uploads::FEATURE)
         {
             return Err(crate::prompt_uploads::peer_unsupported(&peer));
         }
         // An older peer would answer status as unknown and finish without checking `sha256`.
         let checked =
             m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
-        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+        if (checked || m == method::MUX_FILE_PUT_STATUS)
+            && !peer.lists(crate::hub::file_uploads::RESUME_FEATURE)
+        {
             return Err(crate::hub::file_uploads::peer_unsupported(&peer));
         }
         if m == method::MUX_FILE_PUT_CHUNK {
@@ -323,6 +390,14 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        // A held prompt names its hold to the peer: a link guest's waits with `approval` left
+        // off here, which a peer that reads only `approval` would run unapproved.
+        if held
+            && let Some(author) =
+                p.pointer_mut("/_meta/acpmux/author").and_then(Value::as_object_mut)
+        {
+            author.insert("approval".into(), json!(crate::author::APPROVAL_OWNER));
+        }
         if m == method::SESSION_CANCEL {
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
@@ -527,8 +602,9 @@ async fn forward_inner(
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
-        // A page goes on the link it is labelled with, or fails.
-        let on = pages.then_some(link).or(resume_link.flatten());
+        // A page goes on the link it is labelled with, or fails; so does a held prompt, an
+        // answer to one or a read of one, on the link that listed its feature.
+        let on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
