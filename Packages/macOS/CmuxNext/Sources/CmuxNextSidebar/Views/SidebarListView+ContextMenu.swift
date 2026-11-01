@@ -20,6 +20,8 @@ extension SidebarListViewComponents {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .doneFold(fold)? where fold.kind == .archive:
+            target = .background // the Archive row belongs to no list
         case let .doneFold(fold)?, let .showMore(fold)?:
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:

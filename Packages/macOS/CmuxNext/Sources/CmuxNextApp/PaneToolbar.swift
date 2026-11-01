@@ -44,6 +44,7 @@ final class PaneToolbar {
     let view = PaneToolbarView()
     private let registry: () -> ActionRegistry?
     private let paneTarget: ActionTargetRef?
+    private let machineID: () -> String?
     static let creationActions: [ActionID] = ["newSurface", "openBrowser"]
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
@@ -60,8 +61,9 @@ final class PaneToolbar {
     private var refreshCurrent: (() -> Void)?
 
     init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?, paneTarget: ActionTargetRef? = nil,
-         contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
+         contentMenu: @escaping () -> [NSMenuItem] = { [] }, machineID: @escaping () -> String? = { nil }) {
         self.registry = registry
+        self.machineID = machineID
         self.paneTarget = paneTarget
         self.newTabMenu = newTabMenu
         self.contentMenu = contentMenu
@@ -85,7 +87,7 @@ final class PaneToolbar {
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), customize: false) }
                   },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
-                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
+                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID })
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
             // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
@@ -214,14 +216,15 @@ final class PaneToolbar {
             _ = registry()?.perform(id, invocation: ActionInvocation(target: paneTarget, origin: .user))
             return
         }
-        guard let target else { return }
-        _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
+        guard let invocation = tabInvocation() else { return }
+        _ = registry()?.perform(id, invocation: invocation)
     }
+
+    private func tabInvocation() -> ActionInvocation? { target.map { ActionInvocation(target: ActionTargetRef(kind: .tab, id: $0), origin: .user).onMachine(machineID()) } }
 
     /// The tab's actions "…" offers: those it can run.
     func tabActions() -> [ActionID] {
-        guard let registry = registry(), let target, let kind else { return [] }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
+        guard let registry = registry(), let invocation = tabInvocation(), let kind else { return [] }
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
@@ -250,7 +253,7 @@ final class PaneToolbar {
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
                                               entries: tabActions().filter {
                                                   !buttons.contains($0) && (!Self.overflowTabTrimmedActions.contains($0) || pinned.contains($0.rawValue))
-                                              }.map { .action($0) })
+                                              }.map { .action($0) }, machineID: machineID())
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
         for item in tabOwn.items {
             tabOwn.removeItem(item)

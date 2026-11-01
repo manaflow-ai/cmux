@@ -9,7 +9,7 @@ import Testing
 /// one ... I don't want to change the spacing at all"). The handle straddled the sidebar's edge
 /// but lived inside the sidebar container, so AppKit clipped its outer half: clicks, the resize
 /// cursor and hover only reached the 3.5 pt inside the sidebar, and the 6 pt gutter beside it did
-/// nothing. The band now reaches across the gutter and a few points into the sidebar, over its
+/// nothing. The band now reaches across the gutter and 2 pt into the sidebar, over its
 /// neighbors, and moves no frame.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarResizeHitAreaTests {
     func root(sidebarHidden: Bool = false) -> (NSWindow, WindowRootView) {
@@ -49,7 +49,7 @@ import Testing
         return frameView.hitTest(frameView.convert(point, from: nil))
     }
 
-    @Test(arguments: [-4.0, -2.0, -0.5, 0.5, 2.0, 4.0] as [CGFloat])
+    @Test(arguments: [-2.0, -1.0, -0.5, 0.5, 1.0, 5.0] as [CGFloat])
     func aClickNearTheSidebarEdgeReachesTheHandle(offset: CGFloat) throws {
         let (window, root) = root()
         defer { window.close() }

@@ -98,9 +98,11 @@ final class QuitAlert {
     func press(_ id: String) -> Bool {
         guard let dialogID else { return false }
         let ids = buttons.map(\.id)
-        let ends = ids.contains(QuitAlertContent.Button.confirmQuitEverything.rawValue)
+        let endEverything = QuitAlertContent.Button.endEverything.rawValue
+        let ends = ids.contains(QuitAlertContent.Button.confirmQuitEverything.rawValue) || ids.contains(endEverything)
         if id == "end" { return ends }
-        if id == QuitAlertContent.Button.endEverything.rawValue {
+        if id == endEverything {
+            if ids.contains(endEverything) { return center.press(dialogID, button: id) }
             guard ends else { return false }
             finish(.quit(.endEverything, remember: false))
             return true

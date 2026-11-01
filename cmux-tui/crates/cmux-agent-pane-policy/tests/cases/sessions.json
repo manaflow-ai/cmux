@@ -751,5 +751,70 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "session/auth naming a chat outside the scope is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": "s9",
+    "refresh": true
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "session/auth naming the pane's chat passes",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": "s1"
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "session/auth of a target names no chat and passes",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "target": {
+     "harness": "claude"
+    }
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "session/auth naming a chat that is not a string is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": [
+     "s1"
+    ]
+   }
+  },
+  "refused": true
  }
 ]
