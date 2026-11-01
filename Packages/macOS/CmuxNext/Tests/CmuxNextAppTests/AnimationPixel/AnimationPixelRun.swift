@@ -119,7 +119,7 @@ struct AnimationPixelRun {
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), refresh "
             + "\(String(format: "%.2f", fixture.display.refreshPeriod * 1000)) ms, \(frames.count) complete and \(stream.idleFrames) idle "
             + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), capture times put on the display link's "
-            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms), \(failures.count) failures")
+            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the display link's phase), \(failures.count) failures")
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures

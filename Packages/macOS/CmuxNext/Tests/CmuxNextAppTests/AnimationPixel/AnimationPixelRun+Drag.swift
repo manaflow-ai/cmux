@@ -94,7 +94,7 @@ extension AnimationPixelRun {
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), \(all.count) complete and "
             + "\(stream.idleFrames) idle frames, \(moves.count) pointer moves, capture times on the vsync grid (max shift "
-            + "\(String(format: "%.2f", grid.maxResidual * 1000)) ms), \(failures.count) failures")
+            + "\(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the link's phase), \(failures.count) failures")
         print("ANIMATION-PIXEL \(name): pointer moves (ms after the first, offset pt): "
             + moves.map { "\(AnimationPixelRun.ms($0.time - trigger)):\(Int($0.offset))" }.joined(separator: " "))
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
