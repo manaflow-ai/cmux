@@ -102,14 +102,17 @@ def status_pair(obj: Any, statuses: frozenset[str]) -> tuple[str, str | None]:
     return status, conclusion
 
 
-def timestamp(obj: Any, key: str) -> dt.datetime:
-    value = field(obj, key, (str,))
+def parse_timestamp(value: str, key: str) -> dt.datetime:
     if not TIMESTAMP.fullmatch(value):
         raise Unreadable(f"{key!r} {value!r}")
     try:
         return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
         raise Unreadable(f"{key!r} {value!r}") from error
+
+
+def timestamp(obj: Any, key: str) -> dt.datetime:
+    return parse_timestamp(field(obj, key, (str,)), key)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,6 +147,7 @@ class Job:
     runner: str | None
     labels: tuple[str, ...]
     created: dt.datetime
+    started: dt.datetime | None
     completed: dt.datetime | None
 
     @classmethod
@@ -154,9 +158,11 @@ class Job:
         status, conclusion = status_pair(obj, JOB_STATUSES)
         if status == "queued" and not labels:
             raise Unreadable("a queued job with no label")  # a queued job is judged by its label
+        started_at = field(obj, "started_at", (str,), nullable=True)
+        started = parse_timestamp(started_at, "started_at") if started_at is not None else None
         return cls(field(obj, "id", (int,)), field(obj, "name", (str,)), status, conclusion,
                    field(obj, "runner_name", (str,), nullable=True) or None, tuple(labels),
-                   timestamp(obj, "created_at"),
+                   timestamp(obj, "created_at"), started,
                    timestamp(obj, "completed_at") if status == "completed" and conclusion != "skipped" else None)
 
 
@@ -239,6 +245,17 @@ class Api:
 # ---- the decision
 
 
+def started_job(job: Job) -> bool:
+    """Whether GitHub records that this job acquired execution, rather than only being queued."""
+    return job.started is not None and (job.status == "in_progress" or (
+        job.conclusion is not None and job.conclusion != "skipped"))
+
+
+def timed_out_job(job: Job) -> bool:
+    """A timed-out job is the explicit certain-to-fail exception to the started-work hold."""
+    return started_job(job) and job.conclusion == "timed_out"
+
+
 def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     """The run's first job stuck without a runner, when the run as a whole is stuck; else None."""
     if run.status not in ("queued", "in_progress") or not jobs:
@@ -246,6 +263,13 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
 
     def unserved(job: Job) -> bool:
         return job.status == "queued" and job.runner is None
+
+    # A downstream queue is not safe to cancel after any non-skipped job has
+    # started: its completed result may be the only evidence that work already
+    # happened while GitHub was still creating later job records. A timed-out
+    # started job is certain to fail and remains cancellable.
+    if any(started_job(job) for job in jobs) and not any(timed_out_job(job) for job in jobs):
+        return None
 
     # A queued owned build may be the dependency of an already-created signer.
     # Leave the entire run to owned-pool recovery rather than treating that signer
@@ -265,13 +289,15 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     return None
 
 
-def read_stuck(api: Api, run_id: int, now: Callable[[], dt.datetime]) -> tuple[Run, Job | None]:
+def read_stuck(api: Api, run_id: int, now: Callable[[], dt.datetime]) -> tuple[Run, Job | None, bool]:
     run = api.run(run_id)
     if run.status not in ("queued", "in_progress"):
-        return run, None
+        return run, None, False
     if api.pending_deployments(run_id):
-        return run, None
-    return run, stuck_job(run, api.jobs(run_id), now())
+        return run, None, False
+    jobs = api.jobs(run_id)
+    started = any(started_job(job) for job in jobs) and not any(timed_out_job(job) for job in jobs)
+    return run, stuck_job(run, jobs, now()), started
 
 
 def rebuilt_by(run: Run, tip: str) -> str | None:
@@ -339,12 +365,15 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
         return
     for listed in runs:
         try:
-            run, job = read_stuck(api, listed.id, now)
+            run, job, started = read_stuck(api, listed.id, now)
         except Unreadable as why:
             log(f"nightly-next run {listed.id}: could not be read ({why}); left alone")
             continue
         if job is None:
-            log(f"nightly-next run {run.id} ({run.event}, {run.head_sha[:12]}): running or waiting, no job stuck without a runner")
+            if started:
+                log(f"nightly-next run {run.id} ({run.event}, {run.head_sha[:12]}): started, waiting on a runner")
+            else:
+                log(f"nightly-next run {run.id} ({run.event}, {run.head_sha[:12]}): running or waiting, no job stuck without a runner")
             continue
         why = (f"{job.name} was created {int((now() - job.created).total_seconds() // 60)} min ago "
                f"and is queued with no runner on {','.join(job.labels)}")
@@ -358,11 +387,11 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
             # while a tip read is retried; the subsequent job read must observe it
             # before either cancellation write.
             current_tip = api.tip()
-            again, still = read_stuck(api, run.id, now)
+            again, still, started_again = read_stuck(api, run.id, now)
         except Unreadable as error:
             log(f"nightly-next run {run.id}: could not be read again ({error}); left alone")
             continue
-        if still is None or again.attempt != run.attempt:
+        if still is None or started_again or again.attempt != run.attempt:
             log(f"nightly-next run {run.id}: changed since it was read (a runner, a gate or a new attempt); left alone")
             continue
         try:
@@ -380,10 +409,10 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
         if state == "running":
             try:
                 current_tip = api.tip()
-                again, still = read_stuck(api, run.id, now)
+                again, still, started_again = read_stuck(api, run.id, now)
             except Unreadable:
                 still = None
-            if still is not None and again.attempt == run.attempt:
+            if still is not None and not started_again and again.attempt == run.attempt:
                 try:
                     if rebuilt_by(again, current_tip) is None:
                         log(f"nightly-next run {run.id}: no current rebuild path; not force-cancelled")
