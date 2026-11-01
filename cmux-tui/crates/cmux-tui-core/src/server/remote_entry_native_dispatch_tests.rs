@@ -181,10 +181,9 @@ fn native_owner_transfer_uses_existing_guard() {
     let home = entry._directory.path().to_path_buf();
     let cwd = home.join("work/project");
     std::fs::create_dir_all(&cwd).unwrap();
-    entry.mux.set_agent_transfer_host(Some(agent_transfer::AgentTransferHost {
-        cloud: true,
-        home,
-    }));
+    entry
+        .mux
+        .set_agent_transfer_host(Some(agent_transfer::AgentTransferHost { cloud: true, home }));
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
     let manifest = json!({"schema":"acpmux.transfer.v1", "transferId":"xfer_src", "sessionId":"acp_moving",

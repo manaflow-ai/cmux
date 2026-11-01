@@ -196,13 +196,13 @@ mod home;
 mod icon_assets;
 mod launch_snapshot;
 pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+#[cfg(unix)]
+mod native_owner;
 mod new_screen;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
-#[cfg(unix)]
-mod native_owner;
 mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
