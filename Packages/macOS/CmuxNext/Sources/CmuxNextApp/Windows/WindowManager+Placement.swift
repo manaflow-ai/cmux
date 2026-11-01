@@ -67,6 +67,7 @@ extension WindowManager {
                 if registry.value.window(window) == nil { pendingPlacements[id] = nil }
                 continue
             }
+            print("ORDER-PROBE pending id=\(id) window=\(window) owner=\(String(describing: registry.value.owner(of: id))) open=\(String(describing: registry.value.window(window)?.isOpen)) launch=\(String(describing: launchWindowID)) restored=\(restored)")
             pendingPlacements[id] = nil
             // One store-backed rows pass per window; each following placement
             // reads the model with the preceding optimistic moves applied.
@@ -98,8 +99,10 @@ extension WindowManager {
             let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
                 : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
+                print("ORDER-PROBE position id=\(id) position=\(position) rows=\(sections.flatMap(\.workspaces).map(\.id.rawValue))")
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
+            print("ORDER-PROBE listed id=\(id) rows=\(sections.flatMap(\.workspaces).map(\.id.rawValue))")
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
         }
     }

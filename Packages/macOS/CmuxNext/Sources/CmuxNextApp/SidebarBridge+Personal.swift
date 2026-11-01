@@ -100,6 +100,7 @@ extension SidebarBridge {
                 report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
                 return .failed
             }
+            print("ORDER-PROBE personal ids=\(ids) window=\(String(describing: self?.state?.id)) registry=\(services.windows.registry.value.windows) launch=\(String(describing: services.windows.launchWindowID))")
             // The launch window is visible before restore registers its first workspace.
             // Keep its queued placement alive while that registration is in flight; a
             // registry miss for any other window means it was closed or removed.
