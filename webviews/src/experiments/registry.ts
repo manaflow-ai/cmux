@@ -10,6 +10,7 @@ import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.ex
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
+import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
@@ -22,6 +23,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -33,6 +35,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   startedSessionCards,
   threadMinimapLayout,
   threadMinimapHeight,
+  threadMinimapGutter,
   newTabHeadline,
   threadMinimapLit,
   threadMinimapMark,
@@ -48,6 +51,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayRowLook,
   trayMotionLook,
   trayHeadLook,
+  composerPlusCommands,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

@@ -164,6 +164,35 @@ test("a file dropped in shell mode waits in the strip: the command holds no atta
   expect(asked.length).toBe(0);
 });
 
+test("the both view shows a draft's attachment in the text and in the strip; the strip's × takes both", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ attachmentView: "both" });
+  try {
+    const asked: unknown[][] = [];
+    const shells: string[] = [];
+    const field = await render(asked, shells);
+    const handle = field.acpmuxMarkdownField!;
+    await act(async () => handle.focus());
+    await dropZip();
+    await until(() => inlineChips(field) === 1);
+    // Placed in the text, as the inline view places it, and listed in the strip too.
+    await until(() => stripChips() === 1);
+    expect(inlineChips(field)).toBe(1);
+    expect(inlineTokenIds(handle.value()).length).toBe(1);
+
+    const remove = host.querySelector<HTMLButtonElement>(".acpmux-attachments .acpmux-attachment-remove");
+    expect(remove).not.toBeNull();
+    await act(async () => remove!.click());
+    await settle();
+    expect(stripChips()).toBe(0);
+    expect(inlineChips(field)).toBe(0);
+    expect(inlineTokenIds(handle.value())).toEqual([]);
+  } finally {
+    // A failure here must not leave the next tests on the both view.
+    setComposerSettings({ attachmentView: "inline" });
+  }
+});
+
 test("the strip view shows a draft's attachments once, in the strip; its × takes the node out of the text", async () => {
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings({ attachmentView: "inline" });

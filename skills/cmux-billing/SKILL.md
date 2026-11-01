@@ -10,7 +10,7 @@ webhook, or subscription code. Lookup detail lives in references:
 
 | Need | Read |
 | --- | --- |
-| Lookup keys, prices, yearly checkout, plan switching, Founder's Edition, Stripe ids, a price change | [references/catalog.md](references/catalog.md#checkout-keys) |
+| Lookup keys, prices, yearly checkout, plan switching, legacy Founder grants, Stripe ids, a price change | [references/catalog.md](references/catalog.md#checkout-keys) |
 | Cloud VM counts, vCPU/RAM pools, disk and machine-size limits per plan | [references/catalog.md](references/catalog.md#cloud-vm-allowance) |
 | Staff admin grants, team overrides, email grants, admin downgrade | [references/admin.md](references/admin.md) |
 

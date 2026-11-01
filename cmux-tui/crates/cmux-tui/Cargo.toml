@@ -103,7 +103,10 @@ ring.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md), unix
 # only; on every platform, the tailnet CLI wrapper `remote_host` shares
 # (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
-acpmux = { path = "../acpmux" }
+# Without its `build-id` feature: this crate installs acpmux's build id at
+# start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
