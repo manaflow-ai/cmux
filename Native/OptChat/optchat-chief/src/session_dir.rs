@@ -15,7 +15,7 @@
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps cmux and acpmux,
 //! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
@@ -273,7 +273,10 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// started in the app (#25571): a send is the Chief's agent message, under
 /// the daemon's agent message policy, and starts a turn in that chat, a
 /// restored chat no tab has shown yet included.
-pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
+/// Folded `acpmux_*` tools reach coordinator sessions. They are not in
+/// `approval::turn_allowed_tools`: an ask turn still refuses them.
+/// Background tasks stay out because a turn session is temporary.
+pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -290,14 +293,20 @@ pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_chat_send",
     "agents_chat_read",
     "agents_chat_state",
+    "acpmux_send",
+    "acpmux_ls",
+    "acpmux_last",
+    "acpmux_info",
+    "acpmux_inbox_read",
+    "acpmux_inbox_reply",
 ];
 
-/// The turn presets' env that keeps only acpmux's `cmux` MCP server
+/// The turn presets' env that keeps `cmux` and its folded `acpmux` server
 /// (acpmux `agent_tools::SERVERS_ENV`; its built-in turn presets set the
 /// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
 /// use and secret servers' 43 tool names and instructions came after the
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
+pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).

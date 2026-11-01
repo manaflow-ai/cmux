@@ -249,6 +249,11 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // An ACP harness: cmux's MCP servers, fixed for the session (no skills:
     // only Claude Code takes the skills plugin).
     let acp = local.new_session("fake").await;
+    // Owner Chief turns use approve-all. A folded coordinator send is allowed
+    // by that policy without adding it to the Chief's unconditional tool grants.
+    let said =
+        local.ask(&acp, "tool-ask: mcp__cmux__acpmux_send coordinator check the build").await;
+    assert_eq!(said, "chose yes");
     let info = local.call("_acpmux/info", json!({"sessionId": acp})).await.unwrap();
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![

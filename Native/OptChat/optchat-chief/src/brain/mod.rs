@@ -947,6 +947,9 @@ impl Brain {
         stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
         let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
+        let cloud_idle = std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs);
+        let cloud_reap =
+            std::time::Duration::from_secs(chief.cloud_delete_after_paused_days * 86_400);
         let mut brain = Brain {
             chat,
             agents,
@@ -1000,14 +1003,12 @@ impl Brain {
             workspaces: None,
             sub_starter: None,
             cloud_vms: None,
-            cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
+            cloud_idle,
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
             cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
-            cloud_reap: std::time::Duration::from_secs(
-                chief.cloud_delete_after_paused_days * 86_400,
-            ),
+            cloud_reap,
             cloud_reaping: Default::default(),
             fleet: None,
             fleet_every: std::time::Duration::from_secs(30),
@@ -1706,12 +1707,28 @@ impl Brain {
     /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
-            parse_reply_threads, parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, CONTACT, REPLY_THREADS, SHOW_AFTER_REPORT,
+            parse_bool, parse_contact, parse_reply_threads, parse_ttl,
         };
+        if key == CONTACT {
+            let contact = parse_contact(value)?;
+            let mut next = self.chief.clone();
+            next.contact = contact.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!(
+                "setting {key} = {}",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+            return Ok(format!(
+                "{key} = {}; applies after host restart",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_delete_after_paused_days = days;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1722,7 +1739,7 @@ impl Brain {
         }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_auto_pause_idle_secs = secs;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1733,7 +1750,7 @@ impl Brain {
         }
         if key == crate::chief_settings::TRACE_FULL {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.trace_full = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1747,7 +1764,7 @@ impl Brain {
                 .trim()
                 .parse()
                 .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_max_words = words;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1757,7 +1774,7 @@ impl Brain {
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.show_after_report = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1767,7 +1784,7 @@ impl Brain {
         }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_threads = threads;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1778,7 +1795,7 @@ impl Brain {
         if key == CACHE_TTL {
             // From the next turn on (the native engine: the next host start).
             let ttl = parse_ttl(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cache_ttl = Some(ttl);
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1790,7 +1807,7 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CACHE_TTL}, {CONTACT}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
         ))
     }
 

@@ -318,6 +318,37 @@ fn another_persons_turn_refuses_local_effects_at_once_and_asks_nobody() {
     finish(&mut h);
 }
 
+/// Coordinator tools are available to an owner's approve-all turn, but
+/// never become unconditional local-settings grants for another person's turn.
+#[test]
+fn coordinator_tools_stay_behind_the_owner_turn_policy() {
+    use optchat_chief::session_dir::CHIEF_CMUX_TOOLS;
+
+    let allowed = optchat_chief::approval::turn_allowed_tools();
+    let mut h = shared(started());
+    teammate_turn(&mut h, "@Chief message the coordinator");
+    assert_eq!(policy(&h, 0), "ask");
+    for name in ["send", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+        let folded = format!("acpmux_{name}");
+        let tool = format!("mcp__cmux__{folded}");
+        assert!(CHIEF_CMUX_TOOLS.contains(&folded.as_str()));
+        assert!(!allowed.contains(&tool.as_str()));
+        h.brain.step(permission(
+            name,
+            &tool,
+            json!({"to": "test-host/coordinator", "text": "check the build"}),
+        ));
+        assert_eq!(answered(&h, name), Some(Some("reject".into())), "{tool}");
+    }
+    assert_eq!(questions(&h), 0);
+    finish(&mut h);
+
+    let mut owner = harness(None, false, default_script());
+    deliver(&mut owner, false, "message the coordinator");
+    owner.settle();
+    assert_eq!(policy(&owner, 0), "approve-all");
+}
+
 #[test]
 fn a_refused_request_asked_for_again_and_again_stops_the_turn() {
     let mut h = shared(started());
