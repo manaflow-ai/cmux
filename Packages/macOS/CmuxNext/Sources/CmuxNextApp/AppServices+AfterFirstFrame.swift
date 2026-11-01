@@ -12,7 +12,8 @@ extension AppServices {
         ssh.start()
         serverReach.start()
         updater.start()
-        // The run's crash breadcrumbs: counts and kinds only, never a title, URL, path or terminal text.
+        // The run's crash breadcrumbs: counts and kinds only, never a title, URL, path or terminal text. The
+        // run marker reads the footprint when it writes them (AppRunMarker.encoding).
         crashRecovery.recordContext(on: actionBudget.samples(everyRun: true)) { [weak self] in
             guard let self else { return CrashContext(updated: Date(), windows: 0, workspaces: 0, tabKinds: [], focusedPane: nil, browserEngine: nil, browserFailures: 0, footprintMegabytes: 0, actions: []) }
             let workspaces = daemon.store.workspaces
@@ -20,7 +21,7 @@ extension AppServices {
             return CrashContext(updated: Date(), windows: windows.controllers.count, workspaces: workspaces.count,
                                 tabKinds: workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.kind.rawValue),
                                 focusedPane: windows.active?.focusedPane?.selectedTab?.kind.rawValue, browserEngine: cache.cef.startReport.state,
-                                browserFailures: cache.cef.crashLog.total, footprintMegabytes: CrashContext.footprintMegabytes(),
+                                browserFailures: cache.cef.crashLog.total, footprintMegabytes: 0,
                                 actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
         }
         DebugTimings.markLaunch("launch.non_paint_services")
