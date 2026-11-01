@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1265,
+    "entries": 1266,
     "shortcuts": 189
   },
   "sections": [
@@ -5502,6 +5502,12 @@
         {
           "id": "notificationDismiss",
           "title": "Dismiss Notification",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agent.jumpToNextNeedingInput",
+          "title": "Go to Next Agent Needing Input",
           "shortcut": null,
           "command": null
         },

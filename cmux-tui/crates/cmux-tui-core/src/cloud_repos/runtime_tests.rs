@@ -246,6 +246,50 @@ fn cloud_repo_runtime_record_failure_recovers_completed_clone_after_seed_expires
 }
 
 #[test]
+fn cloud_repo_runtime_discards_stale_completed_metadata_without_deleting_folder() {
+    let fixture = Fixture::new();
+    let stale_folder = fixture.root.join("stale-clone");
+    std::fs::create_dir_all(&stale_folder).unwrap();
+    let marker = stale_folder.join("keep.txt");
+    std::fs::write(&marker, "keep").unwrap();
+    store::set_job(
+        &fixture.mux,
+        &fixture.session,
+        "tool",
+        Some(&json!({
+            "job":"old-job",
+            "repo":"owner/tool",
+            "ref":null,
+            "state":"done",
+            "completed":{
+                "state":"done",
+                "repo":"owner/tool",
+                "folder":stale_folder,
+                "head":"0123456789abcdef"
+            }
+        })),
+    )
+    .unwrap();
+
+    let args = json!({"session":fixture.session,"repo":"owner/tool"});
+    let failure = add(&fixture.runtime(), &args).unwrap_err().0;
+    assert_eq!(failure["code"], "seed.bad_request");
+    assert!(failure["message"].as_str().unwrap().contains("Retry Add repository"));
+    assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
+
+    let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"fresh"})), done()]);
+    let result = add(&fixture.runtime(), &args).unwrap();
+    assert_eq!(result["repo"], "owner/tool");
+    assert_eq!(fixture.runtime().attached(&fixture.session).unwrap(), vec![result]);
+    let requests = seed.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["cmd"], "git.seed.start");
+    assert_eq!(requests[1]["cmd"], "git.seed.status");
+    assert_ne!(requests[0]["folder"], json!(stale_folder));
+}
+
+#[test]
 fn cloud_repo_runtime_maps_every_seed_status_failure_and_clears_retryable_job() {
     for code in [
         "seed.needs_github",

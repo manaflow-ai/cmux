@@ -396,3 +396,28 @@ test("Environment Save also handles a synchronous callback failure", async () =>
   expect(button.disabled).toBe(false);
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });
+
+// Leo, 2026-10-29, on the composer mode menu's "Granted access" section: "What is this bottom
+// fucking bullshit?" The grants moved here: each one is a row with its own Revoke.
+test("what the chat was granted is listed last, each with Revoke", async () => {
+  const base = chat(scratchRows);
+  const revoked: string[] = [];
+  const environment = await renderSessionInfo({
+    summary: { ...base.summary!, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
+    machineName: "studio-mac",
+    rows: scratchRows,
+    grants: [
+      { id: "folder-trust", label: "Trusted scratchpad", onRemove: () => revoked.push("folder-trust") },
+      { id: "chat-permission", label: "Allow for this chat", onRemove: () => revoked.push("chat-permission") },
+    ],
+  });
+  const rows = [...environment.querySelectorAll<HTMLElement>("li[data-grant]")];
+  expect(rows.map((row) => row.dataset.grant)).toEqual(["folder-trust", "chat-permission"]);
+  expect(rows[0]!.textContent).toContain("Trusted scratchpad");
+  const revoke = rows[0]!.querySelector<HTMLButtonElement>("button")!;
+  expect(revoke.textContent).toBe(translate("permission.revoke"));
+  expect(revoke.getAttribute("aria-label")).toBe(`${translate("permission.revoke")}: Trusted scratchpad`);
+  await act(async () => revoke.click());
+  await act(async () => rows[1]!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(revoked).toEqual(["folder-trust", "chat-permission"]);
+});

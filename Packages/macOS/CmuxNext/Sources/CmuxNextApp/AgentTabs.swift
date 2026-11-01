@@ -429,11 +429,6 @@ final class AgentTabStore {
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
         model.onCloudRepositoryLocal = cloudRepositoryLocal
-        if let remoteHost = paneHost as? AgentTabRemoteHost {
-            model.onCloudRepositoryRemote = { method, params, timeout in
-                try await remoteHost.cloudRepository(method: method, params: params, timeout: timeout)
-            }
-        }
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {

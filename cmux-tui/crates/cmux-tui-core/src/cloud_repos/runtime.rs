@@ -265,7 +265,15 @@ impl Backend for Runtime<'_> {
                         .and_then(Value::as_str)
                         .is_none_or(|head| head.is_empty())
                 {
-                    return Err(transport_error());
+                    // The machine may have restarted with a stale projection
+                    // entry. Drop only the metadata: the clone directory is
+                    // user data and must remain untouched. The next Add
+                    // repository call can start a fresh seed job.
+                    store::set_job(self.mux, session, name, None)?;
+                    return Err(Failure::new(
+                        "seed.bad_request",
+                        "The saved clone result is stale. Retry Add repository to start a fresh clone; the existing folder was left unchanged.",
+                    ));
                 }
                 return Ok(completed.clone());
             }
