@@ -172,8 +172,16 @@ PICKS: dict[str, int] = {
 }
 
 
+# The secret-bearing route (tests/test_ci_runner_pool_reconcile.py): LINUX_RUNNER, bounded to its ephemeral
+# Blacksmith sizes, picks first; a literal after it is reached only while that mirror is unset.
+EPHEMERAL_MIRROR = re.compile(r"contains\(fromJSON\('[^']*'\), vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER \|\| ")
+
+
 def picks_one_size(runs_on: object) -> bool:
-    return isinstance(runs_on, str) and "macos" not in runs_on and PICK.search(runs_on) is not None
+    if not isinstance(runs_on, str) or "macos" in runs_on:
+        return False
+    pick = PICK.search(runs_on)
+    return pick is not None and EPHEMERAL_MIRROR.search(runs_on[: pick.start()]) is None
 
 
 def counts() -> dict[str, int]:
@@ -202,7 +210,10 @@ class ClassifierTests(unittest.TestCase):
     def test_the_pool_and_the_ephemeral_mirror_do_not(self) -> None:
         mirror = ("contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), "
                   "vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}")
-        for tail in (POOL + " }}", mirror):
+        mirror_then_pick = mirror.replace("|| 'blacksmith-8vcpu-ubuntu-2404' }}",
+                                          "|| vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || "
+                                          "'blacksmith-8vcpu-ubuntu-2404' }}")
+        for tail in (POOL + " }}", mirror, mirror_then_pick):
             with self.subTest(tail=tail):
                 self.assertFalse(picks_one_size(self.FORK + tail))
 
