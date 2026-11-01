@@ -479,7 +479,7 @@ final class CloudService {
     /// whatever the store held before it.
     @discardableResult
     func refresh() async -> Bool {
-        guard auth.isSignedIn, unavailableReason == nil else { return false }; return await refreshGate.run { [weak self] in guard let self else { return false }
+        guard auth.isSignedIn, unavailableReason == nil else { return false }; return await refreshGate.run { [weak self] in guard let self, self.auth.isSignedIn, self.unavailableReason == nil else { return false }
         changes.start()
         lastRefresh = .now
         listGeneration += 1

@@ -13,22 +13,20 @@ public final class CloudRefreshGate {
     public func run(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
         if let active {
             followUpRequested = true
-            return await active.value
+            return await withTaskCancellationHandler(operation: { await active.value }, onCancel: { active.cancel() })
         }
 
-        let task = Task { @MainActor [weak self] () -> Bool in
-            guard let self else { return false }
-            self.followUpRequested = false
-            var result = await operation()
-            // concurrency-allow: this second pass follows an awaited refresh and only runs when a caller arrived during that await.
-            while self.followUpRequested {
-                self.followUpRequested = false
-                result = await operation()
-            }
-            return result
+        followUpRequested = false
+        let task = Task { @MainActor () -> Bool in
+            await operation()
         }
         active = task
-        let result = await task.value
+        var result = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        // concurrency-allow: one bounded follow-up follows the awaited refresh when a caller arrived during it.
+        if followUpRequested, !Task.isCancelled {
+            followUpRequested = false
+            result = await operation()
+        }
         active = nil
         return result
     }
