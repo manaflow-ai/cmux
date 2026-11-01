@@ -20,6 +20,8 @@ TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MA
 # Scope exceptions name an exact path AND symbol, never a directory or a wildcard.
 # Derived/protocol budgets stay. Legacy original-file limits are explicitly deferred
 # to the streaming follow-up split from #26409; they are not permission for new caps.
+# An exemption names only a cap its file still declares (tests/test_attachment_caps_guard.py),
+# so a removed cap cannot come back unreviewed.
 RETAINED_BOUNDS = {
     "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileImageAttachmentPreparer.swift": {
         "maximumRawInputBytes": "Unused legacy declaration; outside native staged admission.",
@@ -29,24 +31,8 @@ RETAINED_BOUNDS = {
         "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
         "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDraftAttachments.swift": {
-        "maximumBytes": "Inline draft persistence memory budget; file-reference persistence is separate.",
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneUpload.swift": {
-        "maximumFileBytes": "Legacy whole-message inline upload; staged upload has separate admission.",
-        "maximumTotalBytes": "Legacy whole-message batch budget; staged batches do not use it.",
-        "maximumPeerFileBytes": "Legacy peer inline protocol budget; removal needs streaming integration.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
-        "maximumPeerFileBytes": "Legacy peer upload admission, deferred to the streaming follow-up.",
-        "maximumTotalBytes": "Legacy peer batch quota, deferred with its transport replacement.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
-        "maximumFileBytes": "Cloud upload quota; removal waits for the streaming/multipart prerequisites.",
-        "maximumTotalBytes": "Cloud batch quota; deferred with the cloud streaming integration.",
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {
         "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
@@ -56,9 +42,6 @@ RETAINED_BOUNDS = {
         "MAX_POSTER_BYTES": "Derived video-poster representation budget, not original admission.",
         "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget, not original admission.",
         "max_bytes": "DerivedVariant representation budget only; original upload is uncapped.",
-    },
-    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
-        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
@@ -83,7 +66,6 @@ RETAINED_BOUNDS = {
         "maxBytes": "Derived image representation budget; original upload is uncapped.",
     },
     "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
-        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
         "MAX_FILES": "Open: the Cloud upload CLI takes 64 files a call; removed with its size cap (#27016).",
     },
     "cmux-tui/crates/cmux-tui-core/src/conversation_attachments.rs": {

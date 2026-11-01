@@ -1,21 +1,35 @@
 import AppKit
 import CmuxNextDesign
 
-/// The sidebar's trailing indicator column (Lawrence 2026-10-20: "line everything up with the
-/// group header's down chevron"). One slot, `controlSize` wide, ends `horizontalInset` from a row's
-/// right edge. The group header's chevron (and its at-rest spinner, a109) and every workspace
-/// row's trailing glyph (the unread dot, the working spinner, a warning dot) and every band item's
-/// dot or status center on its x, at every density and sidebar width, whatever else the row shows
-/// (Lawrence msg 11914: other controls sit left of the column). Header and row layouts read this one place.
+/// One trailing accessory column, with neighbouring controls stepping left on the shared slot grid.
+/// Its inset reserves the largest trailing hit target at the current appearance density, including
+/// footer Search, so every row state stays clear of the sidebar resize band.
 extension SidebarStyle {
     /// The column slot's side: a row control's (the chevron's) size.
     static var trailingSlotSide: CGFloat { controlSize }
 
+    /// Inset from the fill edge to the control slot's end: the larger of the row's own inset and the
+    /// resize clearance. The slot never ends outside the row's inset (Lawrence: the hover close is the
+    /// row's × at the end of the title's line, inside the row's inset), and never nearer the edge than
+    /// the resize band's reach plus Search's overhang (#27954: Search can be wider than the slot, and
+    /// a trailing click must not grab the resize edge). Comfortable rows' 8 pt inset is the larger;
+    /// compact rows' 6 pt inset gives way to the 7 pt clearance.
+    static var trailingColumnInset: CGFloat {
+        max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
+            max(0, (searchHeight - trailingSlotSide) / 2))
+    }
+
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the width up to
-    /// the row's fill end (a band item, whose fill is inset by `horizontalInset`, passes its width
-    /// less that inset), so every row kind lands on one list x.
+    /// the row's fill end, then the shared trailing inset. Each caller passes the width of its actual
+    /// fill, so no view adds a second horizontal inset.
     static func trailingColumnCenterX(rowWidth: CGFloat) -> CGFloat {
-        rowWidth - horizontalInset - trailingSlotSide / 2
+        rowWidth - trailingColumnInset - trailingSlotSide / 2
+    }
+
+    /// The column center in the sidebar's coordinate space. List rows end at the shared content
+    /// edge (`sidebarWidth - rowTrailingTrim`), while the footer has the sidebar as its parent.
+    static func trailingColumnCenterX(sidebarWidth: CGFloat) -> CGFloat {
+        sidebarWidth - rowTrailingTrim - horizontalInset - trailingColumnInset - trailingSlotSide / 2
     }
 
     /// The column slot's leading edge in a row of `rowWidth`: every other trailing control (a
@@ -25,8 +39,15 @@ extension SidebarStyle {
     }
 
     /// A `side`-square frame centered on the column x and on `centerY`.
-    static func trailingColumnFrame(rowWidth: CGFloat, centerY: CGFloat, side: CGFloat) -> CGRect {
-        CGRect(x: trailingColumnCenterX(rowWidth: rowWidth) - side / 2, y: centerY - side / 2, width: side, height: side)
+    static func trailingColumnFrame(rowWidth: CGFloat, centerY: CGFloat, side: CGFloat, slot: Int = 0) -> CGRect {
+        let x = trailingSlotCenterX(rowWidth: rowWidth, slot: slot) - side / 2
+        let end = rowWidth - SidebarResizeBand.contentInset
+        return CGRect(x: min(x, end - side), y: centerY - side / 2, width: side, height: side)
+    }
+
+    /// Footer coordinates use the same fill edge as the list, without a per-view inset.
+    static func trailingColumnFrame(sidebarWidth: CGFloat, centerY: CGFloat, side: CGFloat) -> CGRect {
+        trailingColumnFrame(rowWidth: sidebarWidth - rowEdgeGap, centerY: centerY, side: side)
     }
 
     /// The step between neighbouring trailing slots' centers: a control and the controls' gap. Slot 0 is the column;

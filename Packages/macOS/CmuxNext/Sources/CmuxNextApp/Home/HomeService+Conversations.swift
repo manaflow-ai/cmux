@@ -1,8 +1,9 @@
 import CmuxHomeCore
+import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
-import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -23,7 +24,7 @@ extension HomeService {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        let rows = TopHomePageView.visible(homeStore.rows, archivedChiefs: directory.archivedChiefs, me: me)
+        let rows = HomeArchivedChiefs(directory.archivedChiefs, me: me).visible(homeStore.rows)
         return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
                                   agents: HomeContact.agents(in: rows, me: me))
     }
@@ -112,17 +113,13 @@ extension HomeService {
         }
     }
 
-    /// Archives one of my Chiefs (not the default one); nil when it worked,
-    /// else why not.
+    /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
+    /// still wait, HomeChiefArchive), else why not.
     func archiveChief(_ id: String) async -> String? {
         if directory.chief(for: ParticipantID(id)) == nil { await directory.refreshChiefs() }
-        do {
-            try await directory.archiveChief(id)
-            return nil
-        } catch FeedServiceError.owner(let code, let message) {
-            return code == "chief_is_default" ? HomeStrings.archiveDefaultChief : message
-        } catch {
-            return HomeStrings.archiveFailed
+        switch await directory.archiveChief(id) {
+        case .archived, .hiddenHere: return nil
+        case .refused(let reason): return reason
         }
     }
 
@@ -158,7 +155,7 @@ extension HomeService {
         let store = homeStore
         let source = HomeSidebarSource(
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
-            rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
+            rows: { [weak self] in HomeArchivedChiefs(self?.directory.archivedChiefs ?? [], me: store.me?.id).visible(store.rows) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.wornUpload(of: nil)?.still) },

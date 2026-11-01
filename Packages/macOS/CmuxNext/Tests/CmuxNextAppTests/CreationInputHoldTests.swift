@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextFocusUI
+@testable import CmuxNextFocusUI
 import Foundation
 import Testing
 
@@ -59,9 +59,9 @@ import Testing
         let buffer = CreationInputBuffer(began: .now)
         _ = buffer.open(generation: 1, tab: "first")
         let forFirst = Self.key("a", code: 0)
-        buffer.capture(forFirst)
+        buffer.capture(forFirst, focusedTab: "first")
         _ = buffer.open(generation: 2, tab: "second")
-        buffer.capture(Self.key("b", code: 11))
+        buffer.capture(Self.key("b", code: 11), focusedTab: "second")
         #expect(buffer.cancel(tab: "second"))
         #expect(buffer.take() == [forFirst], "the keys typed for the closed pane went to another one")
     }
@@ -72,11 +72,27 @@ import Testing
         let buffer = CreationInputBuffer(began: .now)
         let ticket = buffer.open(generation: 1, tab: "new")
         #expect(buffer.isCreating(tab: "new"))
-        buffer.capture(Self.key("a", code: 0))
+        buffer.capture(Self.key("a", code: 0), focusedTab: "new")
         buffer.resolve(ticket, awaitsFocus: true)
         #expect(!buffer.isCreating(tab: "new"))
         #expect(!buffer.cancel(tab: "new"))
         #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
+    }
+
+    /// P0 1193 (re-review of #29693 at bc84781571b): a held Cmd-D that runs again at a hold's end opens a new hold with
+    /// only that split's creation, and the keys typed after it for another terminal are carried into it (their own lane).
+    /// The person closes that split before its reply: the keys typed for the split go with it, but the line carried for
+    /// the other terminal stays and goes to that terminal. Before, the cancel found nothing waiting and dropped every key.
+    @Test func closingAReplayOpenedSplitKeepsTheLineCarriedForAnotherTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        _ = buffer.open(generation: 1, tab: "split")
+        let forB = Self.key("b", code: 11), forSplit = Self.key("s", code: 1)
+        let terminalA = CreationInputBuffer.HeldLane(tab: "terminalA", machine: nil)
+        // The rest of the replay: a key of the issuing lane (it moves to the split) and a line for terminal B.
+        buffer.prepend([(event: forSplit, lane: terminalA), (event: forB, lane: CreationInputBuffer.HeldLane(tab: "terminalB", machine: nil))],
+                       issuer: terminalA)
+        #expect(buffer.cancel(tab: "split"))
+        #expect(buffer.take() == [forB], "the line carried for terminal B was dropped with the closed split (or the split's key was kept)")
     }
 
     /// A new workspace's terminal asked for over Home (dogfood v2.2.3): its keys go on only once the window shows that
@@ -86,21 +102,21 @@ import Testing
         let made = CreationInputBuffer(began: .now)
         let ticket = made.open(generation: 4, newWorkspace: true)
         #expect(made.newestGeneration == 4)
-        made.capture(Self.key("e", code: 14))
+        made.capture(Self.key("e", code: 14), focusedTab: nil)
         made.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
-        made.capture(Self.key("c", code: 8)) // typed after the reply: still that terminal's
+        made.capture(Self.key("c", code: 8), focusedTab: nil) // typed after the reply: still that terminal's
         #expect(made.awaitedWorkspace == "ws-new")
         #expect(made.take(shown: "home").isEmpty, "keys typed for the new terminal ran while the window showed Home")
 
         let shown = CreationInputBuffer(began: .now)
         let second = shown.open(generation: 5, newWorkspace: true)
-        shown.capture(Self.key("e", code: 14))
+        shown.capture(Self.key("e", code: 14), focusedTab: nil)
         shown.resolve(second, awaitsFocus: true, workspace: "ws-new")
         #expect(shown.take(shown: "ws-new").count == 1, "the new workspace shows: its keys go to its terminal")
 
         let failed = CreationInputBuffer(began: .now)
         let third = failed.open(generation: 6, newWorkspace: true)
-        failed.capture(Self.key("e", code: 14))
+        failed.capture(Self.key("e", code: 14), focusedTab: nil)
         failed.resolve(third, awaitsFocus: false)
         #expect(failed.awaitedWorkspace == nil)
         #expect(failed.take(shown: "home").isEmpty, "a failed new terminal's keys went to what had the focus")

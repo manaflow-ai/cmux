@@ -7,6 +7,8 @@ public import AppKit
 /// with a zero timestamp (AppKit's synthesized key bindings) match by
 /// identity only.
 public final class DecidedKeyEvents {
+    public init() {}
+
     private struct Signature: Equatable {
         var timestamp: TimeInterval
         var keyCode: UInt16
@@ -24,8 +26,6 @@ public final class DecidedKeyEvents {
     private let events = NSHashTable<NSEvent>.weakObjects()
     private var recent: [Signature] = []
     private static let recentLimit = 16
-
-    public init() {}
 
     public func add(_ event: NSEvent) {
         events.add(event)
