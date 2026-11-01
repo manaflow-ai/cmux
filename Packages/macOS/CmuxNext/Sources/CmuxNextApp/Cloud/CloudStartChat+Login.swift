@@ -12,7 +12,7 @@ import Foundation
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
 ///
-/// DEV and dogfood only (``passesHarnessLogin(isDebugBuild:setting:)``; Leo: "IN THE ACTUAL
+/// DEV and dogfood only (``passesHarnessLogin(isDogfoodBuild:setting:)``; Leo: "IN THE ACTUAL
 /// PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps the token on the Mac,
 /// is scoped in cmux#29766.
 ///
@@ -24,13 +24,14 @@ extension CloudStartChat {
     /// The one switch for every Mac-to-machine login transfer: this pass, the turn card's recovery
     /// and the new-workspace setup, Claude's `setup-token` and the Codex broker alike. The
     /// `cmux.cloud.passHarnessLogin` default wins when set (`-bool NO` makes a DEV build behave as
-    /// production); unset, it is on in a Debug build and off in release, where the machine signs in
-    /// on its own instead.
-    nonisolated static func passesHarnessLogin(isDebugBuild: Bool, setting: Bool?) -> Bool { setting ?? isDebugBuild }
+    /// production); unset, it is on in a dogfood build (``DevTools/isEnabled``: a Debug compile or a
+    /// NIGHTLY bundle, the NEXT nightly included) and off in release, where the machine signs in on
+    /// its own instead.
+    nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, setting: Bool?) -> Bool { setting ?? isDogfoodBuild }
 
-    /// This process's answer to ``passesHarnessLogin(isDebugBuild:setting:)``.
+    /// This process's answer to ``passesHarnessLogin(isDogfoodBuild:setting:)``.
     nonisolated static var passesHarnessLoginHere: Bool {
-        passesHarnessLogin(isDebugBuild: DevTools.isDebugBuild,
+        passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled,
                            setting: UserDefaults.standard.object(forKey: passHarnessLoginKey) as? Bool)
     }
 

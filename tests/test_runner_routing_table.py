@@ -141,6 +141,24 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(bool(problems), forbidden, problems)
                     self.assertEqual(len(allowed), 0 if forbidden else 1)
 
+    def test_published_in_cannot_be_declared_as_hosted_light(self):
+        import yaml
+        route = "${{ github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                "hosted_light_jobs": {"nightly.yml#published-in": {
+                    "class": "portable-checks", "reason": "publication metadata"}}}))
+            (workflows / "nightly.yml").write_text(yaml.safe_dump({"jobs": {
+                "published-in": {"runs-on": route, "permissions": {"pull-requests": "write"},
+                                 "steps": [{"run": "python3 annotate_prs.py"}]}}}, width=10000))
+            problems, allowed = table.hosted_light_policy(policy, workflows)
+            self.assertEqual(allowed, [])
+            self.assertTrue(any("credentialed publication routes" in problem for problem in problems), problems)
+
     def test_the_tree_classifies_every_macos_job(self) -> None:
         self.assertEqual(table.check(), [])
 

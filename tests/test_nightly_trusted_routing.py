@@ -19,6 +19,10 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+TAIL_CONTROL_JOBS = (
+    'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
+    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+)
 
 
 def evaluate(node, context):
@@ -76,6 +80,28 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
+    def test_tail_controls_ignore_stale_prebuild_placement(self):
+        prefix = 'needs.pick-nightly-build-runner.outputs.'
+        for name in TAIL_CONTROL_JOBS:
+            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            expr = parse_expression(source)
+            for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
+                           'blacksmith-6vcpu-macos-26'):
+                for attempt in (1, 2, 3):
+                    for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                        context = {
+                            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                            prefix + 'attempt': str(attempt), prefix + 'helper': helper,
+                            prefix + 'owned': helper, prefix + 'dedicated': 'glaeda-trusted-next-nightly',
+                            'vars.LINUX_RUNNER': overflow,
+                        }
+                        expected = ('ubuntu-24.04' if attempt == 1 else
+                                    overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                        with self.subTest(job=name, helper=helper, attempt=attempt, overflow=overflow):
+                            self.assertEqual(evaluate(expr, context), expected)
+                            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}),
+                                             'ubuntu-24.04')
+
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
