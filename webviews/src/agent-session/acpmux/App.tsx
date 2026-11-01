@@ -10808,7 +10808,8 @@ function AcpmuxPane() {
         } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
           void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
-        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
+        } else if (prompt)
+          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.

@@ -1684,7 +1684,7 @@
     "tunable-source.CmuxNextApp/Control/AppBrowserPage+Screenshot.swift:wakeFailed": "bff1cb41234c3a9d23907ca8c0a9f5669455f29a82b700b131df3609efa0427f",
     "tunable-source.CmuxNextApp/Control/AppBrowserPage.swift:ensureBrowser": "4176777d34c2367a1fa4382e559aff4411255e31a38568b96feda6992c57a7e4",
     "tunable-source.CmuxNextApp/Control/AppControl+Cloud.swift:cloudFileOpsCapability": "737c3914f3ff0e414357cab07a036bc9a3b4c58ad03ab7dd19592e9393fe0718",
-    "tunable-source.CmuxNextApp/Control/AppControl+Cloud.swift:cloudMachineRow": "3c145083c906db9c6af8a5959063d52dc2257be50c6e72a054c4f8355c6f37d7",
+    "tunable-source.CmuxNextApp/Control/AppControl+Cloud.swift:cloudMachineRow": "8fb82d32c139efd4f87bfb9626fc1e02866be2682aaa6507219220e93972d22a",
     "tunable-source.CmuxNextApp/Control/AppControl+Cloud.swift:runError": "afba481aff824b1902dca59141e96b61fbb3556740e3a9ed54a5fe29eeb75752",
     "tunable-source.CmuxNextApp/Control/AppControl+VMAgentKey.swift:vmAgentKeyError": "e6dfb8b2f7bd59b2e9d388c98fd3c119ad1b5c73031d493159f71ca7f417178f",
     "tunable-source.CmuxNextApp/Control/AppControl+VMAgentKey.swift:vmText": "35643bfdbda4cca63f2286fb306e562ecba2e7016a670ce1d7de1b376ae5530f",

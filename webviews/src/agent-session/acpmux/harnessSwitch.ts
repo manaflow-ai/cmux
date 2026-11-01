@@ -685,8 +685,7 @@ export class HarnessSwitch {
     // make the next Enter start a fresh switch with a new gesture.
     if (first?.ticket && first.ticket.port !== port) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued)
-        prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
+      for (const prompt of intent.queued) prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
       intent.queued = [];
       intent.running = undefined;
       intent.phase = "failed";
@@ -705,13 +704,10 @@ export class HarnessSwitch {
     for (const prompt of queued) {
       port
         .send(prompt.text, prompt.attachments, prompt.id, prompt === first ? firstTicket : undefined)
-        .then(
-          (value) => {
-            prompt.written?.();
-            prompt.resolve(value);
-          },
-          prompt.reject,
-        );
+        .then((value) => {
+          prompt.written?.();
+          prompt.resolve(value);
+        }, prompt.reject);
     }
     this.changed();
     intent.done.resolve(opened);
