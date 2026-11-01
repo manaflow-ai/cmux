@@ -55,9 +55,11 @@ public final class ChiefPetSettingsRows: NSObject {
         var upload: ChiefAvatarUploads.Upload?
         /// How the grid offers an upload before there is one (``ChiefPetTunables/uploadAffordance``).
         var affordance = ChiefPetUploadAffordance.tile
+        /// Whether the character was picked (``ChiefMascotPicks/picked(_:in:)``), not only the default.
+        var picked = false
 
-        /// What the Chief wears: its worn upload, else its character.
-        var face: String { isWorn ? upload?.still.path ?? mascot : mascot }
+        /// What the Chief wears in Home: its worn upload, else its picked character, else nothing (its monogram).
+        var face: String { isWorn ? upload?.still.path ?? mascot : picked ? mascot : "" }
         /// Whether the upload is worn: worn over the character picked now.
         var isWorn: Bool { upload?.wornOver == mascot }
     }
@@ -145,7 +147,7 @@ public final class ChiefPetSettingsRows: NSObject {
                      mascotManaged: picks.isDefault(chief)
                          && settings.managedKeys[HomeChiefPetSetting.mascotPath.joined(separator: ".")] != nil,
                      upload: uploads?.uploads[ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief)],
-                     affordance: ChiefPetTunables.uploadAffordance.value)
+                     affordance: ChiefPetTunables.uploadAffordance.value, picked: picks.picked(chief, in: settings.fileRoot) != nil)
     }
 
     func show(_ shown: Shown) {
