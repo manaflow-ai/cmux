@@ -907,7 +907,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # Export the exact jobs allowed to consume it; workflow jobs outside this set stay on the owned route.
     retry_jobs = ()
     if retry:
-        available = max(0, CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0))
+        label_room = CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0)
+        pool_room_slots = pool_room(retry_live, waiting) // vcpus(retry)
+        available = max(0, min(label_room, pool_room_slots))
         retry_jobs = tuple(jobs[:min(MAX_PER_RUN, available)])
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
