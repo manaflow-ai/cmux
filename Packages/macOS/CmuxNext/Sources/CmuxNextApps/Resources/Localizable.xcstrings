@@ -14947,51 +14947,195 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "يتوفر %@ تحديثًا"
+          "variations" : {
+            "plural" : {
+              "zero" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "لا تتوفر تحديثات"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر تحديث واحد"
+                }
+              },
+              "two" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر تحديثان"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تتوفر %@ تحديثات"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر %@ تحديثًا"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر %@ تحديث"
+                }
+              }
+            }
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dostupno ažuriranja: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupno je %@ ažuriranje"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupna su %@ ažuriranja"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupno je %@ ažuriranja"
+                }
+              }
+            }
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ opdateringer tilgængelige"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ opdatering tilgængelig"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ opdateringer tilgængelige"
+                }
+              }
+            }
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ Updates verfügbar"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ Update verfügbar"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ Updates verfügbar"
+                }
+              }
+            }
           }
         },
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ updates available"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@ update available"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@ updates available"
+                }
+              }
+            }
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ actualizaciones disponibles"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ actualización disponible"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ de actualizaciones disponibles"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ actualizaciones disponibles"
+                }
+              }
+            }
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ mises à jour disponibles"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ mise à jour disponible"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ de mises à jour disponibles"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ mises à jour disponibles"
+                }
+              }
+            }
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ aggiornamenti disponibili"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ aggiornamento disponibile"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ di aggiornamenti disponibili"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ aggiornamenti disponibili"
+                }
+              }
+            }
           }
         },
         "ja" : {
@@ -15013,27 +15157,105 @@
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ oppdateringer tilgjengelig"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ oppdatering tilgjengelig"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ oppdateringer tilgjengelig"
+                }
+              }
+            }
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dostępnych aktualizacji: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępna aktualizacja: %@"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępne aktualizacje: %@"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępnych aktualizacji: %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępnych aktualizacji: %@"
+                }
+              }
+            }
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ atualizações disponíveis"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ atualização disponível"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ de atualizações disponíveis"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ atualizações disponíveis"
+                }
+              }
+            }
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Доступно обновлений: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновление: %@"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновления: %@"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновлений: %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновлений: %@"
+                }
+              }
+            }
           }
         },
         "th" : {
@@ -15043,15 +15265,51 @@
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ güncelleme mevcut"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ güncelleme mevcut"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%@ güncelleme mevcut"
+                }
+              }
+            }
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Доступно оновлень: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступне оновлення: %@"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлення: %@"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлень: %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлень: %@"
+                }
+              }
+            }
           }
         },
         "vi" : {
