@@ -98,9 +98,6 @@ struct CloudStartChat {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
-        guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
-            throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
-        }
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
@@ -112,12 +109,14 @@ struct CloudStartChat {
         // copy finished opens its chat without copying again, which would overwrite what it changed.
         let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool, sourceTrusted: Bool))
         do {
-            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
-            copy = try await CloudOutdatedMachine.copy({
+            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine).
+            copy = try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
+                                                       link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
+                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in
                 try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
                                             local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots,
                                             acpmuxHome: QuitAgents.environment(services)?.home.path)
-            }, answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
+            } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
