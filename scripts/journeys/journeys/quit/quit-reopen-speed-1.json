@@ -1,0 +1,94 @@
+{
+ "id": "quit-reopen-speed-1",
+ "priority": "P1",
+ "title": "Speed: quit (Keep Sessions) and reopen with 1 workspace(s): the last frame of every visible terminal and interactive, from main()",
+ "why": "Lawrence 2026-11-01: 'quit and reopen needs to be super fast'. Target: a reopen with kept sessions shows the last frame of every visible terminal under 300 ms after main(), interactive under 500 ms.",
+ "source": "QUIT P0 step 4 (STATUS 2680)",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 6,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "main"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'qs-${nonce}-%g' 1 2000",
+   "enter": true,
+   "mark": "lines"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: 2000 lines",
+   "since": "lines",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "qs-${nonce}-2000"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "right"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the split answers",
+   "since": "right",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "quit_speed",
+   "count": 6,
+   "how": "quit-keep",
+   "title": "timed: quit (Keep Sessions) and reopen, from main()"
+  },
+  {
+   "do": "expect",
+   "title": "after the cycles: the split's text and the scrollback tail are back",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    },
+    {
+     "app_text_line": "right-${nonce}-42"
+    },
+    {
+     "frame_text": "right-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": []
+}

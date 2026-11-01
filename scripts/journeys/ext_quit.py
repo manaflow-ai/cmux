@@ -16,6 +16,9 @@ Steps (`do`):
                                          (`snapshot.get`): what must come back
   require_whole_host {}                  `not run` at once in a capture slot (its window is never key, so a real key
                                          cannot reach it): run it with run.py --whole-host
+  quit_speed     {count?, how?}          COUNT quit-and-reopen cycles (default quit-keep), each timed from the new
+                                         process's main(): last frame, window frame, interactive, quit-to-gone;
+                                         speed.json
   quit_why       {}                      evidence after the checks: the app's quit and daemon log lines since the real
                                          key (log show --info), the daemon_version_handoff mark, the daemon pid now
   real_quit      {ask_wait?, mark?, env?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
@@ -352,7 +355,33 @@ def cond_scrollback_whole(j, want, cache):
     return True, detail
 
 
-STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,
+def step_quit_speed(j, step):
+    """QUIT P0 speed: COUNT quit-and-reopen cycles of kind HOW (default quit-keep: the File menu's Quit, Keep
+    Sessions, no dialog), each through ext_restore's restore_relaunch (the visible panes sampled from the new
+    process's first socket answer). Per cycle: quit_to_gone_ms (the quit request to the old process's end), and from
+    the new process's main(): last_frame_ms (`terminal.launch_frame_shown`: every visible terminal shows its last
+    frame), window_frame_ms (`first_window_frame_committed`), interactive_ms (the slowest visible terminal live:
+    attached, connected, its screen replayed), and blank samples. Cycle 1 is `first` (the first reopen in this app's
+    lease), the rest `again`. Writes speed.json beside result.json; fails only when a cycle did not reopen."""
+    import ext_restore
+    rows = []
+    for index in range(int(step.get("count", 3))):
+        record = ext_restore.step_restore_relaunch(j, {"how": step.get("how", "quit-keep")})
+        r = record.get("restore") or {}
+        main = r.get("main_start")
+        sub = lambda mark: round(mark - main, 1) if isinstance(mark, (int, float)) and isinstance(main, (int, float)) else None
+        live = list((r.get("live_from_main_ms") or {}).values())
+        rows.append({"cycle": index + 1, "arm": "first" if index == 0 else "again",
+                     "quit_to_gone_ms": round(record["ended_after_s"] * 1000, 1) if record.get("ended_after_s") is not None else None,
+                     "last_frame_ms": sub(r.get("launch_frame_shown")), "window_frame_ms": sub(r.get("first_window_frame_committed")),
+                     "interactive_ms": max(live) if live and len(live) >= int(r.get("visible_terminals") or 0) else None,
+                     "visible_terminals": r.get("visible_terminals"), "blank_pane_samples": r.get("blank_pane_samples"),
+                     "socket_ms": r.get("socket_ms"), "main_start_ms": main})
+        (j.out / "speed.json").write_text(json.dumps({"how": step.get("how", "quit-keep"), "rows": rows}, indent=1) + "\n")
+    return {"rows": rows}
+
+
+STEPS = {"quit_state": step_quit_state, "quit_speed": step_quit_speed, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,
          "quit_why": step_quit_why, "require_prior": step_require_prior, "require_daemon_prior": step_require_daemon_prior}
 CONDITIONS = {"quit_asked": ("app", cond_quit_asked), "daemon_kept": ("process", cond_daemon_kept),
               "workspaces_back": ("app", cond_workspaces_back), "scrollback_whole": ("daemon", cond_scrollback_whole),
