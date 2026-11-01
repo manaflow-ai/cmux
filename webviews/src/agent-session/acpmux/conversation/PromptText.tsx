@@ -59,7 +59,11 @@ export function PromptText({
     parts.length > 3 ||
     parts.some((part) => part.kind === "text" && isHugePrompt(part.text));
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
-  const long = measured?.parts === parts ? measured.long : guess;
+  // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
+  // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
+  // whole text without end. Its Show more stays; the cost is at most a needless one.
+  const huge = isHugePrompt(text);
+  const long = huge || (measured?.parts === parts ? measured.long : guess);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = body.current;
@@ -91,7 +95,6 @@ export function PromptText({
   const collapsed = long && !open;
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
-  const huge = isHugePrompt(text);
   const head = huge && collapsed;
   const shownParts = useMemo(
     () =>

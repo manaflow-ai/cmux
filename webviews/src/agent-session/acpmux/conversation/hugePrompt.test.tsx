@@ -106,3 +106,57 @@ test("a huge typed part beside a paste opens collapsed on its head", () => {
   expect(html).toContain("is-clamped");
   expect(html.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS + 2_000);
 });
+
+test("a huge prompt whose drawn head measures short stays collapsed, never flipping", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
+  const scope = globalThis as Record<string, unknown>;
+  const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+  const saved = keys.map((key) => [key, scope[key]] as const);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  // Layout as a browser does it here: 20px lines, each 100 characters one line, so the head that
+  // `show` shrinks to a label fits one line and the whole text is thousands.
+  const height = (node: Node) => Math.ceil((node.textContent?.length ?? 0) / 100) * 20;
+  dom.window.getComputedStyle = (() => ({ lineHeight: "20px" })) as never;
+  Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+    get(this: HTMLElement) {
+      return height(this);
+    },
+  });
+  const createRange = dom.window.document.createRange.bind(dom.window.document);
+  dom.window.document.createRange = () => {
+    const range = createRange();
+    let of: Node | undefined;
+    range.selectNodeContents = (node: Node) => void (of = node);
+    range.getBoundingClientRect = () => ({ height: of ? height(of) : 0 }) as DOMRect;
+    return range;
+  };
+  let renders = 0;
+  const show = (text: string) => {
+    renders++;
+    return text.startsWith("data:") ? "[Image]" : text;
+  };
+  const uri = `data:text/plain;base64,${"A".repeat(HUGE_PROMPT_HEAD_CHARS + 1_000)}`;
+  const text = `${uri}${"\nline".repeat(HUGE_PROMPT_CHARS / 4)}`;
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  try {
+    act(() => root.render(<PromptText rowId="flip" text={text} show={show} />));
+    expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(true);
+    expect(host.textContent!.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS);
+    expect(renders).toBeLessThan(10);
+  } finally {
+    act(() => root.unmount());
+    for (const [key, value] of saved) scope[key] = value;
+  }
+});
