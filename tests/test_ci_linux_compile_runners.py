@@ -93,17 +93,16 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
-    ("web-validation.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundle-publish.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundles.yml", "bundles", "runs-on", BIG),
     ("cmux-next.yml", "web-bundles", "runs-on", BIG),
     # Small compiles: one type check, a small test suite, Go, C++ shims.
+    # web-validation.yml's build and tests and gallery-health.yml's health read the live Linux pool
+    # (fromJSON(vars.RUNNER_POOLS).linux, tests/test_ci_runner_set.py) instead of one fixed size.
     ("ci-web.yml", "web-typecheck", "runs-on", SMALL),
     ("ci-web.yml", "web-tests", "runs-on", SMALL),
     ("ci-web.yml", "web-instant-navigation", "runs-on", SMALL),
-    ("web-validation.yml", "tests", "runs-on", SMALL),
     ("cmux-next-web-bundles.yml", "webviews-checks", "runs-on", SMALL),
-    ("gallery-health.yml", "health", "runs-on", SMALL),
     ("cmux-actions.yml", "check", "runs-on", SMALL),
     ("cmux-vm.yml", "check", "runs-on", SMALL),
     ("cmux-vm-cloud.yml", "check", "runs-on", SMALL),

@@ -326,7 +326,7 @@ impl Hub {
                 return Err(if stopped_here { super::stopped() } else { super::superseded() });
             }
         }
-        if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+        if session.turn().is_some() || session.queue().iter().any(|q| !q.aside()) {
             return Err(busy());
         }
         let last = session.meta().last_turn.unwrap_or(Value::Null);

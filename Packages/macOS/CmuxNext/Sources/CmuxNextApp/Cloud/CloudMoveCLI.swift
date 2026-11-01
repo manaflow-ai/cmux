@@ -27,6 +27,10 @@ nonisolated struct CloudMoveCLI: Sendable {
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.
         var notOlder = false
+        var seedState: String?
+        var seedPhase: String?
+        var seedStartedAt: Double?
+        var seedFinishedAt: Double?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -42,10 +46,11 @@ nonisolated struct CloudMoveCLI: Sendable {
         try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
-    /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
-    /// `local`; a conflict changes nothing here and lists its paths.
-    func syncPull(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["link", "sync", "pull", "--socket", socket, local, remote])
+    /// `cmux link seed pull --or-copy` (Bring Back Local): brings the machine's `remote` back into
+    /// `local`, a seeded git project as the seed's diff and a copied folder as `link sync pull`
+    /// merges it (the CLI picks); a conflict changes nothing here and lists its paths.
+    func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"])
     }
 
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
@@ -177,7 +182,11 @@ nonisolated struct CloudMoveCLI: Sendable {
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
-                            notOlder: object["not_older"] as? Bool ?? false)
+                            notOlder: object["not_older"] as? Bool ?? false,
+                            seedState: object["seed_state"] as? String,
+                            seedPhase: object["seed_phase"] as? String,
+                            seedStartedAt: object["seed_started_at"] as? Double,
+                            seedFinishedAt: object["seed_finished_at"] as? Double)
         return (answer, object, result.status)
     }
 }

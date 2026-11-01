@@ -231,6 +231,20 @@ fn the_same_tree_gives_the_same_commits() {
     assert_eq!(std::fs::read_to_string(machine.join("notes.txt")).unwrap(), "untracked\n");
 }
 
+/// A secret whose name is not UTF-8 is left out by its raw name: its
+/// contents never reach WORK.
+#[test]
+fn a_secret_with_a_non_utf8_name_is_left_out() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let f = Fixture::new();
+    std::fs::write(f.work.join(std::ffi::OsStr::from_bytes(b".env-\xff")), "SECRET=1\n").unwrap();
+    write(&f.work.join("README.md"), "changed\n");
+    let planned = plan(&f.work, &f.path("one.bundle")).unwrap();
+    assert_eq!(planned.skipped.len(), 1, "{:?}", planned.skipped);
+    let names = git(&f.work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(!names.contains(".env"), "{names}");
+}
+
 #[test]
 fn detached_head_has_no_head_ref() {
     let f = Fixture::new();

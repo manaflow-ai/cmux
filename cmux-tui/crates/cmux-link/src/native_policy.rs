@@ -21,7 +21,7 @@ impl NativeBinding {
         self.version == 1
             && !self.tenant.is_empty()
             && self.tenant.len() <= 128
-            && self.tenant.as_bytes()[0].is_ascii_alphanumeric()
+            && self.tenant.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
             && self.tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
             && native_id(&self.mesh, "mesh_")
             && native_id(&self.device, "dev_")
@@ -78,7 +78,7 @@ impl NativePolicy {
                 && !p.services.is_empty()
                 && p.services.len() <= 2
                 && p.services.iter().all(|s| matches!(s, Service::Daemon | Service::Ssh))
-                && (p.services.len() != 2 || p.services[0] != p.services[1])
+                && !matches!(p.services.as_slice(), [first, second] if first == second)
                 && installs.insert(&p.install)
                 && hosts.insert(&p.binding.host)
                 && devices.insert(&p.binding.device)
