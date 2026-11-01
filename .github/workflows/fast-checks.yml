@@ -355,7 +355,7 @@ jobs:
           display_command = (
               command_words[:2] == ['cmux-ci', 'run']
               and '--display' in command_words
-              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '\n'))
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\n'))
           )
           if display_command:
               result = dict(

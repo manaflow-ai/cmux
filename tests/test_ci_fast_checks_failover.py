@@ -120,7 +120,7 @@ class FastChecksFailoverTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("import json, os, pathlib, shlex, signal, subprocess, time", text)
         self.assertIn("command_words[:2] == ['cmux-ci', 'run']", text)
-        self.assertIn("not any(operator in command_text for operator in ('&&', '||', ';', '|', '\\n'))", text)
+        self.assertIn("not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\\n'))", text)
         self.assertIn("assert actual == os.environ['FAST_CHECKS_SOURCE']", text)
         self.assertIn("head_after=actual", text)
         self.assertIn("skipped_display=True", text)
@@ -139,6 +139,13 @@ class FastChecksFailoverTests(unittest.TestCase):
     def test_mixed_display_command_does_not_skip_a_failure(self) -> None:
         result, receipt = self.run_fast_checks_script(
             "false && printf %s --display"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(receipt and receipt.get("skipped_display"))
+
+    def test_background_display_command_does_not_skip_a_failure(self) -> None:
+        result, receipt = self.run_fast_checks_script(
+            "cmux-ci run --class light --display --script example.sh & false"
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(receipt and receipt.get("skipped_display"))
