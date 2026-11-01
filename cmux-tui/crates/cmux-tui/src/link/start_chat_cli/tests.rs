@@ -1495,8 +1495,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         (503, "workspace_machine.not_admitted", "workspace_machine.not_admitted"),
     ] {
         let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
-        let answer =
-            plan_with(&path, &request(&self::key(), "user-leo/"), &mut "token-1\n".as_bytes(), &denied);
+        let request = request(&self::key(), "user-leo/");
+        let answer = plan_with(&path, &request, &mut "token-1\n".as_bytes(), &denied);
         assert_eq!(answer["ok"], json!(false), "{answer}");
         assert_eq!(answer["error_code"], json!(expected), "{answer}");
         assert!(answer.get("new_name").is_none(), "{answer}");
