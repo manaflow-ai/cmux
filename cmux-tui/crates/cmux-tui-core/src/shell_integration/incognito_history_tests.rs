@@ -36,7 +36,13 @@ fn temp_base(name: &str) -> PathBuf {
 
 /// Reads into `output` until `needle` appears after its first `from` bytes;
 /// the offset just past it.
-fn read_until(pty: &mut TestPty, output: &mut Vec<u8>, from: usize, needle: &[u8], deadline: Instant) -> usize {
+fn read_until(
+    pty: &mut TestPty,
+    output: &mut Vec<u8>,
+    from: usize,
+    needle: &[u8],
+    deadline: Instant,
+) -> usize {
     loop {
         if let Some(at) = output
             .get(from..)
@@ -152,11 +158,7 @@ fn run_launch(launched: ShellLaunch, typed: &str, history: &Path) -> String {
     fs::read_to_string(history).unwrap_or_default()
 }
 
-fn assert_history_kept_only_when_normal(
-    name: &str,
-    run: impl Fn(bool) -> String,
-    base: &Path,
-) {
+fn assert_history_kept_only_when_normal(name: &str, run: impl Fn(bool) -> String, base: &Path) {
     let normal = run(false);
     assert!(normal.contains(KEPT), "{name}: a normal terminal keeps its history: {normal:?}");
     let incognito = run(true);
@@ -191,7 +193,9 @@ fn an_incognito_zsh_keeps_no_history_even_when_zshrc_sets_histfile() {
         ("HOME".to_string(), base.to_string_lossy().into_owned()),
         ("ZDOTDIR".to_string(), user.to_string_lossy().into_owned()),
     ];
-    let run = |incognito| run_one_command(Shell::Zsh, &zsh, &base, env.clone(), incognito, (TYPED, &history));
+    let run = |incognito| {
+        run_one_command(Shell::Zsh, &zsh, &base, env.clone(), incognito, (TYPED, &history))
+    };
     assert_history_kept_only_when_normal("zsh", run, &base);
 }
 
@@ -211,8 +215,9 @@ fn an_incognito_bash_keeps_no_history_even_when_bashrc_sets_histfile() {
     )
     .unwrap();
     let env = vec![("HOME".to_string(), base.to_string_lossy().into_owned())];
-    let run =
-        |incognito| run_one_command(Shell::Bash, &bash, &base, env.clone(), incognito, (TYPED, &history));
+    let run = |incognito| {
+        run_one_command(Shell::Bash, &bash, &base, env.clone(), incognito, (TYPED, &history))
+    };
     assert_history_kept_only_when_normal("bash", run, &base);
 }
 
@@ -240,8 +245,9 @@ fn an_incognito_fish_keeps_no_history() {
         ("XDG_CONFIG_HOME".to_string(), config.to_string_lossy().into_owned()),
         ("XDG_DATA_HOME".to_string(), data.to_string_lossy().into_owned()),
     ];
-    let run =
-        |incognito| run_one_command(Shell::Fish, &fish, &base, env.clone(), incognito, (TYPED_FISH, &history));
+    let run = |incognito| {
+        run_one_command(Shell::Fish, &fish, &base, env.clone(), incognito, (TYPED_FISH, &history))
+    };
     assert_history_kept_only_when_normal("fish", run, &base);
 }
 
@@ -412,7 +418,11 @@ fn an_integrated_incognito_shell_is_not_integrated_again_at_launch() {
         let mut env = vec![("HOME".to_string(), "/home/user".to_string())];
         keep_no_history(&mut env);
         let first = integrate_with(vec![shell.to_string()], env, &|_: &str| None);
-        if first.env.iter().all(|(key, _)| key != "ZDOTDIR" && key != "ENV" && key != "XDG_DATA_DIRS") {
+        if first
+            .env
+            .iter()
+            .all(|(key, _)| key != "ZDOTDIR" && key != "ENV" && key != "XDG_DATA_DIRS")
+        {
             eprintln!("skipped {shell}: the integration scripts could not be written here");
             continue;
         }
@@ -441,7 +451,8 @@ fn a_named_but_missing_integration_does_not_skip_incognito_integration() {
         return;
     }
     let fake = std::env::temp_dir().join("cmux-incognito-fake/shell-integration/fake/zsh");
-    for key in ["GHOSTTY_ZSH_ZDOTDIR", "CMUX_CLI_ZSH_ZDOTDIR", "GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] {
+    for key in ["GHOSTTY_ZSH_ZDOTDIR", "CMUX_CLI_ZSH_ZDOTDIR", "GHOSTTY_SHELL_INTEGRATION_XDG_DIR"]
+    {
         let mut env = vec![
             ("HOME".to_string(), "/home/user".to_string()),
             ("ZDOTDIR".to_string(), fake.to_string_lossy().into_owned()),
@@ -449,7 +460,8 @@ fn a_named_but_missing_integration_does_not_skip_incognito_integration() {
         ];
         keep_no_history(&mut env);
         let launched = shell_launch(Some(vec!["/bin/zsh".to_string()]), env);
-        let zdotdir = launched.env.iter().rev().find(|(name, _)| name == "ZDOTDIR").map(|(_, value)| value);
+        let zdotdir =
+            launched.env.iter().rev().find(|(name, _)| name == "ZDOTDIR").map(|(_, value)| value);
         assert_ne!(
             zdotdir.map(String::as_str),
             Some(fake.to_string_lossy().as_ref()),
@@ -582,7 +594,11 @@ fn every_terminal_child_drops_the_inherited_incognito_markers() {
     };
     let normal = vec![("HOME".to_string(), "/home/user".to_string())];
     let unset = keys_to_unset_in_child_from(&normal, &inherited);
-    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN.iter().copied().chain([INCOGNITO_ENV, "HISTFILE", "fish_private_mode"]) {
+    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN.iter().copied().chain([
+        INCOGNITO_ENV,
+        "HISTFILE",
+        "fish_private_mode",
+    ]) {
         assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
     }
 }

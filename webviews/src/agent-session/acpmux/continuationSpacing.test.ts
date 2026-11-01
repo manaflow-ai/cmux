@@ -97,7 +97,9 @@ test("estimated grid rows follow the Interface Size", () => {
   g.document ??= { documentElement: {} };
   g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
   try {
-    const received = [{ id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} }] as unknown as AcpmuxRow[];
+    const received = [
+      { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
+    ] as unknown as AcpmuxRow[];
     // Two shell calls: two tool rows and the block gap between them, all grid lengths.
     const run = [
       {

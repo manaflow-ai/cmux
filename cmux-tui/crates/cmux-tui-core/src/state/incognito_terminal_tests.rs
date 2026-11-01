@@ -35,8 +35,8 @@ fn workspace(mux: &Arc<Mux>, name: &str, content: &str, ephemeral: bool) -> (Str
 /// The internal ids of the terminals workspace `key` created.
 fn terminals_of(mux: &Arc<Mux>, key: &str) -> Vec<String> {
     mux.read_registry_state(|connection| {
-        let mut rows =
-            connection.prepare("SELECT terminal_id FROM terminal_hosts WHERE workspace_key = ?1")?;
+        let mut rows = connection
+            .prepare("SELECT terminal_id FROM terminal_hosts WHERE workspace_key = ?1")?;
         Ok(rows.query_map([key], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
     })
     .unwrap()
@@ -280,8 +280,10 @@ fn an_incognito_terminal_commands_stay_out_of_the_command_history() {
         ids.push(public);
     }
     // The worker runs a delete after every command queued before it.
-    mux.delete_terminal_commands(crate::state::command_history_store::CommandDeletion::StartedSince(u64::MAX))
-        .unwrap();
+    mux.delete_terminal_commands(
+        crate::state::command_history_store::CommandDeletion::StartedSince(u64::MAX),
+    )
+    .unwrap();
     let listed = mux.list_terminal_commands(None, 100).unwrap();
     let terminals = listed["commands"]
         .as_array()
@@ -289,7 +291,10 @@ fn an_incognito_terminal_commands_stay_out_of_the_command_history() {
         .iter()
         .map(|row| row["terminal_id"].as_str().unwrap_or_default().to_string())
         .collect::<Vec<_>>();
-    assert!(terminals.contains(&ids[0].to_string()), "a normal terminal's command is kept: {listed}");
+    assert!(
+        terminals.contains(&ids[0].to_string()),
+        "a normal terminal's command is kept: {listed}"
+    );
     assert!(
         !terminals.contains(&ids[1].to_string()),
         "an incognito terminal's command must not be kept: {listed}"
@@ -349,7 +354,10 @@ fn a_terminal_with_no_registry_row_reads_as_incognito() {
     let session = Session::new("incognito-no-row");
     let mux = session.open();
     let unknown = crate::resource::TerminalPublicId::parse(format!("term_{:032x}", 0xb02)).unwrap();
-    assert!(mux.output_store.is_private(&mux, &unknown), "an unclassified terminal reads as incognito");
+    assert!(
+        mux.output_store.is_private(&mux, &unknown),
+        "an unclassified terminal reads as incognito"
+    );
     assert!(!mux.output_store.keeps_screen(&mux, &unknown));
     mux.shutdown();
 }
@@ -372,13 +380,18 @@ fn a_normal_terminal_is_known_normal_from_its_spawn() {
         .expect("a public terminal id");
     // The registry cannot answer, as before the row is committed.
     mux.read_registry_state(|connection| {
-        connection.execute_batch("ALTER TABLE resource_terminals RENAME TO resource_terminals_hidden;")?;
+        connection
+            .execute_batch("ALTER TABLE resource_terminals RENAME TO resource_terminals_hidden;")?;
         Ok(())
     })
     .unwrap();
-    assert!(!mux.output_store.is_private(&mux, &public), "a spawned normal terminal is known normal");
+    assert!(
+        !mux.output_store.is_private(&mux, &public),
+        "a spawned normal terminal is known normal"
+    );
     mux.read_registry_state(|connection| {
-        connection.execute_batch("ALTER TABLE resource_terminals_hidden RENAME TO resource_terminals;")?;
+        connection
+            .execute_batch("ALTER TABLE resource_terminals_hidden RENAME TO resource_terminals;")?;
         Ok(())
     })
     .unwrap();

@@ -901,7 +901,10 @@ impl OutputStore {
                 Some(true)
             }
             Ok(Some(false)) => {
-                self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
+                self.public
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(terminal_id.clone());
                 Some(false)
             }
             // No row (yet): not known normal, so it reads as incognito and
