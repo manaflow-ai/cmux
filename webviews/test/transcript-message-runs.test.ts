@@ -11,7 +11,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const MESSAGE_RUN = "messageRun";
 let n = 0;
@@ -150,4 +150,32 @@ test("the closed line is estimated as one line, so its mount moves nothing below
   const oneCall = [...view.slice(0, at), activity([read("/tmp/one")]), ...view.slice(at + 1)];
   const line = [...layoutConversation(oneCall as never, 720).heights][at];
   expect(heights[at]).toBe(line!);
+});
+
+// Review of cmux#31398 at d0f89fda: in a Codex turn whose "Worked for" is closed, the run's line is
+// not drawn yet, so Find and links must open the turn's fold and the run inside it together.
+test("Find and a link open a closed Worked for and the message run inside it at once", () => {
+  const rows = turn();
+  const codex = { liveRuns: true, agentFamily: "codex" } as const;
+  const closed = turnView(rows, new Set(), codex);
+  expect(ids(closed)).not.toContain("report");
+  const folds = hiddenRowFolds(rows, closed, rows.findIndex((row) => row.id === "report"));
+  expect(folds[0]).toBe("worked-prompt");
+  const opened = turnView(rows, new Set(folds), codex);
+  expect(ids(opened)).toContain("report");
+  // The line opened by the row's key closes on a click by that same key.
+  const line = opened.find((row) => row.kind === MESSAGE_RUN)!;
+  expect(line.foldOpen).toBe(true);
+  expect(folds).toContain(line.id);
+});
+
+test("a run whose edit waits for its permission stays in sight, not under the line", () => {
+  const rows = turn();
+  rows.splice(
+    3,
+    0,
+    activity([tool("Edit notes.md", "edit", { status: "pending", locations: [{ path: "/tmp/notes.md" }] }), send("lane-9", "hold on")], "asks"),
+  );
+  const view = turnView(rows, new Set(), claude);
+  expect(ids(view)).toContain("asks");
 });

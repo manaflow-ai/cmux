@@ -15,7 +15,7 @@
 import { isLineRow, MESSAGE_RUN, type AcpmuxActivity, type AcpmuxMessageRun, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isWaitingMessage } from "./pendingMessages";
-import { isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import type { Folds } from "./viewFolds";
 
@@ -52,7 +52,9 @@ function member(row: AcpmuxRow): Member | undefined {
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
   const groups = toolGroups(row.items);
   // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch)
-  // keeps the run open around it; only messages fold.
+  // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
+  // permission: the change it asks about stays in sight (turns.ts codexRuns).
+  if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
   if (
     groups.some(
       (group) =>
@@ -104,8 +106,6 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     }
     out ??= rows.slice(0, index);
     const first = members[0]!;
-    const id = messageRunRowId(first.id);
-    const open = expanded.has(id);
     const run: AcpmuxMessageRun = {
       sent,
       received,
@@ -119,6 +119,12 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
         ...(row.joined ?? []),
       ]),
     };
+    // The line's id is its first row's key, or the key of the row Find or a link opened it for
+    // (`revealFolds`): while that key is in the fold set the line is open, and a click on it
+    // closes it by that same key.
+    const opened = run.rows.find((rowId) => expanded.has(messageRunRowId(rowId)));
+    const id = messageRunRowId(opened ?? first.id);
+    const open = opened !== undefined;
     out.push({
       id,
       // Moves with every member's version and the open state: the memoized line and the height
@@ -150,6 +156,15 @@ export function openMessageRuns(rows: readonly AcpmuxRow[], start: number, end: 
 }
 
 /// The message-run line among `drawn` that folds the row `rowId` away, so Find or a link opens it.
+/// When no drawn line holds it (it is behind a closed "Worked for" too, so the line is not drawn
+/// yet), `messageRunRowId(rowId)`: once that fold opens, the run that holds the row opens with it
+/// (`foldMessageRuns` opens a run for any of its rows' keys). Only for a row that can be in a run.
+export function messageRunRevealKey(drawn: readonly AcpmuxRow[], row: AcpmuxRow): string | undefined {
+  const line = messageRunFoldFor(drawn, row.id);
+  if (line) return line;
+  return row.kind === "activity" || row.kind === "compaction" || isReceivedLine(row) ? messageRunRowId(row.id) : undefined;
+}
+
 export function messageRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string): string | undefined {
   for (const row of drawn)
     if (row.kind === MESSAGE_RUN && !row.foldOpen && row.messageRun?.rows.includes(rowId)) return row.id;

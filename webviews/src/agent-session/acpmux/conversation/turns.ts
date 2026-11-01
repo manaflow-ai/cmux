@@ -30,7 +30,7 @@ import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
-import { foldMessageRuns, messageRunFoldFor, openMessageRuns } from "./messageRuns";
+import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1488,15 +1488,17 @@ export function openViewTurnFold(
   return next;
 }
 
-/// The fold that keeps `rows[index]` out of `drawn`: a message run's closed line that holds it
-/// (messageRuns.ts), else its turn's (``turnFoldFor``). Find, a link and a running line's count open it.
-export function hiddenRowFold(
-  rows: readonly AcpmuxRow[],
-  drawn: readonly AcpmuxRow[],
-  index: number,
-): string | undefined {
+/// The folds to open so `rows[index]`, which `drawn` leaves out, draws: its turn's "Worked for"
+/// (``turnFoldFor``) when that hides it, and the message run that holds it (messageRuns.ts), which
+/// may sit inside that fold. Find, a link and a running line's count open them all.
+export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly AcpmuxRow[], index: number): string[] {
   const row = rows[index];
-  return (row && messageRunFoldFor(drawn, row.id)) ?? turnFoldFor(rows, index);
+  if (!row) return [];
+  const line = messageRunFoldFor(drawn, row.id);
+  if (line) return [line];
+  const turn = turnFoldFor(rows, index);
+  const run = messageRunRevealKey(drawn, row);
+  return [...(turn ? [turn] : []), ...(run ? [run] : [])];
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
@@ -1509,13 +1511,15 @@ export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
   messageRows: readonly string[],
-): { rowId: string; fold?: string } | undefined {
+): { rowId: string; fold?: string; run?: string } | undefined {
   const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
   if (places.length === 0) return undefined;
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
-  return { rowId: rows[at]!.id, fold: hiddenRowFold(rows, drawn, at) };
+  // The turn's fold first, then the message run inside it (``hiddenRowFolds``).
+  const [fold, run] = hiddenRowFolds(rows, drawn, at);
+  return { rowId: rows[at]!.id, fold, ...(run && { run }) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward

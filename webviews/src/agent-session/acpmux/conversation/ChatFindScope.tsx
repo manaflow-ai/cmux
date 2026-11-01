@@ -4,7 +4,7 @@
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect } from "react";
 import type { AcpmuxRow } from "../model";
 import { type ChatFind, isFindRow, useChatFind } from "./chatFind";
-import { hiddenRowFold } from "./turns";
+import { hiddenRowFolds } from "./turns";
 
 export function ChatFindScope({
   rows,
@@ -36,8 +36,8 @@ export function ChatFindScope({
   const target = find.open ? find.matches[find.active] : undefined;
   useLayoutEffect(() => {
     if (!target || !shown || shown.some((row) => isFindRow(row, target.rowId))) return;
-    const fold = hiddenRowFold(rows, shown, target.rowIndex);
-    if (fold) openFold(fold);
+    // Its turn's fold and the message run inside it (turns.ts hiddenRowFolds).
+    for (const fold of hiddenRowFolds(rows, shown, target.rowIndex)) openFold(fold);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
   }, [target?.rowId, target?.occurrence]);
   return children(find);
