@@ -649,7 +649,13 @@ function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): Queu
 /// preview) never sets it, whatever its preview looks like. `listedRevision` is the newest revision
 /// acpmux named anywhere; `updating` (not approvable) holds while the record the pane has is older
 /// than it, or there is none.
-type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number; turnId?: string };
+type Hold = {
+  awaitingOwner?: boolean;
+  revision?: number;
+  updating?: boolean;
+  listedRevision?: number;
+  turnId?: string;
+};
 const heldHold = (
   awaitingOwner: boolean | undefined,
   revision: number | undefined,
@@ -675,7 +681,12 @@ function listedHold(entry: any, had: QueuedPrompt | undefined): Hold {
   const awaitingOwner = typeof entry?.awaitingOwner === "boolean" ? entry.awaitingOwner : had?.awaitingOwner;
   const listed = typeof entry?.revision === "number" ? entry.revision : -1;
   const turnId = typeof entry?.turnId === "string" && entry.turnId ? entry.turnId : had?.turnId;
-  return heldHold(awaitingOwner, had?.revision, Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1), turnId);
+  return heldHold(
+    awaitingOwner,
+    had?.revision,
+    Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1),
+    turnId,
+  );
 }
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat

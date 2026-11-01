@@ -78876,6 +78876,270 @@
         }
       }
     },
+    "settings.home.feedInChief": {
+      "comment": "Settings toggle (home.feedInChief): the main Chief's conversation shows the Feed's notices as lines only the person sees.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Feed in Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الموجز في Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži feed u Chiefu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis feedet i Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed im Chief anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el feed en Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le flux dans Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il feed in Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief にフィードを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ Feed ក្នុង Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에 피드 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis feeden i Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż kanał w Chiefie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o feed no Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать ленту в Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงฟีดใน Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akışı Chief içinde göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати стрічку в Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Feed trong Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中显示动态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中顯示動態"
+          }
+        }
+      }
+    },
+    "settings.home.feedInChief.help": {
+      "comment": "Help for the Show the Feed in Chief toggle (home.feedInChief).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر إشعارات الموجز، مثل التحديثات وطلبات السحب، بين رسائل Chief الرئيسي. أنت وحدك تراها، ولا يقرأها Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavijesti iz feeda, poput ažuriranja i pull requestova, pojavljuju se među porukama vašeg glavnog Chiefa. Vidite ih samo vi; Chief ih ne čita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationer fra feedet, f.eks. opdateringer og pull requests, vises blandt din primære Chiefs beskeder. Kun du ser dem; Chief læser dem ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweise aus dem Feed, etwa Updates und Pull Requests, erscheinen zwischen den Nachrichten deines Haupt-Chiefs. Nur du siehst sie; der Chief liest sie nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los avisos del feed, como actualizaciones y pull requests, aparecen entre los mensajes de tu Chief principal. Solo tú los ves; el Chief no los lee."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications du flux, comme les mises à jour et les pull requests, apparaissent parmi les messages de votre Chief principal. Vous seul les voyez ; le Chief ne les lit pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli avvisi del feed, come aggiornamenti e pull request, compaiono tra i messaggi del tuo Chief principale. Li vedi solo tu; il Chief non li legge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートやプルリクエストなどのフィードの通知が、メインの Chief のメッセージの間に表示されます。表示されるのはあなただけで、Chief は読みません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងពី Feed ដូចជាការអាប់ដេត និង pull request បង្ហាញក្នុងចំណោមសាររបស់ Chief មេរបស់អ្នក។ មានតែអ្នកទេដែលឃើញវា ហើយ Chief មិនអានវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트나 풀 리퀘스트 같은 피드 알림이 메인 Chief의 메시지 사이에 표시됩니다. 나만 볼 수 있으며 Chief는 읽지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsler fra feeden, som oppdateringer og pull requests, vises blant meldingene til hoved-Chiefen din. Bare du ser dem; Chief leser dem ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia z kanału, takie jak aktualizacje i pull requesty, pojawiają się wśród wiadomości Twojego głównego Chiefa. Widzisz je tylko Ty; Chief ich nie czyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisos do feed, como atualizações e pull requests, aparecem entre as mensagens do seu Chief principal. Só você os vê; o Chief não os lê."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления ленты, например об обновлениях и pull request, появляются среди сообщений вашего основного Chief. Их видите только вы; Chief их не читает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนจากฟีด เช่น อัปเดตและ pull request จะแสดงระหว่างข้อความของ Chief หลักของคุณ มีเพียงคุณที่เห็น และ Chief จะไม่อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeler ve pull request’ler gibi akış bildirimleri ana Chief’inizin mesajları arasında görünür. Onları yalnızca siz görürsünüz; Chief okumaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення стрічки, як-от оновлення та pull request, з’являються серед повідомлень вашого основного Chief. Їх бачите лише ви; Chief їх не читає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo từ Feed, như bản cập nhật và pull request, xuất hiện giữa các tin nhắn của Chief chính. Chỉ bạn thấy chúng; Chief không đọc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新和拉取请求等动态通知会显示在你的主 Chief 的消息之间。只有你能看到，Chief 不会读取。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新和提取要求等動態通知會顯示在你的主要 Chief 的訊息之間。只有你看得到，Chief 不會讀取。"
+          }
+        }
+      }
+    },
     "settings.home.keepLocation": {
       "comment": "Settings toggle (home.attachments.keepLocation): attached photos and videos keep their location metadata.",
       "extractionState": "manual",
