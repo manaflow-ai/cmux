@@ -251,6 +251,22 @@ impl Backend for Runtime<'_> {
                     "Choose a different chat for this repository or branch; another add already uses that folder.",
                 ));
             }
+            if let Some(completed) = existing.get("completed") {
+                // The seed job can expire after clone completion. Retain its
+                // result until attachment recording succeeds, so recovery
+                // never tries to clone over the completed repository.
+                if completed.get("repo").and_then(Value::as_str) != Some(repo)
+                    || completed.get("folder") != Some(&json!(folder))
+                    || completed.get("state").and_then(Value::as_str) != Some("done")
+                    || !completed
+                        .get("head")
+                        .and_then(Value::as_str)
+                        .is_some_and(|head| !head.is_empty())
+                {
+                    return Err(transport_error());
+                }
+                return Ok(completed.clone());
+            }
             existing.get("job").and_then(Value::as_str).ok_or_else(transport_error)?.to_owned()
         } else {
             let mut params =
@@ -290,8 +306,8 @@ impl Backend for Runtime<'_> {
             };
             // Progress shares the existing projection event. Bound writes to
             // once per second; completion always removes the running state.
-            if status.get("state").and_then(Value::as_str) != Some("running")
-                || last_progress.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
+            if status.get("state").and_then(Value::as_str) == Some("running")
+                && last_progress.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
             {
                 let mut saved =
                     json!({"job":job,"repo":repo,"ref":reference,"state":status.get("state")});
@@ -315,6 +331,14 @@ impl Backend for Runtime<'_> {
                     if let Some(notes) = status.get("notes") {
                         result.set("notes", notes.clone());
                     }
+                    store::set_job(
+                        self.mux,
+                        session,
+                        name,
+                        Some(&json!({
+                            "job":job,"repo":repo,"ref":reference,"state":"done","completed":result
+                        })),
+                    )?;
                     return Ok(result);
                 }
                 Some("failed") => {

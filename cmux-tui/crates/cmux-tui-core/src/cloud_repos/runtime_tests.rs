@@ -160,6 +160,7 @@ fn cloud_repo_runtime_clones_through_seed_and_replays_the_record_without_a_secon
     assert_eq!(add(&runtime, &args).unwrap(), result);
     assert_eq!(runtime.attached(&fixture.session).unwrap(), vec![result]);
     assert_eq!(runtime.sources().unwrap()[0].full_name, "owner/tool");
+    assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
     let requests = server.join().unwrap();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0]["cmd"], "git.seed.start");
@@ -171,6 +172,47 @@ fn cloud_repo_runtime_clones_through_seed_and_replays_the_record_without_a_secon
         json!(runtime.home.join("chats").join(&fixture.session).join("tool"))
     );
     assert_eq!(requests[1], json!({"id":"cloud-repo","cmd":"git.seed.status","job":"clone-1"}));
+}
+
+#[test]
+fn cloud_repo_runtime_record_failure_recovers_completed_clone_after_seed_expires() {
+    struct FailingRecord<'a>(Runtime<'a>);
+    impl Backend for FailingRecord<'_> {
+        fn sources(&self) -> Result<Vec<Repo>, Failure> {
+            self.0.sources()
+        }
+        fn connector(&self, query: Option<&str>) -> Result<Catalog, Failure> {
+            self.0.connector(query)
+        }
+        fn attached(&self, session: &str) -> Result<Vec<Value>, Failure> {
+            self.0.attached(session)
+        }
+        fn clone_repo(
+            &self,
+            session: &str,
+            repo: &str,
+            reference: Option<&str>,
+        ) -> Result<Value, Failure> {
+            self.0.clone_repo(session, repo, reference)
+        }
+        fn record(&self, _: &str, _: &Value) -> Result<(), Failure> {
+            Err(Failure::new("seed.clone_failed", "Retry recording the completed clone."))
+        }
+    }
+    let fixture = Fixture::new();
+    let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"expires"})), done()]);
+    let backend = FailingRecord(fixture.runtime());
+    let args = json!({"session":fixture.session,"repo":"owner/tool"});
+    assert!(add(&backend, &args).is_err());
+    assert_eq!(seed.join().unwrap().len(), 2);
+    assert!(backend.attached(&fixture.session).unwrap().is_empty());
+    let saved = store::job(&fixture.mux, &fixture.session, "tool").unwrap().unwrap();
+    assert_eq!(saved["completed"]["head"], "0123456789abcdef");
+    // The fake seed listener is gone; no status lookup or second start can succeed.
+    let result = add(&backend.0, &args).unwrap();
+    assert_eq!(result, saved["completed"]);
+    assert_eq!(backend.attached(&fixture.session).unwrap(), vec![result]);
+    assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
 }
 
 #[test]
