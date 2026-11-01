@@ -715,9 +715,10 @@ class BenchApp:
         can be another executable; only a bundle with no Info.plist falls back to those guesses."""
         try:
             with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
-                named = plistlib.load(f).get("CFBundleExecutable")
-        except (OSError, ValueError, plistlib.InvalidFileException):
-            named = None
+                info = plistlib.load(f)
+        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+            info = None
+        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
         if named:
             main = os.path.join(self.app, "Contents/MacOS", named)
             if not os.path.exists(main):

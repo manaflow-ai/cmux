@@ -305,7 +305,10 @@ def main(argv):
     app = CloseFlashApp(os.path.abspath(opts.app), opts.out)
     try:
         app.launch()
-        report["daemon_start"] = daemon_check(app.bundle)
+        # The window can show before the headless daemon starts: poll (bounded) until a daemon of the bundle runs,
+        # then keep the last check (it names why it failed).
+        report["daemon_start"] = wait(lambda: (lambda check: check if check["ok"] else None)(daemon_check(app.bundle)), 60) \
+            or daemon_check(app.bundle)
         for _ in range(opts.close_rounds):
             for kind in kinds:
                 report["rounds"][kind].append(rounds_of[kind](app))
