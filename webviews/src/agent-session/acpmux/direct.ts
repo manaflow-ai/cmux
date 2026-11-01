@@ -792,7 +792,16 @@ export function mergeQueue(
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? undefined : (kept ?? listedMessage);
+    // acpmux's own inbox notice is listed with no `fromAgent` (it has no sender, hub/inbox.rs
+    // `deliver_notice`), yet it is never the person's prompt: the record read named it, or its
+    // listed preview (client `acpmux`, the notice's head) does.
+    const notice =
+      had?.message?.inbox !== undefined
+        ? had.message
+        : entry?.client === "acpmux" && isInboxNoticeText(preview)
+          ? queuedMessage({ text: preview, fromAgent: "inbox" })
+          : undefined;
+    const message = notice ?? (listed === null ? undefined : (kept ?? listedMessage));
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =

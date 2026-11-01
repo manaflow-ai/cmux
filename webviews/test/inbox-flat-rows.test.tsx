@@ -189,3 +189,82 @@ test("a queued inbox notice whose threads cannot be read draws nothing, never it
   expect(lines()).toEqual([["origin-assist", "Rebased."]]);
   expect(host.textContent).not.toContain("New messages from other agents");
 });
+
+// Follow-ups from the review at 2e5bf380 (#29830).
+test("a notice acpmux lists with no fromAgent stays the notice after a list refresh, never the person's prompt", async () => {
+  const { mergeQueue } = await import("../src/agent-session/acpmux/direct");
+  const text = `${HARNESS}\n- 1 new in #300 from pane-tools: Ready for review. (thread from:pane-tools/pr:300)`;
+  // acpmux's notice has no sender: its list entry names `fromAgent: null` (hub/composers.rs).
+  const listed = [{ promptId: "n1", preview: text.slice(0, 400), fromAgent: null, client: "acpmux" }];
+  const fromList = mergeQueue([], listed);
+  expect(fromList[0]?.message?.inbox?.threads.map((thread) => thread.from)).toEqual([["pane-tools"]]);
+  // A refresh keeps the notice the `queued` record named, provenance and all.
+  const recorded = queue([{ id: "n1", record: notice("pane-tools", 300, "Ready for review.", "p300") }]);
+  const refreshed = mergeQueue(recorded, listed);
+  expect(refreshed[0]?.message?.inbox?.threads[0]?.promptIds).toEqual(["p300"]);
+  // The person's own prompt listed the same way stays theirs.
+  const own = mergeQueue([], [{ promptId: "p", preview: "Fix the caret", fromAgent: null, client: "cmux" }]);
+  expect(own[0]?.message).toBeUndefined();
+});
+
+test("the merged notice keeps the first notice's id, a new version, and counts each message once", () => {
+  const records = (extra: { id: string; record: Record<string, unknown> }[]) =>
+    queuedMessageRows(
+      queue([
+        {
+          id: "n1",
+          record: {
+            ...notice("pane-tools", 300, "second", "p2"),
+            _meta: {
+              provenance: {
+                kind: "inbox_notice",
+                threads: [
+                  { threadId: "from:pane-tools/pr:300", new: 2, from: ["pane-tools"], promptIds: ["p1", "p2"] },
+                ],
+              },
+            },
+          },
+        },
+        ...extra,
+      ]),
+    );
+  const alone = pendingMessagesRow([], records([]))!;
+  const [merged] = alone.pendingMessages!.displayRows!;
+  expect(merged!.id).toBe("queued-message-n1");
+  expect(merged!.queuedMessage).toBeUndefined();
+  // One of the thread's two messages also waits as its own line: the thread keeps the other.
+  const both = pendingMessagesRow([], records([{ id: "p1", record: message("pane-tools", "first") }]))!;
+  const shown = both.pendingMessages!.displayRows!;
+  expect(shown[0]!.version).not.toBe(merged!.version);
+  const thread = shown[0]!.incoming?.kind === "inbox" ? shown[0]!.incoming.notice.threads[0] : undefined;
+  expect(thread).toMatchObject({ count: 1, promptIds: ["p2"] });
+});
+
+test("a notice's text reads paragraphs, spaced keys and quoted labels as acpmux wrote them", async () => {
+  const { inboxNoticeFromText } = await import("../src/agent-session/acpmux/conversation/inboxNotice");
+  const text = [
+    "[inbox] New messages from other agents in 3 threads.",
+    "- 1 new in #12 from lane-a (thread from:lane-a/pr:12):",
+    "  > First paragraph.",
+    "  >",
+    "  > Second paragraph.",
+    "- 2 new in #13 from lane-b, lane-c (thread pr:13):",
+    "  > lane-b: one",
+    "  >",
+    "  > lane-c: two",
+    '- 1 new in "notes from the field" from lane-d: hello (thread topic:notes from the field)',
+  ].join("\n");
+  const notice = inboxNoticeFromText(text)!;
+  expect(notice.threads.map((thread) => thread.threadId)).toEqual([
+    "from:lane-a/pr:12",
+    "pr:13",
+    "topic:notes from the field",
+  ]);
+  expect(notice.threads[0]!.messages).toEqual([{ from: "lane-a", text: "First paragraph.\n\nSecond paragraph." }]);
+  expect(notice.threads[0]!.preview).toBe("First paragraph.");
+  expect(notice.threads[1]!.messages).toEqual([
+    { from: "lane-b", text: "one" },
+    { from: "lane-c", text: "two" },
+  ]);
+  expect(notice.threads[2]).toMatchObject({ label: "notes from the field", from: ["lane-d"], preview: "hello" });
+});

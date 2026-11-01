@@ -66,6 +66,8 @@ export function searchablePendingRows(
   return all.filter((row) => (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || kept.has(row));
 }
 
+let mergedVersion = 0;
+
 /// The rows the group draws, flat and in order: each message as its own line, and every inbox
 /// notice's threads joined into one notice where the first notice was (a thread in two notices
 /// once), without a thread whose messages all wait as their own lines here.
@@ -78,18 +80,26 @@ export function pendingDisplayRows(members: readonly AcpmuxRow[]): readonly Acpm
     const next = (row.incoming as { kind: "inbox"; notice: InboxNotice }).notice;
     notice = notice ? joinNotices(notice, next) : next;
   }
-  const threads = notice!.threads.filter(
-    (thread) => !(thread.promptIds.length > 0 && thread.promptIds.every((id) => own.has(id))),
-  );
+  // A thread loses the messages that wait as their own lines, and goes when none is left.
+  const threads = notice!.threads.flatMap((thread) => {
+    const covered = thread.promptIds.filter((id) => own.has(id)).length;
+    if (covered === 0) return [thread];
+    if (covered === thread.promptIds.length) return [];
+    const promptIds = thread.promptIds.filter((id) => !own.has(id));
+    return [{ ...thread, count: Math.max(1, thread.count - covered), promptIds }];
+  });
   const first = notices[0]!;
   const joined: InboxNotice = { threads };
+  // The first notice's id: Find's match and its highlight name the row it drew. A new version
+  // each time, since the threads shown change with the messages beside them too.
   const merged: AcpmuxRow | undefined = threads.length
     ? {
-        ...first,
-        id: `pending-inbox:${first.id}`,
-        version: notices.reduce((sum, row) => sum + row.version, 0),
+        id: first.id,
+        version: ++mergedVersion,
+        at: first.at,
         kind: "user",
         text: inboxText(joined),
+        untyped: true,
         incoming: { kind: "inbox", notice: joined },
         joined: notices.map((row) => row.id),
       }

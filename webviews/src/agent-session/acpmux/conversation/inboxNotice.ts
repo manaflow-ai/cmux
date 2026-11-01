@@ -117,7 +117,9 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
 export const isInboxNoticeText = (text: string): boolean =>
   /^\s*(?:\[inbox\]\s*)?New messages from other agents\b/i.test(text);
 
-const THREAD_LINE = /^- (\[blocker\] )?(\d+) new in (.+?) from (.+?)(?:: (.*?))? \(thread ([^\s)]+)\)(:?)$/;
+// `- [blocker] N new in LABEL from A, B: PREVIEW (thread KEY)`, or `… (thread KEY):` before its
+// quoted messages. A topic's label is quoted (it may hold " from "), and a key may hold spaces.
+const THREAD_LINE = /^- (\[blocker\] )?(\d+) new in ("[^"]*"|.+?) from (.+?)(?:: (.*?))? \(thread (.+)\)(:?)$/;
 
 /// The notice its text names (hub/inbox.rs `render`), for one read without its provenance: a thread
 /// per `- N new in LABEL from A, B: PREVIEW (thread KEY)` line, its quoted messages (`  > `) whole
@@ -125,14 +127,19 @@ const THREAD_LINE = /^- (\[blocker\] )?(\d+) new in (.+?) from (.+?)(?:: (.*?))?
 export function inboxNoticeFromText(notice: string): InboxNotice | undefined {
   const threads: InboxThread[] = [];
   let quoted: InboxMessage[] | undefined;
-  let lead: { from: string[] } | undefined;
+  let senders: string[] = [];
+  let several = false;
+  // A bare `  >`: a blank line in a message, or, in a thread of several, the next message, which
+  // then names its sender first.
+  let gap = false;
   for (const line of notice.split("\n")) {
     const head = THREAD_LINE.exec(line);
     if (head) {
       const [, blocker, count, label, from, preview, threadId, opens] = head;
-      const senders = from!.split(", ").filter(Boolean);
+      senders = from!.split(", ").filter(Boolean);
+      several = Number(count) > 1;
       quoted = opens ? [] : undefined;
-      lead = { from: senders };
+      gap = false;
       threads.push({
         threadId: threadId!,
         label: shownLabel(label!, threadId!),
@@ -145,23 +152,20 @@ export function inboxNoticeFromText(notice: string): InboxNotice | undefined {
       });
       continue;
     }
-    if (!quoted || !lead || !line.startsWith("  >")) continue;
-    // `  >` alone starts the thread's next message; several name their sender first.
+    if (!quoted || !line.startsWith("  >")) continue;
     if (line.trim() === ">") {
-      quoted.push({ from: "", text: "" });
+      gap = true;
       continue;
     }
-    let body = line.slice(4);
-    let message = quoted.at(-1);
-    if (!message) quoted.push((message = { from: "", text: "" }));
-    if (!message.text && !message.from && lead.from.length) {
-      const named = lead.from.find((name) => body.startsWith(`${name}: `));
-      if (named) {
-        message.from = named;
-        body = body.slice(named.length + 2);
-      }
+    const body = line.slice(4);
+    const named = several ? senders.find((name) => body.startsWith(`${name}: `)) : undefined;
+    const message = quoted.at(-1);
+    if (!message || (named && (gap || !message.text))) {
+      quoted.push(named ? { from: named, text: body.slice(named.length + 2) } : { from: "", text: body });
+    } else {
+      message.text += `${gap ? "\n\n" : "\n"}${body}`;
     }
-    message.text = message.text ? `${message.text}\n${body}` : body;
+    gap = false;
   }
   for (const thread of threads) {
     if (!thread.messages) continue;

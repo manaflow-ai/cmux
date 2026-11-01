@@ -36,8 +36,9 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   for (const entry of queue) {
     const message = entry.message;
     if (!message) continue;
-    // The first message may explain a Stop hold, once for the run.
-    const lead = rows.length === 0;
+    // The first message may explain a Stop hold, once for the run: an agent's message, never
+    // acpmux's inbox notice, which the person's Stop does not hold.
+    const lead = !message.inbox && rows.every((row) => row.incoming?.kind === "inbox");
     let row = rowsByEntry.get(entry);
     if (!row || Boolean(row.queuedMessage?.lead) !== lead) {
       row = {
