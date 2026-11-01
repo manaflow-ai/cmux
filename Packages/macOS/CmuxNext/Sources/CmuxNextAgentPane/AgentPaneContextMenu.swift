@@ -124,6 +124,31 @@ enum AgentPaneContextMenu {
         return CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
     }
 
+    /// The top-leading corner, in screen points (y up), of a menu of `size` opened from the More
+    /// button at `button`, 2 pt from it: under the button when the whole menu fits there in the
+    /// window's visible part, else above it when it fits there, else on the side with more room.
+    /// Past the window on that side it still stays on the screen, where AppKit would shrink it to a
+    /// scroll arrow (Lucas, 2026-11-02: the last reply's menu, just over the composer, hid Open in
+    /// Side Chat and the rows after it). Not ``PopupAnchor``: in a window too short for either side
+    /// that slides the menu over the button.
+    /// - Parameters:
+    ///   - button: The button's rect on screen.
+    ///   - size: The menu's size (`NSMenu.size`).
+    ///   - visible: The screen's visible frame; nil with no screen.
+    ///   - window: The window's content rect on screen; nil with no window.
+    static func popUpOrigin(button: CGRect, size: CGSize, visible: CGRect?, window: CGRect?) -> CGPoint {
+        let gap: CGFloat = 2
+        let shown = window.map { visible?.intersection($0) ?? $0 }
+        guard let area = shown.flatMap({ $0.isNull ? nil : $0 }) ?? visible else {
+            return CGPoint(x: button.minX, y: button.minY - gap)
+        }
+        let below = button.minY - gap - area.minY, above = area.maxY - button.maxY - gap
+        let opensUp = size.height > below && (size.height <= above || above > below)
+        var top = opensUp ? button.maxY + gap + size.height : button.minY - gap
+        if let visible { top = min(max(top, visible.minY + size.height), visible.maxY) }
+        return CGPoint(x: button.minX, y: top)
+    }
+
     /// `text` as a Markdown quote, with a blank line after it for the reply.
     static func quote(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
