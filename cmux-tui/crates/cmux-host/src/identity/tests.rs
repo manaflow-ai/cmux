@@ -75,6 +75,19 @@ fn identity_requires_receipt_current_binding_and_key() {
 }
 
 #[test]
+fn scoped_identity_does_not_block_on_bound_machine_before_scope_read() {
+    let (mut store, _) = enrolled_store();
+    let before_key = store.read(INSTALL_KEY_FILE).unwrap();
+    store.remove(RECEIPT);
+    let root = tempfile::tempdir().unwrap();
+    let error = scoped(&mut store, &Paths::new(root.path())).unwrap_err();
+    assert_eq!(error, "scope is unavailable");
+    assert_eq!(store.read(INSTALL_KEY_FILE).as_deref(), Some(before_key.as_str()));
+    assert!(store.read(SCOPED_INSTALL_KEY_FILE).is_none());
+    assert!(store.read(SCOPED_RECEIPT).is_none());
+}
+
+#[test]
 fn scoped_identity_refuses_bound_machine_without_rotating_legacy_key() {
     let (mut store, _) = enrolled_store();
     let before_key = store.read(INSTALL_KEY_FILE).unwrap();
