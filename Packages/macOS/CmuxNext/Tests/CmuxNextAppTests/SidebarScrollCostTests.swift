@@ -56,28 +56,28 @@ struct SidebarScrollCostTests {
         #expect(held <= visible * 2, "the list holds \(held) row views for \(visible) visible rows")
     }
 
-    /// A slow runner, stood in deterministically: every frame and every reference sample does the
-    /// reference work `slowdown` times, so the runner is that much slower at both. This host's own
-    /// unslowed reference is the nominal one and its unslowed frames set the budget, so the host's
-    /// speed cancels out. The slowed frames break that budget as it is, and hold it once the
-    /// calibration scales it by the slowed reference.
+    /// A slow runner, stood in with a controlled CPU clock: every reference sample advances it by
+    /// three nominal workloads. Independent real CPU samples cannot model an exact slowdown:
+    /// their p95 can change between the baseline, reference and slowed frames on the same host.
+    /// The actual scrolling test below still times real frames and reference work.
     @Test func aSlowRunnerScalesTheBudgetByItsReferenceWorkload() {
-        let slowdown = 3
-        func work(_ times: Int) { for _ in 0..<times { FrameBudgetCalibration.referenceWork() } }
-        func frames(_ times: Int) -> [Double] { (0..<60).map { _ in FrameBudgetCalibration.cpuMs { work(times) } } }
-        work(4) // warm up
-        let nominalMs = SidebarScrollBench.percentile(frames(1), 0.5)
-        let fast = frames(1)
-        var slow = FrameBudgetCalibration(nominalMs: nominalMs, reference: { work(slowdown) })
-        slow.checkpoint()
-        let slowed = frames(slowdown)
-        slow.checkpoint()
-        let budget = 1.5 * SidebarScrollBench.percentile(fast, 0.95)
-        let slowedP95 = SidebarScrollBench.percentile(slowed, 0.95)
-        print(String(format: "FRAME-BUDGET-CALIBRATION-TEST reference %.3f ms, budget %.3f ms, slowed p95 %.3f ms | ",
-                     nominalMs, budget, slowedP95) + slow.summary)
+        let slowdown = 3.0, nominalMs = 2.0
+        var cpuNanoseconds = 0
+        var referenceCalls = 0
+        var slow = FrameBudgetCalibration(nominalMs: nominalMs, reference: {
+            cpuNanoseconds += 6_000_000
+            referenceCalls += 1
+        })
+        slow.checkpoint(clock: { Double(cpuNanoseconds) / 1e9 })
+        slow.checkpoint(clock: { Double(cpuNanoseconds) / 1e9 })
+        let budget = 1.5 * nominalMs
+        let slowedP95 = slowdown * nominalMs
+        #expect(referenceCalls == 2 * (FrameBudgetCalibration.samplesPerCheckpoint + 1),
+                "each checkpoint must warm up and measure its reference workload")
+        #expect(slow.checkpoints.count == 2)
+        #expect(abs(slow.factor - slowdown) < 0.000_001, "\(slow.summary)")
+        #expect(slow.skipReason == nil, "\(slow.summary)")
         #expect(slowedP95 > budget, "the stand-in runner is not slow enough to break an unscaled budget")
-        if let reason = slow.skipReason { return print("FRAME-BUDGET-CALIBRATION-TEST skipped: \(reason)") }
         #expect(slowedP95 < slow.budget(budget),
                 "a runner \(slowdown)x slower at the reference took \(slowedP95) ms a frame against a budget scaled to \(slow.budget(budget)) ms")
     }
