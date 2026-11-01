@@ -1545,7 +1545,8 @@
             "kind": "nullable",
             "inner": {
               "kind": "primitive",
-              "name": "string"
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         },
@@ -1595,7 +1596,8 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^vm_[0-9a-hjkmnp-tv-z]{26}$"
           }
         },
         "ipv4": {
@@ -1619,14 +1621,16 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
           }
         },
         "authority_version": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         },
         "checked_at": {
@@ -1654,7 +1658,8 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         },
         "peers": {
@@ -1711,14 +1716,16 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
           }
         },
         "authority_version": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         },
         "services": {
@@ -25906,10 +25913,12 @@
                 "$ref": "#/$defs/WgPublicKey"
               },
               "install_public_key": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^B[A-Za-z0-9+/]{86}=$"
               },
               "authority_version": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               },
               "services": {
                 "type": "array",
@@ -25959,7 +25968,8 @@
               "receiver_generation": {
                 "anyOf": [
                   {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   {
                     "type": "null"
@@ -25985,7 +25995,8 @@
                 "$ref": "#/$defs/NativeMeshId"
               },
               "vm": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^vm_[0-9a-hjkmnp-tv-z]{26}$"
               },
               "ipv4": {
                 "anyOf": [
@@ -26001,10 +26012,12 @@
                 "$ref": "#/$defs/WgPublicKey"
               },
               "install_public_key": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^B[A-Za-z0-9+/]{86}=$"
               },
               "authority_version": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               },
               "checked_at": {
                 "type": "integer",
@@ -26022,7 +26035,8 @@
                 "maximum": 9007199254740991
               },
               "policy_digest": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               },
               "peers": {
                 "type": "array",
@@ -26093,14 +26107,16 @@
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "string"
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
             }
           },
           "attempt": {
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "string"
+              "name": "string",
+              "pattern": "^[0-9a-f]{32}$"
             }
           }
         },
@@ -26124,7 +26140,8 @@
                 "required": true,
                 "type": {
                   "kind": "primitive",
-                  "name": "string"
+                  "name": "string",
+                  "pattern": "^[0-9a-f]{64}$"
                 }
               },
               "phase": {
@@ -26191,10 +26208,12 @@
             ]
           },
           "expected": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
           },
           "attempt": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
           }
         },
         "required": [
@@ -26217,7 +26236,8 @@
             "$ref": "#/$defs/MachineId"
           },
           "generation": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
           },
           "phase": {
             "type": "string",
