@@ -1112,7 +1112,9 @@ def one_run(index):
     sheet = wait(lambda: (lambda r: r if "error" in r or r.get("asking") else None)(rpc("debug.quit", timeout=3) or {"error": 1}), 5)
     if sheet and sheet.get("asking"):
         buttons = [b.get("id") for b in sheet.get("buttons") or []]
-        choice = next((b for b in buttons if "keep" in str(b)), buttons[0] if buttons else None)
+        # Keep Sessions Running (id "keep") when shown, else the primary button (drawn last: Quit on the incognito
+        # confirmation); never another id that merely contains "keep".
+        choice = "keep" if "keep" in buttons else (buttons[-1] if buttons else None)
         run.note(f"quit sheet asked ({buttons}); pressing {choice}")
         rpc("debug.quit", {"press": choice}, timeout=5)
     exited = wait(lambda: not alive(pid), 60, step=0.01)

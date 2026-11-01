@@ -503,6 +503,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
                 // It makes a workspace and its chat tab (no terminal): action.run

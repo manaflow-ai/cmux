@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextAgentPane
-import CmuxNextCompat
+public import CmuxNextCompat
 import CmuxNextKeepAwake
 public import CmuxNextMobile
 public import Foundation
@@ -123,6 +123,8 @@ public final class IPhoneHostService {
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
     public let pairedStore: MobileHostPairedStore
+    /// The app's one guard of the Keychain UI switch (this Mac's identity key).
+    private let loginKeychain: LoginKeychain
     @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
@@ -165,7 +167,9 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init(pairedStore: MobileHostPairedStore = MobileHostPairedStore()) {
+    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil) {
+        self.loginKeychain = loginKeychain
+        let pairedStore = pairedStore ?? MobileHostPairedStore(loginKeychain: loginKeychain)
         self.pairedStore = pairedStore
         pairedStore.observe { [weak self] _ in
             // task-owner: one main-actor update per serialized list change
@@ -422,7 +426,7 @@ public final class IPhoneHostService {
         let supervisor = supervisor
         let allowed = allowed
         // task-owner: stored in `applying`; each reconcile awaits the one before it
-        applying = Task { [weak self, logger] in
+        applying = Task { [weak self, logger, loginKeychain] in
             await previous?.value
             guard let want, let dependencies else {
                 await supervisor.stop(phase: .off)
@@ -448,7 +452,7 @@ public final class IPhoneHostService {
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                stateDirectory: dependencies.stateDirectory)
+                                                stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 let identity = try await Task.detached { try store.loadOrCreate() }.value
                 let name = await dependencies.computerName()

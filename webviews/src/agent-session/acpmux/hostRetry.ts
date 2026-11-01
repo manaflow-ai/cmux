@@ -1,3 +1,5 @@
+import { peerLinkFailure, peerLinkFailureShows } from "./hostLine";
+
 /// A refused handshake that offers Restart acpmux (`details.restartAcpmux`): another binary's
 /// daemon holds this app's acpmux socket, and the app may replace it with its own on a click.
 export function offersAcpmuxRestart(error: unknown): boolean {
@@ -10,8 +12,18 @@ export function offersAcpmuxRestart(error: unknown): boolean {
 /// Older bridges may omit retryability on socket failures; only errors without an owned code fall
 /// back to recovery. Never infer it from the translated message or from the restart gate.
 export function hostIsReconnecting(error: unknown): boolean {
-  const fields = error as { code?: unknown; retryable?: unknown; details?: { reconnecting?: unknown } } | null;
+  const fields = error as {
+    code?: unknown;
+    retryable?: unknown;
+    details?: { reconnecting?: unknown };
+    data?: { retryable?: unknown };
+  } | null;
   if (fields?.details?.reconnecting === true) return true;
+  // The chat's machine is reconnecting (acpmux `peer_unreachable`/`peer_disconnected`): acpmux
+  // reconnects it on its own, and the request was not sent (hostLine.ts).
+  if (peerLinkFailure(error)) return true;
+  // acpmux marks a refusal a retry clears (`data.retryable`; direct.ts keeps `data` on the error).
+  if (fields?.data?.retryable === true) return true;
   if (fields?.code === "native.not_connected" || fields?.code === "native.timed_out") return true;
   if (typeof fields?.retryable === "boolean") return fields.retryable;
   if (typeof fields?.code === "string") return false;
@@ -37,7 +49,11 @@ export const HOST_ERROR_DEADLINE_MS = 25_000;
 /// Whether a failed handshake is said (one line above the composer) after the handshakes have been
 /// failing for `failingForMs`. A refusal the host cannot recover from by itself (acpmux missing,
 /// another build's daemon, a refused chat) is said at once; a recovery only after the deadline.
+/// A chat whose machine is unreachable is said only once the person can act (hostLine.ts
+/// `peerLinkFailureShows`): never while the machine is slow or restarting, else after two minutes.
 export function hostErrorShows(error: unknown, failingForMs: number): boolean {
+  const peer = peerLinkFailure(error);
+  if (peer) return peerLinkFailureShows(peer, failingForMs);
   return !hostIsReconnecting(error) || failingForMs >= HOST_ERROR_DEADLINE_MS;
 }
 

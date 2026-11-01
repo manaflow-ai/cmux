@@ -95,7 +95,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await open(page, "agent-pane.new-tab", "minimal-default");
     expect(await dots(page, ".nt-style")).toEqual([
       { value: "claude", name: "Claude Minimal", checked: true },
-      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "claudeActions", name: "Claude Minimal + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: false },
     ]);
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
@@ -171,7 +171,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     // The three dots, then the page's styles (Minimal among them), each marking its own pick.
     expect(await dots(page, ".nt-look-dots")).toEqual([
       { value: "claude", name: "Claude Minimal", checked: false },
-      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "claudeActions", name: "Claude Minimal + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: true },
     ]);
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
