@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Foundation
+import QuartzCore
 @testable import CmuxNextSidebar
 import Testing
 
@@ -330,7 +331,9 @@ import Testing
         defer { Motion.reduceMotionOverride = previousMotion }
         let doc = Doc(docSections: scenario.hasDocSections)
         if scenario.groupsByFolder { doc.folders = ["scratch": "~/a", "loose2": "~/a", "docs": "~/b"] }
+        let f0 = CACurrentMediaTime()
         let (sidebar, window) = Self.fixture(doc, groupsByFolder: scenario.groupsByFolder)
+        print(String(format: "MATCH-REBUILD-DIAG3 fixture %.1fms", (CACurrentMediaTime() - f0) * 1000))
         defer { window.close() }
         let model = sidebar.list.model
         if scenario.groupsByFolder {
@@ -342,7 +345,9 @@ import Testing
             try #require(model.filterMatches == [WorkspaceID("loose2"), WorkspaceID("docs"), WorkspaceID("deploy")])
         }
         await Base.expectMatchesRebuild(sidebar, "at rest")
+        let r0 = CACurrentMediaTime()
         try await Self.run(scenario, sidebar, doc)
+        print(String(format: "MATCH-REBUILD-DIAG3 run %@ %.1fms", scenario.rawValue, (CACurrentMediaTime() - r0) * 1000))
         await Base.expectMatchesRebuild(sidebar, "after \(scenario.rawValue)")
         await Base.foldsAndClicks(sidebar, after: scenario.rawValue, groups: Base.allGroups + [Self.pin, Self.proj],
                                   clicking: ["web", "f1", "scratch", "p1", "q1"])

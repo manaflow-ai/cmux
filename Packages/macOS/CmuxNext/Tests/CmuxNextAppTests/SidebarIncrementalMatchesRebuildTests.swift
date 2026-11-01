@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import QuartzCore
 @testable import CmuxNextSidebar
 import Testing
 
@@ -243,18 +244,29 @@ import Testing
     /// 130 ms: 37 of this suite's 45 s and 100 of `SidebarIncrementalMatchesRebuildGapsTests`' 122 s.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
+        let d0 = CACurrentMediaTime()
         for _ in 0..<3 {
             if let landing = list.landing { list.finishLand(landing, then: nil) }
             sidebar.renderNow()
             await turn(sidebar.window)
         }
+        let d1 = CACurrentMediaTime()
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
+        let d2 = CACurrentMediaTime()
         defer { window.close() }
         let theirs = snapshot(fresh.list)
+        let d3 = CACurrentMediaTime()
         let deadline = ContinuousClock.now + .seconds(10)
+        var sleeps = 0, differs = 0, anim = 0
         while snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty, ContinuousClock.now < deadline {
+            sleeps += 1
+            if snapshot(list) != theirs { differs += 1 }
+            if animates(list) { anim += 1 }
             try? await Task.sleep(for: .milliseconds(50))
         }
+        let d4 = CACurrentMediaTime()
+        print(String(format: "MATCH-REBUILD-DIAG3 %@ settle=%.1f rebuild=%.1f snap=%.1f poll=%.1f sleeps=%d differs=%d anim=%d since-last=%.1f", when, (d1 - d0) * 1000, (d2 - d1) * 1000, (d3 - d2) * 1000, (d4 - d3) * 1000, sleeps, differs, anim, (d0 - Self.lastEnd) * 1000))
+        defer { Self.lastEnd = CACurrentMediaTime() }
         let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
     }
@@ -262,6 +274,7 @@ import Testing
     /// One main-thread turn, no clock: main-actor tasks and main-queue blocks queued before it run (the await), the
     /// run loop's due sources and timers fire, then `window` lays out, draws and commits, which runs the completion
     /// blocks of changes that did not animate.
+    nonisolated(unsafe) static var lastEnd = CACurrentMediaTime()
     static func turn(_ window: NSWindow?) async {
         await Task.yield()
         runLoopPassAndCommit(window)
