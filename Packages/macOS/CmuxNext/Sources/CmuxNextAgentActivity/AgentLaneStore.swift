@@ -26,6 +26,11 @@ public final class AgentLaneStore {
         set {
             withMutation(keyPath: \.lanes) { storage = newValue }
             syncCells()
+            let identities = Dictionary(newValue.values.compactMap { lane -> (String, String)? in
+                guard let key = lane.chiefChildren, let chief = lane.chiefParticipant else { return nil }
+                return (key, chief)
+            }, uniquingKeysWith: { first, _ in first })
+            if chiefParticipants != identities { chiefParticipants = identities }
         }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
@@ -36,6 +41,9 @@ public final class AgentLaneStore {
     @ObservationIgnored public var socketPath: String?
     /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
     public var live = false
+
+    /// Changes only when ownership changes; ordinary lane output does not remap every row.
+    public private(set) var chiefParticipants: [String: String] = [:]
 
     public init() {}
 

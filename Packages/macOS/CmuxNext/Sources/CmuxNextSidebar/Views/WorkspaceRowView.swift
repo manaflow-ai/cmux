@@ -16,6 +16,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The row's status, in the sidebar's status colors (Lawrence msg 11983).
     let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
+    let chiefMark = SidebarChiefAvatarView()
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
@@ -162,7 +163,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, chiefMark, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -309,6 +310,8 @@ final class WorkspaceRowView: SidebarRowView {
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
+        chiefMark.avatar = isShowingPlaceholder ? nil : ws.chiefAvatar
+        chiefMark.isHidden = chiefMark.avatar == nil
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
