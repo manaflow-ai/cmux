@@ -210,7 +210,7 @@ export class SettingsStore {
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
       ),
-      // A machine's update failing while Updates shows (its toast's Details opens it) shows in
+      // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
       this.listen("cmux.settings.channels.machines.changed", (machines) =>
         this.queryClient.setQueriesData<ChannelsState | null>(
