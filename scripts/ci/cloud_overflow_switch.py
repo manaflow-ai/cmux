@@ -9,7 +9,7 @@ lands on. On 2026-09-29 Blacksmith stopped starting jobs org-wide from about
 variables at the owned pools and GitHub-hosted Linux by hand.
 
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
-for each Blacksmith Linux size in PROBE_LABELS (4, 8 and 16 vCPU), one job per
+for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
 macOS, waits for them:
 
@@ -94,16 +94,16 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # serves. A single probed label is a pin: on 2026-10-28 the 4 vCPU label
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
-PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
-# When the probed label is that failover itself, the next size over (a probed one, so
-# toward_started() can pick it).
-ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-8vcpu-ubuntu-2404",
+# When the probed label is that failover itself, the other size: a probed one, so
+# toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
 # The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})

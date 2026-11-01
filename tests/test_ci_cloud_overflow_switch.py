@@ -390,8 +390,7 @@ class PlanTests(unittest.TestCase):
 
     def test_the_probe_set_is_the_compile_sizes(self) -> None:
         # Never one label: one stalled size must not flip the fleet (Leo's no-pins order, 2026-10-28).
-        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                                              "blacksmith-16vcpu-ubuntu-2404"))
+        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"))
 
     def test_stuck_job_needs_a_blacksmith_label_and_the_wait(self) -> None:
         jobs = [
@@ -567,10 +566,10 @@ class MainTests(unittest.TestCase):
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                                                 "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"}, []),
                          {"MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"})
-        # Only 8 vCPU started: the chain moves on to it.
+        # Only 4 vCPU started: the chain moves on to it.
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
-                                               ["blacksmith-8vcpu-ubuntu-2404"]),
-                         {"LINUX_RUNNER": "blacksmith-8vcpu-ubuntu-2404"})
+                                               ["blacksmith-4vcpu-ubuntu-2404"]),
+                         {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
                                                switch.PROBE_LABELS),
                          {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})

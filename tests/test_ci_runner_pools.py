@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -46,7 +47,21 @@ class Declared(unittest.TestCase):
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+
+    def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
+        # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
+        # sends its readers back to the stalled size when the pool steps onto it.
+        selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
+                              r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
+        members = runner_pools.load_pools()["linux"]["members"]
+        found = 0
+        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            for match in selector.finditer(workflow.read_text(encoding="utf-8")):
+                found += 1
+                with self.subTest(workflow=workflow.name):
+                    self.assertLessEqual(set(members), set(json.loads(match.group(1))))
+        self.assertGreater(found, 0)
 
     def test_no_pool_names_a_reused_machine(self) -> None:
         # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
@@ -270,17 +285,16 @@ class Main(unittest.TestCase):
 
     def test_a_stalled_size_flips_linux_once(self) -> None:
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
-            "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-8vcpu-ubuntu-2404": "started",
-            "blacksmith-16vcpu-ubuntu-2404": "started"})),
+            "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"})),
             "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         with tempfile.TemporaryDirectory() as tmp:
             env = {"RUNNER_POOLS": "", "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
             self.assertEqual(runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW), 0)
         [(name, raw), mirrored] = switch.writes
         self.assertEqual(name, "RUNNER_POOLS")
-        self.assertEqual(json.loads(raw)["linux"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(json.loads(raw)["linux"], "blacksmith-16vcpu-ubuntu-2404")
         # LINUX_RUNNER leaves the stalled size with the pool.
-        self.assertEqual(mirrored, ("LINUX_RUNNER", "blacksmith-8vcpu-ubuntu-2404"))
+        self.assertEqual(mirrored, ("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404"))
 
     def test_linux_runner_on_a_size_outside_the_set_follows_the_pool(self) -> None:
         # 2026-10-31: RUNNER_POOLS.linux was live but LINUX_RUNNER still named a size outside the pool
