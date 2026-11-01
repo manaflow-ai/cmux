@@ -121,7 +121,28 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// Whether a frame's pick (taken off the main thread) is this intent's exact pick.
     public func matches(_ pick: AgentPaneGesturePick?) -> Bool {
         guard let pick, pick.method == method else { return false }
+        if method == "session/set_config_option",
+           let expected = params["configId"], let actual = pick.params?["configId"],
+           configOptionIDsEquivalent(expected, actual) {
+            var expectedParams = params
+            var actualParams = pick.params ?? [:]
+            expectedParams.removeValue(forKey: "configId")
+            actualParams.removeValue(forKey: "configId")
+            return expectedParams == actualParams
+        }
         return pick.params == params
+    }
+
+    /// New chats hold effort and Fast picks before the harness tells us the option's id. Those
+    /// ids are aliases for the same user-facing option, so a ticket taken for the held spelling
+    /// must redeem when the opened session reports its spelling.
+    private func configOptionIDsEquivalent(_ lhs: AgentPaneJSONScalar, _ rhs: AgentPaneJSONScalar) -> Bool {
+        guard case .string(let left) = lhs, case .string(let right) = rhs else { return false }
+        if left == right { return true }
+        let effort = Set(["effort", "reasoning_effort"])
+        if effort.contains(left), effort.contains(right) { return true }
+        let fast = Set(["fast", "fast_mode", "fast-mode"])
+        return fast.contains(left) && fast.contains(right)
     }
 }
 
