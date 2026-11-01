@@ -140,14 +140,20 @@ async fn an_unsent_steer_only_refuses_the_completed_turns_answer() {
     unsent_steer_after_completion(true).await;
 }
 
-/// PROBE (scratch): the same race with the stand-in kept at normal CPU class, in the same process.
+/// PROBE (scratch): the race at background and at normal class, one after another in one process
+/// (nothing runs beside it), twice each. Prints one BGPROBE RESULT line per run; fails if any run did.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_unsent_steer_probe_control_at_normal_class() {
-    unsent_steer_at(false, Some("normal")).await;
-}
-
-/// PROBE (scratch): explicitly at background class.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_unsent_steer_probe_at_background_class() {
-    unsent_steer_at(false, Some("background")).await;
+async fn an_unsent_steer_probe_sequence() {
+    let mut bad = Vec::new();
+    for class in ["background", "normal", "background", "normal"] {
+        let started = std::time::Instant::now();
+        let run = tokio::spawn(unsent_steer_at(false, Some(class))).await;
+        let ms = started.elapsed().as_millis();
+        let ok = run.is_ok();
+        eprintln!("BGPROBE RESULT class={class} ok={ok} ms={ms}");
+        if !ok {
+            bad.push(format!("{class} ({ms} ms)"));
+        }
+    }
+    assert!(bad.is_empty(), "BGPROBE runs that failed: {bad:?}");
 }
