@@ -18,7 +18,9 @@ if [[ -o interactive && -n ${CMUX_TUI_INCOGNITO-} ]]; then
     () {
         builtin emulate -L zsh -o no_aliases
         builtin typeset -ag precmd_functions zshaddhistory_functions
-        precmd_functions+=(_cmux_tui_incognito_history)
-        zshaddhistory_functions+=(_cmux_tui_incognito_addhistory)
+        # The app's layer (Resources/cmux-cli-path/zsh/.zshenv) registers the
+        # same functions; registering twice leaves one hook.
+        precmd_functions=("${(@)precmd_functions:#_cmux_tui_incognito_history}" _cmux_tui_incognito_history)
+        zshaddhistory_functions=("${(@)zshaddhistory_functions:#_cmux_tui_incognito_addhistory}" _cmux_tui_incognito_addhistory)
     }
 fi
