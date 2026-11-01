@@ -216,6 +216,15 @@ class CodeModeCancellationTests(unittest.TestCase):
     def test_session_closed_kills_running_script(self):
         self.owner_event_kills_script("status", {"status": "closed"})
 
+    def test_successful_script_exits_and_cleans_up(self):
+        script = self.directory / "success.ts"
+        script.write_text('console.log("DONE");')
+        self.start([str(RUNNER), str(script)])
+        stdout, stderr = self.process.communicate(timeout=8)
+        self.assertEqual(self.process.returncode, 0, stderr.decode())
+        self.assertIn(b"DONE", stdout)
+        self.assert_cleaned()
+
     def test_direct_runner_kills_cpu_spin_at_limit(self):
         script = self.directory / "spin.ts"
         script.write_text(SPIN)
