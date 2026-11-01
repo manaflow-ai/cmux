@@ -13,7 +13,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows } from "./model";
+import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -365,4 +365,57 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   const placed = placeRows(estimate, (index) => (index === 0 ? 0 : undefined));
   expect(placed.heights[0]).toBe(0);
   expect(placed.tops[1]).toBe(0);
+});
+
+test("a status row between two replies is estimated in the middle of the gap", () => {
+  // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
+  // The reply over the run ends at its action row (its 8px meta gap and 24px line, no message gap);
+  // the run (2px over its 22px row) ends 34px over the next reply, the action row's room and the
+  // run's 2px top margin (conversation.css --cv-status-gap).
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const before = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [reply, step] = heightsOf([before, run, after]);
+  const [alone] = heightsOf([before]);
+  const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
+  if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
+    expect(step).toBe(2 + 22 + 34);
+    // The same reply over a prompt: its own action row, then the message gap.
+    expect(reply).toBe(overPrompt! - 8);
+  } else {
+    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
+    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    expect(step).toBe(2 + 22 + 12);
+    expect(reply).toBe(overPrompt! + 2);
+  }
+  expect(alone).toBeGreaterThan(0);
+});
+
+test("a status row under a prompt keeps its own spacing over the reply", () => {
+  // Only a status row between two replies takes the centred room: a turn that starts with a tool
+  // (prompt, tool, reply) would otherwise get 30px under the tool and its prompt gap over it.
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "List it." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [, step] = heightsOf([prompt, run, after]);
+  const [, alone] = heightsOf([prompt, run]);
+  expect(step).toBe(alone);
+  expect(statusEdge(run as AcpmuxRow, after as AcpmuxRow, prompt as AcpmuxRow)).toBeUndefined();
+  // Between two replies the room under the run is read from the reply above, as the room over it
+  // is, so the two match whatever the reply below is (a folded copy, a settled one).
+  const reply = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." } as AcpmuxRow;
+  const over = statusEdge(reply, run as AcpmuxRow, undefined);
+  const under = over === "before-status" ? "before-reply" : "before-reply-plain";
+  for (const below of [after, { ...after, settled: true }, { ...after, settled: true, foldedReply: true }])
+    expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
 });

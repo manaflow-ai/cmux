@@ -1,10 +1,10 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
 // Every pull request a chat created, merged, steered or named, across repositories (the
-// Inspector's Changes, Claude Code desktop's; Leo 2026-10-21: "THERE SHOULD BE A LOT MORE CHANGES
+// Session Info's Changes, Claude Code desktop's; Leo 2026-10-21: "THERE SHOULD BE A LOT MORE CHANGES
 // IN THIS CHAT"): `gh pr create` and `glaeda-gh post pr` output, the pull request a `gh pr` verb,
 // `gh-merge-green` or `glaeda-gh … pr` names (with `-R` or the chat folder's repository), URLs in
 // any command, and as mentions (maybe issues) `owner/repo#N` in other commands and, for the
-// Inspector, the agent's replies.
+// Session Info, the agent's replies.
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import {
@@ -180,7 +180,7 @@ test("a row is read once, whether or not replies are read", () => {
   expect(refs([{ ...rows[0]! }])).toEqual(["acme/a#4"]);
 });
 
-test("the summary card leaves out the pull requests the agent only named; the Inspector keeps them", () => {
+test("the summary card leaves out the pull requests the agent only named; Session Info keeps them", () => {
   const rows = [activity([shell("gh pr view 3 -R acme/a")], 1), assistant("See #9 and acme/b#2.", 2)];
   expect(sessionSummary(rows).pullRequests.map((pr) => pr.number)).toEqual([3]);
   expect(sessionSummary(rows, "acme/a").pullRequests.map((pr) => pr.number)).toEqual([3, 2, 9]);

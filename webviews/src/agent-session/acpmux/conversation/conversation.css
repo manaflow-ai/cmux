@@ -49,7 +49,7 @@
   --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
   --cv-mono: var(--cv-mono-default);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
-     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+     Session Info) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
   /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
      bands). A message's meta row (a prompt's age, ticks and actions; a turn's footer) is one
@@ -82,6 +82,18 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  /* A status row between two replies (a tool run, a subagent's or a background command's end,
+     another agent's message: model.ts `isStatusRow`) sits in the middle of the gap, as Claude Code
+     desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more
+     alignment too"). Above it, the reply's action row (its meta gap and line) and the step's 2px top
+     margin; below it, as much (model.ts STATUS_GAP). Inside an opened "Worked for", whose replies
+     draw no action row, the plain gap on both sides (STATUS_GAP_PLAIN). */
+  --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + 2px);
+  --cv-status-gap-plain: 12px;
+  /* A plain reply's share of that gap over a status row: the step's 2px top margin is the rest. */
+  --cv-status-gap-plain-over: calc(var(--cv-status-gap-plain) - 2px);
+  /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
+  --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--ds-space-2, 8px);
   /* One icon column for every transcript meta row: a tool row, a sent message, a received or inbox
      message, a background task, a sub-session or subagent card. Each starts its icon at the row's
@@ -1895,6 +1907,18 @@ pre.cv-math-source {
   --cv-tool-row-height: 26px;
   --cv-tool-run-bottom-gap: 8px;
 }
+/* Gallery versions of the room around a status row between replies (agent-pane.transcript-row-alignment):
+   `roomy` keeps the message gap under the reply's action row and gives the line as much below;
+   `off` is the earlier, uncentred rhythm (the message gap over the line, 38px, and 8 under it).
+   Capture-only comparisons. */
+:root[data-transcript-status-gap="roomy"] {
+  --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + var(--cv-message-gap) + 2px);
+  --cv-status-reply-tail: var(--cv-message-gap);
+}
+:root[data-transcript-status-gap="off"] {
+  --cv-status-gap: var(--cv-message-gap);
+  --cv-status-reply-tail: var(--cv-message-gap);
+}
 /* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
    but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
    own their horizontal overflow below. */
@@ -1938,17 +1962,17 @@ pre.cv-math-source {
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
    WORKING-LOOK: agent work draws the look the app picks, `data-working-look` on the root (Debug
    Settings `status.working`):
-   - spinner (the default, also with no attribute or an unknown value): the turning ring;
+   - spinner (the default, also with no attribute or an unknown value): the stepping spokes;
    - breathe (explicit choice only): the accent dot breathing on the shared clock;
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
-   static look (the ring stopped). */
+   static look (the mark stopped). */
 .cv-spinner__dot {
   display: none;
   fill: var(--cmux-accent, currentColor);
 }
-:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__arc {
+:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__spokes {
   display: none;
 }
 :root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__dot {
@@ -1959,6 +1983,11 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
     .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  }
+  /* Agent work's spokes step round one spoke at a time, like the macOS activity indicator. */
+  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
+    .cv-spinner[data-working] {
+    animation-timing-function: steps(8, end);
   }
   :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
@@ -2391,6 +2420,46 @@ pre.cv-math-source {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
+/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
+   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
+   A focused or opened row stays revealed while its menu or body is open. */
+.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+) {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+)
+  > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+)
+  > .cv-tool__chevron {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
 /* A thought step has no glyph: its words start at the rows' text column. */
 .cv-step-thought:not(.is-open),
 .cv-step-thought__body,
@@ -2560,7 +2629,7 @@ pre.cv-math-source {
   color: var(--agent-status-failure);
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
-   under the row, starting under its words (the 16px glyph, less its 1.5px overlap, and the 8px
+   under the row, starting under its words (the 16px glyph and the 8px
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
 .cv-tool-error {
   margin: -3px 0 3px;
@@ -2793,6 +2862,10 @@ pre.cv-math-source {
    ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
    chevron and actions in it; the preview takes the line's room, so every line's chevron ends at the
    same place; the actions show only on hover or focus, over the preview's tail, never moving it. */
+/* No inline padding: the sender's mark sits in the tool rows' glyph slot at the row's left edge and
+   the chevron ends at its right edge, as every tool row's do (design/chat-transcript.md "One icon
+   column"; Leo, 2026-10-31: "the alignment i feel like we might as well"). The hover plate is the
+   row's own box (the transcript row clips paint, so it can't bleed past the column). */
 .cv-received > .cv-disclosure__line {
   position: relative;
   height: var(--cv-disclosure-line-height);
@@ -2830,8 +2903,8 @@ pre.cv-math-source {
 .cv-received__hover {
   position: absolute;
   inset-block: 0;
-  /* Before the chevron (12px) and the line's inset. */
-  inset-inline-end: calc(var(--ds-space-1) + 12px + var(--ds-space-1));
+  /* Before the chevron (12px), one small gap clear of it. */
+  inset-inline-end: calc(12px + var(--ds-space-1));
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);
@@ -2854,7 +2927,10 @@ pre.cv-math-source {
   margin-inline-start: 0;
 }
 /* The sender at the line's start (IncomingMessageCard.tsx SenderName): its harness mark, then its
-   name, which opens its chat. The name's hover highlight is its own, never the row's. */
+   name, which opens its chat. The name's hover highlight is its own, never the row's. The mark takes
+   the tool rows' glyph slot (--cv-glyph-slot wide at the row's left edge, glyph centered, then the
+   8px gap), so a sender's logo and a send's envelope share one center line and the name starts where
+   every tool row's words do: the slot plus the gap, 24px (grid.md 5.5; transcript-icon-column.test.ts). */
 .cv-received__sender {
   display: inline-flex;
   flex: none;
@@ -3260,7 +3336,6 @@ a.cv-sha:focus-visible {
   justify-content: flex-start;
   gap: 8px;
   min-height: var(--cv-meta-row);
-  padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
@@ -3291,6 +3366,20 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
+}
+/* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
+   (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
+   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
+   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+.cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+.cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+  margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
+}
+/* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
+   cut flat: the rows that hold an action row keep layout containment alone. */
+.acpmux-row.acpmux-assistant,
+.acpmux-row.acpmux-turnSummary {
+  contain: layout;
 }
 /* Claude's buttons touch: 24px squares side by side, then its age 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
@@ -4423,7 +4512,6 @@ a.cv-sha:focus-visible {
   gap: 8px;
   min-height: 24px;
   margin: 4px 0 8px;
-  padding-inline-start: 2px;
   font-size: var(--text-body);
   color: var(--cv-text-muted);
   letter-spacing: var(--text-body--letter-spacing);
@@ -4630,6 +4718,30 @@ a.cv-sha:focus-visible {
 }
 .acpmux-row.acpmux-row--before-step {
   padding-bottom: 0;
+}
+/* A status row between two replies sits in the middle of the gap (model.ts `statusEdge`,
+   --cv-status-gap above): the reply over it ends at its action row, and the row under it ends that
+   far from the next reply. Rows that draw nothing are 0 (the rule after this one wins). */
+article.acpmux-row.acpmux-row--before-status,
+article.acpmux-row.acpmux-row--before-status-plain,
+article.acpmux-row.acpmux-row--before-reply,
+article.acpmux-row.acpmux-row--before-reply-plain {
+  min-height: 0;
+}
+article.acpmux-row.acpmux-row--before-status {
+  padding-bottom: var(--cv-status-reply-tail);
+}
+article.acpmux-row.acpmux-row--before-status-plain {
+  padding-bottom: var(--cv-status-gap-plain-over);
+}
+article.acpmux-row.acpmux-row--before-reply {
+  padding-bottom: var(--cv-status-gap);
+}
+article.acpmux-row.acpmux-row--before-reply-plain {
+  padding-bottom: var(--cv-status-gap-plain);
+}
+:is(.acpmux-row--before-reply, .acpmux-row--before-reply-plain) .cv-disclosure.cv-received {
+  margin-bottom: 0;
 }
 /* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,

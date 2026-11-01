@@ -24,16 +24,9 @@ extension CloudStartChat {
                             stored: [String]) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
-            var machine: [String: Any] = ["id": session.machineID, "title": session.machine.title,
-                                          "status": session.machine.shownStatus.rawValue, "connected": connected]
-            machine["slug"] = session.machine.slug
-            machine["created_by"] = session.machine.createdBy
-            machine["pause_reason"] = session.machine.pauseReason?.rawValue
-            if connected {
-                machine["chats"] = session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-                    .filter { $0.agentSession != nil }.count
-            }
-            return machine
+            let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                .filter { $0.agentSession != nil }.count : nil
+            return session.machine.startChatPlanEntry(connected: connected, chats: chats)
         }
         var request: [String: Any] = ["key": key, "account": accountText(account), "loaded": true, "machines": listed,
                                       "stored": stored]
@@ -41,12 +34,6 @@ extension CloudStartChat {
         request["workspace"] = workspace
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
-    }
-
-    /// The store's machines the list did not name: made since, kept for a pin. Never one the server failed or is removing,
-    /// which may stay in the store after the list dropped it: a pin or workspace on it then moves on.
-    static func stored(_ machines: [CloudMachine], listed: Set<String>) -> [String] {
-        machines.filter { !listed.contains($0.id) && ![.failed, .destroyed, .deleting].contains($0.shownStatus) }.map(\.id)
     }
 
     /// The create of the machine for a send: sized for the chat, under the send's own idempotency key
@@ -92,7 +79,7 @@ extension CloudStartChat {
         let listed = cloud.listedMachineIDs
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) },
-                                       stored: Self.stored(machines.cloud.map(\.machine), listed: listed))
+                                       stored: machines.cloud.map(\.machine).keptForPin(listed: listed))
         let plan = try Self.checked(await cli.startChatPlan(request: request))
         var invocation = invocation
         if let id = plan.machine {

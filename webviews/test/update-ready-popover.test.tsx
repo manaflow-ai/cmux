@@ -73,7 +73,10 @@ test("the popup names the full build, lists the highlights and has See all chang
   });
   const version = host.querySelector<HTMLElement>(".wn-pop-title .wn-copy-version")!;
   expect(version.textContent).toBe("nightly 3845050");
-  expect(version.getAttribute("role")).toBe("button");
+  // A native button (CopyVersion): focus, Return and Space come from the platform.
+  expect(version.tagName).toBe("BUTTON");
+  expect(version.getAttribute("type")).toBe("button");
+  expect(version.hasAttribute("role")).toBe(false);
   expect(version.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.3845050428001");
   await act(async () => {
     version.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -123,7 +126,8 @@ test("the Updated card names the short build, says What's new in this build and 
   expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
   expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  expect(buttons).toEqual(["Close", "See What's New"]);
+  // The build line's commit is the copy button (CopyVersion), then the card's own two.
+  expect(buttons).toEqual(["3845050", "Close", "See What's New"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
