@@ -910,7 +910,10 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         label_room = CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0)
         pool_room_slots = pool_room(retry_live, waiting) // vcpus(retry)
         available = max(0, min(label_room, pool_room_slots))
-        retry_jobs = tuple(jobs[:min(MAX_PER_RUN, available)])
+        retry_candidates = tuple(job for job in jobs
+                                 if job not in fleet_jobs
+                                 and not any(job in names for names in placed.values()))
+        retry_jobs = retry_candidates[:min(MAX_PER_RUN, available)]
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
                         else f" (stalled: oldest queued {seen.waits.get(label, 0.0):.0f} min)"

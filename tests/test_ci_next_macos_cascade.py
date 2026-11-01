@@ -950,7 +950,7 @@ class FeedNeverHosted(unittest.TestCase):
     resolves to hosted macos-26: a run with FRESH_JOBS places nothing there, whatever Blacksmith's state."""
 
     def test_no_feed_run_places_a_job_on_hosted(self):
-        runs = " fast-tier swift-canary cmux-scheme-compile release-compile "
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
         waits = (0.0, float(cascade.FRESH_STALL_MINUTES), float(cascade.STALL_MINUTES) + 60)
         counts = (None, ({LARGE: 0, SMALL: 0}, None), ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}),
                   ({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), ({LARGE: 0, SMALL: 0}, {LARGE: 9, SMALL: 40}))
@@ -1626,11 +1626,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, capped), SMALL)
 
     def test_retry_jobs_are_capped_by_the_placement_limit(self):
-        runs = " fast-tier swift-canary cmux-scheme-compile release-compile "
-        result = cascade.place(env(CASCADE_RUNS=runs), (),
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
+        result = cascade.place(env(CASCADE_RUNS=runs,
+                                   CASCADE_JOBS="swift-test daemon-test generated-files",
+                                   JOBS="fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"), (),
                                {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.retry_runner, SMALL)
-        self.assertEqual(result.retry_jobs, ("fast-tier", "swift-canary"))
+        self.assertEqual(result.retry_jobs, ("swift-test", "daemon-test"))
         self.assertLessEqual(len(result.retry_jobs), cascade.MAX_PER_RUN)
 
     def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
