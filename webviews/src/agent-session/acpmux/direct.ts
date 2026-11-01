@@ -6112,6 +6112,18 @@ export class AcpmuxDirectClient {
     return this.waitingSteerRows.rows;
   }
 
+  /// The row of the person's newest steer the agent has not read (not another session's message):
+  /// the one that carries Send now while several wait. Send now stops the current step, and the
+  /// agent then reads every waiting steer, so one Send now does it for all of them (Leo,
+  /// 2026-11-01: "why are ALL of these send now???? aren't these steers???").
+  private newestOwnSteer(): string | undefined {
+    for (let i = this.waitingSteers.length - 1; i >= 0; i--) {
+      const row = this.rows.get(this.waitingSteers[i]!.rowId);
+      if (row && row.kind === "user" && !row.incoming && !row.inboxThread && row.steerPromptId) return row.id;
+    }
+    return undefined;
+  }
+
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
@@ -6309,6 +6321,7 @@ export class AcpmuxDirectClient {
       ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
       // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
+      ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size }
