@@ -209,11 +209,7 @@ extension AgentPaneCloudStart {
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                                     cloneState: String? = nil, clonePhase: String? = nil,
-                                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil, cloneReceivedBytes: Int? = nil,
-                                    cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
-                                    setupLogTail: String? = nil,
-                                    machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
-                                    harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil,
+                                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
                                     to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
@@ -224,23 +220,7 @@ extension AgentPaneCloudStart {
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
         if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
-        var cloneProgress: [String: JSONValue] = [:]
-        if let cloneReceivedBytes { cloneProgress["received_bytes"] = .number(Double(cloneReceivedBytes)) }
-        if let cloneObjects { cloneProgress["objects"] = .number(Double(cloneObjects)) }
-        if let cloneTotalObjects { cloneProgress["total_objects"] = .number(Double(cloneTotalObjects)) }
-        if !cloneProgress.isEmpty { cloneFields["progress"] = .object(cloneProgress) }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
-        var setupFields: [String: JSONValue] = [:]
-        if let setupStatus { setupFields["status"] = .string(setupStatus) }
-        if let setupLogTail { setupFields["log_tail"] = .string(setupLogTail) }
-        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
-        if let machineStartedAt { value["machineStartedAt"] = .number(machineStartedAt) }
-        if let machineFinishedAt { value["machineFinishedAt"] = .number(machineFinishedAt) }
-        if let harnessStartedAt { value["harnessStartedAt"] = .number(harnessStartedAt) }
-        if let harnessFinishedAt { value["harnessFinishedAt"] = .number(harnessFinishedAt) }
-        // The harness timing comes from the host's start response. Swift only forwards it;
-        // do not stamp Date() here because the page owns elapsed-time rendering.
-        if step == "opening" { value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

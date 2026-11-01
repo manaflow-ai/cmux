@@ -27,20 +27,10 @@ nonisolated struct CloudMoveCLI: Sendable {
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.
         var notOlder = false
-        /// Optional git-seed/environment progress returned by Cloud start-chat copy.
         var seedState: String?
         var seedPhase: String?
         var seedStartedAt: Double?
         var seedFinishedAt: Double?
-        var seedReceivedBytes: Int?
-        var seedObjects: Int?
-        var seedTotalObjects: Int?
-        var environmentStatus: String?
-        var environmentLogTail: String?
-        var machineStartedAt: Double?
-        var machineFinishedAt: Double?
-        var harnessStartedAt: Double?
-        var harnessFinishedAt: Double?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -50,10 +40,10 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
     static let badAnswer = "bad_answer"
 
-    /// `cmux link sync push`: copies the working copy `local` to `remote` on
-    /// the machine whose daemon `socket` reaches.
-    func syncPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["link", "sync", "push", "--socket", socket, local, remote])
+    /// `cmux link seed push`: seeds `local` at `remote` on the machine `socket` reaches from its
+    /// GitHub remote plus one bundle, else copies it (`link sync push`), saying why.
+    func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
     /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
@@ -65,7 +55,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
     /// caller's own sync, so a chat moved mid-turn takes the turn's last changes with it.
     struct FrozenSync: Sendable, Equatable {
-        /// Pull from the machine (Bring Back Local) rather than push to it (Move to Cloud).
+        /// Pull from the machine (Bring Back Local) rather than seed it (Move to Cloud, `--since-last`).
         var pull: Bool
         /// The machine link socket `link sync` uses.
         var socket: String
@@ -89,7 +79,7 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// `agentMove`'s flags after `--cwd`.
     static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
-        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "push", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
+        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "seed", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
         return ["--interrupt"] + frozen + (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
             + (toPID.map { ["--to-pid", String($0)] } ?? [])
     }
@@ -192,21 +182,10 @@ nonisolated struct CloudMoveCLI: Sendable {
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
                             notOlder: object["not_older"] as? Bool ?? false,
-                            // Only namespaced seed fields describe repository cloning; top-level
-                            // state/phase belong to the copy transport.
                             seedState: object["seed_state"] as? String,
                             seedPhase: object["seed_phase"] as? String,
                             seedStartedAt: object["seed_started_at"] as? Double,
-                            seedFinishedAt: object["seed_finished_at"] as? Double,
-                            seedReceivedBytes: object["received_bytes"] as? Int,
-                            seedObjects: object["objects"] as? Int,
-                            seedTotalObjects: object["total_objects"] as? Int,
-                            environmentStatus: object["environment_status"] as? String,
-                            environmentLogTail: object["environment_log_tail"] as? String,
-                            machineStartedAt: object["machine_started_at"] as? Double ?? object["machineStartedAt"] as? Double,
-                            machineFinishedAt: object["machine_finished_at"] as? Double ?? object["machineFinishedAt"] as? Double,
-                            harnessStartedAt: object["harness_started_at"] as? Double ?? object["harnessStartedAt"] as? Double,
-                            harnessFinishedAt: object["harness_finished_at"] as? Double ?? object["harnessFinishedAt"] as? Double)
+                            seedFinishedAt: object["seed_finished_at"] as? Double)
         return (answer, object, result.status)
     }
 }

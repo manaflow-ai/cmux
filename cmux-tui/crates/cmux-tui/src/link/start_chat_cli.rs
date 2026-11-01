@@ -22,11 +22,14 @@
 //!   to the machine the App just made for it, and makes it the workspace's
 //!   when the workspace has none yet and no other workspace has it.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT
-//!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
-//!   own on the machine (`cmux link sync push`), trying each work root in
-//!   turn, unless this send's copy already finished there: a second push
-//!   would overwrite what the chat changed since. Answers the chat's folder
-//!   there.
+//!   [--subpath SUB] --work-root R...`: puts ROOT in a folder of the send's
+//!   own on the machine (`cmux link seed push`: seeded from its GitHub
+//!   remote, else copied), trying each work root in turn, unless this send's
+//!   copy already finished there: a second push would overwrite what the chat
+//!   changed since. Answers the chat's folder there, and how it got there:
+//!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
+//!   `install_url` when a seed copied instead, and `skipped_files`. The push's
+//!   progress lines go to stderr.
 //! - `ensure --workspace W --key K --repo OWNER/NAME [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -159,6 +162,7 @@ fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
 }
 
+#[allow(clippy::arithmetic_side_effects, reason = "epoch milliseconds conversion")]
 fn now_millis() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -635,20 +639,33 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
     }
 }
 
-/// One push of a folder to a machine: `(socket, local, remote)` to the push's
-/// error code and message.
-pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<(), (String, String)> + 'a;
+/// One push of a folder to a machine: `(socket, local, remote)` to what the
+/// answer adds about it ([`pushed_fields`]), or the push's error code and
+/// message.
+pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
 
-/// `cmux link sync push`, after the machine says it serves `fs-v1`.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<(), (String, String)> {
-    if let Some(outdated) =
-        super::machine_gate::outdated(socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
-    {
-        return Err((super::machine_gate::OUTDATED.to_string(), outdated.message()));
+/// `cmux link seed push` (design/cloud.md, "Getting the project onto the
+/// machine"): a git folder with a GitHub remote is seeded from it, anything
+/// else copied (`cmux link sync push`), which refuses a machine without
+/// `fs-v1` (`machine_outdated`) itself.
+fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
+    super::seed_cli::push(socket, local, remote)
+        .map(|pushed| pushed_fields(&pushed.json()))
+        .map_err(|error| super::seed_cli::failure(&error))
+}
+
+/// What the copy's answer carries of the push's own line: how it went
+/// (`mode`: seed or copy), why a seed copied instead (`fallback_code`,
+/// `fallback_why`, and `install_url` when the machine needs the GitHub App),
+/// and the files it left on this Mac, by name.
+fn pushed_fields(line: &Value) -> Value {
+    let mut fields = serde_json::Map::new();
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+        if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
+            fields.insert(key.to_string(), value.clone());
+        }
     }
-    super::sync_cli::push(socket, local, remote)
-        .map(|_| ())
-        .map_err(|error| super::sync_cli::push_failure(&error))
+    Value::Object(fields)
 }
 
 /// Folders a chat's copy refuses as too broad: the disk's root and the
@@ -821,14 +838,21 @@ impl StartCopy {
         for root in &self.work_roots {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
-                Ok(()) => {
+                Ok(fields) => {
                     let recorded = Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     });
                     lease.release();
                     return match recorded {
                         Ok(()) => {
-                            json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
+                            let mut answer =
+                                json!({"ok": true, "chat": chat, "folder": folder, "copied": true});
+                            if let (Some(answer), Value::Object(fields)) =
+                                (answer.as_object_mut(), fields)
+                            {
+                                answer.extend(fields);
+                            }
+                            answer
                         }
                         Err(error) => refused("ledger_failed", format!("{error:#}")),
                     };

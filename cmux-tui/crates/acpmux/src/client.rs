@@ -16,6 +16,8 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The session this connection proved at initialize, never the caller's claim.
+    proven_caller_session: std::sync::OnceLock<String>,
     /// Absolute path to the CLI bundled with the app that started the daemon,
     /// when the daemon was launched by an app. A standalone acpmux CLI does
     /// not inherit the app's environment, so this is how `--group` finds the
@@ -36,6 +38,16 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, true).await
+    }
+
+    /// Connect a single-purpose trigger client without inheriting ambient
+    /// ACPMUX caller credentials from the invoking shell/session.
+    pub async fn connect_without_caller(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, false).await
+    }
+
+    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -96,6 +108,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -113,11 +126,13 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
-        ) {
+        if include_caller
+            && let (Some(id), Some(token), true) = (
+                caller("ACPMUX_SESSION_ID"),
+                caller(crate::hub::person::CALLER_TOKEN_ENV),
+                issuer.is_some_and(|socket| Path::new(&socket) == path),
+            )
+        {
             let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
@@ -126,6 +141,10 @@ impl Client {
             hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
+        if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
+        {
+            let _ = client.proven_caller_session.set(session.to_owned());
+        }
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         *client.daemon_cli_path.lock_or_recover() = init
@@ -145,6 +164,12 @@ impl Client {
                 Some((n.to_owned(), c.to_owned()));
         }
         Ok(client)
+    }
+
+    /// The session the daemon authenticated on this connection. Older daemons
+    /// report none, so consumers requiring a caller binding fail closed.
+    pub fn proven_caller_session(&self) -> Option<&str> {
+        self.proven_caller_session.get().map(String::as_str)
     }
 
     /// Proves this connection is the person (`_acpmux/person_prove`) with the

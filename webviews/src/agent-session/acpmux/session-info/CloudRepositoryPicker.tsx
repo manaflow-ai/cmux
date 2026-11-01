@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
+import { useT, type Translate } from "../i18n";
 
 export type CloudRepo = {
   fullName: string;
@@ -51,8 +52,14 @@ function reposOf(value: unknown): CloudRepo[] {
     : [];
 }
 
-function sourceLabel(source: CloudRepo["source"]): string {
-  return source === "local" ? "Local" : source === "recent" ? "Recent" : source === "installation" ? "GitHub" : "";
+function sourceLabel(source: CloudRepo["source"], t: Translate): string {
+  return source === "local"
+    ? t("cloudRepository.source.local")
+    : source === "recent"
+      ? t("cloudRepository.source.recent")
+      : source === "installation"
+        ? t("cloudRepository.source.github")
+        : "";
 }
 
 function githubInstallUrl(value: unknown): string | undefined {
@@ -86,6 +93,7 @@ export function CloudRepositoryPicker({
   onAttached: (repo: AttachedCloudRepo) => void;
   request?: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
   const [connectUrl, setConnectUrl] = useState<string>();
@@ -93,34 +101,39 @@ export function CloudRepositoryPicker({
   const [attaching, setAttaching] = useState<string>();
   const [error, setError] = useState<string>();
   const generation = useRef(0);
+  /// The search field takes focus when the popover opens (the Popover moves it, not autoFocus).
+  const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      setError(undefined);
-      void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-        .then((syncedInstallUrl) =>
-          request<ListReply>("cloud.repo.list", query.trim() ? { query: query.trim() } : {}).then((reply) => ({
-            reply,
-            syncedInstallUrl,
-          })),
-        )
-        .then(({ reply, syncedInstallUrl }) => {
-          if (id !== generation.current) return;
-          setRepos(reposOf(reply));
-          setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
-        })
-        .catch(() => {
-          if (id === generation.current) setError("Couldn’t load repositories");
-        })
-        .finally(() => {
-          if (id === generation.current) setLoading(false);
-        });
-    }, query.trim() ? 120 : 0);
+    const timer = window.setTimeout(
+      () => {
+        setLoading(true);
+        setError(undefined);
+        void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
+          .then((syncedInstallUrl) =>
+            request<ListReply>("cloud.repo.list", query.trim() ? { query: query.trim() } : {}).then((reply) => ({
+              reply,
+              syncedInstallUrl,
+            })),
+          )
+          .then(({ reply, syncedInstallUrl }) => {
+            if (id !== generation.current) return;
+            setRepos(reposOf(reply));
+            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+          })
+          .catch(() => {
+            if (id === generation.current) setError(t("cloudRepository.loadFailed"));
+          })
+          .finally(() => {
+            if (id === generation.current) setLoading(false);
+          });
+      },
+      query.trim() ? 120 : 0,
+    );
     return () => window.clearTimeout(timer);
-  }, [open, query, request, session]);
+  }, [open, query, request, session, t]);
 
   const attach = (repo: CloudRepo) => {
     if (attaching) return;
@@ -129,19 +142,21 @@ export function CloudRepositoryPicker({
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
       .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
       .then((reply) => {
-        if (reply?.state === "done" && !((reply as { code?: unknown }).code) && reply.repo) {
+        if (reply?.state === "done" && !(reply as { code?: unknown }).code && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
           onOpenChange(false);
           setQuery("");
         } else {
           const code = (reply as { code?: unknown }).code;
           setConnectUrl(githubInstallUrl((reply as { install_url?: unknown }).install_url));
-          setError(typeof code === "string" ? code : "Repository could not be attached");
+          setError(typeof code === "string" ? code : t("cloudRepository.attachFailed"));
         }
       })
       .catch((reason: unknown) => {
         const code = errorCode(reason);
-        setError(code === "repo.needs_github" ? "Connect GitHub to attach this repository" : "Repository could not be attached");
+        setError(
+          code === "repo.needs_github" ? t("cloudRepository.connectToAttach") : t("cloudRepository.attachFailed"),
+        );
       })
       .finally(() => setAttaching(undefined));
   };
@@ -151,17 +166,17 @@ export function CloudRepositoryPicker({
       open={open}
       onOpenChange={onOpenChange}
       anchor={anchor.current as UiAnchor}
-      label="Add repository"
+      label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
-      initialFocus={false}
+      initialFocus={search}
     >
       <div className="acpmux-cloud-repository-picker">
         <input
-          autoFocus
+          ref={search}
           className="acpmux-cloud-repository-search"
           value={query}
-          placeholder="Search repositories"
-          aria-label="Search repositories"
+          placeholder={t("cloudRepository.search")}
+          aria-label={t("cloudRepository.search")}
           onChange={(event) => setQuery(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") onOpenChange(false);
@@ -174,9 +189,9 @@ export function CloudRepositoryPicker({
             }
           }}
         />
-        {loading && <div className="acpmux-cloud-repository-progress">Searching…</div>}
+        {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul className="acpmux-cloud-repository-list" role="listbox">
+          <ul className="acpmux-cloud-repository-list">
             {repos.map((repo) => (
               <li key={repo.fullName}>
                 <button
@@ -187,18 +202,24 @@ export function CloudRepositoryPicker({
                 >
                   <span className="acpmux-cloud-repository-name">{repo.fullName}</span>
                   <span className="acpmux-cloud-repository-source">
-                    {attaching === repo.fullName ? "Attaching…" : sourceLabel(repo.source)}
+                    {attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
         )}
-        {!loading && repos.length === 0 && !error && <div className="acpmux-cloud-repository-empty">No repositories found</div>}
-        {error && <div className="acpmux-cloud-repository-error" role="alert">{error}</div>}
+        {!loading && repos.length === 0 && !error && (
+          <div className="acpmux-cloud-repository-empty">{t("cloudRepository.empty")}</div>
+        )}
+        {error && (
+          <div className="acpmux-cloud-repository-error" role="alert">
+            {error}
+          </div>
+        )}
         {connectUrl && (
           <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
-            Connect GitHub
+            {t("cloudRepository.connect")}
           </a>
         )}
       </div>
@@ -206,13 +227,17 @@ export function CloudRepositoryPicker({
   );
 }
 
-export function loadAttachedCloudRepos(_session: string): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then((reply) => ({
-    repos: Array.isArray(reply?.repos)
-      ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-      : [],
-    pending: Array.isArray(reply?.pending)
-      ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-      : [],
-  }));
+export function loadAttachedCloudRepos(
+  _session: string,
+): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
+  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then(
+    (reply) => ({
+      repos: Array.isArray(reply?.repos)
+        ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
+        : [],
+      pending: Array.isArray(reply?.pending)
+        ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
+        : [],
+    }),
+  );
 }

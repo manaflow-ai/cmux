@@ -115,6 +115,12 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
+/// The error code and message of a failed [`push`].
+pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
+    let error = SeedError::of(error);
+    (error.code, error.message)
+}
+
 /// What a push did.
 #[derive(Debug)]
 pub(super) struct Pushed {
