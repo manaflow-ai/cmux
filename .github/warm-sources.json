@@ -172,7 +172,6 @@
     "nightly.yml:refresh-test-compilation-cache": {"class": "warm-seed", "warm": ["deriveddata-reuse", "ssd-cas", "actions-cache"]},
     "nightly.yml:sign-nightly-identity-legacy": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
     "nightly.yml:signer-build": {"class": "linux-build", "warm": ["actions-cache"]},
-    "nightly.yml:signer-build-macos": {"class": "mac-build", "warm": ["actions-cache"]},
     "nightly.yml:signer-dmg": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the DMG and app artifacts earlier jobs built, compiles nothing"},
     "nightly.yml:signer-dmg-image": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
     "nightly.yml:verify-final-dmg-nightly": {"class": "mac-sign", "warm": [], "exempt": "verification only: checks a signed app or DMG an earlier job built, compiles nothing"},
