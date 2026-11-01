@@ -419,18 +419,14 @@ class Workflows(unittest.TestCase):
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
         self.assertIn("cmux_next_base_tier.py kick", job["steps"][-1]["run"])
 
-    def test_sleeping_dispatcher_uses_a_small_ephemeral_linux_runner(self):
-        # A pure Python timer/API call must not occupy the 32-vCPU build pool.
-        # Keep the hosted fork route and the small Blacksmith overflow route.
+    def test_sleeping_dispatcher_reads_the_linux_pool(self):
+        # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
+        # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
         self.assertIn("'ubuntu-24.04'", expression)
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", expression)
-        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
-        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
-        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", expression)
-        self.assertNotIn("|| vars.LINUX_RUNNER ||", expression)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || "
-                      "'blacksmith-2vcpu-ubuntu-2404'", expression)
+        self.assertNotIn("32vcpu", expression)
+        self.assertNotIn("vars.LINUX_RUNNER", expression)
+        self.assertTrue(expression.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]
