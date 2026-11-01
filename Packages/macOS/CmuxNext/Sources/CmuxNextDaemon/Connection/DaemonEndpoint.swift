@@ -316,6 +316,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
     /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
     case agentSessionSettings = "agent-session-settings-v1"
+    /// Prepared prompts require an owner-captured snapshot and one-use execution capability.
+    case agentSessionTurnRewind = "agent-session-turn-rewind-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -520,7 +522,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .agentSessionTurnRewind, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

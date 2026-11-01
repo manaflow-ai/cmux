@@ -14,6 +14,11 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func events(_ page: AgentSessionPage) async throws -> Data
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
+    /// Allocates the immutable turn id before the native owner captures this machine.
+    func prepareCloudTurn(id: String, scope: Data) async throws -> Data
+    func abandonCloudTurn(id: String) async throws
+    /// Sends a prepared turn with its short-lived capability, never an owner token.
+    func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -41,6 +46,12 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
 }
 
 extension AgentSessionRemoteClient {
+    public func prepareCloudTurn(id: String, scope: Data) async throws -> Data { throw Self.turnUnsupported }
+    public func abandonCloudTurn(id: String) async throws { throw Self.turnUnsupported }
+    public func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data { throw Self.turnUnsupported }
+    private static var turnUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.turn_unsupported", message: "Update cmux on this machine to capture Cloud turns.")
+    }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.

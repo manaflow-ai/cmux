@@ -118,6 +118,7 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    @ObservationIgnored let workspaceBindings = CloudWorkspaceBindings()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -238,6 +239,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        workspaceBindings.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
@@ -302,7 +304,7 @@ final class CloudService {
             let machines = machines
             linkEvents = machines.local.store.sideEvents.subscribe { event in
                 guard let change = CloudAppLinks.change(in: event) else { return }
-                machines.session(change.key.machine)?.linkChanged(change)
+                (machines.cloud.first { $0.connectionMachineID == change.key.machine } ?? machines.session(change.key.machine))?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
@@ -486,7 +488,7 @@ final class CloudService {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
             if configuration.linkSource == .appServer {
-                list = try await appServerMachines()
+                list = try await projectWorkspaceMachines(appServerMachines())
                 limits = nil
             } else {
                 let listed = try await api.listMachinesAndLimits()
@@ -526,6 +528,33 @@ final class CloudService {
     /// client sends (``CloudAuth/teamID``).
     private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
 
+    var workspaceBindingScope: CloudWorkspaceBindings.Scope? {
+        guard configuration.linkSource == .appServer, isSignedIn, let user = auth.user?.id else { return nil }
+        return .init(user: user, team: auth.teamID, origin: CloudConfiguration.turnAPIBaseURL.absoluteString)
+    }
+
+    private var workspaceOwner: CloudTurnRewindClient {
+        CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) { [installIdentity] in
+            try await installIdentity.accessToken(team: nil).accessToken
+        }
+    }
+
+    /// A verified binding invalidates an older raw list before it can remove the logical session.
+    func rememberTurnWorkspace(workspace: String, machine: String, scope: CloudWorkspaceBindings.Scope) throws {
+        guard workspaceBindingScope == scope else { throw CancellationError() }
+        if try workspaceBindings.remember(workspace: workspace, machine: machine, scope: scope) { listGeneration += 1 }
+    }
+
+    func projectWorkspaceMachines(_ rows: [CloudMachine]) async throws -> [CloudMachine] {
+        try await workspaceBindings.project(rows, scope: workspaceBindingScope, owner: workspaceOwner) { self.workspaceBindingScope == $0 }
+    }
+
+    func workspaceConnection(machine: String) async throws -> CloudWorkspaceConnection? {
+        try await workspaceBindings.connection(machine: machine, scope: workspaceBindingScope, owner: workspaceOwner) {
+            self.workspaceBindingScope == $0 && self.unavailableReason == nil
+        }
+    }
+
     /// The user and team signed in now (observable: ``CloudAuth``). Start-session asks and runs
     /// belong to the one they were asked in.
     var account: [String?] { listAccount }
@@ -558,7 +587,7 @@ final class CloudService {
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
+                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id], workspaceRead: true)
             } else {
                 // Do not resurrect a machine removed by a newer detail/list response.
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
@@ -618,9 +647,13 @@ final class CloudService {
     /// machine that stopped being live suspends its link, and one that turned live connects.
     /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
-    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil, workspaceRead: Bool = false) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
+        // A provider detail about the retired source must not destroy its logical workspace.
+        if !workspaceRead, let scope = workspaceBindingScope {
+            guard let bindings = try? workspaceBindings.bindings(in: scope), !bindings.contains(where: { $0.machine == machine.id }) else { return }
+        }
         guard !policyDisabled, machine.id == session.machineID,
               read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
@@ -652,6 +685,12 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
+        if session.appLink != nil {
+            session.connectionResolver = { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.workspaceConnection(machine: machine.id)
+            }
+        }
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
         session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.

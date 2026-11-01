@@ -43,6 +43,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
+    /// Native forwarding for this pane's trusted workspace and machine. The returned capability
+    /// goes directly to the guest prompt, never through the page or its replay log.
+    public struct CloudTurn: Sendable {
+        public let state: @Sendable () async throws -> Data
+        public let capture: @Sendable (_ session: String, _ prompt: String, _ prepared: Data, _ state: Data) async throws -> Data
+        public init(state: @escaping @Sendable () async throws -> Data,
+                    capture: @escaping @Sendable (String, String, Data, Data) async throws -> Data) {
+            self.state = state
+            self.capture = capture
+        }
+    }
 
     /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
     /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
@@ -75,6 +86,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let start: Start?
     private let trust: Trust?
     private let ownerCloud: OwnerCloud?
+    private let cloudTurn: CloudTurn?
     private let host: String?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
@@ -83,23 +95,25 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
-                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil) {
+                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudTurn: CloudTurn? = nil) {
         start = nil
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudTurn = cloudTurn
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
-                ownerCloud: OwnerCloud? = nil) {
+                ownerCloud: OwnerCloud? = nil, cloudTurn: CloudTurn? = nil) {
         self.start = start
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudTurn = cloudTurn
         state = Mutex(State())
     }
 
@@ -190,9 +204,31 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
-            let session = state.withLock { $0.session } ?? ""
-            run(id) { [weak self] client in
-                let accepted = try await client.prompt(id: prompt, text: text)
+            let session = state.withLock { $0.resolved ?? $0.session } ?? ""
+            run(id) { [weak self, cloudTurn] client in
+                let accepted: Data
+                if let cloudTurn {
+                    let ownerState = try await cloudTurn.state()
+                    var submitting = false
+                    do {
+                        let prepared = try await client.prepareCloudTurn(id: prompt, scope: ownerState)
+                        if let replay = try Self.preparedAcknowledgement(prepared, prompt: prompt) {
+                            accepted = replay
+                        } else {
+                            let capability = try await cloudTurn.capture(session, prompt, prepared, ownerState)
+                            // An uncertain submission keeps the external fence: the guest may already run.
+                            submitting = true
+                            accepted = try await client.prompt(id: prompt, text: text, cloudTurn: capability)
+                        }
+                    } catch {
+                        // A pre-submission failure releases only this local queue slot; the daemon
+                        // retains its immutable identity for a pending-snapshot retry.
+                        if !submitting { try? await client.abandonCloudTurn(id: prompt) }
+                        throw error
+                    }
+                } else {
+                    accepted = try await client.prompt(id: prompt, text: text)
+                }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
@@ -428,6 +464,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     // MARK: Helpers
+
+    /// An already accepted prompt is acknowledged from the daemon's durable receipt without
+    /// capturing or claiming twice. Only the acknowledgement's public fields can reach the page.
+    private static func preparedAcknowledgement(_ data: Data, prompt: String) throws -> Data? {
+        struct Accepted: Codable { let prompt_id: String; let turn_id: String; let queued: Bool }
+        struct Prepared: Decodable { let accepted: Accepted? }
+        guard let accepted = try JSONDecoder().decode(Prepared.self, from: data).accepted else { return nil }
+        guard accepted.prompt_id == prompt, !accepted.turn_id.isEmpty else {
+            throw AgentSessionRemoteError(code: "agent_session.turn_scope", message: "The prepared turn did not match this prompt.")
+        }
+        return try JSONEncoder().encode(accepted)
+    }
 
     /// Marks the wire closed; false when it already was.
     private func close() -> Bool {

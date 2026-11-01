@@ -90,6 +90,8 @@ mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
+mod machine_rewind;
+#[cfg(unix)]
 pub(crate) use machine_join::{
     device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
 };
@@ -501,6 +503,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_rewind::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
@@ -1231,6 +1234,8 @@ USAGE
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
+  cmux machine turns --workspace WS
+  cmux machine rewind --workspace WS --session SESSION --turn TURN [--key KEY] [--generation N]
 ";
 
 const SESSION_HELP_PREFIX: &str = "\

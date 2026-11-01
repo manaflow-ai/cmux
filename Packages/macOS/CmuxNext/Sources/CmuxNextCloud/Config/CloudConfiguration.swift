@@ -128,6 +128,10 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
+    /// The new platform deployment serving the workspace-machine and turn execution APIs.
+    /// A guest cannot replace this origin or direct the owner's bearer to its own URL.
+    public static let turnAPIBaseURL = URL(string: "https://cmux-platform-development.debussy.workers.dev") ?? inertURL
+
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
