@@ -413,8 +413,9 @@ def cond_smoke_omnibar_drawn(j, want, cache):
 
 def cond_smoke_frame_any(j, want, cache):
     """A fresh window snapshot (kept as check-NN.png) shows ANY of TEXTS to text recognition. example.com writes its
-    text in 6 languages and centers it (its s.js, 2026-11-01): in a short pane the part on screen can be any of them,
-    or "Learn more" (bench run 6d639a72684a round 4: the page drawn, scrolled to its Spanish line)."""
+    text in 6 languages and centers it (its s.js, 2026-11-01): in a short pane the part on screen can be any of them
+    (bench run 6d639a72684a round 4: the page drawn, scrolled to its Spanish line). Not "Learn more": cmux's own
+    Page Info popover and changelog page also show it."""
     j.checks += 1
     image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
     lines = j.app.read_text(image)

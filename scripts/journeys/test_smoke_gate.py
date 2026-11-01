@@ -1525,6 +1525,35 @@ class SettleThroughTheDriver(unittest.TestCase):
             del driver.Journey.step_t_step
             driver.Journey.step_relaunch = real_relaunch
         self.assertEqual(order, [1, "sample", "relaunch", 3, "sample", 4, "sample"])
+        # A relaunch whose mark a later step measures from: the sample waits for that step (review S1 at f8de46b2f79).
+        order.clear()
+        driver.Journey.step_t_step = lambda self, step: order.append(step["n"]) or {}
+        driver.Journey.step_relaunch = lambda self, step: order.append("relaunch") or {}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                steps = [{"do": "t_step", "n": 1}, {"do": "relaunch", "mark": "reopened"}, {"do": "t_step", "n": 3},
+                         {"do": "t_step", "n": 4, "since": "reopened"}, {"do": "t_step", "n": 5}]
+                driver.Journey({"id": "rs2", "steps": steps}, App(), tmp, driver.now() + 30, 1.0).run()
+        finally:
+            del driver.Journey.step_t_step
+            driver.Journey.step_relaunch = real_relaunch
+        self.assertEqual(order, [1, "sample", "relaunch", 3, 4, "sample", 5, "sample"])
+
+    def test_app_log_records_only_and_never_fails_a_round(self):
+        sys.path.insert(0, str(HERE))
+        import ext_realkey
+        j = type("J", (), {"app": type("A", (), {"pid": 7})()})()
+        real = ext_realkey.subprocess.run
+
+        def slow(*a, **k):
+            raise ext_realkey.subprocess.TimeoutExpired("log", 60)
+        ext_realkey.subprocess.run = slow
+        try:
+            done = ext_realkey.step_app_log(j, {"seconds": 30, "grep": "newTab"})
+        finally:
+            ext_realkey.subprocess.run = real
+        self.assertEqual(done["count"], 0)
+        self.assertIn("error", done)
 
     def test_the_page_check_accepts_any_language_of_example_com(self):
         sys.path.insert(0, str(HERE))

@@ -1698,11 +1698,17 @@ class Journey:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
                 if record.get("ok") and step["do"] == "relaunch":
-                    # Not now: the next expect measures from the relaunch's own mark (review at 1548fb29ce5), so the
-                    # post-relaunch sample waits until the step after the relaunch has finished.
-                    self.relaunch_sample_due = f"after the relaunch at step {index + 1}"
-                elif getattr(self, "relaunch_sample_due", None) and record.get("ok") is not False:
-                    self.sample_daemons(f"{self.relaunch_sample_due}, after step {index + 1} ({step['do']})")
+                    # Not now: later steps measure from the relaunch's own mark (review at 1548fb29ce5 and
+                    # f8de46b2f79). The sample waits until the last step whose `since` is that mark has finished,
+                    # else (no such step) until the step after the relaunch.
+                    mark = step.get("mark")
+                    steps_all = self.spec["steps"]
+                    users = [i for i, st in enumerate(steps_all) if i > index and mark and st.get("since") == mark]
+                    self.relaunch_sample_due = (f"after the relaunch at step {index + 1}",
+                                                users[-1] if users else index + 1)
+                elif getattr(self, "relaunch_sample_due", None) and record.get("ok") is not False \
+                        and index >= self.relaunch_sample_due[1]:
+                    self.sample_daemons(f"{self.relaunch_sample_due[0]}, after step {index + 1} ({step['do']})")
                     self.relaunch_sample_due = None
                 if record.get("ok") and index == 0:
                     # Between steps, never inside one: no step's own timing includes the sample (review S1).

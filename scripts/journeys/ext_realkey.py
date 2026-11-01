@@ -343,8 +343,12 @@ def step_app_log(j, step):
     given; kept in the result (at most 120 lines). Diagnostic only."""
     import re
     secs = int(step.get("seconds", 15))
-    done = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--last", f"{secs}s", "--info", "--debug",
-                           "--predicate", f"processID == {j.app.pid}"], capture_output=True, text=True, timeout=120)
+    try:
+        done = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--last", f"{secs}s", "--info", "--debug",
+                               "--predicate", f"processID == {j.app.pid}"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        # It records only: a log that cannot be read is noted, never a red of the round (smoke-dogfood uses it).
+        return {"lines": [], "count": 0, "error": str(error)[:200]}
     lines = done.stdout.splitlines()
     if step.get("grep"):
         rx = re.compile(step["grep"], re.I)
