@@ -5584,7 +5584,6 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-      SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
       - *signer-checkout-tools
       - *signer-install
