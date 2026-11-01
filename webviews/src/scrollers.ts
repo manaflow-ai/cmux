@@ -71,7 +71,8 @@ function durationMs(element: Element, property: string): number {
  */
 export function followShownScrollerFade(element: HTMLElement): () => void {
   const view = element.ownerDocument.defaultView;
-  if (!view?.MutationObserver) return () => {};
+  // A view that draws no frames (a test page made without them) runs no fade.
+  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>

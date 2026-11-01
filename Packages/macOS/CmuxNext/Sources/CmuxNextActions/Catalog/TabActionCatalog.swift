@@ -205,8 +205,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
             // Previous / Next (Leo 2026-10-09): the focused pane's tabs when it has 2+, else the
-            // sidebar rows (`PreviousNext`). No default key: the Chrome tab keys select sidebar
-            // items (`KeyBindingDefaults.tabSwitching`, Leo 2026-10-12).
+            // sidebar rows (`PreviousNext`). No default key: the tab keys and Ghostty's
+            // `next_tab` / `previous_tab` run Next / Previous Tab in Pane (Lawrence 2026-10-20).
             ActionDescriptor(
                 id: "navigate.next",
                 title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),

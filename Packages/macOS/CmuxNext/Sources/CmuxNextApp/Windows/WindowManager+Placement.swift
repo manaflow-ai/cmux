@@ -78,7 +78,7 @@ extension WindowManager {
             // the band, not the list), or one this window does not list (another window's, another space's), has no
             // row to wait for: the rule resolves as if it never had one. So does a wait past its limit.
             var byDefault = pending.byDefault
-            if byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
+            if pending.slot == nil, byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
                 let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
                    !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
@@ -94,10 +94,10 @@ extension WindowManager {
                 byDefault?.currentMachine = nil
             }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
-            // slot. Another machine's create writes no row in this Mac's order, so the app places it.
-            let slot = pending.slot ?? (daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
-                : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp))
-            if let position = slot?.position(moving: [id], section: section, in: sections) {
+            // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
+            let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+                : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+            if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }

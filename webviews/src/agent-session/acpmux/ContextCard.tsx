@@ -3,7 +3,7 @@
 // card with its stacked bar and Details link. Both use the shared glass hover card (.ui-card.ui-glass).
 import "./contextCard.css";
 import { useT } from "./i18n";
-import { contextBreakdown, type Breakdown, type BreakdownRow } from "./inspector/ContextSection";
+import { contextBreakdown, type Breakdown, type BreakdownRow } from "./session-info/ContextSection";
 
 /// One stretch of the stacked bar, as a share of the whole window (0-100).
 export type ContextSegment = {
@@ -41,7 +41,7 @@ type CompactGroup = "messages" | "tools" | "system";
 type CompactBreakdownRow = { name: string; group?: CompactGroup; tokens: number; share: number; tone: number };
 
 /**
- * Pick the three useful headline categories for the small composer card. The Inspector keeps the
+ * Pick the three useful headline categories for the small composer card. Session Info keeps the
  * complete `/context` report; the card only needs enough signal to answer what is using the window.
  */
 export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[] {
@@ -113,7 +113,7 @@ export function ContextCardBody({
                 {row.group === "messages"
                   ? t("context.messages")
                   : row.group === "tools"
-                    ? t("chatInspector.context.mcpTools")
+                    ? t("sessionInfo.context.mcpTools")
                     : row.group === "system"
                       ? t("context.setup")
                       : row.name}

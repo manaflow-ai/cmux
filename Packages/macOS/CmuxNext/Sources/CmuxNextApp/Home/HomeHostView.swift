@@ -43,8 +43,8 @@ final class HomeHostView: NSView {
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
-    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.wornUpload(of:)`, its
-    /// worn upload), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
+    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.chosenPicture(of:)`, its
+    /// upload or picked character), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
@@ -214,12 +214,11 @@ final class HomeHostView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation): each Chief of
         // this conversation wears its Home row's avatar beside a group's bubbles, again after a
         // swap (a Chief's picture or text, the pet character a Chief with none wears).
-        avatarsWatch = Task { [weak self, weak service, weak services] in
+        avatarsWatch = Task { [weak self, weak service] in
             for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
                 guard let service else { return [:] }
                 let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-                let fallback = HomeHostView.defaultTileAvatar(picture: services?.wornUpload(of: nil)?.still)
-                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
+                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: .chiefDefault)  // own picks: chiefFaces
             }) {
                 self?.transcript.setChiefBubbleAvatars(avatars)
             }
@@ -289,7 +288,7 @@ final class HomeHostView: NSView {
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let me = store.me?.id
-                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
                     .filter { $0.kind == .chief && $0.id != id }.count
                 return intro.intro(for: id, otherChiefs: others)
             }) {
@@ -468,9 +467,9 @@ final class HomeHostView: NSView {
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
-    /// The picture the Chief shown here wears where its profile sets none: its worn upload, else nil.
+    /// The picture the Chief shown here wears where its profile sets none: its upload, else its pick, else nil.
     private var fallbackPicture: URL? {
-        control.services.wornUpload(of: petRows.chief)?.still
+        control.services.chosenPicture(of: petRows.chief)
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,

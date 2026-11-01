@@ -13,6 +13,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
 import { pageClocks } from "../src/ui/pageClock";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { translate } from "../src/agent-session/acpmux/i18n";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
@@ -173,7 +174,12 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
 
 test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
   const html = renderToStaticMarkup(
-    <Thinking doing="Read the Freestyle lanes note; check dispatcher" doingAt={at} now={() => at + 50_000} />,
+    <Thinking
+      since={at}
+      doing="Read the Freestyle lanes note; check dispatcher"
+      doingAt={at}
+      now={() => at + 50_000}
+    />,
   );
   expect(html).toContain('class="cv-shimmer__row"');
   expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
@@ -182,9 +188,10 @@ test("a running label's shimmer includes its timer and uses the slow cadence", a
   expect(css).toMatch(/@keyframes cmux-shimmer-band[\s\S]*?45%[\s\S]*?100%/);
 });
 
-test("the start status before the turn does not shimmer", () => {
-  const html = renderToStaticMarkup(<Thinking status="Starting Claude Code…" />);
-  expect(html).not.toContain("is-shimmer");
+test("the line while the agent starts is Thinking, with no Cancel", () => {
+  const html = renderToStaticMarkup(<Thinking starting />);
+  expect(html).toContain("is-shimmer");
+  expect(html).not.toContain(translate("switch.cancelPrompt"));
 });
 
 test("the activity line names the work with no dots before it", () => {

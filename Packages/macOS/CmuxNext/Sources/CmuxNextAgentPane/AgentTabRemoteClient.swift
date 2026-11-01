@@ -50,6 +50,15 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
 
+    public func setModel(_ modelId: String) async throws -> Data { try await mapped { try await client.setModel(modelId) } }
+
+    public func setMode(_ modeId: String) async throws -> Data { try await mapped { try await client.setMode(modeId) } }
+
+    public func setConfig(id configId: String, value: String) async throws -> Data {
+        try await mapped { try await client.setConfig(id: configId, value: value) }
+    }
+
+
     public func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.

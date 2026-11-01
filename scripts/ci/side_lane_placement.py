@@ -811,6 +811,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
     """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
     output = env.get("GITHUB_OUTPUT")
     if output:
+        retry_jobs = cascade.delimited(cascade.candidates(env, ())[:cascade.MAX_PER_RUN])
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(
                 f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
@@ -820,6 +821,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
                 f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
                 f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
                 f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
+                f"retry_jobs={retry_jobs}\n"
             )
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
