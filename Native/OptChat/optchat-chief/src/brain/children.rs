@@ -541,3 +541,107 @@ pub(super) fn permission_text(name: &str, request: &Value) -> String {
         crate::approval::PERMISSION_WAIT.as_secs()
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ev(seq: u64, dir: &str, kind: &str, msg: Value) -> AcpmuxEvent {
+        serde_json::from_value(json!({"seq": seq, "at": seq, "dir": dir, "kind": kind, "msg": msg}))
+            .unwrap()
+    }
+
+    fn update(seq: u64, kind: &str, session: &str, mut update: Value) -> AcpmuxEvent {
+        update["sessionUpdate"] = json!(kind);
+        ev(
+            seq,
+            "in",
+            kind,
+            json!({"method": "session/update", "params": {"sessionId": session, "update": update}}),
+        )
+    }
+
+    fn say(seq: u64, text: &str) -> AcpmuxEvent {
+        update(
+            seq,
+            "agent_message_chunk",
+            "s1",
+            json!({"content": {"type": "text", "text": text}}),
+        )
+    }
+
+    fn tool(seq: u64, session: &str, id: &str) -> AcpmuxEvent {
+        update(
+            seq,
+            "tool_call",
+            session,
+            json!({"toolCallId": id, "title": "Bash", "rawInput": {"command": "ls"}}),
+        )
+    }
+
+    fn start(seq: u64) -> AcpmuxEvent {
+        ev(seq, "mux", "turn_started", json!({}))
+    }
+
+    fn end(seq: u64) -> AcpmuxEvent {
+        ev(seq, "mux", "turn_end", json!({"stopReason": "end_turn"}))
+    }
+
+    /// Leo, 2026-10-31, on an `a28 → Chief` bubble that held the whole run
+    /// glued together ("...skills.Measured: hooks..."): a report is the
+    /// subagent's final reply, not every progress line of its turn.
+    #[test]
+    fn a_report_is_the_reply_after_the_last_tool_call() {
+        let events = vec![
+            start(1),
+            say(2, "Reading the hook config."),
+            tool(3, "s1", "t1"),
+            say(4, "Measured: hooks add 40 ms."),
+            tool(5, "s1", "t2"),
+            say(6, "Landed #30079 as a57fc4b."),
+            end(7),
+        ];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(last_end, Some(7));
+        assert_eq!(replies, vec!["Landed #30079 as a57fc4b.".to_owned()]);
+    }
+
+    /// A turn that ends on a tool call reports its last words, never the run.
+    #[test]
+    fn a_turn_ending_on_a_tool_call_reports_its_last_words() {
+        let events = vec![
+            start(1),
+            say(2, "Checking CI."),
+            tool(3, "s1", "t1"),
+            say(4, "All green; merged."),
+            tool(5, "s1", "t2"),
+            end(6),
+        ];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["All green; merged.".to_owned()]);
+    }
+
+    /// A Task subagent's own tool calls (`<acp>/<toolu>` sessions) do not
+    /// split the reply.
+    #[test]
+    fn an_inner_subagent_tool_call_does_not_split_the_reply() {
+        let events = vec![
+            start(1),
+            say(2, "Done: "),
+            tool(3, "s1/toolu_1", "t1"),
+            say(4, "landed."),
+            end(5),
+        ];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Done: landed.".to_owned()]);
+    }
+
+    /// One reply with no tool calls stays whole.
+    #[test]
+    fn a_reply_with_no_tool_calls_stays_whole() {
+        let events = vec![start(1), say(2, "Line one.\n\nLine two."), end(3)];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Line one.\n\nLine two.".to_owned()]);
+    }
+}
