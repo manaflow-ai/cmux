@@ -104,7 +104,8 @@ import Testing
         var hibernatedCalls: [String] = []
         init(_ residents: [WorkspaceHibernationResident]) { self.residents = residents }
         func hibernationResidents() -> [WorkspaceHibernationResident] { residents }
-        func hibernationShownWorkspaces() -> Set<String> { [] }
+        var shown: Set<String> = []
+        func hibernationShownWorkspaces() -> Set<String> { shown }
         func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { policy }
         func hibernate(workspace: String) {
             hibernatedCalls.append(workspace)
@@ -114,7 +115,11 @@ import Testing
 
     final class Deadline: WorkspaceHibernationDeadline, @unchecked Sendable { // test-only; touched on the main actor alone
         var isScheduled = false
-        func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) { isScheduled = true }
+        var delays: [Duration] = []
+        func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) {
+            isScheduled = true
+            delays.append(delay)
+        }
         func cancel() { isScheduled = false }
     }
 
@@ -126,7 +131,9 @@ import Testing
         let clock = Clock()
         let host = Host([WorkspaceHibernationResident(workspace: "hidden", inHiddenSpace: true),
                          WorkspaceHibernationResident(workspace: "shown-space")])
-        let defaults = UserDefaults(suiteName: "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)")!
+        let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
                                                now: { clock.now })
         hibernation.pass() // first sight starts both clocks
@@ -136,5 +143,27 @@ import Testing
         clock.now = clock.now.addingTimeInterval(45 * 60)
         hibernation.pass()
         #expect(host.hibernatedCalls == ["hidden", "shown-space"])
+    }
+
+    /// A window switching space hides a workspace while a later deadline is pending (planned on the old shown
+    /// set, at the normal clock): the switch re-arms the deadline a minute out, so the hidden-space clock is not
+    /// overslept by the pending one.
+    @Test func aSwitchThatHidesASpaceReArmsAPendingLaterDeadline() {
+        let clock = Clock()
+        let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
+        let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deadline = Deadline()
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
+                                               now: { clock.now })
+        host.shown = ["a"]
+        hibernation.noteShown(["a"])
+        hibernation.pass() // b's normal deadline is armed, an hour out
+        #expect(deadline.isScheduled)
+        deadline.delays = []
+        host.shown = []
+        hibernation.noteShown([]) // the window switched to another space: a is hidden, and its space with it
+        #expect(deadline.delays == [.seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))])
     }
 }
