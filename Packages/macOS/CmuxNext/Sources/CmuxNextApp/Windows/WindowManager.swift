@@ -419,15 +419,6 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     private func present(_ controller: WindowController) {
-        let id = controller.state.id
-        // A close can arrive between restore's membership snapshot and this presentation hop.
-        // The registry is authoritative once it has a record; while the launch window is still
-        // provisional, closedDuringRestore is the user's close intent. Retire the controller
-        // before touching activation policy so a late restore cannot resurrect its window.
-        if registry.value.window(id)?.isOpen == false || (!restored && closedDuringRestore.contains(id)) {
-            closeProgrammatically(controller)
-            return
-        }
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
