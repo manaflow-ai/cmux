@@ -1,4 +1,4 @@
-// A prompt with a large screenshot batch must stay under the transport budget instead of being
+// A prompt with a dozen screenshots went to acpmux as one message over its 15 MiB limit and was
 // refused as message.too_large (Leo, 2026-10-31: "this is completely hardlocked bc of message
 // size"). The client sends the largest previews as their originals' links, and the sent bubble
 // shows those as files: none of the screenshots disappears from it.
@@ -61,24 +61,24 @@ test("a dozen screenshots go in one message under the budget, and the bubble kee
     () => new Relay() as unknown as WebSocket,
   );
   try {
-    const shots = Array.from({ length: 20 }, (_, index) => screenshot(index));
+    const shots = Array.from({ length: 12 }, (_, index) => screenshot(index));
     await client.send("look at these", shots).catch(() => undefined);
     const blocks = prompts.at(-1)!;
     expect(inlineBytes(blocks)).toBeLessThanOrEqual(PROMPT_INLINE_BUDGET);
     const links = blocks.filter((block) => block.type === "resource_link");
     // Every screenshot's original still goes.
-    expect(links).toHaveLength(20);
+    expect(links).toHaveLength(12);
     const previews = blocks.filter((block) => block.type === "image").length;
     expect(previews).toBeGreaterThan(0);
-    expect(previews).toBeLessThan(20);
+    expect(previews).toBeLessThan(12);
     // The bubble: each screenshot is drawn as its image, or as its original's file link.
     const bubble = rows.find((row) => row.kind === "user" && row.retryAttachments?.length);
     const kept = bubble?.retryAttachments ?? [];
-    expect(kept).toHaveLength(20);
+    expect(kept).toHaveLength(12);
     const images = kept.filter((chip) => chip.kind === "image");
     const files = kept.filter((chip) => chip.kind === "link" && chip.path?.endsWith(".png"));
     expect(images).toHaveLength(previews);
-    expect(files).toHaveLength(20 - previews);
+    expect(files).toHaveLength(12 - previews);
     expect(bubble?.images).toHaveLength(previews);
   } finally {
     client.close?.();
