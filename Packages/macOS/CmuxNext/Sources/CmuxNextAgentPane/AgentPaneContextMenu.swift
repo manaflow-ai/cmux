@@ -204,7 +204,7 @@ enum AgentPaneContextMenu {
             paste.target = target
             paste.action = #selector(NSText.paste(_:))
         }
-        // The Labs item owns this app surface while enabled. Do not leave WebKit's
+        // The UI pointer item owns this app surface while enabled. Do not leave WebKit's
         // browser inspector beside it with the same title.
         let inspect = devTools && actions.inspectElement == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let inspectElement = actions.inspectElement.map {
