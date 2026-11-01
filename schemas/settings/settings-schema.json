@@ -17,7 +17,6 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.touchBar",
               "app.startAgentGlobalHotKey",
               "app.hideDockIconWithoutWindows",
               "app.showMenuBarIcon"
@@ -3321,57 +3320,6 @@
       "title" : {
         "key" : "settings.app.globalHotKey",
         "text" : "Global Hot Key"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.window",
-        "text" : "Window"
-      },
-      "help" : {
-        "key" : "settings.app.touchBar.help",
-        "text" : "Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "app.touchBar",
-      "keywords" : [
-        "touch bar",
-        "touchbar",
-        "control strip",
-        "workspace",
-        "agent"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "app",
-        "touchBar"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : {
-        "key" : "settings.app.touchBar.summary",
-        "text" : "Show cmux actions on the Touch Bar"
-      },
-      "title" : {
-        "key" : "settings.app.touchBar",
-        "text" : "Touch Bar Controls"
       },
       "validation" : "portable"
     },
