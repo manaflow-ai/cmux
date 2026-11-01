@@ -1041,9 +1041,13 @@ const LINE_ROW = LINE_FRAME + TOOL_ROW_HEIGHT;
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
+/// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
+/// the plain status gap above and below it.
+const NOTE_LINE = 20;
+const NOTE_GAP = 12;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
-  if (!tool) return 26;
+  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return TOOL_ROW_HEIGHT;
