@@ -111,13 +111,11 @@ export function cloudStartPushed(
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
   const next = { ...current };
-  const now = Date.now();
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
     next.step = CLOUD_START_STEPS[step];
   if (fields.initialized === true || fields.harnessStarted === true || fields.harness_started === true) {
     next.initialized = true;
-    next.harnessStartedAt ??= now;
   }
   if (fields.initialized === false) next.initialized = false;
   if (typeof fields.hasRepository === "boolean") next.hasRepository = fields.hasRepository;
@@ -138,13 +136,6 @@ export function cloudStartPushed(
   if (typeof fields.secrets === "number" && Number.isSafeInteger(fields.secrets) && fields.secrets >= 0)
     next.secrets = fields.secrets;
   if (fields.network === "full" || fields.network === "limited") next.network = fields.network;
-  if (fields.step === "machine") next.machineStartedAt ??= now;
-  if (fields.step === "folder") next.machineFinishedAt ??= now;
-  if (fields.step === "opening") {
-    next.machineFinishedAt ??= now;
-    next.harnessStartedAt ??= now;
-    next.initialized = true;
-  }
   const timings = asRecord(fields.timings);
   if (timings) {
     const machineTiming = timing(timings.machine);
@@ -156,8 +147,6 @@ export function cloudStartPushed(
   if (clone) next.clone = clone;
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
-  if (next.clone?.state === "done" && next.clone.finishedAt === undefined) next.clone.finishedAt = now;
-  if (next.setup?.state === "done" && next.setup.finishedAt === undefined) next.setup.finishedAt = now;
   return next;
 }
 
