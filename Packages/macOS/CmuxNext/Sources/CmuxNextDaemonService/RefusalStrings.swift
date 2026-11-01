@@ -58,9 +58,10 @@ public nonisolated enum RefusalStrings {
     public static var homeTabStays: String { text("handlers.refusal.homeTabStays", "Home stays open in its column.") }
     /// The user's close the daemon refused for another reason.
     public static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
-    /// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`); the store still lists it.
+    /// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`); the store still
+    /// lists it, and the result is unknown (a paused machine may still close it).
     public static var closeUnanswered: String {
-        text("handlers.refusal.closeUnanswered", "The workspace was not closed: its machine did not answer.")
+        text("handlers.refusal.closeUnanswered", "Its machine did not answer, so the workspace may still close.")
     }
     /// A Home action that opens the page or a sheet, run by automation that may not change the view.
     public static var homeNeedsFocus: String {

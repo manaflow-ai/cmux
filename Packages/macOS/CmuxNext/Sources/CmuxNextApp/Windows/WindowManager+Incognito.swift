@@ -170,7 +170,7 @@ extension WindowManager {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key,
                   let connection = daemon.connection else { continue }
             let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            try? await WorkspaceClose.close(key, terminals: terminals, on: connection, waitsForReply: false)
+            try? await WorkspaceClose.close(key, terminals: terminals, on: connection)
         }
     }
 

@@ -62,14 +62,14 @@ extension WorkspaceClose {
                     do {
                         try await connection.state.closeBulk(.workspace, ids: ids, endTerminals: true, within: bound)
                     } catch DaemonError.timedOut(_) {
-                        try await WorkspaceClose.unanswered(keys, on: daemon) // the store decides past the bound
+                        try await WorkspaceClose.unanswered(keys, on: daemon, connection: connection) // the store decides past the bound
                     }
                 }
             }
             for workspace in plan.each {
                 guard let key = workspace.key else { continue }
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
-                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0, decidedBy: daemon) }
+                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0, awaitingReplyOn: daemon) }
             }
         }
     }

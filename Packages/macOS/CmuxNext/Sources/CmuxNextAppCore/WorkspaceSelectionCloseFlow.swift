@@ -179,7 +179,7 @@ public struct WorkspaceSelectionCloseFlow {
         guard let key = workspace.key else { return nil }
         return await daemon.failureOnceConnected("close-workspace", waits: waits, while: { machines().contains { $0 === daemon } }) { connection in
             try await ClosingWorkspaces.shared.refusal()
-            try await WorkspaceClose.close(key, terminals: terminals, on: connection, decidedBy: daemon)
+            try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
         }
     }
 }

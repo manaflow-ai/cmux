@@ -37,15 +37,17 @@ public struct WorkspaceClose {
     /// Closed (`close-reason-v1`). `ifEmpty`: only while it has no tab (`close-workspace-if-empty-v1`; else `workspace_not_empty`).
     /// A workspace the daemon no longer has counts as closed (`isAlreadyClosed`).
     ///
-    /// The close ends when the daemon answers it (its reply or refusal) or the connection ends, never on the 2 s client
-    /// deadline (`DaemonConnection.closeWorkspaceAwaitingReply`): a busy daemon commits a close it answers late, and a
-    /// close that gave up first listed the row again as refused and left it out of Undo. Its safety net is a bound
-    /// (`DaemonService.closeReplyBound`, 60 s) for a daemon that keeps its socket open and never answers: past it the
-    /// store of `daemon` decides (``unanswered(_:on:)``), not the timeout. `waitsForReply` false keeps the control
-    /// deadline for a caller that must end on time and ignores the outcome (quit's incognito closes).
+    /// `awaitingReplyOn` (opt-in, a person's close: the sidebar batch, Close Workspace from the keys, menu, CLI and MCP,
+    /// the palette, the bulk closes): the close ends when the daemon answers it (its reply or refusal) or the connection
+    /// ends, never on the 2 s client deadline (`DaemonConnection.closeWorkspaceAwaitingReply`). A busy daemon commits a
+    /// close it answers late, and a close that gave up first listed the row again as refused and left it out of Undo.
+    /// Its safety net is the daemon's bound (`DaemonService.closeReplyBound`, 60 s) for a daemon that keeps its socket
+    /// open and never answers: past it that daemon's store decides (``unanswered(_:on:connection:)``), not the timeout.
+    /// Nil keeps the control deadline: an internal close (a repair, a half-made create, a lane's close, quit) that must
+    /// end on time and shows no row that a late reply could make false.
     public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection, reason: CloseReason? = nil,
-                             ifEmpty: Bool = false, waitsForReply: Bool = true, decidedBy daemon: DaemonService? = nil) async throws {
-        let bound: Duration? = waitsForReply ? await daemon?.closeReplyBound ?? DaemonConnection.closeReplyBound : nil
+                             ifEmpty: Bool = false, awaitingReplyOn daemon: DaemonService? = nil) async throws {
+        let bound = await daemon?.closeReplyBound
         do {
             if await connection.supportsBatchClose {
                 if let bound {
@@ -63,29 +65,28 @@ public struct WorkspaceClose {
             }
         } catch where isAlreadyClosed(error) {
             return
-        } catch DaemonError.timedOut(_) where bound != nil {
-            try await unanswered([key], on: daemon)
+        } catch DaemonError.timedOut(_) where daemon != nil {
+            if let daemon { try await unanswered([key], on: daemon, connection: connection) }
         }
     }
 
-    /// A close whose daemon did not answer within its bound, decided from the store and not from the timeout: it went
-    /// through when the store of `daemon` lists none of `keys` (the close's events came, its reply did not). Else it
-    /// throws the reason (`RefusalStrings.closeUnanswered`), and the caller lists the rows again with it. With no store
-    /// to read, it is the reason too.
-    public static func unanswered(_ keys: [WorkspaceKey], on daemon: DaemonService?) async throws {
-        if let daemon, await !lists(keys, on: daemon) { return }
-        throw ActionFailure(message: RefusalStrings.closeUnanswered)
+    /// A close whose daemon did not answer within its bound, decided from the store and not from the timeout. The store
+    /// first applies every event the connection received (a close's events can come without its reply); then the close
+    /// went through when the store lists none of `keys`, on the same connection. Else, or when the connection changed,
+    /// it throws ``CloseUnanswered``: the result is unknown (a paused daemon may still close it), the caller lists the
+    /// rows again with that reason, and a close that commits later removes them as any close does.
+    public static func unanswered(_ keys: [WorkspaceKey], on daemon: DaemonService, connection: DaemonConnection) async throws {
+        if await daemon.appliedThroughReply(on: connection, after: "close past its bound"), await !lists(keys, on: daemon) { return }
+        throw CloseUnanswered()
     }
 
     @MainActor private static func lists(_ keys: [WorkspaceKey], on daemon: DaemonService) -> Bool {
         daemon.store.workspaces.contains { $0.key.map(keys.contains) ?? false }
     }
 
-    /// What a close's toast says for `failure`: the reason of a typed refusal (the machine did not answer), else nil
+    /// What a close's toast says for `failure`: its reason in the person's words (its machine did not answer), else nil
     /// (the generic "could not be closed").
-    public static func shownReason(_ failure: ActionWorkFailure?) -> String? {
-        failure?.refusal == nil ? nil : failure?.message
-    }
+    public static func shownReason(_ failure: ActionWorkFailure?) -> String? { failure?.shownReason }
 
     /// Whether `error` is the daemon saying the workspace is already gone: closed before this request came
     /// ("unknown workspace ..."), or by another close that committed while this one was on its way ("close

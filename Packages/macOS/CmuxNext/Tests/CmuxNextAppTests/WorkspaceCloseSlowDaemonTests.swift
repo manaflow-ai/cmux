@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextAppCore
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Darwin
@@ -176,22 +177,53 @@ struct WorkspaceCloseSlowDaemonTests {
     private static let shortBound: Duration = .seconds(3)
     /// How long the daemon stays stopped in a bound test: the bound, plus a 1 s process-info lookup and margin.
     private static let pastBound: Duration = .seconds(9)
-    /// What the person reads when a close's machine did not answer within the bound.
-    private static let unanswered = "The workspace was not closed: its machine did not answer."
+    /// What the person reads when a close's machine did not answer within the bound: the result is unknown.
+    private static let unanswered = "Its machine did not answer, so the workspace may still close."
 
     /// Each failure of `work`, once it all ended.
     @MainActor private final class Ended {
-        var failures: [String]?
+        var failures: [ActionWorkFailure]?
     }
 
     /// Awaits `work` in the background; `ended.failures` is set once every task ended.
     private static func awaiting(_ work: [ActionWork], into ended: Ended) -> Task<Void, Never> {
         // task-owner: test-only, awaited by the test before it returns
         Task { @MainActor in
-            var failures: [String] = []
-            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            var failures: [ActionWorkFailure] = []
+            for task in work { if let failure = await task.value { failures.append(failure) } }
             ended.failures = failures
         }
+    }
+
+    /// The bound's failures as a caller (the CLI, MCP) reads them: each says the close may still apply, as a timeout does
+    /// (`mayHaveApplied`, not a refusal), and the person reads the reason.
+    private static func checkUnknownResult(_ failures: [ActionWorkFailure]?) {
+        #expect(failures?.count == 1, "failures before the daemon went on: \(String(describing: failures))")
+        for failure in failures ?? [] {
+            #expect(failure.message.hasSuffix(unanswered), "message: \(failure.message)")
+            #expect(failure.mayHaveApplied, "a caller is not told the close may still apply")
+            #expect(failure.refusal == nil, "an unknown result reads as a refusal")
+            #expect(failure.shownReason == unanswered)
+        }
+    }
+
+    /// After the daemon went on (the closes it queued may now commit), every one of `ids` is in one consistent state:
+    /// gone from the store and the sidebar, or listed in both; none is still closing (a hidden row) or still running in a
+    /// batch. Waits for the late closes to land; returns how many closed late.
+    private static func checkConsistentAfterResume(_ ids: [String], _ services: AppServices, in controller: WindowController) async -> Int {
+        let sidebar = controller.sidebar.model
+        try? await PinnedPageTests.until({ listed(ids, services).isEmpty }, within: .seconds(20))
+        // The sidebar applies the store's removal in its next pass.
+        try? await PinnedPageTests.until({ ids.allSatisfy { id in (services.workspace(id: id) != nil) == sidebar.allWorkspaces.contains { $0.id.rawValue == id } } },
+                                         within: .seconds(5))
+        let closedLate = ids.count - listed(ids, services).count
+        for id in ids {
+            let inStore = services.workspace(id: id) != nil, inSidebar = sidebar.allWorkspaces.contains { $0.id.rawValue == id }
+            #expect(inStore == inSidebar, "\(id): in the store \(inStore), in the sidebar \(inSidebar)")
+            #expect(!ClosingWorkspaces.shared.ids.contains(id), "\(id) is still hidden as closing")
+            #expect(services.selectionCloses.canStart(id) || !inStore, "\(id) is still counted as a running close")
+        }
+        return closedLate
     }
 
     /// Runs `body` with the short bound, the daemon stopped from the start; the daemon goes on after `body`.
@@ -226,11 +258,16 @@ struct WorkspaceCloseSlowDaemonTests {
                 back = Self.shown(ids, in: sidebar)
                 toasts = CmuxToastCenter.shared.toasts(in: window).map(\.message)
             }
-            print("WorkspaceCloseSlowDaemon: hung batch of 10, back past the bound \(back.count), toasts \(toasts)")
+            let closedLate = await Self.checkConsistentAfterResume(ids, services, in: controller)
+            let undo = CmuxToastCenter.shared.toasts(in: window).filter { $0.id == Self.toastID }.map(\.message)
+            print("WorkspaceCloseSlowDaemon: hung batch of 10, back past the bound \(back.count), toasts \(toasts); "
+                + "after the daemon went on, closed late \(closedLate), undo toasts \(undo)")
 
             #expect(back.count == ids.count, "rows listed again past the bound: \(back.count) of \(ids.count)")
             #expect(toasts.contains(Self.unanswered), "toasts: \(toasts)")
             #expect(!toasts.contains("The workspace could not be closed."), "toasts: \(toasts)")
+            // Past the bound none had closed, so no Undo counts them; a close that commits later is in Reopen Closed only.
+            #expect(undo.isEmpty, "an Undo toast counts closes that were unknown at the bound: \(undo)")
         }
     }
 
@@ -256,9 +293,11 @@ struct WorkspaceCloseSlowDaemonTests {
             }
             let atBound = ended.failures
             await waiter?.value
-            print("WorkspaceCloseSlowDaemon: hung scripted close, ended at the bound \(atBound != nil), failures \(String(describing: atBound)), back \(back)")
+            let closedLate = await Self.checkConsistentAfterResume([id], services, in: controller)
+            print("WorkspaceCloseSlowDaemon: hung scripted close, ended at the bound \(atBound != nil), "
+                + "failures \(String(describing: atBound?.map(\.message))), back \(back), closed late \(closedLate)")
 
-            #expect(atBound == [Self.unanswered], "failures before the daemon went on: \(String(describing: atBound))")
+            Self.checkUnknownResult(atBound)
             #expect(back == [id], "the row was not listed again")
         }
     }
@@ -283,10 +322,42 @@ struct WorkspaceCloseSlowDaemonTests {
             }
             let atBound = ended.failures
             await waiter?.value
-            print("WorkspaceCloseSlowDaemon: hung close other, ended at the bound \(atBound != nil), failures \(String(describing: atBound)), listed \(listed.count)")
+            let closedLate = await Self.checkConsistentAfterResume(others, services, in: controller)
+            print("WorkspaceCloseSlowDaemon: hung close other, ended at the bound \(atBound != nil), "
+                + "failures \(String(describing: atBound?.map(\.message))), listed \(listed.count), closed late \(closedLate)")
 
-            #expect(atBound == [Self.unanswered], "failures before the daemon went on: \(String(describing: atBound))")
+            Self.checkUnknownResult(atBound)
             #expect(listed.count == others.count, "the store lost workspaces the daemon did not close")
+            #expect(services.workspace(id: kept) != nil, "the kept workspace closed")
+        }
+    }
+
+    /// The store's decision past the bound (`WorkspaceClose.unanswered`), on the real store: a workspace the store no
+    /// longer lists (the close's events came, its reply did not) counts as closed and throws nothing; one it still lists
+    /// is an unknown result (`CloseUnanswered`).
+    @Test func pastTheBoundTheStoreDecides() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let ids = try await Self.make(3, prefix: "decide", services, in: controller)
+            let connection = try #require(services.daemon.connection)
+            let gone = try #require(services.workspace(id: ids[1])?.key), kept = try #require(services.workspace(id: ids[2])?.key)
+            try await WorkspaceClose.close(gone, terminals: [], on: connection)
+            try await PinnedPageTests.until({ services.workspace(id: ids[1]) == nil }, within: .seconds(10))
+
+            var closedThrew: (any Error)?
+            do { try await WorkspaceClose.unanswered([gone], on: services.daemon, connection: connection) } catch { closedThrew = error }
+            var listedThrew: (any Error)?
+            do { try await WorkspaceClose.unanswered([kept], on: services.daemon, connection: connection) } catch { listedThrew = error }
+            var mixedThrew: (any Error)?
+            do { try await WorkspaceClose.unanswered([gone, kept], on: services.daemon, connection: connection) } catch { mixedThrew = error }
+            print("WorkspaceCloseSlowDaemon: store decides, closed \(String(describing: closedThrew)), listed \(String(describing: listedThrew)), "
+                + "mixed \(String(describing: mixedThrew))")
+
+            #expect(closedThrew == nil, "a workspace the store no longer lists was not counted as closed")
+            #expect(listedThrew is CloseUnanswered, "a workspace the store still lists: \(String(describing: listedThrew))")
+            #expect(mixedThrew is CloseUnanswered, "a bulk close with one workspace still listed: \(String(describing: mixedThrew))")
+            #expect(services.workspace(id: ids[2]) != nil)
         }
     }
 }

@@ -21493,133 +21493,133 @@
       }
     },
     "handlers.refusal.closeUnanswered": {
-      "comment": "Toast when a workspace close got no answer from its machine within the safety bound; the workspace stays open.",
+      "comment": "Toast and CLI error when a workspace close got no answer from its machine within the safety bound and the workspace is still listed: the result is unknown, because a paused machine may still close it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The workspace was not closed: its machine did not answer."
+            "value": "Its machine did not answer, so the workspace may still close."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを閉じられませんでした: マシンが応答しませんでした。"
+            "value": "マシンが応答しなかったため、ワークスペースはこの後閉じる可能性があります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يتم إغلاق مساحة العمل: لم يستجب جهازها."
+            "value": "لم يستجب جهازها، لذا قد تُغلق مساحة العمل لاحقًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Radni prostor nije zatvoren: njegova mašina nije odgovorila."
+            "value": "Njegova mašina nije odgovorila, pa se radni prostor možda ipak zatvori."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbejdsområdet blev ikke lukket: dets maskine svarede ikke."
+            "value": "Dets maskine svarede ikke, så arbejdsområdet kan stadig blive lukket."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Arbeitsbereich wurde nicht geschlossen: Sein Rechner hat nicht geantwortet."
+            "value": "Sein Rechner hat nicht geantwortet, daher wird der Arbeitsbereich möglicherweise noch geschlossen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se cerró el espacio de trabajo: su máquina no respondió."
+            "value": "Su máquina no respondió, así que es posible que el espacio de trabajo aún se cierre."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’espace de travail n’a pas été fermé : sa machine n’a pas répondu."
+            "value": "Sa machine n’a pas répondu : l’espace de travail peut encore se fermer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lo spazio di lavoro non è stato chiuso: la sua macchina non ha risposto."
+            "value": "La sua macchina non ha risposto, quindi lo spazio di lavoro potrebbe ancora chiudersi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានបិទកន្លែងធ្វើការទេ៖ ម៉ាស៊ីនរបស់វាមិនបានឆ្លើយតប។"
+            "value": "ម៉ាស៊ីនរបស់វាមិនបានឆ្លើយតប ដូច្នេះកន្លែងធ្វើការអាចនៅតែបិទ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "워크스페이스를 닫지 못했습니다: 해당 머신이 응답하지 않았습니다."
+            "value": "해당 머신이 응답하지 않아 워크스페이스가 나중에 닫힐 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeidsområdet ble ikke lukket: maskinen svarte ikke."
+            "value": "Maskinen svarte ikke, så arbeidsområdet kan fortsatt bli lukket."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Obszar roboczy nie został zamknięty: jego maszyna nie odpowiedziała."
+            "value": "Jego maszyna nie odpowiedziała, więc obszar roboczy może jeszcze zostać zamknięty."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O espaço de trabalho não foi fechado: a máquina dele não respondeu."
+            "value": "A máquina dele não respondeu, então o espaço de trabalho ainda pode ser fechado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Рабочее пространство не закрыто: его компьютер не ответил."
+            "value": "Его компьютер не ответил, поэтому рабочее пространство ещё может закрыться."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ปิดพื้นที่ทำงาน: เครื่องของพื้นที่ทำงานไม่ตอบสนอง"
+            "value": "เครื่องของพื้นที่ทำงานไม่ตอบสนอง พื้นที่ทำงานจึงอาจยังปิดลงในภายหลัง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalışma alanı kapatılmadı: makinesi yanıt vermedi."
+            "value": "Makinesi yanıt vermedi; çalışma alanı yine de kapanabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Робочий простір не закрито: його комп’ютер не відповів."
+            "value": "Його комп’ютер не відповів, тож робочий простір ще може закритися."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không gian làm việc chưa được đóng: máy của nó không phản hồi."
+            "value": "Máy của nó không phản hồi, nên không gian làm việc vẫn có thể đóng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未关闭工作区：其机器没有响应。"
+            "value": "其机器没有响应，因此工作区仍可能会关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未關閉工作區：其機器沒有回應。"
+            "value": "其機器沒有回應，因此工作區仍可能會關閉。"
           }
         }
       }
