@@ -299,15 +299,24 @@ impl HolderService {
     }
 
     /// After the startup pass: end every terminal the holder runs that no
-    /// surface re-attached (its registry row ended, was removed, or never
-    /// ran), and drop the master dups the holder passed for them. Without
-    /// this the holder would keep those shells, their PTYs and their rings
-    /// for ever. Starts no holder.
-    pub(crate) fn release_unclaimed(self: &Arc<Self>) {
+    /// surface re-attached and whose registry row `ended` (the shell exited,
+    /// or the person closed it), and drop the master dups the holder passed
+    /// for them, so the holder does not keep those shells, PTYs and rings for
+    /// ever. Any other unclaimed terminal stays held for the next start (QUIT
+    /// P0: a start never ends a shell a person still has). Starts no holder.
+    pub(crate) fn release_unclaimed(self: &Arc<Self>, ended: impl Fn(&[u8; 16]) -> bool) {
         let Ok(link) = self.link_or_launch(false) else { return };
-        let unclaimed: Vec<Listed> =
-            self.listed.lock().recover_poison().drain().map(|(_, entry)| entry).collect();
-        for entry in unclaimed {
+        let unclaimed: Vec<([u8; 16], Listed)> =
+            self.listed.lock().recover_poison().drain().collect();
+        for (id, entry) in unclaimed {
+            if !ended(&id) {
+                eprintln!(
+                    "cmux-tui: keep unclaimed holder terminal {} (channel {}): its row has not ended",
+                    crate::terminal_host::TerminalId::from_bytes(id).to_hex(),
+                    entry.chan
+                );
+                continue;
+            }
             // A shell's usual hang-up grace; the holder forgets it once it ended.
             if let Err(error) = link.close(entry.chan, 2000) {
                 eprintln!("cmux-tui: end unclaimed holder terminal {}: {error}", entry.chan);
@@ -355,7 +364,7 @@ impl HolderService {
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
     /// Never connects.
-    pub(super) fn detach(&self, chan: u32) {
+    pub(crate) fn detach(&self, chan: u32) {
         if let Some(link) = self.open_link() {
             let _ = link.detach(chan);
         }
