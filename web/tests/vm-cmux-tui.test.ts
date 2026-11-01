@@ -105,6 +105,10 @@ describe("cmux-tui install and daemon commands", () => {
   test("bakes the canonical acpmux user service with linger and enable-now", () => {
     const command = cmuxTuiServiceInstallCommand();
     expect(command).toContain("loginctl enable-linger \"$CMUX_TUI_USER\"");
+    const startManager = command.indexOf('systemctl start "user@$(id -u "$CMUX_TUI_USER").service"');
+    const waitBus = command.indexOf('while [ "$i" -lt 30 ]');
+    expect(startManager).toBeGreaterThanOrEqual(0);
+    expect(startManager).toBeLessThan(waitBus);
     expect(command).toContain("acpmux.service");
     expect(command).toContain("systemctl --user enable --now acpmux.service");
     expect(command).toContain("systemctl --user restart acpmux.service");
