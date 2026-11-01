@@ -267,9 +267,7 @@ private nonisolated enum RecognizerEngine {
         request.addsPunctuation = true
         request.taskHint = .dictation
         let outcome = FirstOutcome<[AgentPaneVideoTranscript.Segment]?>()
-        // `cancel()` is the only call made on it off this task (the cancel handler), and the Speech
-        // framework takes it from any thread.
-        nonisolated(unsafe) let task = recognizer.recognitionTask(with: request) { result, error in
+        nonisolated(unsafe) let task = recognizer.recognitionTask(with: request) { result, error in // crash-allow: an immutable let; cancel() is the only call made on it off this task (the cancel handler), and SFSpeechRecognitionTask.cancel() is safe from any thread
             if let result, result.isFinal {
                 let words = result.bestTranscription.segments.map {
                     (text: $0.substring, start: $0.timestamp, end: $0.timestamp + $0.duration)
