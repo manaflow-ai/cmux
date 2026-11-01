@@ -123,6 +123,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Fix this run's build number": {"plumbing": true},
         "Install gh if this Linux runner lacks it": {"plumbing": true},
         "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -131,7 +132,8 @@
         "Build the tip while its tree publishes": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
-        "Leave the build slot to a newer nightly-next push": {"plumbing": true}},
+        "Leave the build slot to a newer nightly-next push": {"plumbing": true},
+        "Record pending tree dependency": {"nightly_only": "records the selected nightly build's attempt-scoped cmux-tui tree dependency for publication recovery; pull requests do not select or publish a nightly tree"}},
       "prepare-nightly-variant-primary": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
@@ -253,6 +255,8 @@
       "await-nightly-tree-marker": {
         "Wait for the build commit's tree-commit marker": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "publish-nightly": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Read the live nightly-next feed before the write": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Read the live nightly-next feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
@@ -283,6 +287,8 @@
         "Move channel release tag to built commit": {"nightly_only": "moves channel release tag (publication; update-release-tag.py tested by tests/test_update_release_tag.py)"},
         "Record nightly publication marker outcome": {"plumbing": true}},
       "publish-nightly-next-github": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -293,6 +299,8 @@
         "Take the recovered build's source archive": {"plumbing": true},
         "Publish the cmux-next source archive": {"nightly_only": "uploads source archive to release"}},
       "publish-nightly-next-github-names": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
