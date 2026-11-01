@@ -9,8 +9,11 @@ import CmuxNextDesign
 /// (`FloatingGlassStyle.dialog`: its veil, soft top-lit rim and radius) with
 /// the popups' shadow, never the theme-tinted glass with a veil of its own,
 /// whose square-clipped edge read as a dark, heavy outline over bright pages
-/// (Lawrence 2026-10-31: "border here looks bad"). Under Reduce Transparency
-/// it is opaque (`OverlaySurfaceView`).
+/// (Lawrence 2026-10-31: "border here looks bad"). Its material is the
+/// frosted blur of what is behind its window, never Liquid Glass, whose lens
+/// has nothing to bend in the clear overlay window and drew a dark 1 px
+/// outline (`prefersBlurToLiquidGlass`). Under Reduce Transparency it is
+/// opaque (`OverlaySurfaceView`).
 final class BrowserCookieImportCard: NSView {
     static let maximumIcons = 3
     var onChoice: ((BrowserCookieImportChoice) -> Void)?
@@ -61,6 +64,10 @@ final class BrowserCookieImportCard: NSView {
         let content = NSView()
         content.addSubview(stack)
         let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Self.style.cornerRadius, tone: .neutralGlass(Self.style))
+        // It floats on the overlay host, a clear window over the page's own window: the blur
+        // samples the page behind it; Liquid Glass there drew a dark 1 px outline.
+        glass.samplesBehindWindow = true
+        glass.prefersBlurToLiquidGlass = true
         addSubview(glass)
         castShadow()
         self.glass = glass

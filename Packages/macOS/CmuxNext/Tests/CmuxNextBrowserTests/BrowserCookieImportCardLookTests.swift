@@ -56,4 +56,14 @@ import Testing
             #expect(blur.blendingMode == .behindWindow)
         }
     }
+
+    @Test func aSurfaceThatPrefersTheBlurTakesItOverLiquidGlassButKeepsReduceTransparency() {
+        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let surface = OverlaySurfaceView(interactive: true, reduceTransparency: clear, tone: .neutralGlass(.dialog))
+        surface.prefersBlurToLiquidGlass = true
+        #expect(surface.material != .liquidGlass)
+        let opaque = OverlaySurfaceView(interactive: true, reduceTransparency: .alwaysOpaque, tone: .neutralGlass(.dialog))
+        opaque.prefersBlurToLiquidGlass = true
+        #expect(opaque.material == .opaque)
+    }
 }
