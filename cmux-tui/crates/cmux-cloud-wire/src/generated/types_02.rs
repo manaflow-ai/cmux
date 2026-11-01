@@ -4,46 +4,6 @@
 #[allow(unused_imports)]
 use super::*;
 
-wire_enum! {
-    GroupPlacementKind {
-        Local = "local",
-        Mini = "mini",
-        CloudVm = "cloud_vm",
-    }
-}
-
-pub type GroupWorkspaceId = String;
-
-/// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeAttachmentPoster {
-    pub hash: HomeSha256,
-    pub mime_type: HomeAttachmentPosterMimeType,
-    pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeAttachmentPosterMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
-}
-
-/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeAttachmentPreview {
-    pub hash: HomeSha256,
-    pub mime_type: HomeAttachmentPreviewMimeType,
-    pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeAttachmentPreviewMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -889,8 +849,6 @@ pub struct RunWithBody {
     pub outcome: Option<RunWithBodyOutcome>,
     pub body: Body,
 }
-<<<<<<< HEAD
-=======
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RunWithBodyTrigger {
@@ -943,4 +901,3 @@ pub struct ServerNetworkReservation {
     pub mesh: NativeMeshId,
     pub device: NativeDeviceId,
 }
->>>>>>> origin/feat-cmux-next
