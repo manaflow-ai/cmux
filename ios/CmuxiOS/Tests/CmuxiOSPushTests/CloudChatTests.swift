@@ -81,7 +81,10 @@ func cloudChatTransportReplacement() async {
     model.replaceTransport(nil)
     #expect(model.sessions.isEmpty)
     #expect(model.messages.isEmpty)
-    #expect(model.selectedSessionID == nil)
+    #expect(model.selectedSessionID == "s1")
+    model.replaceTransport(FixtureTransport())
+    await model.load()
+    #expect(model.selectedSessionID == "s1")
 }
 
 @Test("Cloud attention only accepts namespaced complete payloads")

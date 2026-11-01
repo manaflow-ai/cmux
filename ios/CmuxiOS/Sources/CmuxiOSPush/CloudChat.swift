@@ -170,7 +170,6 @@ public final class CloudChatViewModel: ObservableObject {
         guard transport != nil else {
             sessions = []
             messages = []
-            selectedSessionID = nil
             requestedSessionUnavailable = false
             errorMessage = "Cloud relay disconnected."
             return
