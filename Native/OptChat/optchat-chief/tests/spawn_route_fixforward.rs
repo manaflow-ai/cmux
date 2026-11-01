@@ -170,7 +170,9 @@ fn the_picker_respects_presets_and_the_task_cap() {
         })
         .collect();
     let a = sp.clone();
-    let nine = run(&mut h, move || a.spawn_with_route(tasks, None, None, None, None, None));
+    let nine = run(&mut h, move || {
+        a.spawn_with_route(tasks, None, None, None, None, None)
+    });
     let err = nine.expect_err("nine tasks");
     assert!(err.contains("at most 8"), "{err}");
     assert!(sub_harnesses(&h).is_empty());
