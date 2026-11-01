@@ -21,11 +21,12 @@ struct CloudRefreshGateTests {
             return !Task.isCancelled && result
         }
 
-        func request(_ gate: CloudRefreshGate) -> Task<Bool, Never> {
+        func request(_ gate: CloudRefreshGate?) -> Task<Bool, Never> {
             Task { @MainActor in
                 // No suspension between this event and entering the actor-isolated gate.
                 entered.continuation.yield(())
-                return await gate.run { await self.read() }
+                if let gate { return await gate.run { await self.read() } }
+                return await read()
             }
         }
 
@@ -34,8 +35,10 @@ struct CloudRefreshGateTests {
         }
     }
 
-    @Test func overlappingTriggersShareTheNextRead() async {
-        let gate = CloudRefreshGate(), reads = Reads()
+    @Test(arguments: [false, true])
+    func overlappingTriggersShareTheNextRead(coalesced: Bool) async {
+        let gate: CloudRefreshGate? = coalesced ? CloudRefreshGate() : nil
+        let reads = Reads()
         var entered = reads.entered.stream.makeAsyncIterator()
         var started = reads.started.stream.makeAsyncIterator()
         let first = reads.request(gate)
@@ -46,14 +49,15 @@ struct CloudRefreshGateTests {
             followers.append(reads.request(gate))
             _ = await entered.next()
         }
-        #expect(reads.count == 1)
+        #expect(reads.count == (coalesced ? 1 : 9))
         reads.release(1)
         #expect(await first.value)
         #expect(await started.next() == 2)
         // A failed fresh answer must not be replaced by the successful first read.
-        reads.release(2, result: false)
+        for number in 2...(coalesced ? 2 : 9) { reads.release(number, result: false) }
         for follower in followers { #expect(await follower.value == false) }
-        #expect(reads.count == 2)
+        #expect(reads.count == (coalesced ? 2 : 9))
+        print("Cloud refresh burst: coalesced=\(coalesced), requests=\(reads.count)")
     }
 
     @Test func triggerDuringFollowUpGetsAFreshRead() async {
