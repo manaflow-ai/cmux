@@ -253,6 +253,16 @@ fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> 
         && detect_shell(command).is_some()
         && command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
         && !FRONTEND_INTEGRATION_KEYS.iter().any(|key| lookup(key).is_some())
+        && !lookup("ZDOTDIR").is_some_and(|dir| is_daemon_zsh_dir(Path::new(&dir)))
+}
+
+/// Whether `dir` is the daemon's own zsh integration directory
+/// (`<shell-integration>/<digest>/zsh`, [`apply`]): a zsh it already
+/// integrated, which sets no other key when the user had no `ZDOTDIR`.
+fn is_daemon_zsh_dir(dir: &Path) -> bool {
+    dir.file_name() == Some(OsStr::new("zsh"))
+        && dir.parent().and_then(Path::parent).and_then(Path::file_name)
+            == Some(OsStr::new("shell-integration"))
 }
 
 pub fn integrate_default_shell(
