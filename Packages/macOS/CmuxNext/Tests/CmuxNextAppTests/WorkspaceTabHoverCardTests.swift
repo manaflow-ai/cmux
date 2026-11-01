@@ -171,7 +171,8 @@ struct WorkspaceTabHoverCardTests {
             card.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
             card.layoutSubtreeIfNeeded()
             card.tabList.layoutSubtreeIfNeeded()
-            #expect(Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }.allSatisfy(\.isHidden), "a Show more control")
+            let shownButtons = Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+            #expect(shownButtons.isEmpty, "a Show more control")
             #expect(card.tabList.reportedLines.count == count)
             return (card, try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSScrollView }.first))
         }
