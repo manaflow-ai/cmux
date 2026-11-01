@@ -42250,6 +42250,13 @@ export default {
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         enrichStopFeedEvent(&event, hookEventName: hookEventName, rawObject: parsedInput.rawObject)
+        if source == "claude",
+           hookEventName == "Stop" || hookEventName == "SubagentStop",
+           let rawObject = parsedInput.rawObject,
+           let backgroundTasks = claudeBackgroundTasksFeedValue(from: rawObject) {
+            // Custom sidebars list these (agents[j].backgroundTasks).
+            event["background_tasks"] = backgroundTasks
+        }
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
@@ -44814,6 +44821,13 @@ export default {
             promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
         enrichStopFeedEvent(&eventDict, hookEventName: hookEventName, rawObject: stdinObj)
+        if source == "claude",
+           hookEventName == "Stop" || hookEventName == "SubagentStop",
+           let backgroundTasks = claudeBackgroundTasksFeedValue(from: stdinObj) {
+            // Keep direct Feed hooks aligned with the native Claude hook path
+            // so custom sidebars do not retain stale task lists.
+            eventDict["background_tasks"] = backgroundTasks
+        }
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
