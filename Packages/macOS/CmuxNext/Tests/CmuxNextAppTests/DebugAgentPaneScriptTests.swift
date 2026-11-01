@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 import WebKit
@@ -23,13 +24,52 @@ struct DebugAgentPaneScriptTests {
         webView.loadHTMLString("<!doctype html><title>no hook</title><p>not the chat page</p>", baseURL: nil)
         try await loaded.finished()
 
-        let answer = try? await webView.callAsyncJavaScript(Self.timed, arguments: ["fn": "chatState", "args": [Any]()],
-                                                            in: nil, contentWorld: .page) as? String
+        let answer = await Self.call(webView, Self.timed, arguments: ["fn": "chatState", "args": [Any]()])
         let timed = try answer.map { try JSONDecoder().decode(Timed.self, from: Data($0.utf8)) }
         #expect(timed != nil, "the call did not answer: \(String(describing: answer))")
         #expect(timed?.answer.contains("has no cmuxAcpmuxDebug.chatState") == true, "answer: \(String(describing: answer))")
         let took = timed.map { Duration.milliseconds($0.ms) }
         #expect(took.map { $0 < .seconds(7) } == true, "a page without the hook held the call \(String(describing: took)) on its own clock")
+    }
+
+    /// The suite's limit must end a call that never answers: WebKit's call does not stop when its
+    /// task is cancelled, so a dead page held the test, and the lane, past `.timeLimit` until the
+    /// lane's own 900 s stop (review of #30786). The script marks that it runs, then never answers.
+    @Test func aCallThatNeverAnswersEndsWhenTheTestIsCancelled() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let loaded = LoadWait()
+        webView.navigationDelegate = loaded
+        webView.loadHTMLString("<!doctype html><title>dead</title>", baseURL: nil)
+        try await loaded.finished()
+
+        let running = Task { @MainActor in
+            await Self.call(webView, "window.cmuxTestHang = true; await new Promise(() => {}); return 'never';", arguments: [:])
+        }
+        // WebKit runs a page's calls in order: this answers once the hanging call has started.
+        let started = try await webView.evaluateJavaScript("window.cmuxTestHang === true") as? Bool
+        #expect(started == true, "the hanging call did not start")
+
+        running.cancel()
+        let ended = FirstOutcome<Bool>()
+        // task-owner: the cancelled call's join; it resolves `ended` when the call returns.
+        let join = Task { @MainActor in
+            _ = await running.value
+            ended.resolve(true)
+        }
+        // task-owner: the safety net only; a call still running 10 s after its cancel fails the test.
+        let net = Task {
+            try? await Task.sleep(for: .seconds(10))
+            ended.resolve(false)
+        }
+        let returned = await ended.value()
+        net.cancel()
+        join.cancel()
+        #expect(returned, "a cancelled call that never answers did not return within 10 s")
+    }
+
+    /// The test's one way to call a page script.
+    private static func call(_ webView: WKWebView, _ script: String, arguments: [String: Any]) async -> String? {
+        try? await webView.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page) as? String
     }
 
     /// `DebugAgentPane.script` as it runs, with the page's own time for it (`performance.now`).
