@@ -83,6 +83,8 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  /* Over a tool run (`.cv-tools`' top margin) and over every one-line row (`.acpmux-row--line`). */
+  --cv-tool-run-top-gap: 2px;
   /* A status row between two replies (a tool run, a subagent's or a background command's end,
      another agent's message: model.ts `isStatusRow`) sits in the middle of the gap, as Claude Code
      desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more
@@ -4727,7 +4729,7 @@ a.cv-sha:focus-visible {
    The turn's last row keeps the turn gap. */
 .acpmux-row.acpmux-row--line {
   min-height: 0;
-  padding-top: 2px;
+  padding-top: var(--cv-tool-run-top-gap);
 }
 /* The element selector outranks the user row's message gap (styles.css); the status edges below,
    as specific and later, still give a line between two replies its centred room. */
