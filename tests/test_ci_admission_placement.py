@@ -114,10 +114,11 @@ class Decide(unittest.TestCase):
     def test_main_reads_the_attempt_before_once_on_a_re_run(self):
         from unittest import mock
         paths = []
+        tokens = []
 
         class API:
             def __init__(self, token, repo):
-                pass
+                tokens.append(token)
 
             def runners(self):
                 return [runner("mini-a", 0), runner("mini-b", 0)]
@@ -127,10 +128,12 @@ class Decide(unittest.TestCase):
                 return {"jobs": [{"conclusion": "failure", "runner_name": "mini-a-glaeda"}]}
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
                 mock.patch.object(placement.pool, "GitHub", API), mock.patch("sys.stdout"):
-            env = dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ATTEMPT="2")
+            env = dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="route", GITHUB_TOKEN="workflow",
+                       GITHUB_REPOSITORY="o/r", GITHUB_RUN_ATTEMPT="2")
             self.assertEqual(placement.main(env), 0)
             text = Path(out.name).read_text()
         self.assertEqual(paths, ["/actions/runs/123/attempts/1/jobs?per_page=100"])
+        self.assertEqual(tokens, ["route", "workflow"])
         self.assertIn("glaeda-runner-mini-b-glaeda", text)
         self.assertTrue(text.endswith("attempt=2\n"), text)
         # Attempt 1 reads no jobs.
@@ -165,6 +168,8 @@ class Workflow(unittest.TestCase):
             self.assertEqual(mint_step["with"]["permission-actions"], "read", mint)
         place = next(step for step in spec["steps"] if step.get("id") == "place")
         self.assertEqual(place["run"], "python3 scripts/ci/admission_placement.py")
+        self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(place["env"]["GITHUB_TOKEN"], "${{ github.token }}")
         self.assertEqual(place["env"]["ROOT_RUNNER"], "${{ inputs.pr_root_runner }}")
         self.assertEqual(place["env"]["ADMISSION_WARM"], "${{ inputs.pr_admission_warm }}")
         # Admission waits for it, and a skipped or failed placement never skips admission.
