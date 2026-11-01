@@ -48,8 +48,11 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
       - name: The check itself (fixed versions)
         run: bash scripts/cmux-next/tests/chromium-currency.test.sh
+      # On a pull request the pin's age is the base's state, not the PR's change: it warns there, and
+      # the daily and push runs on feat-cmux-next stay red until the pin moves (cmuxterm-hq#5745).
       - name: Pinned Chromium against Chrome stable
         if: ${{ !cancelled() }}
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: python3 scripts/cmux-next/check-chromium-currency.py
       - name: Sandbox-weakening switches never reach Chromium
         if: ${{ !cancelled() }}

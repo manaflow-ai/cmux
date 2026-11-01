@@ -93,9 +93,9 @@ jobs:
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
           done
           grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
-      # Advisory until ENFORCE_FROM, so high pull requests already in flight can get their sign-off:
-      # until then a missing item is a warning and the check passes. gh-merge-green reads this
-      # value from the base and, after it, refuses a verdict that finished before it.
+      # Advisory since cmuxterm-hq#5745: a missing sign-off warns here and never turns the check red.
+      # Every pull request already lands only on an independent review at its exact head, so the hold
+      # added only waits. ENFORCE_FROM stays for gh-merge-green, which reads it from the base.
       - name: Hold high until the head is signed off
         if: steps.grade.outputs.ready != 'true'
         env:
@@ -107,5 +107,5 @@ jobs:
             echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          echo "::error::risk:$TIER is held before merge; the job summary says what clears it."
-          exit 1
+          echo "::warning::risk:$TIER has no sign-off on this head yet; the job summary says what to add. This never blocks a merge."
+          exit 0

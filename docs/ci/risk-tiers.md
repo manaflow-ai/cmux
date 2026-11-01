@@ -7,8 +7,10 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-Nothing merges while that check is red on the exact head: `next-autoland` (`scripts/ci/next_batch.py`)
-into `feat-cmux-next` and `gh-merge-green` both refuse it.
+The check is advisory (cmuxterm-hq#5745, Leo, 2026-11-01: "keep only what catches real breakage"):
+a held pull request gets a warning in the job summary and the check stays green. What holds a merge is
+the review itself: every pull request lands only on an independent review at its exact head, and a
+BLOCK there keeps it out.
 
 ## Tiers
 
@@ -139,7 +141,8 @@ The pull request is high (it changes the gate): an independent SHIP at the exact
 ## Rollout
 
 Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) a held pull request only gets a
-warning, and the check passes. After that, a held pull request blocks merge. A verdict from the
+warning, and the check passes. From then until cmuxterm-hq#5745 made it advisory again, a held pull
+request blocked merge. A verdict from the
 advisory window doesn't count after the cutover: `gh-merge-green` reads `ENFORCE_FROM` from the
 base and refuses a `risk evidence` check whose job started before it, or one that never ran. Edit
 the description or push to re-grade.
