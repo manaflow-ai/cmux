@@ -54,7 +54,7 @@ extension SidebarListViewComponents {
             var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
             if displayed.hostHeadersShowing {
                 switch proposal {
-                case .intoWorkspace?, .beforeTab?: break
+                case .intoWorkspace?: break
                 default: proposal = nil
                 }
             }
