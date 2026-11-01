@@ -1,5 +1,5 @@
-title: New Column ⌃⌘X and New Row ⌃⇧⌘X work on every Mac
+title: Add a column or row with ⌃⌘X and ⌃⇧⌘X
 category: fixed
-action: newColumn | Try it
+action: newColumn | Open a new column
 
-macOS kept ⌃⌘D and ⌥⌘D, so New Column and Split Browser Right never ran. X is now a second D: ⌃ adds a column, ⌥ a browser, ⇧ goes below.
+New Column is ⌃⌘X, New Row ⌃⇧⌘X, and the browser splits ⌥⌘X and ⌥⇧⌘X. The old ⌘D keys never reached cmux, because macOS keeps them.
