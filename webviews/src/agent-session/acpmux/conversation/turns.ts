@@ -28,6 +28,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
+import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -260,7 +261,10 @@ export function turnViewFrom(
     out = [];
     index = 0;
     // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
-    while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+    while (index < rows.length && rows[index]!.kind !== "user") {
+      const row = rows[index++]!;
+      if (!isVisiblyEmptyMessage(row)) out.push(row);
+    }
     lead = index;
     starts = [];
     times = [];
@@ -427,7 +431,12 @@ function shapedTurn(
       ),
   );
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
-  const date = dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
+  const visibleTurn =
+    !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
+  const date = dated && visibleTurn ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
+  // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
+  // measures zero. Only a wholly invisible completed turn is omitted below.
+  const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
   // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
   // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
   // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
@@ -437,7 +446,7 @@ function shapedTurn(
     const { status, queued } = user;
     const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
     if (status) Object.assign(line, { status, queued });
-    shaped = [...date, status ? { ...user, status: undefined } : user, line];
+    shaped = [...date, ...(status ? [{ ...user, status: undefined }] : drawnUser), line];
   } else {
     const body = shapeTurn(
       user,
@@ -456,10 +465,14 @@ function shapedTurn(
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    const emptyCompleted =
+      isVisiblyEmptyMessage(user) &&
+      body.length === 0 &&
+      turn.some((row) => row.kind === "turnSummary" && row.status === "completed");
     shaped = [
       ...date,
       // Bookkeeping alone starts a turn but draws nothing (incomingMessage.ts).
-      ...(user.incoming?.kind === "hidden" ? [] : [user]),
+      ...(emptyCompleted ? [] : drawnUser),
       ...body,
       ...held,
       ...line,
@@ -500,7 +513,7 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
 }
 
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
-const isReply = (row: AcpmuxRow) => isAnswer(row) && (row.text ?? "").trim().length > 0;
+const isReply = (row: AcpmuxRow) => isAnswer(row) && !isVisiblyEmptyText(row.text);
 
 /// The finished turn's one disclosure, its final answer, and work recorded after that answer.
 export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: AcpmuxRow; after?: AcpmuxRow[] };
@@ -572,8 +585,11 @@ function shapeTurn(
         ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
-  const body = turn.slice(0, end);
+  const body = turn.slice(0, end).filter((row) => !isVisiblyEmptyMessage(row));
   const preserveAssistantText = agentFamily?.startsWith("claude") === true;
+  // Notification turns can contain an empty assistant segment and a summary solely for
+  // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
+  if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   const shaped: AcpmuxRow[] = [];
@@ -835,6 +851,7 @@ function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
 /// the newest (codexLiveTurn); an ended turn's never got their input. Which calls it drops follows
 /// from the row's items, so its version stands.
 function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
+  if (isVisiblyEmptyMessage(row)) return [];
   if (row.kind !== "activity") return [row];
   const items = row.items ?? [];
   const kept = items.filter((item) => !(item.tool && isDraftCall(item.tool)));
@@ -865,7 +882,7 @@ function liveTurn(
   sessionStatus = false,
   lineBelow = false,
 ): AcpmuxRow[] {
-  const drawn = turn.filter((row) => row.kind !== "typing");
+  const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
   let last: AcpmuxRow | undefined;

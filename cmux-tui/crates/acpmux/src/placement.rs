@@ -419,19 +419,16 @@ fn tier(registry: Option<&Value>, name: &str) -> Option<(usize, String)> {
     let machines = registry.get("machines")?.as_object()?;
     let order = registry.pointer("/lane_place/placement_preference")?.as_array()?;
     let order: Vec<&str> = order.iter().map(Value::as_str).collect::<Option<_>>()?;
-    let distinct = order.iter().enumerate().all(|(i, p)| !order[..i].contains(p));
+    let distinct = order.iter().enumerate().all(|(i, p)| order.iter().take(i).all(|q| q != p));
     let known = order.iter().all(|p| PROVIDERS.contains(p) || machines.contains_key(*p));
     if !distinct || !known {
         return None;
     }
     let want = canonical(name);
     let (key, m) = machines.iter().find(|(n, m)| machine_names(n, m).contains(&want))?;
-    let by_name = order.iter().position(|p| p == key);
-    let at = by_name.or_else(|| {
-        let p = provider(key, m)?;
-        order.iter().position(|o| *o == p)
-    })?;
-    Some((at, order[at].to_owned()))
+    let place = |want: &str| order.iter().enumerate().find(|(_, o)| **o == want);
+    let (at, of) = place(key).or_else(|| place(provider(key, m)?))?;
+    Some((at, (*of).to_owned()))
 }
 
 /// One host's verdict: its room in lanes, or why it is refused.
@@ -594,7 +591,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             if let Some((at, of)) = &w.tier {
                 w.why.push_str(&format!(
                     ", tier {} ({of}, lane_place.placement_preference)",
-                    at + 1
+                    at.saturating_add(1)
                 ));
             }
         }
@@ -638,7 +635,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         "overloaded": overloaded && pick.is_some(),
         "why": why,
         "work": work.as_str(),
-        "tier": pick.and_then(|w| w.tier.as_ref()).map(|(at, of)| json!({"index": at + 1, "of": of})),
+        "tier": pick.and_then(|w| w.tier.as_ref()).map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
         "hosts": weighed.iter().map(|w| json!({
             "name": w.name,
             "local": w.local,
@@ -646,7 +643,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "room": w.room,
             "rank": w.lanes.rank,
             // Its lane_place.placement_preference tier (1 is best) while it has room, else null.
-            "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at + 1, "of": of})),
+            "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
             "refused": w.refused,
