@@ -262,6 +262,16 @@ def committed_url_violation(url: str, title: str, *, agent_op: bool, via_web: bo
     return None
 
 
+def download_row(rows: list[dict], token: str) -> dict | None:
+    """The newest downloads row of one download op: its file name or destination contains the op's token and a dash.
+    The dash keeps op fz5-12 off the row of fz5-123456 (review of #29769); a substring, not a basename prefix, keeps
+    the rows of uncleaned names such as 'fz5-12-../../fuzz-escape.bin', which the download_path oracle exists for
+    (review of #29818)."""
+    mark = token + "-"
+    mine = [r for r in rows or [] if mark in (r.get("filename") or "") or mark in (r.get("destination") or "")]
+    return mine[-1] if mine else None
+
+
 def download_violation(row: dict, downloads_dir: str) -> str | None:
     """A finished download must land in the downloads folder under a plain file name."""
     destination = row.get("destination") or ""

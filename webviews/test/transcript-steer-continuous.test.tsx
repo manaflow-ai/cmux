@@ -67,6 +67,9 @@ async function clientOf(
   held: string[] = [],
 ) {
   let socket: any;
+  const promptRequests: string[] = [];
+  let promptSent!: () => void;
+  const firstPrompt = new Promise<void>((resolve) => (promptSent = resolve));
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -105,6 +108,10 @@ async function clientOf(
       readyState: 1,
       send(raw: string) {
         const message = JSON.parse(raw);
+        if (message.method === "session/prompt") {
+          promptRequests.push(message.params._meta.acpmux.promptId);
+          promptSent();
+        }
         if (message.id !== undefined && !held.includes(message.method))
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -131,8 +138,11 @@ async function clientOf(
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
   };
   /// The socket closes, as when acpmux restarts or the network drops.
-  const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
-  return { client, rows: () => rows, push, drop };
+  const drop = () => {
+    socket.readyState = WebSocket.CLOSED;
+    socket.onclose?.({ code: 1006, reason: "", wasClean: false });
+  };
+  return { client, rows: () => rows, push, drop, firstPrompt, promptRequests };
 }
 
 /// Leo's prompt runs 55s; he sends a message now; acpmux stops that turn and runs his message next.
@@ -573,9 +583,12 @@ test("a Send now whose request the dropped socket fails still continues the turn
   const hadWindow = "window" in scope;
   if (!hadWindow) scope.window = globalThis;
   const head = record(sentNow.slice(0, 5));
-  const { client, rows, push, drop } = await clientOf(head, head.length, "running", ["session/prompt"]);
+  const { client, rows, push, drop, firstPrompt } = await clientOf(head, head.length, "running", ["session/prompt"]);
   try {
     const sent = client.send("also check the logout path", [], "p-2").catch(() => undefined);
+    // The gesture reservation is asynchronous. Drop an actual in-flight request, as this
+    // scenario promises, rather than assuming send() has already written to the socket.
+    await firstPrompt;
     push(
       record([...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]])
         .slice(head.length)
@@ -584,6 +597,33 @@ test("a Send now whose request the dropped socket fails still continues the turn
     expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
     drop();
     await sent;
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+  } finally {
+    client.close();
+    if (!hadWindow) delete scope.window;
+  }
+});
+
+test("a socket dropped while the send awaits its gesture cannot receive the prompt", async () => {
+  const scope = globalThis as Record<string, unknown>;
+  const hadWindow = "window" in scope;
+  if (!hadWindow) scope.window = globalThis;
+  const head = record(sentNow.slice(0, 5));
+  const { client, rows, push, drop, promptRequests } = await clientOf(head, head.length, "running");
+  let release!: (ticket: string) => void;
+  const ticket = new Promise<string>((resolve) => (release = resolve));
+  try {
+    const sent = client.send("also check the logout path", [], "p-2", undefined, ticket);
+    push(
+      record([...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]])
+        .slice(head.length)
+        .map((event, index) => ({ ...event, seq: head.length + 1 + index })),
+    );
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+    drop();
+    release("held-gesture");
+    await expect(sent).rejects.toMatchObject({ code: "native.not_connected" });
+    expect(promptRequests).toEqual([]);
     expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
   } finally {
     client.close();
