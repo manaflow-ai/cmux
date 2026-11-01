@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4133822529301",
+  "notes": "notes/4133822529301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31205,
+      "title": "ci(nightly): retry the signer-dmg-image upload once before failing the signer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31216,
+      "title": "acpmux pane: test queuedMessage on acpmux's real queued record shapes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31200,
+      "title": "webviews: coalesce per-card second timers onto the page clock; a hidden page polls no tray tail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31183,
+      "title": "Cloud start: replace a Claude login the provider rejects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31188,
+      "title": "Chief spawn: a pinned harness still takes a model; a queued subagent keeps its model after a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
