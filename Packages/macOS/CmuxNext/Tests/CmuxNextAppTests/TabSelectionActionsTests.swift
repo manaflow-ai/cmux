@@ -118,9 +118,11 @@ struct TabSelectionActionsTests {
     /// the tab menu disables them, instead of enabled and refused after the click.
     @Test func thePaletteDisablesSaveAndCloseOnATerminalTab() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            let pane = try await Self.pane(with: 1, services, connection)
-            let id = try #require(pane.stripModel.selectedID)
-            try #require(pane.tab(id)?.kind == .pty, "the focused tab is not a terminal")
+            // The workspace opens on its chat; `newTab` adds a terminal tab, which the strip selects with a click.
+            let pane = try await Self.pane(with: 2, services, connection)
+            let id = try #require(pane.stripModel.orderedTabs.map(\.id).first { pane.tab($0)?.kind == .pty }, "no terminal tab")
+            if let next = pane.stripModel.click(id, .plain) { pane.select(next) }
+            try await PinnedPageTests.until({ pane.stripModel.selectedID == id }, report: { "selected \(String(describing: pane.stripModel.selectedID))" })
             let items = RegistryPaletteProvider(registry: services.registry).makeItems()
             for action in ["tab.stash", "tab.stashToRight", "tab.stashOthers"] {
                 let row = try #require(items.first { $0.id == "action:\(action)" }, "no palette row for \(action)")
