@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Il metodo di pagamento è stato aggiornato e il pagamento in sospeso è andato a buon fine.",
+        "payment_failed": "Il nuovo metodo di pagamento è stato salvato, ma il pagamento in sospeso è stato rifiutato. Prova con un'altra carta.",
         "team_admin_required": "Solo gli admin del team possono gestire la fatturazione di questo team.",
         "team_not_found": "Questo team non è disponibile. Potresti averlo lasciato, oppure è stato eliminato.",
         "authorization_unavailable": "Impossibile verificare le autorizzazioni del team. Riprova tra poco.",

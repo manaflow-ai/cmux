@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { PricingView } from "@/app/components/pricing-checkout";
 import type { PersonalBillingJson } from "@/services/billing/dashboardBilling";
 import { localeHref } from "../../lib/locale-href";
+import { paymentMethodHref } from "./checkout-links";
 import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
 import { personalPlanCards, type SwitchPlanId } from "./plan-model";
@@ -114,8 +115,7 @@ function StripePersonalBilling({ data, change }: { data: PersonalBillingJson; ch
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           <span>{t("banners.pastDue")}</span>{" "}
           {/* The portal route creates a Stripe session: a full document navigation. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/billing/portal" className="underline">{t("picker.paymentMethod")}</a>
+          <a href={paymentMethodHref()} className="underline">{t("picker.paymentMethod")}</a>
         </div>
       ) : null}
       {/* A Free account is a pricing view for analytics, as before. */}
@@ -126,6 +126,8 @@ function StripePersonalBilling({ data, change }: { data: PersonalBillingJson; ch
 
 const BILLING_BANNERS = [
   "cancelled",
+  "payment_updated",
+  "payment_failed",
   "resumed",
   "nosub",
   "error",

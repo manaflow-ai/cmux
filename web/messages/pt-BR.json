@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Sua forma de pagamento foi atualizada e o pagamento pendente foi concluído.",
+        "payment_failed": "Sua nova forma de pagamento foi salva, mas o pagamento pendente foi recusado. Tente outro cartão.",
         "team_admin_required": "Somente administradores da equipe podem gerenciar a cobrança desta equipe.",
         "team_not_found": "Essa equipe não está disponível. Talvez você tenha saído dela ou ela tenha sido excluída.",
         "authorization_unavailable": "Não foi possível verificar as permissões da equipe. Tente novamente em breve.",

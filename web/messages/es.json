@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Tu método de pago se actualizó y el pago pendiente se completó.",
+        "payment_failed": "Tu nuevo método de pago se guardó, pero el pago pendiente fue rechazado. Prueba con otra tarjeta.",
         "team_admin_required": "Solo los administradores del equipo pueden gestionar la facturación de este equipo.",
         "team_not_found": "Ese equipo no está disponible. Puede que lo hayas abandonado o que se haya eliminado.",
         "authorization_unavailable": "No se pudieron comprobar los permisos del equipo. Inténtalo de nuevo en breve.",

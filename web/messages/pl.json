@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Metoda płatności została zaktualizowana, a zaległa płatność została zrealizowana.",
+        "payment_failed": "Nowa metoda płatności została zapisana, ale zaległa płatność została odrzucona. Spróbuj innej karty.",
         "team_admin_required": "Rozliczeniami tego zespołu mogą zarządzać tylko jego administratorzy.",
         "team_not_found": "Ten zespół jest niedostępny. Być może go opuszczono lub został usunięty.",
         "authorization_unavailable": "Nie udało się sprawdzić uprawnień w zespole. Spróbuj ponownie za chwilę.",
