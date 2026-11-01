@@ -64,7 +64,7 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
     None
 }
 
-/// Do not send into a child whose current daemon no longer verifies its identity.
+/// Refuse a tell when the current daemon cannot verify its target's identity.
 /// A name-to-id lookup and the subsequent info read are separate requests; the
 /// session may have ended or its peer may have gone away between them.
 fn checked_tell_target(id: &str, summary: Option<SessionSummary>) -> Result<SessionSummary, String> {
@@ -122,16 +122,14 @@ pub(super) fn reply_note(name: &str, text: &str) -> String {
 }
 
 /// One bounded page of the eligible sessions, sorted by stable name and id.
-/// \`n\` in control(action: "sessions", n: N) is the zero-based offset.
+/// `n` in control(action: "sessions", n: N) is the zero-based offset.
 /// The daemon's census remains the owner; these are ephemeral read results.
 pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> String {
     let mut eligible: Vec<&SessionSummary> = sessions
         .iter()
         .filter(|session| refusal(session).is_none())
         .collect();
-    eligible.sort_unstable_by(|a, b| {
-        (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id))
-    });
+    eligible.sort_unstable_by(|a, b| (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id)));
     let total = eligible.len();
     if total == 0 {
         return "outcome: done. No acpmux sessions to tell.".to_owned();
@@ -316,7 +314,6 @@ mod tests {
         assert!(list.contains("- session:lane-a (claude, idle)"), "{list}");
         assert!(!list.contains("optchat"), "{list}");
     }
-
 
     #[test]
     fn sessions_page_through_three_hundred_and_explain_the_next_call() {
