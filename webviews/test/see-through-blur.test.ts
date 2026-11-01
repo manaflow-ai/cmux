@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { backdropBlurRadius, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
+import { backdropBlurRadius, drawsBackdropOver, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("see-through-blur.test.ts", async () => {
@@ -66,6 +66,10 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       });
     });
 
+    test("a window with no CSS.supports (a test DOM) is not taken for Chromium", () => {
+      expect(drawsBackdropOver({} as Window)).toBe(false);
+    });
+
     test("the mask is a rounded rect of the hole's own size", () => {
       const svg = decodeURIComponent(holeMask(200.4, 99.6, 12).replace("data:image/svg+xml,", ""));
       expect(svg).toContain('width="200" height="100"');
@@ -104,6 +108,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
          height: ${POPOVER.height}px; border-radius: 12px; --glass-surface: transparent;
          --glass-backdrop: blur(24px); --glass-rim-shadow: 0 0 transparent; --glass-elevation: 0 0 transparent;
          backdrop-filter: none !important }
+       .stage:has(> .find) > .popover { visibility: hidden }
      </style></head><body><div class="stage">
        <div class="chat"><div class="bars"></div></div>
        <aside class="popover ui-glass ui-glass-floats" id="popover"></aside>
@@ -116,6 +121,16 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       document.querySelector(".chat")!.scrollTop = 37;
     });
     return page;
+  }
+
+  /** A few frames: what the follow loop needs to see a change (it measures in the next frame). */
+  async function settle(page: Page): Promise<void> {
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        ),
+    );
   }
 
   async function attach(page: Page): Promise<void> {
@@ -199,6 +214,36 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-see-through"));
       await attach(page);
       expect(await page.evaluate(() => getComputedStyle(document.querySelector(".chat")!).filter)).toBe("none");
+      await page.close();
+    });
+  });
+
+  describe("see-through blur follows what hides or moves the surface", () => {
+    let browser: Browser;
+    beforeAll(async () => {
+      browser = await chromium.launch({ headless: true });
+    });
+    afterAll(async () => browser?.close());
+
+    test("a surface hidden by a :has() rule covers nothing, and comes back when the rule lets go", async () => {
+      const page = await open(browser);
+      await attach(page);
+      const blurred = await barContrast(page, MIDDLE, ...INSIDE);
+      const under = () => page.evaluate(() => document.querySelector(".chat")!.hasAttribute("data-glass-under"));
+      expect(await under()).toBe(true);
+      // A Find bar comes into the stage: the popover hides, with no resize anywhere.
+      await page.evaluate(() => {
+        const find = document.createElement("div");
+        find.className = "find";
+        document.querySelector(".stage")!.append(find);
+      });
+      await settle(page);
+      expect(await under()).toBe(false);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(40);
+      await page.evaluate(() => document.querySelector(".find")!.remove());
+      await settle(page);
+      expect(await under()).toBe(true);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(blurred + 2);
       await page.close();
     });
   });

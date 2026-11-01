@@ -11,10 +11,12 @@
 // already covers what is under it.
 //
 // Cost: nothing in WebKit (no listeners, no elements). In Chromium, while one surface is open: one
-// hidden <svg> with a filter per covered element, a ResizeObserver on the surface and its parent,
-// and a requestAnimationFrame loop that follows the surface while its rect or opacity changes
-// (its enter and exit, a resize) and stops after STABLE_FRAMES unchanged frames. Each frame reads
-// every rect first and writes only what changed. Closing the surface removes all of it.
+// hidden <svg> with a filter per covered element, a ResizeObserver on the surface, its parent and
+// the candidates, a MutationObserver (direct children only, never the subtree) on the candidates'
+// parents, and a requestAnimationFrame loop that follows the surface while its rect, opacity or
+// visibility changes (its enter and exit, a resize, a banner or Find bar coming in) and stops after
+// STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -137,7 +139,18 @@ export function writeHoleFilter(
 /** Whether this engine draws a backdrop over the page's pixels (Chromium) rather than in their
  * place (WebKit, which keeps -webkit-backdrop-filter): glass.css's own test for the underlay. */
 export function drawsBackdropOver(view: Window): boolean {
+  const css = (view as unknown as { CSS?: { supports?: unknown } }).CSS;
+  if (typeof css?.supports !== "function") return false;
   return !(view as unknown as typeof globalThis).CSS.supports("-webkit-backdrop-filter", "none");
+}
+
+/** Whether the window has what the follow loop needs (a test DOM may lack them): without them the
+ * surface keeps its underlay and nothing is attached. */
+function canFollow(view: Window): boolean {
+  const scope = view as unknown as Record<string, unknown>;
+  return ["ResizeObserver", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame"].every(
+    (name) => typeof scope[name] === "function",
+  );
 }
 
 let nextId = 0;
@@ -154,7 +167,7 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
   const doc = surface.ownerDocument;
   const view = doc.defaultView;
   const parent = surface.parentElement;
-  if (!view || !parent || !drawsBackdropOver(view)) return () => {};
+  if (!view || !parent || !drawsBackdropOver(view) || !canFollow(view)) return () => {};
   const svg = doc.createElementNS(SVG_NS, "svg");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("width", "0");
@@ -166,6 +179,19 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
   let frame = 0;
   let stable = 0;
   let last = "";
+  // Re-measure when anything the hole depends on changes: the surface (its size, its transitions),
+  // each candidate's size, and the children of each candidate's parent (a banner or a Find bar
+  // coming in moves the blocks, or hides the surface through a :has() rule, without resizing them).
+  const kickSoon = () => kick();
+  const resize = new view.ResizeObserver(kickSoon);
+  const mutations = new view.MutationObserver(kickSoon);
+  const watched = new Set<Element>();
+  const watch = (element: Element, children: boolean) => {
+    if (watched.has(element)) return;
+    watched.add(element);
+    resize.observe(element);
+    if (children) mutations.observe(element, { childList: true });
+  };
 
   const release = (target: HTMLElement) => {
     const entry = covered.get(target);
@@ -186,11 +212,16 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
+    // A surface hidden by CSS (visibility: hidden while Find is open) covers nothing.
+    const shown = style.visibility === "visible" && look.opacity > 0 && rect.width > 0 && rect.height > 0;
     const under: { target: HTMLElement; box: DOMRect; hole: BlurHole; key: string }[] = [];
     for (const child of candidates(surface)) {
       if (child === surface || child.contains(surface) || !(child instanceof view.HTMLElement)) continue;
+      watch(child, false);
+      if (child.parentElement) watch(child.parentElement, true);
+      if (!shown) continue;
       const box = child.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0 || !overlaps(rect, box)) continue;
+      if (!overlaps(rect, box)) continue;
       const hole = holeIn(rect, box, look);
       under.push({ target: child, box, hole, key: JSON.stringify([box.width, box.height, hole]) });
     }
@@ -211,7 +242,7 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
         entry.key = key;
       }
     }
-    return under.map((entry) => entry.key).join("|");
+    return `${shown}|${under.map((entry) => entry.key).join("|")}`;
   };
 
   const tick = () => {
@@ -226,11 +257,10 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
     if (!frame) frame = view.requestAnimationFrame(tick);
   };
 
+  watch(surface, false);
+  watch(parent, true);
   measure();
   kick();
-  const resize = new ResizeObserver(kick);
-  resize.observe(surface);
-  resize.observe(parent);
   surface.addEventListener("transitionrun", kick);
   surface.addEventListener("animationstart", kick);
   view.addEventListener("resize", kick);
@@ -238,6 +268,7 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
     if (frame) view.cancelAnimationFrame(frame);
     frame = 0;
     resize.disconnect();
+    mutations.disconnect();
     surface.removeEventListener("transitionrun", kick);
     surface.removeEventListener("animationstart", kick);
     view.removeEventListener("resize", kick);
