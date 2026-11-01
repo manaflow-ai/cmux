@@ -16,8 +16,7 @@ import {
   looksLongPrompt,
   pasteLines,
   pasteName,
-  type PromptPart,
-  promptHead,
+  headParts,
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -43,7 +42,9 @@ export function PromptText({
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
   /// Ordered attachments share this fold; opening a pasted block also opens the prompt.
-  children?: (open: () => void) => ReactNode;
+  /// `head`: the prompt is huge and collapsed, so only its first `HUGE_PROMPT_HEAD_CHARS` of text
+  /// need drawing (`headParts`).
+  children?: (open: () => void, head: boolean) => ReactNode;
 }) {
   const t = useT();
   const id = useId();
@@ -87,9 +88,11 @@ export function PromptText({
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const huge = isHugePrompt(text);
+  const head = huge && collapsed;
   const shownParts = useMemo(
-    () => (huge && collapsed ? headParts(parts, HUGE_PROMPT_HEAD_CHARS) : parts),
-    [huge, collapsed, parts],
+    () =>
+      head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
+    [head, parts],
   );
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
@@ -175,10 +178,10 @@ export function PromptText({
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {children
-          ? children(() => setOpen(true))
+          ? children(() => setOpen(true), head)
           : shownParts.map((part, index) =>
               part.kind === "text" ? (
-                <PromptTyped key={index} text={part.text} show={show} plain={huge} />
+                <PromptTyped key={index} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
               ) : (
                 <PasteChip
                   key={index}
@@ -233,24 +236,6 @@ export function PromptTyped({
       <LiteralText text={shown} />
     </span>
   );
-}
-
-/// `parts` cut to their first `chars` characters of text: the typed parts and pastes within them,
-/// the last one cut short. A paste is a chip whatever its length, so it counts its chip, not its text.
-function headParts(parts: readonly PromptPart[], chars: number): PromptPart[] {
-  const out: PromptPart[] = [];
-  let left = chars;
-  for (const part of parts) {
-    if (left <= 0) break;
-    if (part.kind === "paste") {
-      out.push(part);
-      continue;
-    }
-    const head = promptHead(part.text, left);
-    out.push(head === part.text ? part : { kind: "text", text: head });
-    left -= head.length;
-  }
-  return out;
 }
 
 /// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps

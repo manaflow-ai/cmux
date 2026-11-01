@@ -31,6 +31,32 @@ export const HUGE_PROMPT_HEAD_CHARS = 4_000;
 
 export const isHugePrompt = (text: string) => text.length > HUGE_PROMPT_CHARS;
 
+/// A huge prompt's typed parts as its collapsed bubble draws them: the parts within its first `chars`
+/// characters of typed text, the last one cut short, and nothing after. A paste or an attachment is
+/// a chip whatever its length, so it counts nothing. `huge` marks a part cut from a huge one, which
+/// draws literally as its whole text does once open; a short part beside a big paste keeps its
+/// Markdown.
+export function headParts<T extends { kind: string }>(
+  parts: readonly T[],
+  chars: number,
+  typed: (part: T) => string | undefined,
+): (T & { huge?: boolean })[] {
+  const out: (T & { huge?: boolean })[] = [];
+  let left = chars;
+  for (const part of parts) {
+    if (left <= 0) break;
+    const text = typed(part);
+    if (text === undefined) {
+      out.push(part);
+      continue;
+    }
+    const head = promptHead(text, left);
+    out.push(head === text ? part : { ...part, text: head, huge: isHugePrompt(text) });
+    left -= head.length;
+  }
+  return out;
+}
+
 /// The first `chars` UTF-16 units of `text`, never ending inside a surrogate pair.
 export function promptHead(text: string, chars: number): string {
   if (text.length <= chars) return text;

@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PromptText, PromptTyped } from "./PromptText";
+import { InlinePromptContent } from "./InlinePromptContent";
 import {
   COLLAPSED_PROMPT_LINES,
   HUGE_PROMPT_CHARS,
@@ -71,4 +72,27 @@ test("a huge prompt's row is estimated as its collapsed lines, quickly", () => {
   expect(huge).toBe(long);
   expect(huge!).toBeGreaterThanOrEqual(COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT);
   expect(elapsed).toBeLessThan(500);
+});
+
+test("a huge prompt with placed attachments opens collapsed on its head only", () => {
+  const parts = [
+    { kind: "text" as const, text: blob(3 * 1024 * 1024) },
+    { kind: "image" as const, id: "img", mimeType: "image/png", data: "", placed: true as const },
+    { kind: "text" as const, text: "after the image" },
+  ];
+  const html = renderToStaticMarkup(
+    <InlinePromptContent rowId="inline-huge" parts={parts as never} show={same} renderImage={() => <i />} />,
+  );
+  expect(html).toContain("is-clamped");
+  expect(html).not.toContain("<wbr");
+  expect(html.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS + 1_000);
+});
+
+test("a short Markdown note beside a huge paste keeps its Markdown", () => {
+  const note = "- one\n- two";
+  const text = `${note}\n${"y".repeat(HUGE_PROMPT_CHARS + 10)}`;
+  const html = renderToStaticMarkup(
+    <PromptText rowId="note" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
+  );
+  expect(html).toContain("<li");
 });

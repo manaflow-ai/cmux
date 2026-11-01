@@ -32,8 +32,10 @@ import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/
 import {
   PASTE_CHIP_HEIGHT,
   type PasteRange,
+  HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
   isHugePrompt,
+  promptHead,
   promptParts,
 } from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -1646,7 +1648,17 @@ function measuredRowHeight(
         contentHeight +=
           part.kind === "paste"
             ? PASTE_CHIP_HEIGHT
-            : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+            : Math.max(
+                lineHeight,
+                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
+                // head is all there is to measure.
+                textHeight(
+                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
+                  contentWidth,
+                  entry.prepared,
+                  usedPrepared,
+                ),
+              );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
