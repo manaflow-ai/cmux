@@ -30,7 +30,7 @@ export interface PlanLimits {
   readonly upgrade_plan: string | null
 }
 
-/** Development and staging only (STUB_PLAN_ENVIRONMENTS): Max's machine sizes, so dogfood is not capped below what people pay for. */
+/** Only in STUB_PLAN_ENVIRONMENTS (development, staging, test): Max's machine sizes, so dogfood is not capped below what people pay for. */
 export const STUB_PLAN: PlanLimits = {
   plan_id: "stub_default",
   max_active: 5,
