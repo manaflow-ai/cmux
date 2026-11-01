@@ -8,6 +8,7 @@ use super::{Conn, Origin, TriggerScope};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use cmux_host::identity::HostIdentity;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::path::{Path, PathBuf};
@@ -388,7 +389,7 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
     // Always reconstruct from the strict journal. This recovers duplicate callbacks
     // whose accepted receipt is null and rejects a callback from another prompt id.
     let mut receipt = validate_durable_receipt(&hub.trigger_delivery(&session, &delivery), scope)?;
-    receipt["duplicate"] = Value::Bool(replay);
+    receipt.set("duplicate", Value::Bool(replay));
     Ok(receipt)
 }
 
@@ -396,9 +397,9 @@ fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
     let session = bound_session(hub, scope)?;
     let mut out =
         validate_durable_receipt(&hub.trigger_delivery(&session, &scope.delivery), scope)?;
-    out["machine"] = Value::String(scope.machine.clone());
-    out["workspace"] = Value::String(scope.workspace.clone());
-    out["session"] = Value::String(session.id.clone());
+    out.set("machine", Value::String(scope.machine.clone()));
+    out.set("workspace", Value::String(scope.workspace.clone()));
+    out.set("session", Value::String(session.id.clone()));
     Ok(out)
 }
 
@@ -479,13 +480,13 @@ pub(super) async fn handle(
             .to_owned();
             let mut result = result;
             if let Some(turn) = result.get("turnId").cloned() {
-                result["turn"] = turn;
+                result.set("turn", turn);
             }
-            result["ok"] = Value::Bool(true);
-            result["state"] = Value::String(state.to_owned());
-            result["machine"] = Value::String(scope.machine.clone());
-            result["workspace"] = Value::String(scope.workspace.clone());
-            result["session"] = Value::String(scope.session.clone());
+            result.set("ok", Value::Bool(true));
+            result.set("state", Value::String(state.to_owned()));
+            result.set("machine", Value::String(scope.machine.clone()));
+            result.set("workspace", Value::String(scope.workspace.clone()));
+            result.set("session", Value::String(scope.session.clone()));
             Ok(result)
         }
         // `expected` is one of the three above, set from the method just before.
