@@ -393,7 +393,7 @@ fn chat_wait_target(target: &str, tabs: &[&Value]) -> Option<String> {
         .find(|tab| tab.get("id").and_then(Value::as_str) == Some(target))
         .and_then(|tab| tab.get("agent_session").and_then(Value::as_str))
         .filter(|session| is_chat_session_id(session))
-        .map(str::to_owned)
+        .map(|session| session.strip_prefix("acp:").unwrap_or(session).to_owned())
 }
 
 /// Acpmux, rather than app topology, owns the turn and queue of a tabless
