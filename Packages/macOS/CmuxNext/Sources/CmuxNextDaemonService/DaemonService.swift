@@ -39,6 +39,10 @@ public final class DaemonService {
     /// The last ordered send to each terminal surface (``sendInOrder(_:to:_:)``): the next one waits for it.
     @ObservationIgnored var orderedSends: [SurfaceID: (serial: UInt64, work: ActionWork)] = [:]
     @ObservationIgnored var orderedSendSerial: UInt64 = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.close.hold` / `debug.close.release`: this daemon's close warning reads that a test holds.
+    public let closeReadHold = DebugCloseReadHold()
+    #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
@@ -544,8 +548,18 @@ public final class DaemonService {
     }
 
     private func showPaneNotReady(_ notReady: PaneNotReady) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        paneNotReadyCauses = Array((paneNotReadyCauses + [notReady.description]).suffix(100)) // as RefusalHUD.history
+        #endif
         onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Debug and bench builds: the command and stand-in reference of each ``PaneNotReady`` shown so far, newest last
+    /// (`debug.toast` `pane_not_ready`). The person's toast says only "still opening"; this says which request named
+    /// which pane, so a journey finds the sender. As many entries as the refusal HUD's own history.
+    @ObservationIgnored public private(set) var paneNotReadyCauses: [String] = []
+    #endif
 
     /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
     @ObservationIgnored public var paneNotReadyText: (() -> String)?

@@ -81,11 +81,11 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
     pane!.record("user_message", { text: "Brand new prompt", promptId, turnId: `turn-${promptId}` });
     pane!.record("turn_started", {});
     await page.waitForFunction(
-      () =>
+      (expectedPromptId) =>
         [...document.querySelectorAll<HTMLElement>(".acpmux-row")].some(
-          (row) => row.dataset.rowId === `local-${promptId}` && row.textContent?.includes("Brand new prompt"),
+          (row) => row.dataset.rowId === `local-${expectedPromptId}` && row.textContent?.includes("Brand new prompt"),
         ),
-      undefined,
+      promptId,
       { timeout: 10_000 },
     );
     // A few more frames after the echo.

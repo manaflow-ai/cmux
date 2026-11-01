@@ -11,6 +11,9 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+// Not wired into start-chat yet; its CLI entry is `cmux link seed plan`.
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
 mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
@@ -99,8 +102,8 @@ pub(crate) fn start_link_entry(
     Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
-/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
-/// other frame denied (`remote_denied`).
+/// The gate of the remote entry: exactly the seven `fs-v1` ops and the two
+/// `git-seed-v1` ops, every other frame denied (`remote_denied`).
 fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
     Arc::new(cmux_tui_core::server::FsGate)
 }
@@ -114,6 +117,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("seed") {
+        return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
@@ -163,7 +169,13 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+            &[
+                "--state-dir",
+                "--session-socket",
+                "--server-config",
+                "--credential-socket",
+                "--ready-fd",
+            ],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -173,7 +185,14 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
+                    &[
+                        "--state-dir",
+                        "--install",
+                        "--port",
+                        "--session-socket",
+                        "--server-config",
+                        "--credential-socket",
+                    ],
                 )?,
                 handoff,
             )
@@ -375,6 +394,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
+    let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
     let config_path = server_config_path(flags);
@@ -388,7 +408,15 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
+    tokio_runtime()?.block_on(serve(
+        state,
+        session_socket,
+        credential_socket,
+        owner,
+        ready,
+        served,
+        watch,
+    ))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -453,6 +481,7 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
+    credential_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
@@ -475,9 +504,11 @@ async fn serve(
         socket,
     )?;
     let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
+    // Cloud host ids resolve through the private credential relay owned by
+    // the signed-in app. A missing relay fails closed as unavailable.
+    let resolver = Arc::new(cloud::CloudResolver::new(
+        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+    ));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;

@@ -43,6 +43,8 @@ OWN_PROCESS = {("CmuxNextAppTests", "MarkdownLiveShareTests"),  # aChangeOnDiskS
 # TabHoverCardTimingTests fails the same way in the base's own single-process run too (job 123558222461: the card
 # faded in 0.60 s of a 0.33 s budget). The heavy step runs them one at a time with nothing beside them.
 OWN_PROCESS |= {("CmuxNextAppTests", "IconPickerMotionTests"),  # the picker is still visible after its close motion
+                # Its 50 ms synchronous-present budget must not include other suites' shared-process work.
+                ("CmuxNextAppTests", "HomeSheetOpensInstantlyTests"),
                 ("CmuxNextAppTests", "SidebarHoverCardDwellTests"),  # the card fades out in 0.51 s of 0.33 s
                 ("CmuxNextAppTests", "TabHoverCardTimingTests"),
                 ("CmuxNextAppTests", "SpaceSwitchCostTests")}  # p50 at 500 workspaces 133 ms of 124 ms

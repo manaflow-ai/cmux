@@ -27,8 +27,8 @@ enum QuitStrings {
         String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
     }
 
-    static var quitEverything: String {
-        String(localized: "quit.button.quitEverything", defaultValue: "Quit Everything", table: "Quit", bundle: .module)
+    static var endKeepLayout: String {
+        String(localized: "quit.button.endKeepLayout", defaultValue: "End Sessions, Keep Layout", table: "Quit", bundle: .module)
     }
 
     static var endEverything: String {

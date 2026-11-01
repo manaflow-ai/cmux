@@ -26,6 +26,22 @@ impl Hub {
         session.unread_after_work.store(false, Ordering::SeqCst);
     }
 
+    /// A new turn: the earlier turn's foreground subagents are over, whether or not the harness
+    /// said so, so the summary's `subagentsRunning` counts none of them again
+    /// (`SubagentTree::end_foreground`). A change is recorded as the tap records one.
+    pub(super) fn end_foreground_subagents(&self, session: &Session) {
+        let count = {
+            let mut tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            let before = tree.running_count();
+            tree.end_foreground();
+            let after = tree.running_count();
+            (after != before).then_some(after)
+        };
+        if let Some(count) = count {
+            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+        }
+    }
+
     /// Since when work `session` started still runs past its own turn; None while none does.
     pub(super) fn work_below_since(&self, session: &Session) -> Option<u64> {
         let since = *session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
