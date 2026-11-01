@@ -298,8 +298,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
     /// the app asks to update that machine's cmux-tui, never starts on this Mac.
     case agentSessionStart = "agent-session-start-v1"
-    /// `agent-session-start` accepts an omitted cwd and creates a Cloud chat folder.
-    case agentSessionStartNoCwd = "agent-session-start-no-cwd-v1"
     /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
     /// Trust answer for a folder there, recorded in that machine's acpmux.
     case agentSessionTrust = "agent-session-trust-v1"
@@ -523,7 +521,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,

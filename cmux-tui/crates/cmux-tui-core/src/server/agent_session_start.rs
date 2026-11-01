@@ -61,8 +61,6 @@ use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
 
 pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
-/// A start may omit `cwd`; the daemon creates a fresh Cloud chat folder.
-pub const AGENT_SESSION_START_NO_CWD_CAPABILITY: &str = "agent-session-start-no-cwd-v1";
 /// `require_person_key` and `person_instance` on `agent-session-start`, and
 /// its typed `agent_session.needs_keyed_start` refusal (cx-0w0jj).
 pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-start-keyed-reason-v1";
@@ -220,10 +218,7 @@ pub(super) struct StartParams {
     harness: Option<String>,
     #[serde(default)]
     model: Option<String>,
-    /// The selected folder on the machine. A missing folder is allowed only
-    /// for the caller's own Cloud VM, where Rust creates `~/chats/<id>`.
-    #[serde(default)]
-    cwd: Option<String>,
+    cwd: String,
     /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
     #[serde(default)]
     home_confirmed: bool,
@@ -250,11 +245,10 @@ impl StartParams {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
         });
-        let cwd_ok = self.cwd.as_deref().is_none_or(|cwd| {
-            (1..=MAX_CWD_BYTES).contains(&cwd.len())
-                && cwd.starts_with('/')
-                && !cwd.chars().any(char::is_control)
-        });
+        let cwd = &self.cwd;
+        let cwd_ok = (1..=MAX_CWD_BYTES).contains(&cwd.len())
+            && cwd.starts_with('/')
+            && !cwd.chars().any(char::is_control);
         let instance_ok = self.person_instance.as_deref().is_none_or(|instance| {
             (1..=128).contains(&instance.len())
                 && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
@@ -293,33 +287,18 @@ pub(super) fn start(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    // On the caller's own Cloud VM a new chat with no folder gets a fresh
-    // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
+    // On the caller's own Cloud VM a new chat that would start in the home
+    // folder (no folder of the person's own) starts in the work folder.
     let own = super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind);
-    if let Some(work) = super::agent_session_trust::owner_cloud_cwd(
-        own,
-        params.cwd.as_deref(),
-        params.home_confirmed,
-        params.surface,
-    ) {
-        params.cwd = Some(work);
-    }
-    // A pre-capability Cloud caller cannot send the owner word, so preserve
-    // its historical work-folder start. Non-Cloud callers still need to send
-    // an explicit folder.
-    if params.cwd.is_none() && mux.control_clients.agent_sessions.starts.on_cloud_vm() {
-        params.cwd = super::agent_session_folders::own_work_folder(true)
-            .map(|path| path.to_string_lossy().into_owned());
-    }
-    if params.cwd.is_none() {
-        return refuse(writer, id, Refusal::BadRequest);
+    if let Some(work) =
+        super::agent_session_trust::owner_cloud_cwd(own, &params.cwd, params.home_confirmed)
+    {
+        params.cwd = work;
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
-    let Some(cwd) = params.cwd.as_deref() else {
-        return refuse(writer, id, Refusal::BadRequest);
-    };
-    if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
+    if let Err(refusal) = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
+    {
         return refuse(writer, id, refusal);
     }
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
@@ -494,7 +473,6 @@ fn start_and_bind(
     link: &AcpmuxLink,
     params: &StartParams,
 ) -> Result<Value, Refusal> {
-    let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
         .agent_sessions
@@ -504,8 +482,9 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog =
-        link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let catalog = link
+        .call("_acpmux/harnesses", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     if !owner_cloud && refused_family(&table, &family) {
         return Err(Refusal::NotAsking);
@@ -514,8 +493,9 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust =
-        link.call("acp.trust.get", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let trust = link
+        .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
