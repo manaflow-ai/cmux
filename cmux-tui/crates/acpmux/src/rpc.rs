@@ -509,6 +509,9 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// Stop and delete every chat of one cmux workspace, an incognito one when its window
+    /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
+    pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
