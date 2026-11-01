@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { postNative } from "../native";
 import type { AcpmuxActivity } from "../model";
+import { useT } from "../i18n";
 
 type Choice = { fullName: string; private?: boolean; source?: string };
 export type RepoRecovery = {
@@ -80,6 +81,7 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
 }
 
 export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
+  const t = useT();
   const [state, setState] = useState<"idle" | "waiting" | "retrying" | "done" | "failed">("idle");
   const [choice, setChoice] = useState<string>();
   const mounted = useRef(true);
@@ -123,26 +125,26 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
       );
   };
 
-  if (state === "done") return <div className="cv-repo-recovery cv-repo-recovery--done">Repository attached</div>;
+  if (state === "done") return <div className="cv-repo-recovery cv-repo-recovery--done">{t("cloudRepository.attached")}</div>;
   if (state === "waiting" || state === "retrying")
     return (
       <div className="cv-repo-recovery cv-repo-recovery--quiet">
-        {state === "waiting" ? "Connecting GitHub…" : "Attaching repository…"}
+        {state === "waiting" ? t("cloudRepository.connecting") : t("cloudRepository.pending")}
       </div>
     );
   if (state === "failed")
     return (
       <div className="cv-repo-recovery cv-repo-recovery--error" role="alert">
-        Couldn’t recover this repository action
+        {t("cloudRepository.recoverFailed")}
       </div>
     );
   if (recovery.code === "repo.needs_github")
     return (
       <div className="cv-repo-recovery cv-repo-recovery--quiet">
-        <span>Connecting GitHub…</span>
+        <span>{t("cloudRepository.connecting")}</span>
         {recovery.installUrl && (
           <button type="button" onClick={connect}>
-            Connect GitHub
+            {t("cloudRepository.connect")}
           </button>
         )}
       </div>
@@ -150,10 +152,16 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
   if (recovery.code === "repo.no_access")
     return (
       <div className="cv-repo-recovery">
-        <span>No access to {recovery.org ? `${recovery.org} repositories` : "this repository"}</span>
+        <span>
+          {t("cloudRepository.noAccess", {
+            target: recovery.org
+              ? t("cloudRepository.repositories", { org: recovery.org })
+              : t("cloudRepository.thisRepository"),
+          })}
+        </span>
         {recovery.installUrl && (
           <button type="button" onClick={connect}>
-            Install on {recovery.org ?? "GitHub"}
+            {t("cloudRepository.installOn", { target: recovery.org ?? t("cloudRepository.github") })}
           </button>
         )}
         <button
@@ -166,14 +174,14 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
             )
           }
         >
-          Request access
+          {t("cloudRepository.requestAccess")}
         </button>
       </div>
     );
   if (recovery.code === "repo.ambiguous" && recovery.choices?.length)
     return (
-      <fieldset className="cv-repo-recovery" aria-label="Choose repository">
-        <span>Which repository?</span>
+      <fieldset className="cv-repo-recovery" aria-label={t("cloudRepository.choose")}>
+        <span>{t("cloudRepository.which")}</span>
         {recovery.choices.map((item) => (
           <button
             key={item.fullName}

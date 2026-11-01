@@ -10,41 +10,15 @@ extension AgentPaneCloudStart {
         public var folder: String?
         public var machine: String?
         public var size: String?
-        public var cloneState: String?
-        public var clonePhase: String?
-        public var cloneReceivedBytes: Int?
-        public var cloneObjects: Int?
-        public var cloneTotalObjects: Int?
-        public var setupStatus: String?
-        public var setupLogTail: String?
-        public var machineStartedAt: Double?
-        public var machineFinishedAt: Double?
-        public var harnessStartedAt: Double?
-        public var harnessFinishedAt: Double?
 
-        public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
-                    cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
-                    setupLogTail: String? = nil, machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
-                    harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil) {
+        public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
-            (self.cloneState, self.clonePhase, self.cloneReceivedBytes, self.cloneObjects, self.cloneTotalObjects) =
-                (cloneState, clonePhase, cloneReceivedBytes, cloneObjects, cloneTotalObjects)
-            (self.setupStatus, self.setupLogTail) = (setupStatus, setupLogTail)
-            (self.machineStartedAt, self.machineFinishedAt, self.harnessStartedAt, self.harnessFinishedAt) =
-                (machineStartedAt, machineFinishedAt, harnessStartedAt, harnessFinishedAt)
         }
     }
 
     /// Tells the page's card `step` as it begins.
     @MainActor public func progress(_ step: Step, to view: AgentPaneView) {
-        progress(step.name, folder: step.folder, machine: step.machine, size: step.size,
-                 cloneState: step.cloneState, clonePhase: step.clonePhase,
-                 cloneReceivedBytes: step.cloneReceivedBytes, cloneObjects: step.cloneObjects,
-                 cloneTotalObjects: step.cloneTotalObjects, setupStatus: step.setupStatus,
-                 setupLogTail: step.setupLogTail, machineStartedAt: step.machineStartedAt,
-                 machineFinishedAt: step.machineFinishedAt, harnessStartedAt: step.harnessStartedAt,
-                 harnessFinishedAt: step.harnessFinishedAt, to: view)
+        progress(step.name, folder: step.folder, machine: step.machine, size: step.size, to: view)
     }
 
     /// A machine's size in the card's words: "4 CPU · 16 GB".

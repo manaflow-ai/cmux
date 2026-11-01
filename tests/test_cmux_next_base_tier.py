@@ -431,7 +431,7 @@ class Workflows(unittest.TestCase):
         # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
         self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", expression)
         self.assertNotIn("|| vars.LINUX_RUNNER ||", expression)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || "
                       "'blacksmith-2vcpu-ubuntu-2404'", expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
