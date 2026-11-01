@@ -74,6 +74,8 @@ struct IncognitoFeedHandoffTests {
         #expect(policy.content(for: Self.item(workspace: "ws_unknown", terminal: "term_unknown")) == nil)
         let frozen = policy.frozenContent(for: Self.item(workspace: "ws_unknown", terminal: nil))
         #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an unclassified item handing off sent its text: \(frozen)")
+        // Before the windows restored (a crashed run's incognito workspace not flagged yet), no pass runs.
+        #expect(!policy.classified, "the handoff ran before the app knew which workspaces are incognito")
         // An item with no context (`notify --workspace` with no tab) may be an incognito workspace's too.
         #expect(policy.content(for: Self.item(workspace: nil, terminal: nil)) == nil)
     }

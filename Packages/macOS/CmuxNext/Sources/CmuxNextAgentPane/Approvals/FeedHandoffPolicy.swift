@@ -28,13 +28,17 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     /// yet or is gone (it may have been incognito; a crash may have left it
     /// handing off). nil: no item is held back for this.
     public var normalWindows: Set<String>?
+    /// False until the app knows which workspaces are incognito (windows restored, ephemeral flags read): until
+    /// then no pass runs, so neither an open item nor a frozen one leaves with too much or too little text.
+    public var classified: Bool
     public var calendar: Calendar
 
     public init(preferences: NotificationPreferences, mutedWorkspaces: Set<String>, normalWindows: Set<String>? = nil,
-                calendar: Calendar = .current) {
+                classified: Bool = true, calendar: Calendar = .current) {
         self.preferences = preferences
         self.mutedWorkspaces = mutedWorkspaces
         self.normalWindows = normalWindows
+        self.classified = classified
         self.calendar = calendar
     }
 

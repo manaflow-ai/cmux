@@ -148,6 +148,7 @@ final class FeedHandoffDriver {
 
     private func handOffAll() async {
         guard let install = installID() else { return }
+        guard policy().classified else { return note("pass waits: incognito workspaces not classified yet") }
         do {
             for item in try await daemon.list(.handingOff, false) where !refused.contains(item.id) {
                 guard await adopt(item, install: install) else { return }

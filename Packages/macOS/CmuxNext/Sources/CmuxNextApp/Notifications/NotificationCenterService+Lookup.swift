@@ -127,7 +127,13 @@ extension NotificationCenterService {
             let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
             normal.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, normalWindows: services == nil ? nil : normal)
+        // Classified once the windows restored (crash leftovers discarded, ephemeral flags awaited) and the flags are known.
+        let classified = services.map { services in
+            (services.windows.restored || services.windows.restoreGaveUp)
+                && (services.daemon.connection?.mirrorsSessionState != true || services.daemon.store.session.known)
+        } ?? true
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, normalWindows: services == nil ? nil : normal,
+                                 classified: classified)
     }
 
     static func seconds(_ duration: Duration) -> Double {
