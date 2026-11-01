@@ -198,15 +198,12 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         ]
     }
 
-    /// The visual composer choices agents may change, plus where new chats start (`cmux settings set
-    /// agentPane.newChatsIn cloud`: each chat's composer still shows and can change it); send
-    /// behavior remains a user-only choice.
+    /// The visual composer choices agents may change; send behavior remains a user-only choice.
     static var agentSettableKeys: Set<String> {
         Set([AgentPaneComposerSetting.showContextUsagePath,
              AgentPaneComposerSetting.showDictationPath,
              AgentPaneComposerSetting.spellCheckingPath,
              AgentPaneComposerSetting.attachmentViewPath,
-             AgentPaneComposerSetting.showMachineLoadWarningsPath,
-             AgentPaneComposerSetting.newChatsInPath].map { $0.joined(separator: ".") })
+             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
     }
 }

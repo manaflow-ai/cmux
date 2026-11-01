@@ -273,6 +273,9 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # The one job of a nightly run the watch judges (the visual gate must never
 # cancel signing or notarization siblings).
 NIGHTLY_APP_JOB = "build-nightly-app"
+# nightly.yml's first job: attempt 1 of a nightly-next push asks for the nightly slot (NIGHTLY_SLOT_LABEL), and
+# the rescue moves it when no slot takes it, so the re-run takes Blacksmith Linux. Every other job waits on it.
+NIGHTLY_DECIDE_JOB = "decide"
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
@@ -468,6 +471,18 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+def nightly_control_label(label: object) -> bool:
+    """Whether a nightly decide label is a fleet control runner.
+
+    Control labels are configured repository variables, so the rescue cannot
+    enumerate them. Treat only non-hosted, non-Blacksmith labels as fleet
+    control labels; the nightly slot and trusted pools remain covered by their
+    explicit matchers above.
+    """
+    value = str(label or "")
+    return bool(value) and not value.startswith(("blacksmith-", "ubuntu-", "macos-", "windows-"))
+
+
 def nightly_watched(job: Mapping[str, Any]) -> bool:
     """A job of a nightly run the watch judges: build-nightly-app, or any job on the trusted pool.
 
@@ -479,7 +494,10 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     gate holds nothing.
     """
     return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
-                                                     for label in job.get("labels") or [])
+                                                     for label in job.get("labels") or []) \
+        or job.get("name") == NIGHTLY_DECIDE_JOB and any(
+            NIGHTLY_SLOT_LABEL.fullmatch(str(label)) or nightly_control_label(label)
+            for label in job.get("labels") or [])
 
 
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
@@ -494,6 +512,10 @@ def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = Fals
     owned = job_pool(job)
     if owned:
         return owned
+    if job.get("name") == NIGHTLY_DECIDE_JOB:
+        for label in job.get("labels") or ():
+            if nightly_control_label(label):
+                return str(label)
     if include_blacksmith_macos:
         for label in job.get("labels") or ():
             label = str(label)
