@@ -3,7 +3,7 @@
 // with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
-import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useState, type ComponentType } from "react";
+import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
@@ -11,7 +11,7 @@ import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { FindReveal, foldFind } from "./chatFind";
-import { EditDiffLoading } from "./EditDiffLoading";
+import { EditDiffLoading, useDiffPainted } from "./EditDiffLoading";
 
 /// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
 /// first script parses without Pierre (bd cx-z9kz0). The header shows at once; the page starts the
@@ -81,6 +81,8 @@ export function EditDiffFrame({
     reveal + found,
   );
   const body = useSidewaysRef<HTMLDivElement>();
+  const hunks = useRef<HTMLDivElement>(null);
+  const painted = useDiffPainted(hunks);
   return (
     <div className="cv-edit-diff" data-wrap={wrap}>
       <div className="cv-edit-diff__header">
@@ -105,9 +107,17 @@ export function EditDiffFrame({
         </button>
       </div>
       <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute}>
-        <Suspense fallback={<EditDiffLoading file={file} />}>
-          <Hunks file={file} patches={patches} wrap={wrap} />
-        </Suspense>
+        {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's
+            chunk resolves first, then each host fills a frame or more later, so a Suspense fallback
+            alone left an empty body for a frame. Both share one grid cell, the lines hidden. */}
+        <div className="cv-edit-diff__stack" data-painted={painted || undefined}>
+          <div ref={hunks} className="cv-edit-diff__hunks">
+            <Suspense fallback={null}>
+              <Hunks file={file} patches={patches} wrap={wrap} />
+            </Suspense>
+          </div>
+          {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
+        </div>
       </div>
       <PreviewMore preview={preview} />
     </div>

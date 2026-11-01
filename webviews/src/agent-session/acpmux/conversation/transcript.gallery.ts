@@ -3455,6 +3455,11 @@ export default agentPaneEntry({
       snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
+        // Show all opens the rendered diff: its lines, not the placeholder drawn while their
+        // renderer loads (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
+        );
         await ctx.click({ role: "button", name: "Show all 21 lines" });
         await ctx.waitFor(
           () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",

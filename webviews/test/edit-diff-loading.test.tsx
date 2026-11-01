@@ -95,7 +95,8 @@ test("a deferred inline renderer keeps its header and line placeholders until it
   await draw(file(3));
   expect(host.textContent).toContain("retry.ts");
   expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
-  expect(host.querySelector(".cv-edit-diff__loading-lines")?.getAttribute("style")).toContain("--cv-loading-lines: 3");
+  expect(host.querySelectorAll(".cv-edit-diff__loading-line")).toHaveLength(3);
+  expect(host.querySelector(".cv-edit-diff__loading-line")?.textContent).toBe("retry(0);");
   expect(host.querySelector("[data-loaded-diff]")).toBeNull();
   await act(async () => {
     ready = true;
@@ -111,12 +112,13 @@ test("long pending edits keep the same preview and expand without waiting for th
   const body = host.querySelector(".cv-edit-diff__body")!;
   expect(body.getAttribute("data-preview")).toBe("cut");
   expect(body.querySelector('[aria-busy="true"]')).not.toBeNull();
+  // A huge edit draws a bounded number of lines and one block of the rest's height.
+  expect(body.querySelectorAll(".cv-edit-diff__loading-line")).toHaveLength(400);
   const more = host.querySelector<HTMLButtonElement>(".cv-output-more")!;
   await act(async () => more.click());
   expect(body.getAttribute("data-preview")).toBe("all");
-  expect(body.querySelector(".cv-edit-diff__loading-lines")?.getAttribute("style")).toContain(
-    "--cv-loading-lines: 1284",
-  );
+  expect(body.querySelectorAll(".cv-edit-diff__loading-line")).toHaveLength(400);
+  expect(body.querySelector(".cv-edit-diff__loading-rest")?.getAttribute("style")).toContain("--cv-loading-lines: 884");
 });
 
 test("a known empty edit keeps its existing explanation while the chunk is pending", async () => {
@@ -125,4 +127,27 @@ test("a known empty edit keeps its existing explanation while the chunk is pendi
   await draw(empty);
   expect(host.querySelector(".cv-edit-diff__empty")?.textContent).toBeTruthy();
   expect(host.querySelector(".cv-edit-diff__loading-lines")).toBeNull();
+});
+
+test("mid-file hunks keep a separator's room before each, as Pierre draws them", async () => {
+  const value = file(0);
+  value.created = false;
+  value.edits[0]!.hunks = [40, 120].map((start) => ({
+    lines: [0, 1].map((offset) => ({
+      type: "add" as const,
+      text: `retry(${start + offset});`,
+      newLine: start + offset,
+    })),
+  }));
+  await draw(value);
+  const parts = [...host.querySelectorAll(".cv-edit-diff__loading-lines > *")].map((node) => node.className);
+  expect(parts).toEqual([
+    "cv-edit-diff__loading-sep",
+    "cv-edit-diff__loading-line",
+    "cv-edit-diff__loading-line",
+    "cv-edit-diff__loading-sep",
+    "cv-edit-diff__loading-line",
+    "cv-edit-diff__loading-line",
+  ]);
+  expect(host.querySelector(".cv-edit-diff__loading-lines")?.getAttribute("style")).toContain("--cv-loading-digits: 4");
 });
