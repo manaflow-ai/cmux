@@ -59,6 +59,8 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
     const { entry, variant, plus, width } = STATES[state];
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width, height: HEIGHT }, deviceScaleFactor: 2 });
+    // No recent commands carried in (recentCommands.ts): the + menu's commands group is the one row.
+    await page.addInitScript(() => localStorage.removeItem("cmux.acpmux.recentSlashCommands"));
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, reducedMotion: "true", width, height: HEIGHT })}`,
     );
