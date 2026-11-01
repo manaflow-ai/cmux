@@ -26,7 +26,8 @@ A failing test is the base's when it failed on any of the newest BASE_WINDOW bas
 the newest (2026-11-01). The newest verdict still decides whether the job is red on the base at all: when it is
 not a failure, nothing older is read (fixed_on_base, below). When it is, a head failing test, failed step or error
 line that the newest red run lacks is looked for in the older verdicts, newest first, at most BASE_WINDOW verdicts
-within BASE_WINDOW_HOURS of the newest; a green one among them adds nothing. A crash, a cut-short run, the
+within BASE_WINDOW_HOURS of the newest, and only back to the first green one: a green base run means every
+test passed there, so an older red may predate a fix and never counts. A crash, a cut-short run, the
 Chromium check, a process signal and the panic ratchet are judged against the newest alone, as before. Why: the
 feat-cmux-next tip Swift suite fails 59 to 106 tests on every run and the set churns:
 modelModeAndOptionPicksGoToThisChat() failed on run 41282022128, passed on 41298073172 and failed again on
@@ -993,8 +994,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head = signature(job, head_log)
         if not head[1] and not head[2] and not crash_signals(head_log) and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
-        # The window: the newest verdict first, then older ones, up to BASE_WINDOW verdicts within BASE_WINDOW_HOURS
-        # of it, read only while a head failure is on none of the red ones so far (a green one adds nothing).
+        # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
+        # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             text = github.log(repo, found)
             return run, text, signature(found, text)
@@ -1006,18 +1007,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             except Final:
                 raise
             except Refused:
-                older = None
-                while older is None and read < BASE_WINDOW:
-                    run, found = next(verdicts, (None, None))
-                    if run is None or (newest and created(run)
-                                       and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS)):
-                        break
-                    read += 1
-                    if found.get("conclusion") == "failure":
-                        older = red(run, found)
-                if older is None:
+                run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
+                if (run is None or found.get("conclusion") != "failure"
+                        or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     raise
-                window.append(older)
+                read += 1
+                window.append(red(run, found))
     return audit
 
 

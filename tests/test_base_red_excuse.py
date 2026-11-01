@@ -1097,11 +1097,15 @@ class BaseRedWindow(unittest.TestCase):
         self.judge()
         self.assertEqual([read for read in self.reads if read != 1], [30])
 
-    def test_a_green_verdict_in_the_window_adds_nothing_and_the_red_before_it_counts(self):
+    def test_a_green_verdict_ends_the_window_and_older_reds_do_not_count(self):
+        # A green base run passed every test, so an older red may predate a fix.
         self.base(30, 12)
         self.base(29, 11, conclusion="success")
         self.base(28, 10, (ISSUE,))
-        self.assertIn("(red on run 28)", self.judge())
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertNotIn(28, self.reads)
+        self.assertNotIn(29, self.reads)
 
     def test_a_test_red_only_outside_the_window_is_the_heads(self):
         for offset in range(excuse.BASE_WINDOW):
