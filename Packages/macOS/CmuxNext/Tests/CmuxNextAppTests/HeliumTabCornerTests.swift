@@ -42,11 +42,5 @@ import Testing
         #expect(Metrics.heliumTabCornerRadius == 8)
     }
 
-    /// The curved main pane's card has Helium's 14 pt content corner in a macOS 26 window.
-    @Test func thePaneCardHasHeliumsContentCorner() {
-        defer { reset() }
-        load(nil, density: .compact)
-        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius) == 14)
-        #expect(Metrics.heliumContentCornerRadius == 14)
-    }
+    // The pane card's 14 pt corner in a real window: `MainPaneWindowCornerTests`.
 }
