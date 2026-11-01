@@ -117,6 +117,12 @@ class ManifestTests(unittest.TestCase):
 
 
 class UIProofTests(unittest.TestCase):
+    def test_simulator_export_boundary_allowlists_cloud_mode(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh").read_text()
+        self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
+        self.assertIn("allowlist_public_cloud_artifact", script)
+        self.assertIn('else\n  # The app log goes through the pairing redactor', script)
+
     def test_offscreen_copy_is_excluded_and_partial_control_is_visible(self):
         bounds = {"x": 0, "y": 0, "width": 400, "height": 800}
         self.assertFalse(proof.visible({"frame": {"x": 10, "y": 900, "width": 20, "height": 20}}, bounds))
