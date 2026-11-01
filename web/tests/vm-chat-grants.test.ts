@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
-import { grantVmChat, listVmChatGrants, revokeVmChat, type VmTeamAdminCheck } from "../services/vms/chatGrants";
+import { currentVmChatStartAccess, grantVmChat, listVmChatGrants, revokeVmChat, type VmTeamAdminCheck } from "../services/vms/chatGrants";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmChatGrantRow, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import type { VmTeamDirectory } from "../services/vms/teamDirectory";
@@ -60,6 +60,8 @@ function store(vm: CloudVmRow, options: { failReads?: true; noGrantMethods?: tru
     findUserVm: () => Effect.succeed(vm),
     ...(options.noGrantMethods ? {} : {
       listVmChatGrants: (vmId: string) => Effect.succeed([...grants.values()].filter((grant) => grant.vmId === vmId)),
+      hasVmChatGrant: ({ vmId, userId }: { vmId: string; userId: string }) =>
+        options.failReads ? Effect.fail(new Error("grant store unreadable")) : Effect.succeed(grants.has(`${vmId}:${userId}`)),
       putVmChatGrant: (input: { vmId: string; userId: string; grantedBy: string }) => {
         const key = `${input.vmId}:${input.userId}`;
         const existing = grants.get(key);
@@ -222,5 +224,51 @@ describe("revoking a chat share", () => {
     expect(await run(revokeVmChat(shareInput(CREATOR, MEMBER, { teamDirectory: left })), layer))
       .toEqual({ ok: true, value: { revoked: true } });
     expect(grants.size).toBe(0);
+  });
+});
+
+describe("current chat-start authority (read-only, no attach/lease)", () => {
+  test("the personal machine creator and a current team creator have their own authority", async () => {
+    const personal = store(personalVm);
+    expect(await run(currentVmChatStartAccess({
+      ...shareInput(CREATOR, ""), billingTeamId: CREATOR, teamIds: [],
+    }), personal.layer)).toEqual({ ok: true, value: "owner" });
+    const team = store(teamVm);
+    expect(await run(currentVmChatStartAccess(shareInput(CREATOR, "")), team.layer))
+      .toEqual({ ok: true, value: "owner" });
+  });
+
+  test("a revoked grant removes the NEXT app's authority even while its old link remains connected", async () => {
+    const { layer } = store(teamVm);
+    const input = shareInput(MEMBER, "");
+    expect(await run(currentVmChatStartAccess(input), layer)).toEqual({ ok: true, value: "none" });
+    await run(grantVmChat(shareInput(CREATOR, MEMBER)), layer);
+    expect(await run(currentVmChatStartAccess(input), layer)).toEqual({ ok: true, value: "granted" });
+    await run(revokeVmChat(shareInput(CREATOR, MEMBER)), layer);
+    expect(await run(currentVmChatStartAccess(input), layer)).toEqual({ ok: true, value: "none" });
+  });
+
+  test("a grantee who left the team no longer starts, even when their grant row survives", async () => {
+    const { layer } = store(teamVm);
+    await run(grantVmChat(shareInput(CREATOR, MEMBER)), layer);
+    const left = shareInput(MEMBER, "", { teamDirectory: directory({ members: [CREATOR, ADMIN] }) });
+    expect(await run(currentVmChatStartAccess(left), layer)).toEqual({ ok: true, value: "none" });
+    expect(await run(currentVmChatStartAccess(shareInput(ADMIN, "")), layer)).toEqual({ ok: true, value: "none" });
+    expect(await run(currentVmChatStartAccess(shareInput(OUTSIDER, "", {
+      teamDirectory: directory({ members: [CREATOR, ADMIN] }),
+    })), layer)).toEqual({ ok: true, value: "none" });
+  });
+
+  test("a failed directory read, missing grant store or grant read failure refuses a new start", async () => {
+    const { layer } = store(teamVm);
+    const offline = shareInput(MEMBER, "", { teamDirectory: directory({ error: new Error("offline") }) });
+    expect(await run(currentVmChatStartAccess(offline), layer))
+      .toMatchObject({ ok: false, refusal: { status: 503, error: "vm_chat_grants_unavailable" } });
+    const noStore = store(teamVm, { noGrantMethods: true });
+    expect(await run(currentVmChatStartAccess(shareInput(MEMBER, "")), noStore.layer))
+      .toMatchObject({ ok: false, refusal: { status: 503 } });
+    const broken = store(teamVm, { failReads: true });
+    expect(await run(currentVmChatStartAccess(shareInput(MEMBER, "")), broken.layer))
+      .toMatchObject({ ok: false, refusal: { status: 503 } });
   });
 });
