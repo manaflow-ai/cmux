@@ -110,7 +110,7 @@ fn failure_with_install(
     get: &mut impl FnMut(&str) -> Answer,
 ) -> Value {
     let mut reply = failure(answer);
-    if reply["error"]["code"] == "repo.no_access"
+    if reply.pointer("/error/code").and_then(Value::as_str) == Some("repo.no_access")
         && let Answer::Http { status: 200, body } = get(&team_path(INSTALL_PATH, team))
         && let Some(url) =
             body.get("url").and_then(Value::as_str).filter(|url| url.starts_with("https://"))
@@ -158,7 +158,10 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             let state = body
                 .get("connectors")
                 .and_then(Value::as_array)
-                .and_then(|rows| rows.iter().find(|row| row["provider"] == "github"))
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row.get("provider").and_then(Value::as_str) == Some("github"))
+                })
                 .and_then(|row| row.get("state"))
                 .and_then(Value::as_str);
             match state {
@@ -212,7 +215,9 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             reply
         }
         Answer::Http { status: 404, .. } => connect(team, &mut get),
-        Answer::Http { status: 409, body } if body["_tag"] == "ConnectorNeedsAuth" => {
+        Answer::Http { status: 409, body }
+            if body.get("_tag").and_then(Value::as_str) == Some("ConnectorNeedsAuth") =>
+        {
             connect(team, &mut get)
         }
         _ => failure_with_install(&listed, team, &mut get),

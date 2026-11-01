@@ -2503,7 +2503,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {

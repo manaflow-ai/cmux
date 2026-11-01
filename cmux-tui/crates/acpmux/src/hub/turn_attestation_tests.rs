@@ -51,6 +51,7 @@ fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
         turn_seq: seq,
         control: Control::Local,
         doing: Default::default(),
+        notice: false,
         persons: false,
     });
     (hub, session)
@@ -133,6 +134,7 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
         turn_seq: seq,
         control: Control::Local,
         doing: Default::default(),
+        notice: false,
         persons: false,
     });
     // Journal end wins even while the in-memory turn has not been cleared yet.

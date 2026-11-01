@@ -273,7 +273,7 @@ public final class ChiefPetSettingsRows: NSObject {
         uploads?.worn(of: ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief), over: picks.mascot(of: chief, in: snapshot))
     }
 
-    /// The avatar picture of the character `mascot` names (an unknown or nil id: the first, orb):
+    /// The avatar picture of the character `mascot` names (an unknown or nil id: the default, orb):
     /// the whole character on a transparent square, for a Chief with no avatar of its own.
     public static func avatarURL(of mascot: String?) -> URL? {
         (ChiefPetMascot(rawValue: mascot ?? "") ?? .initial).avatarURL

@@ -321,6 +321,12 @@ impl<H: Http> CloudClient<H> {
         Ok(access)
     }
 
+    /// Drops the cached bearer (another origin refused it), so the next
+    /// [`CloudClient::token`] asks for a new one.
+    pub fn forget_token(&mut self) {
+        self.cached = None;
+    }
+
     /// One read on `/v1/read` (`{op, params}`), with the same token
     /// handling as [`CloudClient::op`].
     pub fn read(&mut self, op: &str, params: &Value, now_wall_ms: u64) -> Answer {
