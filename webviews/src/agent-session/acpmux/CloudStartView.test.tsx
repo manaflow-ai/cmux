@@ -89,7 +89,48 @@ test("clone status keeps seed phase and object progress in the row", () => {
       progress: { objects: 2, totalObjects: 4, receivedBytes: 2048 },
     },
   });
-  expect(rows[1]?.detail).toBe("Receiving objects · 2/4 objects · 2 KB");
+  expect(rows[1]?.detail).toBe("Receiving objects · 50%");
+});
+
+test("the clone row words each part of a seed and of a copy", () => {
+  const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
+    startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
+  expect(row({ state: "running", phase: "upload", progress: { receivedBytes: 1024, bytesTotal: 12 * 1024 * 1024 } })?.detail).toBe(
+    "Sending your changes (12 MB)",
+  );
+  expect(row({ state: "running", phase: "clone", progress: { objects: 41, totalObjects: 100 } })?.detail).toBe(
+    "Cloning from GitHub · 41%",
+  );
+  expect(row({ state: "running", phase: "checkout" })?.detail).toBe("Checking out files");
+  expect(
+    row({
+      state: "running",
+      phase: "copy",
+      fallback: "not_git",
+      progress: { filesDone: 1204, filesTotal: 8310, receivedBytes: 312 * 1024 * 1024, bytesTotal: 2.1 * 1024 ** 3 },
+    })?.detail,
+  ).toBe("Copying the folder instead · 1,204 of 8,310 files · 312 MB of 2.1 GB");
+  expect(row({ state: "done", phase: "complete" })?.detail).toBeUndefined();
+  expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe("Copying the folder instead");
+});
+
+test("a seed that needs the GitHub App links its install from the clone row", () => {
+  const rows = startupChecklist(
+    {
+      key: "k",
+      task: "hi",
+      state: "starting",
+      hasRepository: true,
+      clone: { state: "running", phase: "copy", fallback: "seed.needs_github", installUrl: "https://github.com/apps/cmux/installations/new" },
+    },
+    undefined,
+    0,
+    "en",
+  );
+  expect(rows[1]?.link).toEqual({
+    href: "https://github.com/apps/cmux/installations/new",
+    label: "Install the cmux GitHub App to clone it next time",
+  });
 });
 
 test("a machine failure stops a clone spinner", () => {

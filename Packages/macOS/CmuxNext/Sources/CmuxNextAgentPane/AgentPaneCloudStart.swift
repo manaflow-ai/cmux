@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
@@ -201,13 +202,30 @@ struct AgentPaneHandOff {
 }
 
 extension AgentPaneCloudStart {
+    /// The clone row's fields for a seed's or copy's progress line (webviews `cloudStartProgress.ts`):
+    /// `progress` (`received_bytes`, `bytes_total`, `objects`, `total_objects`, `files_done`,
+    /// `files_total`), and `fallback` and `install_url` when a seed copied instead.
+    nonisolated static func fields(_ progress: SeedProgress) -> [String: JSONValue] {
+        let numbers: [(String, Int?)] = [("received_bytes", progress.bytesDone), ("bytes_total", progress.bytesTotal),
+                                         ("objects", progress.objects), ("total_objects", progress.objectsTotal),
+                                         ("files_done", progress.filesDone), ("files_total", progress.filesTotal)]
+        var fields: [String: JSONValue] = [:]
+        let counts = numbers.compactMap { key, value in value.map { (key, JSONValue.number(Double($0))) } }
+        if !counts.isEmpty { fields["progress"] = .object(Dictionary(uniqueKeysWithValues: counts)) }
+        if let code = progress.fallbackCode { fields["fallback"] = .string(code) }
+        if let url = progress.installURL { fields["install_url"] = .string(url) }
+        return fields
+    }
+}
+
+extension AgentPaneCloudStart {
     /// How this start goes, for the card under the message (webviews `cloudStartProgress.ts`): the
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                                     cloneState: String? = nil, clonePhase: String? = nil,
                                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
-                                    to view: AgentPaneView) {
+                                    cloneProgress: SeedProgress? = nil, to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
@@ -217,6 +235,7 @@ extension AgentPaneCloudStart {
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
         if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
+        if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
