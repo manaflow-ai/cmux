@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// The target ``PrimaryInputPasteRoute`` gives a paste command: the primary
 /// input takes the keyboard, then runs the command itself, so its own paste
@@ -6,10 +6,10 @@ import AppKit
 /// Validation asks the input, so Edit > Paste is enabled exactly when the
 /// input would take the pasteboard.
 @MainActor
-final class PrimaryInputPasteForwarder: NSObject, NSMenuItemValidation {
+public final class PrimaryInputPasteForwarder: NSObject, NSMenuItemValidation {
     private weak var input: NSView?
 
-    init(input: NSView) {
+    public init(input: NSView) {
         self.input = input
     }
 
@@ -17,7 +17,7 @@ final class PrimaryInputPasteForwarder: NSObject, NSMenuItemValidation {
     @objc func pasteAsPlainText(_ sender: Any?) { forward(#selector(NSTextView.pasteAsPlainText(_:)), sender) }
     @objc func pasteAsRichText(_ sender: Any?) { forward(#selector(NSTextView.pasteAsRichText(_:)), sender) }
 
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let input, let action = item.action, input.responds(to: action) else { return false }
         if let validator = input as? any NSUserInterfaceValidations { return validator.validateUserInterfaceItem(item) }
         return true

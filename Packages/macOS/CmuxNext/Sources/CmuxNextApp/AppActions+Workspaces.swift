@@ -181,13 +181,14 @@ extension AppActions {
             guard let quiet else { return windows.startWorkspace(spawn, on: daemon, into: target) }
             return ActionRunScope.carrying(quiet) { windows.startWorkspace(spawn, on: daemon, into: target) }
         }
+        let awaited = services.registry.isCapturingWork // a caller that awaits the work reports failures; read now, not in a later turn
         // A script's create runs without view change, its tasks included; the show below asks for it again.
         let run = { services.registry.track(Task {
             var pageMade = false
-            var made: String?
+            var made: String?, resolved = false
             defer {
                 input.endIncoming(keys, pageMade: pageMade)
-                creation.resolve(terminalKeys, workspace: made, in: keyWindow)
+                if !resolved { creation.resolve(terminalKeys, workspace: made, in: keyWindow) }
             }
             do {
                 made = try await create(); BenchSpans.mark("cmdN.created")
@@ -209,7 +210,11 @@ extension AppActions {
                 return nil // a close took it before it started (WorkspaceLanes)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new workspace", error)
+                var failure = ActionWorkFailure("new workspace", error)
+                resolved = true // the person's own claimed create: its claim ends now, and they see why their keys went nowhere
+                if creation.resolve(terminalKeys, workspace: nil, in: keyWindow) > 0 { failure.message = KeyboardClaims.undeliveredKeys(after: failure.message) }
+                if terminalKeys != nil, !awaited, !failure.shown { services.registry.reportFailure(of: "newTab", failure) }
+                return failure
             }
         }) }
         if let quiet { ActionRunScope.carrying(quiet, run) } else { run() }

@@ -1,0 +1,66 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "creationInput.keysNotDelivered": {
+      "comment": "Added to the failure notice of the person's new terminal when its create failed: the keys they typed for it were dropped. %@ is the failure reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (the keys typed for it were not delivered)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (die dafür eingegebenen Tasten wurden nicht übermittelt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (les touches saisies pour cela n’ont pas été transmises)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (las teclas escritas para ello no se enviaron)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (لم تُرسَل المفاتيح التي كُتبت له)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（为其输入的按键未送达）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（為其輸入的按鍵未送達）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (이를 위해 입력한 키가 전달되지 않았습니다)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（そのために入力したキーは届けられませんでした）"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

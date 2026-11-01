@@ -8,11 +8,12 @@ import Foundation
 import Testing
 
 /// Terminal input must never reach an agent, whatever the timing (cmux-ad for Lawrence; dogfood v2.2.3, fleet job
-/// 2c9383257301002fab1539d7). A person's new terminal (`newTab`) holds the window's keys until it shows. When it never
-/// shows (its create failed, or the window stays on Home), the held keys are deleted, but before this the keys typed after
-/// the hold ended went to whatever had the keyboard, Home's Chief message box included. The window's keyboard is that
-/// terminal's until the person's next intent there (a click, Escape, a focus move, another of their actions), never the
-/// box's by a timeout.
+/// 2c9383257301002fab1539d7). A person's new terminal (`newTab`) holds the window's keys until it shows. When it is made
+/// but never shows (the window stays on Home), the held keys are deleted, but before this the keys typed after the hold
+/// ended went to whatever had the keyboard, Home's Chief message box included. The window's keyboard is that terminal's
+/// until the person's next intent there (a click, Escape, a focus move, another of their actions), never the box's by a
+/// timeout. When its create fails, the claim ends at once and the person is told that the keys typed for it were not
+/// delivered: nothing silently swallows their typing.
 @MainActor @Suite(.serialized)
 struct PersonTerminalKeyboardClaimTests {
     /// One workspace, two panes side by side, each with one tab.
@@ -27,6 +28,9 @@ struct PersonTerminalKeyboardClaimTests {
         tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "claim-ws"), index: 0)])
         return tree
     }
+
+    /// A workspace a person's create made that the window does not show.
+    private static let unshown = "claim-ws-made-elsewhere"
 
     private static func key(_ characters: String, keyCode: UInt16, in window: NSWindow) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -66,9 +70,9 @@ struct PersonTerminalKeyboardClaimTests {
         try await body(Harness(services: services, controller: controller, window: window, panes: panes))
     }
 
-    /// A person's new terminal whose create failed: the keys typed for it are deleted, and the keys typed after the hold
-    /// ended are still kept from the window (the box) and no primary input takes the keyboard by itself, until the
-    /// person presses Escape.
+    /// A person's new terminal that was made but that the window never shows: the keys typed for it are deleted, and the
+    /// keys typed after the hold ended are still kept from the window (the box) and no primary input takes the keyboard by
+    /// itself, until the person presses Escape.
     @Test func aPersonsNewTerminalThatNeverShowsKeepsTheWindowsKeysUntilEscape() async throws {
         try await Self.withWindow { h in
             let router = h.services.keyRouter
@@ -78,7 +82,7 @@ struct PersonTerminalKeyboardClaimTests {
             let typed = try Self.key("e", keyCode: 14, in: h.window)
             let held = router.interceptKeyDown(typed, in: h.window)
             #expect(held, "the hold did not take a key typed for the terminal")
-            coordinator.resolve(ticket, workspace: nil, in: h.window) // the create failed
+            coordinator.resolve(ticket, workspace: Self.unshown, in: h.window) // made, and the window does not show it
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
 
             // After the hold: no new intent of the person, so the window's keyboard is still the terminal's.
@@ -109,7 +113,7 @@ struct PersonTerminalKeyboardClaimTests {
             let coordinator = h.services.keyRouter.creationInputCoordinator
             coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
-            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            coordinator.resolve(ticket, workspace: Self.unshown, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
             let claimed = h.window.pendingCreationOwnsKeyboard
             #expect(claimed, "the claim ended with the hold")
@@ -126,7 +130,7 @@ struct PersonTerminalKeyboardClaimTests {
             let coordinator = h.services.keyRouter.creationInputCoordinator
             coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
-            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            coordinator.resolve(ticket, workspace: Self.unshown, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
             h.controller.focus.send(.focusPane(h.panes[1], source: .cli))
             _ = h.controller.focus.beginIntent()
@@ -141,7 +145,7 @@ struct PersonTerminalKeyboardClaimTests {
             let coordinator = h.services.keyRouter.creationInputCoordinator
             coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
-            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            coordinator.resolve(ticket, workspace: Self.unshown, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
             _ = h.services.registry.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
             let claimed = h.window.pendingCreationOwnsKeyboard
@@ -170,7 +174,7 @@ struct PersonTerminalKeyboardClaimTests {
             let coordinator = h.services.keyRouter.creationInputCoordinator
             coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
-            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            coordinator.resolve(ticket, workspace: Self.unshown, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
             let earlier = ActionRunScope(origin: .user, allowsViewChange: true)
             _ = ActionRunScope.carrying(earlier) { h.services.registry.perform("toggleSidebar", invocation: ActionInvocation(origin: .user)) }
@@ -203,6 +207,103 @@ struct PersonTerminalKeyboardClaimTests {
             coordinator.resolve(first, workspace: shown, in: h.window)
             let claimed = h.window.pendingCreationOwnsKeyboard
             #expect(claimed, "the first create's reply ended the second press's claim")
+        }
+    }
+
+    /// The person's new terminal's create fails (here: no daemon connection, as during a reconnect): the claim ends at
+    /// once, so the person's next keys reach the window again, and the failure shows where refusals show and says the
+    /// keys typed for it were not delivered (the lead's decision on review finding 1 of #30071: a claim that silently
+    /// swallowed keys after a failed create is the class of the v2.2.x P0s). The held key itself goes nowhere.
+    @Test func aPersonsFailedNewTerminalEndsItsClaimAndSaysItsKeysWereNotDelivered() async throws {
+        try await Self.withWindow { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            var notices: [String] = []
+            h.services.registry.remoteFailureObserver = { _, notice in notices.append(notice) }
+            let request = ActionInvocation(arguments: ["command": .string("/bin/sh"), "name": .string("fails")], origin: .user)
+            #expect(h.services.registry.perform("newTab", invocation: request))
+            let typed = try Self.key("e", keyCode: 14, in: h.window)
+            let held = router.interceptKeyDown(typed, in: h.window)
+            try #require(held, "the person's new terminal held no key: the test does not reach the claimed create")
+
+            try await PasswordManagerRouteTests.until({ !notices.isEmpty }, report: {
+                "a failed create of the person's new terminal showed nothing; claim recorded: \(coordinator.claims.isRecorded(in: h.window))"
+            })
+            let notice = notices.joined(separator: " | ")
+            #expect(notice.contains("not delivered"), "the failure does not say the typed keys were not delivered: \(notice)")
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            let recorded = coordinator.claims.isRecorded(in: h.window)
+            #expect(!recorded, "the failed create's claim outlived its failure")
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(!claimed, "a primary input still may not take the keyboard after the create failed")
+            let nextKey = try Self.key("x", keyCode: 7, in: h.window)
+            let kept = router.interceptKeyDown(nextKey, in: h.window)
+            #expect(!kept, "a key typed after the create failed was still kept from the window")
+        }
+    }
+
+    /// A caller that awaits the run's work (the control socket's `action.run`, the CLI) reports the failure itself:
+    /// the person's failed new terminal shows no notice of its own then, so the failure never shows twice (review of
+    /// 4a07510697a: the check read the capture after the run's turn, when no capture is set any more). The failure the
+    /// caller gets still says the typed keys were not delivered, and the claim still ends.
+    @Test func aCallerThatAwaitsTheFailedNewTerminalGetsTheOnlyReport() async throws {
+        try await Self.withWindow { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            var notices: [String] = []
+            h.services.registry.remoteFailureObserver = { _, notice in notices.append(notice) }
+            let request = ActionInvocation(arguments: ["command": .string("/bin/sh"), "name": .string("fails")], origin: .user)
+            var ran = false
+            let work = h.services.registry.capturingWork { ran = h.services.registry.perform("newTab", invocation: request) }
+            #expect(ran)
+            let typed = try Self.key("e", keyCode: 14, in: h.window)
+            let held = router.interceptKeyDown(typed, in: h.window)
+            try #require(held, "the person's new terminal held no key: the test does not reach the claimed create")
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            let reported = failures.joined(separator: " | ")
+            #expect(reported.contains("not delivered"), "the awaiting caller's failure does not say the keys were not delivered: \(reported)")
+            #expect(notices.isEmpty, "the failure showed its own notice besides the awaiting caller's report: \(notices)")
+            let recorded = coordinator.claims.isRecorded(in: h.window)
+            #expect(!recorded, "the failed create's claim outlived its failure")
+        }
+    }
+
+    /// The person's claimed create fails while its hold cannot end by itself (another creation of the hold still waits
+    /// for its focus), so the hold ends at its limit: the window's focus still applies again, so the keys the person
+    /// types next reach what the window shows (review of 93a487c33f8: the merge read the hold's end, and a forced end
+    /// does not say a creation failed, so no focus applied and the next keys went nowhere). Counted by the focus
+    /// observer, after the panes' own content presentation (each pane sends one when its view shows) is quiet.
+    @Test func aFailedClaimedCreateThatEndsAtTheLimitStillAppliesTheWindowsFocus() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            final class Count { var value = 0 }
+            let presented = Count()
+            let previous = h.controller.focus.observer
+            h.controller.focus.observer = { observation in
+                previous?(observation)
+                if case .reduced(let event, _, _, _) = observation, case .contentPresented = event { presented.value += 1 }
+            }
+            defer { h.controller.focus.observer = previous }
+            var seen = -1, quietSince = ContinuousClock.now
+            try await PasswordManagerRouteTests.until({
+                if presented.value != seen { (seen, quietSince) = (presented.value, .now) }
+                return ContinuousClock.now - quietSince >= .milliseconds(500)
+            }, within: .seconds(10), report: { "the panes never stopped presenting content: \(presented.value)" })
+            let before = presented.value
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new terminal opened no key hold")
+            // Another creation of the same hold, under the newest intent, whose focus never lands: the hold cannot end by itself.
+            let generation = h.controller.focus.state.generation
+            let other = try #require(coordinator.begin(in: h.window, generation: generation), "the other creation opened no hold")
+            h.controller.focus.send(.expect(.tab("never-made"), target: .content, generation: generation))
+            coordinator.resolve(other, landed: true, in: h.window)
+            coordinator.resolve(ticket, workspace: nil, in: h.window) // the claimed create failed
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            let end = coordinator.lastHoldEnd(in: h.window)
+            try #require(end == .limitReached, "the hold did not end at its limit (the test does not reach a forced end): \(String(describing: end))")
+            let applied = presented.value - before
+            #expect(applied > 0, "the failed claimed create's hold ended at its limit and the window's focus did not apply again")
         }
     }
 }

@@ -107,20 +107,24 @@ public final class CreationInputBuffer {
     /// expectation landed or was replaced. A failed creation asked for nothing.
     /// `workspace`: the workspace a new-workspace creation made (nil: it made none). A new-workspace creation that
     /// failed takes the keys typed for its terminal with it: they never go to whatever has the focus instead.
-    public func resolve(_ ticket: Ticket, awaitsFocus: Bool, workspace: String? = nil) {
-        guard ticket.owner == ObjectIdentifier(self) else { return }
+    /// - Returns: How many held keys that failed creation took with it (0 for any other resolve).
+    @discardableResult
+    public func resolve(_ ticket: Ticket, awaitsFocus: Bool, workspace: String? = nil) -> Int {
+        guard ticket.owner == ObjectIdentifier(self) else { return 0 }
         earlyTabs[ticket.id] = nil
         tabs[ticket.id] = nil
-        guard let generation = pending.removeValue(forKey: ticket.id) else { return }
+        guard let generation = pending.removeValue(forKey: ticket.id) else { return 0 }
         if pending.isEmpty { repliedAt = ContinuousClock.now }
         if awaitsFocus { awaited.insert(generation) }
-        guard workspaceTickets.contains(ticket.id) else { return }
+        guard workspaceTickets.contains(ticket.id) else { return 0 }
         if awaitsFocus, let workspace {
             madeWorkspaces[ticket.id] = workspace
-        } else {
-            workspaceTickets.remove(ticket.id)
-            events.removeAll { $0.creation == ticket.id }
+            return 0
         }
+        workspaceTickets.remove(ticket.id)
+        let held = events.count
+        events.removeAll { $0.creation == ticket.id }
+        return held - events.count
     }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
