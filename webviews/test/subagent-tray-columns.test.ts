@@ -551,7 +551,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         );
 
         // Running lines keep their visible state word in the fixed status track, alongside ended rows.
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(0);
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+          0,
+        );
       } finally {
         await page.close();
       }
