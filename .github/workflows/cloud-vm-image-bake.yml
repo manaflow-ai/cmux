@@ -120,7 +120,6 @@ jobs:
     environment: ${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}
     permissions:
       contents: read
-      actions: write
     # A dev tree bake runs a cold cmux-tui build on the builder (2 vCPUs), then the after runs.
     timeout-minutes: ${{ inputs.dev_tree && 150 || 60 }}
     defaults:
