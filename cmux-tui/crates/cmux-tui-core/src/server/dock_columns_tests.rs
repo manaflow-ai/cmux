@@ -758,6 +758,94 @@ fn dock_column_rejects_an_unknown_role() {
     assert_eq!(wire.dock(), vec![None, None]);
 }
 
+/// The panes of each viewport column, top to bottom.
+fn column_panes(wire: &Wire) -> Vec<Vec<PaneId>> {
+    wire.mux.with_state(|state| {
+        state.workspaces[0].screens[0]
+            .layout_columns
+            .iter()
+            .map(|column| column.root.pane_ids_vec())
+            .collect()
+    })
+}
+
+/// #29848: Split Down (Cmd-Shift-D) from the docked agent chat, or from a
+/// pane below it, adds a pane below in the dock, as classic cmux does; the
+/// chat stays the dock's top pane and the dock keeps its role. Every other
+/// new pane in the dock (right, left, up: a split above the chat) is still
+/// refused with `dock-column-agent-chat`, so nothing lands above or beside
+/// the chat. Once the chat's pane closes, the panes below are a plain dock.
+#[test]
+fn agent_chat_dock_splits_down_and_refuses_other_splits() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    let chat = json!({"edge": "left", "mode": "docked", "role": "agent_chat"});
+    wire.ok(json!({
+        "cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "left", "role": "agent_chat",
+    }));
+
+    let below = wire.ok(json!({"cmd": "split", "pane": panes[0], "dir": "down"}));
+    let below: SurfaceId = serde_json::from_value(below["surface"].clone()).unwrap();
+    let below = wire.mux.with_state(|state| state.pane_of(below).unwrap());
+    assert_eq!(column_panes(&wire), vec![vec![panes[0], below], vec![panes[1]]]);
+    assert_eq!(wire.dock(), vec![Some(chat.clone()), None], "the dock keeps its role");
+
+    let lowest = wire.ok(json!({"cmd": "split", "pane": below, "dir": "down"}));
+    let lowest: SurfaceId = serde_json::from_value(lowest["surface"].clone()).unwrap();
+    let lowest = wire.mux.with_state(|state| state.pane_of(lowest).unwrap());
+    assert_eq!(column_panes(&wire)[0], vec![panes[0], below, lowest]);
+
+    let before = column_panes(&wire);
+    for pane in [panes[0], below] {
+        let refused = wire.send(json!({"cmd": "split", "pane": pane, "dir": "right"}));
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(refused.to_string().contains("dock-column-agent-chat"), "{refused}");
+        assert_eq!(column_panes(&wire), before, "a refused split changes nothing");
+    }
+    // `pane.split` toward left or up (the new pane before its target) puts nothing above or beside the chat.
+    for direction in ["left", "up"] {
+        let fields = serde_json::Map::from_iter([(
+            crate::mux::PANE_BROWSER_URL_FIELD.to_string(),
+            json!("https://example.com/"),
+        )]);
+        let refused = wire.mux.split_browser_pane_with_fields_as(
+            &crate::Actor::Daemon,
+            panes[0],
+            direction,
+            None,
+            fields,
+            Some((38, 11)),
+        );
+        let Err(error) = refused else {
+            panic!("{direction}: a split above or left of the chat was taken")
+        };
+        let error = format!("{error:#}");
+        assert!(error.contains("dock-column-agent-chat"), "{direction}: {error}");
+        assert_eq!(column_panes(&wire), before, "{direction}: a refused split changes nothing");
+    }
+    assert_eq!(wire.dock(), vec![Some(chat.clone()), None]);
+
+    // The chat stays on top: a swap with the pane below, or its tab moved into that pane, is refused.
+    let swapped = wire.send(json!({"cmd": "swap-pane", "pane": panes[0], "target": below}));
+    assert_eq!(swapped["ok"], false, "{swapped}");
+    let chat_tab = wire.mux.with_state(|state| state.panes[&panes[0]].tabs[0]);
+    let moved =
+        wire.send(json!({"cmd": "move-tab", "surface": chat_tab, "pane": below, "index": 0}));
+    assert_ne!(moved["data"]["moved"], true, "the chat's tab stays in its own pane: {moved}");
+    assert_eq!(column_panes(&wire), before, "a refused swap or move changes nothing");
+    assert_eq!(wire.dock(), vec![Some(chat), None]);
+
+    // Closing the chat's own pane leaves the panes below as a plain dock: no terminal is taken for the chat.
+    wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
+    assert_eq!(column_panes(&wire), vec![vec![below, lowest], vec![panes[1]]]);
+    assert_eq!(
+        wire.dock(),
+        vec![dock("left", "docked"), None],
+        "the dock drops its agent chat role"
+    );
+    let split = wire.send(json!({"cmd": "split", "pane": below, "dir": "right"}));
+    assert_eq!(split["ok"], true, "a plain dock splits as any column: {split}");
+}
+
 // `permanent-dock-v1` (Home's conversation list, 2026-10-06): a docked
 // column marked permanent stays docked on its edge for every client, CLI
 // included. Its mode may change; undocking, moving it to another edge,

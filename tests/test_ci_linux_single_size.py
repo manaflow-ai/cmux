@@ -56,7 +56,7 @@ SINGLE_SIZE: dict[str, int] = {
     "ci-hosted-queue-rescue.yml": 1,
     "ci-queue-janitor.yml": 1,
     "ci-repo-variables.yml": 1,
-    "ci-web.yml": 5,
+    "ci-web.yml": 0,
     "ci.yml": 0,
     "cloud-capture-provision.yml": 1,
     "cloud-devbox-image-rebake.yml": 1,

@@ -71,6 +71,21 @@ fn summary_title(title: &str) -> String {
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
+/// The direct parent has the same precedence as lineage_of(), without walking
+/// ancestors to calculate a root that chat decoration never uses.
+fn activity_parent(m: &SessionMeta) -> Option<&str> {
+    m.lineage
+        .as_ref()
+        .map(|l| l.parent.as_str())
+        .or_else(|| m.subsession.as_ref().map(|s| s.started_by.as_str()))
+        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
+}
+
+fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
+    let tag = m.tags.get(key)?;
+    tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
+}
+
 /// Whether a session is agent-started and therefore must be explicitly opened before a client
 /// projects it into an automatic sidebar row. The durable `parent` and validated `spawnedBy`
 /// fields cover current and older daemons; the raw tags preserve the classification when a
@@ -361,18 +376,30 @@ impl Hub {
     /// while that session is here, listed (not archived) and a root itself: one level, so a loop
     /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match self.lineage_of(m) {
-            Some(lineage) => lineage.parent,
-            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
-        };
+        self.listed_parent(&m.id, activity_parent(m)?.to_owned())
+    }
+
+    /// Chat decoration needs only the direct parent, never the full metadata or
+    /// the lineage root walk. Release the child's lock before looking up its parent.
+    pub(crate) fn spawned_by_session(&self, session: &Session) -> Option<String> {
+        let parent = session.read_meta(|m| activity_parent(m).map(str::to_owned))?;
+        self.listed_parent(&session.id, parent)
+    }
+
+    fn listed_parent(&self, id: &str, parent: String) -> Option<String> {
+        if parent == id {
+            return None;
+        }
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let pm = session.meta();
-        let tags = live_tags(&pm);
-        let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && self.lineage_of(&pm).is_none()
-            && tags.get("archived").is_none();
-        (parent != m.id && listed).then_some(parent)
+        let listed = session.read_meta(|m| {
+            let at = crate::store::now_ms();
+            m.lineage.is_none()
+                && m.subsession.is_none()
+                && live_activity_tag(m, SPAWNED_BY_TAG, at).is_none()
+                && live_activity_tag(m, "archived", at).is_none()
+        });
+        listed.then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
@@ -581,7 +608,7 @@ impl Hub {
         // their first names, and its running background commands (`running_work`).
         let work = running_work(
             session,
-            summary["turn"].is_object(),
+            summary.get("turn").is_some_and(Value::is_object),
             self.running_processes_read(session),
         );
         summary.set("subagentsRunning", json!(work.subagents));
@@ -681,7 +708,7 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),

@@ -1433,6 +1433,7 @@ const ThinkingRow = memo(
         sendTo={row.doingSendTo}
         sendSession={row.doingSendSession}
         draft={row.doingDraft}
+        done={row.doingDone}
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
@@ -1458,6 +1459,7 @@ const ThinkingRow = memo(
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
+    a.row.doingDone === b.row.doingDone &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
     a.row.below === b.row.below &&
@@ -6680,7 +6682,7 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
-          // Turn folding follows acpmux's session family; Claude keeps every assistant message visible.
+          // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
           waitingSteers: snapshot.waitingSteers,

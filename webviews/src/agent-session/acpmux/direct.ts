@@ -5048,6 +5048,7 @@ export class AcpmuxDirectClient {
     if (update) {
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
+      this.subagents.session = this.selectedSessionId;
       this.subagents.harness = this.summary?.harness;
       if (this.subagents.reduce(event, update)) {
         // A later command update can associate a shell call with its recorded child session.

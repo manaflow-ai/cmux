@@ -512,6 +512,62 @@ fn applying_a_worktree_runs_no_clean_filter_from_the_main_checkouts_config() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// Git trusts a file's stat data only when the file changed before the index
+/// was written; a change made in the index's own second ("racy git") is
+/// hashed again. So an edit of the same size, made in the second the
+/// worktree's index was written, must still be applied when the apply comes
+/// a second later (the base red at 09c48ed811e: under the full suite's load
+/// the apply came later and found "no changes since main").
+#[test]
+fn an_edit_in_the_second_the_worktree_was_made_is_applied_a_second_later() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-racy-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply-racy",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+
+    // The worktree and the edit in one wall-clock second (tried again in the
+    // next second when the host was too slow for that).
+    let second = || SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let made = (0..10).find_map(|attempt| {
+        let into_second = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_millis();
+        std::thread::sleep(Duration::from_millis(u64::from(1_050 - into_second)));
+        let started = second();
+        let name = format!("chat{attempt}");
+        let key = format!("c{attempt}");
+        let args =
+            ["worktree", "create", "--name", name.as_str(), "--idempotency-key", key.as_str()];
+        assert_success(&git_cli(&server, &repo, &args));
+        let worktree = home.join(".cmux/worktrees/project").join(&name);
+        fs::write(worktree.join("a.txt"), "two\n").unwrap();
+        (second() == started).then_some(worktree)
+    });
+    let worktree = made.expect("no try made the worktree and its edit in one second");
+    std::thread::sleep(Duration::from_millis(1_200));
+
+    let applied = git_cli(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n");
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     let root = std::env::temp_dir().join(format!(

@@ -1,19 +1,19 @@
-import CmuxNextCloud
-import CmuxNextMobile
+public import CmuxNextCloud
+public import CmuxNextMobile
 import Foundation
 
 /// The signed-in Stack account as phone access sees it: one account and
 /// team captured at start. `isCurrent` turns false after sign-out or a
 /// user or team switch, which stops the host; `AppServices` then starts a
 /// new one for the new account.
-struct CloudMobileAuth: MobileHostAuth {
-    let projectID: String
-    let userID: String
-    let teamID: String
+public struct CloudMobileAuth: MobileHostAuth {
+    public let projectID: String
+    public let userID: String
+    public let teamID: String
     private let auth: CloudAuth
 
     /// Nil unless signed in with a user and a team.
-    @MainActor init?(auth: CloudAuth) {
+    @MainActor public init?(auth: CloudAuth) {
         guard auth.isSignedIn, let user = auth.user, let team = auth.teamID else { return nil }
         projectID = auth.configuration.stackProjectID
         userID = user.id
@@ -21,12 +21,12 @@ struct CloudMobileAuth: MobileHostAuth {
         self.auth = auth
     }
 
-    func accessToken(forceRefresh: Bool) async throws -> String {
+    public func accessToken(forceRefresh: Bool) async throws -> String {
         if forceRefresh { return try await auth.coordinator.forceRefreshAccessToken() }
         return try await auth.tokens().access
     }
 
-    func isCurrent() async -> Bool {
+    public func isCurrent() async -> Bool {
         await MainActor.run { auth.isSignedIn && auth.user?.id == userID && auth.teamID == teamID }
     }
 }
