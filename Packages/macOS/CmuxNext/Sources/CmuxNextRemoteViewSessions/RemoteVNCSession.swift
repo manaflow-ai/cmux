@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextRemoteView
 public import CmuxVNC
@@ -14,7 +15,10 @@ public final class RemoteVNCSession {
     public let source = RemoteVNCSource()
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
-    private let store = RemoteVNCCredentialStore()
+    /// The app's one guard of the Keychain UI switch (``RemoteViewPageSession/useLoginKeychain(_:)``),
+    /// set before the first connect; without it no saved sign-in is read or saved.
+    var loginKeychain: LoginKeychain?
+    private var store: RemoteVNCCredentialStore? { loginKeychain.map(RemoteVNCCredentialStore.init(loginKeychain:)) }
     /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
     private let makeTransport: (@Sendable () -> any RFBTransport)?
     private var demo: VNCDemoServer?
@@ -111,7 +115,7 @@ public final class RemoteVNCSession {
             return
         }
         guard let demo else {
-            source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
+            source.connect(to: endpoint, credentials: store?.credentials(for: endpoint) ?? VNCCredentials())
             return
         }
         if let demoPort {
@@ -173,7 +177,7 @@ public final class RemoteVNCSession {
     private func promptForSignIn(in window: NSWindow?) {
         guard !prompting else { return }
         prompting = true
-        let saved = store.credentials(for: endpoint)
+        let saved = store?.credentials(for: endpoint)
         let spec = CmuxDialogSpec(
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
@@ -198,7 +202,7 @@ public final class RemoteVNCSession {
             }
             // Saved only once the host accepts them, so a typo never replaces a working sign-in.
             let store = store, endpoint = endpoint
-            source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
+            source.connect(to: endpoint, credentials: credentials) { store?.save(credentials, for: endpoint) }
         }
     }
 
