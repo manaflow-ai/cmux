@@ -56,6 +56,8 @@ public final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
+    /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
+    public private(set) var replayedCount = 0
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     public var holdLimit: Duration = .seconds(2)
 
@@ -74,6 +76,17 @@ public final class CreationInputCoordinator {
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     public func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
+
+    /// How many keys `window`'s hold keeps now (tests).
+    public func heldCount(in window: NSWindow?) -> Int { window.flatMap { buffers[$0.windowNumber] }?.count ?? 0 }
+
+    /// Why `window`'s held keys would or would not go to a pending creation's early view now (tests' failure reports).
+    public func earlyDeliveryState(in window: NSWindow) -> String {
+        guard let buffer = buffers[window.windowNumber] else { return "no hold" }
+        guard let focus = host?.creationFocus(in: window), focus.shell != nil else { return "no window" }
+        return "resolved \(buffer.isResolved), held \(buffer.count), newestEarlyTab \(buffer.newestEarlyTab ?? "-"), "
+            + "focus terminal \(focus.terminalTab ?? "-"), takes keys \(focus.takesKeys)"
+    }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
@@ -167,6 +180,7 @@ public final class CreationInputCoordinator {
             let held = buffer.take(), opened = buffer.openedCount
             for (index, key) in held.enumerated() {
                 replaying = true
+                replayedCount += 1
                 host.replayHeldKey(key, in: shell)
                 replaying = false
                 // A key run again started another creation: the rest, and this key, wait for it, in order.
@@ -224,6 +238,7 @@ public final class CreationInputCoordinator {
         }
         for (index, event) in pending.enumerated() {
             replaying = true
+            replayedCount += 1
             host.replayHeldKey(event, in: window)
             replaying = false
             // A replayed key started another creation: the rest wait for that one, in order.
