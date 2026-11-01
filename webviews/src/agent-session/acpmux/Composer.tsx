@@ -2297,6 +2297,7 @@ export function Composer({
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
+        onPasteFiles={(files) => void attach(files, true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

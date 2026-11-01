@@ -39,16 +39,26 @@ nonisolated enum AgentPaneImageCopies {
     /// no control or format characters; "Image" when nothing readable is left), a short hash of its
     /// bytes, and its type's extension.
     static func fileName(_ name: String, data: Data, type: String) -> String {
+        "\(baseName(name)) \(shortHash(data)).\(extensions[type] ?? "img")"
+    }
+
+    /// `name` as one plain file name without its extension (no folders, no leading dot, no control
+    /// or format characters, at most ``maximumNameBytes``); `fallback` when nothing readable is left.
+    static func baseName(_ name: String, fallback: String = "Image") -> String {
         var base = name.replacingOccurrences(of: "\\.[A-Za-z0-9]{1,5}$", with: "", options: .regularExpression)
         var scalars = String.UnicodeScalarView()
         for scalar in base.unicodeScalars where scalar.properties.generalCategory != .format {
             scalars.append(CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar) ? "-" : scalar)
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
-        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
+        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = fallback }
         while base.utf8.count > maximumNameBytes { base.removeLast() }
-        let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(base) \(hash).\(extensions[type] ?? "img")"
+        return base
+    }
+
+    /// The first 8 hex digits of `data`'s SHA-256.
+    static func shortHash(_ data: Data) -> String {
+        SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Writes `src`'s copy into `folder` (once per image) and returns its file. An SVG is written

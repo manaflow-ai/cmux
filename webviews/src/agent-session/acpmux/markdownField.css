@@ -307,6 +307,24 @@
   border-radius: var(--acpmux-attach-radius, 8px);
   user-select: none;
 }
+/* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
+   around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
+   strip's chips wear it too while the whole draft is selected (ComposerBox, composerAttachments.css). */
+.acpmux-md-inline-selected {
+  position: relative;
+}
+.acpmux-md-inline-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
 .acpmux-md-inline-chip {
   position: relative;
   display: inline-flex;
