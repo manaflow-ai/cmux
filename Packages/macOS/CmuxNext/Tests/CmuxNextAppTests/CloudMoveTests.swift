@@ -112,6 +112,8 @@ struct CloudMoveTests {
     /// Mac's tab and the move retryable on the same machine; it never clears that Retry (cx-rppd.8).
     @Test func aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() async throws {
         try await Self.withMove("syncTimeout") { move in
+            // The sync is the move's first CLI run and never answers: a short deadline ends it sooner.
+            move.services.cloud.move.timeout = .seconds(1)
             let error = await move.run()
             #expect(error != nil, "the move did not report that it stopped")
             #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil, "this Mac's tab closed though nothing moved")
@@ -208,8 +210,8 @@ struct CloudMoveTests {
             let card = try #require(await move.toolCards()?.first, "the relaunched app says nothing about the unfinished move")
             _ = await move.answer(try #require(Self.text(card, "id")), "dismiss", gesture: true)
             try await move.relaunch()
-            // The offer runs once this Mac's tree is loaded (relaunch waited for the tab): give it a moment.
-            try? await Task.sleep(for: .seconds(2))
+            // The relaunched app's offer runs once this Mac's tree is loaded (relaunch waited for the tab).
+            await move.services.cloud.moveAsks.unfinishedOffer?.value
             #expect(move.services.cloud.toolCards.cards(tab: move.key).isEmpty, "the dismissed move asks again")
             #expect(move.services.cloud.moveRetries[move.key] == .move(machineID: "vm-move"), "dismissing dropped the move's machine pin")
         }
@@ -257,15 +259,17 @@ struct CloudMoveTests {
                                                               "machine": .string("vm-move")],
                                                   origin: origin)
                 // An origin the registry refuses outright updates nothing either.
-                guard move.services.registry.perform(CloudMove.action, invocation: invocation) else { continue }
+                var accepted = false
+                let work = move.services.registry.capturingWork {
+                    accepted = move.services.registry.perform(CloudMove.action, invocation: invocation)
+                }
+                guard accepted else { continue }
                 performed.append(origin)
-                // An origin the action holds may run nothing at all; the CLI's runs the move.
-                let deadline = ContinuousClock.now + .seconds(origin == .cli ? 30 : 10)
-                while move.calls().count < before + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+                // Whatever the run started has ended, its stop's bookkeeping included: an origin the
+                // action holds reports no work; the CLI's ran the move.
+                for task in work { _ = await task.value }
                 let ran = move.calls().dropFirst(before).map { Array($0.prefix(3)) }
                 if origin == .cli { #expect(ran == [["link", "seed", "push"], ["link", "agent", "move"]], "\(ran)") }
-                // The stop's own bookkeeping, after its last call.
-                try? await Task.sleep(for: .milliseconds(300))
             }
             #expect(performed.contains(.cli), "the CLI's invocation never ran: \(performed)")
             #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "an update ran: \(move.calls())")
