@@ -168,7 +168,8 @@ final class CloudService {
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID })
-        let install = { [paths] (api: URL, folder: String) in
+        let configuration = self.configuration, paths = self.paths
+        let install = { (api: URL, folder: String) in
             MacInstallIdentity(
                 store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
                                service: "\(configuration.bundleID ?? "cmux").install-key.\(api.host ?? "unknown")",
