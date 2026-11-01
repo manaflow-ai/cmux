@@ -1472,6 +1472,23 @@ def judge_app_create(before, after, relaunched):
 def app_create_probe():
     """The person's create (action.run newWorkspace) on the full disk, judged by judge_app_create. Runs once per
     diskfull run, before the iterations. Returns a record for iterations.jsonl-style evidence."""
+    # First make sure the daemon refuses a create now: fill again (margin 0 on the second try) until a CLI create
+    # answers an error. A create that still works is closed again; if none is refused, the probe does not run.
+    vol = DISK["volume"]
+    refused = None
+    for margin in (opts.disk_margin_mb, 0, 0):
+        vol.fill(margin)
+        answer, _ = cli("workspace", "create", "--name", "fz-probe-check")
+        if isinstance(answer, dict) and "error" in answer:
+            refused = answer
+            break
+        made = value(answer).get("workspace_id") if isinstance(value(answer), dict) else None
+        if made:
+            cli("workspace", made, "close")
+    if refused is None:
+        rec = {"probe": "app_create", "verdict": "not run", "problems": ["the daemon never refused a create on the full disk"]}
+        say("  app create probe: not run (the daemon still accepted creates)")
+        return rec
     before = app_view()
     # The person's New Workspace: action id "newTab", titled "New Workspace" (CmuxNextActions WorkspaceActionCatalog).
     answer = rpc("action.run", {"action": "newTab"}, timeout=20)
@@ -1488,6 +1505,11 @@ def app_create_probe():
     problems = judge_app_create(before, after, relaunched)
     if not relaunched_ok:
         problems.append("the app did not answer after the relaunch")
+    if not problems and after["daemon"] - before["daemon"]:
+        rec = {"probe": "app_create", "verdict": "not run", "action_answer": json.dumps(answer)[:400],
+               "problems": ["the app's create was not refused (the CLI create just before was): no refusal to judge"]}
+        say("  app create probe: not run (the app's create was accepted)")
+        return rec
     rec = {"probe": "app_create", "action_answer": json.dumps(answer)[:400], "problems": problems,
            "verdict": "fail" if problems else "pass",
            "before": {k: sorted(v) if isinstance(v, set) else v for k, v in before.items()},
