@@ -28,9 +28,10 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
   folded.current = Math.min(fold, count);
   useLayoutEffect(() => {
     // The header's row holds the tools inside its trailing group (App's presence stack and inline
-    // status beside them): that group is what must fit. Outside a chat header, the tools' parent.
+    // status beside them): that group is what must fit. Outside a chat header (a gallery frame
+    // that sizes to its content) nothing folds: there is no pane edge to cut the tools off.
     let element = tools.current;
-    const header = element?.closest<HTMLElement>(".acpmux-header") ?? element?.parentElement;
+    const header = element?.closest<HTMLElement>(".acpmux-header");
     while (element && header && element.parentElement !== header) element = element.parentElement;
     if (!element || !header || count <= 0 || typeof ResizeObserver === "undefined") {
       setFold(0);
