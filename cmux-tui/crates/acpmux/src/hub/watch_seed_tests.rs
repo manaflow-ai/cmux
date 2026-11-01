@@ -128,7 +128,6 @@ async fn native_history_seed_survives_append_flush_and_checkpoint_failures() {
     hub.shutdown_all().await;
 }
 
-
 /// When the original app rotates its transcript during daemon startup, the
 /// first history-seed attempt must wait for the source. Once it reappears,
 /// the newest page has its native_history boundary and older turns are reachable.
@@ -144,10 +143,13 @@ async fn missing_claude_transcript_retries_native_history_seed_when_it_reappears
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let session = hub.new_session(crate::hub::NewRequest {
-        cwd: Some(std::env::temp_dir()),
-        ..Default::default()
-    }).await.unwrap();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     let dir = std::env::temp_dir().join(format!("acpmux-seed-late-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("claude.jsonl");
@@ -186,8 +188,13 @@ async fn missing_claude_transcript_retries_native_history_seed_when_it_reappears
     let after = persisted_offset(&hub, &session);
     assert!(after > 0, "the newest page did not get its boundary");
     assert_eq!(markers(&hub, &session), 1);
-    let marker = hub.store.events(&session.id, 0, usize::MAX).unwrap().into_iter()
-        .find(|record| record.kind == "native_history").unwrap();
+    let marker = hub
+        .store
+        .events(&session.id, 0, usize::MAX)
+        .unwrap()
+        .into_iter()
+        .find(|record| record.kind == "native_history")
+        .unwrap();
     assert_eq!(marker.msg["before"], json!(after));
 
     hub.shutdown_all().await;
