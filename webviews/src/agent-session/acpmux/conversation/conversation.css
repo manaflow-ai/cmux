@@ -4895,7 +4895,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
    rises by about half of that. A footer over more of the same agent, or one ending the chat, stays
    centred in the block gap (transcriptGrid.ts restBand). */
 .acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer):not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
-  top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2 - 1.5px);
+  top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
 /* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
