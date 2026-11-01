@@ -8,7 +8,7 @@
 // case of the state (widths, engines) in a run.
 //
 // shift-baseline.json holds a row for every measured state. Gallery health fails a state whose
-// row is 0 the moment it shifts, and a state past its non-zero row by its margin, so the PR that
+// row is 0 once it shifts past frame-timing noise, and a state past its non-zero row by its margin, so the PR that
 // adds a shift is the one that is caught. A state with no row yet (a new entry) only warns. Rows
 // only go down: a run that finds a state under its row prints the lower value, and
 //
@@ -33,11 +33,16 @@ export type ShiftResult = {
 
 export const SHIFT_BASELINE_PATH = join(import.meta.dir, "shift-baseline.json");
 
-/** A zero row fails past this: under it is rounding no one sees (a 2 px nudge of one row scores about 2e-4). */
+/** A run that scores this or less writes a 0 row: rounding no one sees. */
 export const ZERO_SLACK = 0.0001;
+/** Every row's limit adds this to its margin, a 0 row's too, so a 0 row is not ten times stricter
+ * than a tiny one: frame timing alone scores about 1e-4 to 2e-4 on some states. Under it, a nudge
+ * of a few px of one row; over it, the moves review missed (a 4 px push of the rows above a tool
+ * expand scores about 0.018, the composer dropping 16 px on load about 0.004). */
+export const LIMIT_SLACK = 0.0005;
 
-/** A non-zero row fails past a quarter again plus 0.001: frame timing varies run to run. */
-export const limit = (row: number): number => (row === 0 ? ZERO_SLACK : row * 1.25 + 0.001);
+/** A row fails past a quarter again plus `LIMIT_SLACK`. */
+export const limit = (row: number): number => row * 1.25 + LIMIT_SLACK;
 
 const round = (value: number) => Math.round(value * 1e5) / 1e5;
 const larger = (phase: { layoutShift?: number; boxShift?: number } | null | undefined) =>

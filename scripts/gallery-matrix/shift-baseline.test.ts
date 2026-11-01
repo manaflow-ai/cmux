@@ -25,7 +25,8 @@ test("a zero row fails on any shift past rounding, a non-zero row past its margi
   const found = judgeShift(scores, { states: { "zero#a": 0, "moving#b": 0.045, "still#d": 0 } });
   expect(found.shifted.map(({ state }) => state)).toEqual(["zero#a"]);
   expect(found.unbaselined.map(({ state }) => state)).toEqual(["new#c"]);
-  expect(limit(0)).toBeLessThan(0.0003);
+  expect(limit(0)).toBeLessThan(0.001);
+  expect(limit(0.00001) - limit(0)).toBeLessThan(0.0001);
   expect(shiftSummary(found)).toContain("zero#a: shift 0.0030, baseline 0");
 });
 

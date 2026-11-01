@@ -120,8 +120,8 @@ as for broken states):
 
 - **Layout shift** (`shift-baseline.ts`, `shift-baseline.json`): the state's load plus each play
   step, scored from the browser's layout-shift entries and from the tracked rows' boxes frame by
-  frame (`webviews/src/gallery/shift.ts`), whichever is larger. A row of 0 fails on any shift past
-  rounding; a non-zero row fails past a quarter again.
+  frame (`webviews/src/gallery/shift.ts`), whichever is larger. A row fails past a quarter again
+  plus 0.0005 (`LIMIT_SLACK`), so a row of 0 fails on any shift past frame-timing noise.
 - **Geometry invariants** (`invariant-baseline.ts`, `invariant-baseline.json`): the design specs'
   rules read from the DOM after the state settles (`webviews/src/gallery/invariants.ts`): one
   transcript icon column, icons on their line, gaps on the token scale, menu label columns,
