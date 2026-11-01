@@ -455,6 +455,14 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
@@ -1585,6 +1593,12 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(serde_json::json!({"continued": false}));
+            }
+            Input::Retry { message: _, reply } => {
+                let _ = reply.send(serde_json::json!({"retried": false}));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
