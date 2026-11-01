@@ -2,7 +2,12 @@
 // new chat with Cloud picked starts on a Cloud machine (`cloud.startChat`). send_prompt goes to
 // `chat.send` and never takes a Cloud start.
 import { expect, test } from "bun:test";
-import { composeSend, runMode, type AutomationCompose, type AutomationHost } from "../src/agent-session/acpmux/automation";
+import {
+  composeSend,
+  runMode,
+  type AutomationCompose,
+  type AutomationHost,
+} from "../src/agent-session/acpmux/automation";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { RunMode } from "../src/agent-session/acpmux/sandboxRun";
 
