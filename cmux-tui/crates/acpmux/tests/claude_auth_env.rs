@@ -170,13 +170,16 @@ async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
 /// `ask`, in a session named `name` (one daemon, several sessions).
 async fn ask_as(d: &Daemon, harness: &str, name: &str) -> (Result<Value, String>, Value) {
     let mut rpc = Rpc::connect(&d.socket).await;
-    let s = rpc
-        .call(
+    let created = rpc
+        .answer(
             "session/new",
             json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": name}}}),
         )
         .await;
-    let id = s["sessionId"].as_str().unwrap().to_owned();
+    if let Some(error) = created.get("error") {
+        return (Err(error["message"].as_str().unwrap_or_default().to_owned()), Value::Null);
+    }
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
     let answer = rpc
         .answer(
             "session/prompt",
@@ -780,6 +783,116 @@ async fn a_secret_delivered_after_start_reaches_the_next_agent() {
     std::fs::remove_file(conf.join("machine-secrets.env")).unwrap();
     let (reply, _) = ask_as(&d, "claude", "revoked").await;
     assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
+}
+
+/// Cloud environment declarations reach the actual child without any shell
+/// startup hook, refresh on replacement/deletion, and never enter the cache.
+#[tokio::test]
+async fn literal_machine_env_reaches_local_children_without_a_profile_hook() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-env", "export ANTHROPIC_API_KEY=sk-login\n");
+    let first = "synthetic-machine-first'\\$HOME\n$(touch should-not-exist)";
+    let other = "synthetic-machine-other";
+    let d = start(
+        &dir,
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": first})),
+            "profile": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "profile", "DEMO_KEY": "profile"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
+        &[],
+    ).await;
+    let (before, _) = ask_as(&d, "claude", "before-machine-env").await;
+    assert_eq!(found(&before)["loginOnly"], json!([]));
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    let replace = |value: &str| {
+        let next = conf.join("next-machine.env");
+        std::fs::write(&next, format!("export DEMO_KEY='{}'\n", value.replace('\'', "'\\''")))
+            .unwrap();
+        std::fs::set_permissions(&next, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::rename(next, &file).unwrap();
+    };
+    replace(first);
+    let (delivered, _) = ask_as(&d, "claude", "machine-delivered").await;
+    assert_eq!(found(&delivered)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&delivered)["machineMatches"], true);
+    assert!(!dir.join("should-not-exist").exists());
+    let (profile, _) = ask_as(&d, "profile", "machine-profile-precedence").await;
+    assert_eq!(found(&profile)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-not-a-reference").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+    replace(other);
+    let (rotated, _) = ask_as(&d, "claude", "machine-rotated").await;
+    assert_eq!(found(&rotated)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&rotated)["machineMatches"], false);
+    std::fs::remove_file(&file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    for name in ["login-env.json", "daemon.out", "daemon.stderr"] {
+        let content = std::fs::read_to_string(dir.join(name)).unwrap();
+        assert!(!content.contains("synthetic-machine-first"), "machine value leaked to {name}");
+        assert!(!content.contains(other), "rotated machine value leaked to {name}");
+    }
+}
+
+/// Removing a declaration also suppresses a stale copy inherited by the
+/// long-running daemon, rather than revealing the daemon's old value again.
+#[tokio::test]
+async fn revoked_machine_env_does_not_fall_back_to_inherited_values() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-inherited", "export ANTHROPIC_API_KEY=sk-login\n");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export DEMO_KEY='synthetic-current-value'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "synthetic-current-value"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
+        &[("DEMO_KEY", "synthetic-inherited-old-value")],
+    )
+    .await;
+    let (current, _) = ask_as(&d, "claude", "machine-current-inherited").await;
+    assert_eq!(found(&current)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+    std::fs::remove_file(file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked-inherited").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-revoked-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+}
+
+#[tokio::test]
+async fn current_machine_credentials_survive_nested_claude_cleanup() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-nested", "");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export ANTHROPIC_AUTH_TOKEN='synthetic-current-token'\nexport ANTHROPIC_BASE_URL='https://current.invalid'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({"claude": claude(json!({}))}),
+        &[
+            ("CLAUDECODE", "1"),
+            ("ANTHROPIC_AUTH_TOKEN", "synthetic-parent-token"),
+            ("ANTHROPIC_BASE_URL", "https://parent.invalid"),
+        ],
+    )
+    .await;
+    let (current, _) = ask_as(&d, "claude", "machine-nested-current").await;
+    assert_eq!(found(&current)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
+    assert_eq!(found(&current)["base"], "https://current.invalid");
+    std::fs::remove_file(file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-nested-revoked").await;
+    assert!(revoked.is_err(), "a revoked credential survived nested cleanup");
 }
 
 /// A version-manager prefix passes, but never a secret under it: the agent

@@ -251,7 +251,7 @@ import Testing
 
     /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
     /// whose Get picks it and whose Remove goes back to Compact, and the sidebar's own menu
-    /// offers the densities that are not in effect (the row's ⋮ menu is trimmed, Leo 2026-10-23).
+    /// keeps every density visible (the row's ⋮ menu is trimmed, Leo 2026-10-23).
     @Test func theSidebarDensityCardsPickADensityAndTheSidebarMenuOffersThem() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }

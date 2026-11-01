@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -1821,6 +1822,22 @@
       "default" : true,
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
+      "type" : "boolean"
+    },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
     "computerUse.driver" : {

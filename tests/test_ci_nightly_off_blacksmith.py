@@ -42,8 +42,7 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
-    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
+    "attest-nightly-remote-daemon", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
     "signer-dmg", "route-visual-gate-nightly", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
@@ -213,16 +212,24 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         jobs = document["jobs"]
-        runner_set = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || "
-        self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + runner_set
-                         + "'blacksmith-32vcpu-ubuntu-2404' }}")
-        self.assertEqual(jobs["prepare-nightly-variant"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                         "needs.prepare-nightly-variant-primary.result == 'success' && "
-                         "(" + runner_set + "'blacksmith-32vcpu-ubuntu-2404') || "
-                         "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || "
-                         "'blacksmith-16vcpu-ubuntu-2404' }}")
+        light = ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
+                 "contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {job} ') && "
+                 "needs.build-nightly-app.outputs.light_mini_runner || ")
+        linux = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
+                 "'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}")
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
+            expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                        + light.replace("{job}", name))
+            if name == "prepare-nightly-variant":
+                expected += ("needs.prepare-nightly-variant-primary.result == 'success' && "
+                             "(vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
+                             "'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || "
+                             "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
+                             "'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}")
+            else:
+                expected += linux
+            with self.subTest(job=name):
+                self.assertEqual(jobs[name]["runs-on"], expected)
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")

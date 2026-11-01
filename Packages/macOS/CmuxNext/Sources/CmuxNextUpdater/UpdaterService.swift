@@ -395,7 +395,6 @@ public final class UpdaterService {
         Task { @MainActor [weak self, weak controller] in
             await pulledListReady.value
             guard let self, let controller, self.started else { return }
-            await self.prepareCrossChannelFeed()
             controller.startUpdaterIfNeeded()
             #if DEBUG || CMUX_BENCH_HOOKS
             if UpdateHarness.current?.backgroundCheck == true {
@@ -444,19 +443,9 @@ public final class UpdaterService {
                 log.append("check while the person's check runs: joined")
                 return nil
             }
+            controller.model.setOverrideState(nil)
+            controller.checkForUpdates()
             userCheckRunning = true
-            if identity.track == .nightlyNext, testFeedURL == nil {
-                Task { @MainActor [weak self, weak controller] in
-                    guard let self, let controller else { return }
-                    await self.prepareCrossChannelFeed()
-                    guard self.disabledReason == nil else { return }
-                    controller.model.setOverrideState(nil)
-                    controller.checkForUpdates()
-                }
-            } else {
-                controller.model.setOverrideState(nil)
-                controller.checkForUpdates()
-            }
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -478,14 +467,9 @@ public final class UpdaterService {
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await (identity.track == .nightlyNext
-                    ? prober.probeCrossChannel(identity, allowedChannels: allowed)
-                    : prober.probe(identity, allowedChannels: allowed))
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
-                if let self, self.testFeedURL == nil, self.identity.track == .nightlyNext {
-                    self.controller?.feedOverride = result.feedURL == self.identity.feed().url ? nil : result.feedURL
-                }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
@@ -500,17 +484,6 @@ public final class UpdaterService {
         }
         probeTask = task
         return task
-    }
-
-    /// Selects the newer source commit's feed before Sparkle starts a check. This is
-    /// deliberately best-effort: the prober keeps the running feed when ancestry is
-    /// unavailable, and a test feed always remains authoritative.
-    private func prepareCrossChannelFeed() async {
-        guard identity.track == .nightlyNext, testFeedURL == nil, let controller else { return }
-        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
-        guard let result = try? await prober.probeCrossChannel(identity, allowedChannels: allowed) else { return }
-        controller.feedOverride = result.feedURL == identity.feed().url ? nil : result.feedURL
-        log.append("cross-channel feed \(result.feedURL)")
     }
 
     /// Installs and relaunches the downloaded update at once, or the one
