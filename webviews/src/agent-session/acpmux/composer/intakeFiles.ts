@@ -33,7 +33,7 @@ export type IntakeEvents = {
   ready?(index: number, attachment: ComposerAttachment): void;
   /// File `index` could not be attached, and why.
   failed?(index: number, error: IntakeError): void;
-  /// File `index` is streaming to the session's machine: its tile no longer holds a send.
+  /// File `index` is streaming to the session's machine (a send still waits for it).
   uploading?(index: number): void;
   /// How much of file `index` reached the session's machine, 0 to 1.
   progress?(index: number, done: number): void;

@@ -156,6 +156,9 @@ export type PendingAttachment = {
   /// its Retry makes it or its × takes it out, so a prompt never goes without the recording it was
   /// sent with.
   bound?: boolean;
+  /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
+  /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
+  uploadFailed?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -436,7 +439,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const giveUp = () => {
           if (!still()) return;
           setPending((chips) =>
-            chips.map((chip) => (chip.id === id ? { ...chip, failed, uploading: false, progress: undefined } : chip)),
+            chips.map((chip) =>
+              chip.id === id ? { ...chip, failed, uploadFailed: true, uploading: false, progress: undefined } : chip,
+            ),
           );
         };
         const stop = retryUploadLater(
@@ -689,6 +694,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake([file], source.uploads, undefined, id);
   });
   retryRef.current = retry;
+  // A try again still waiting (its timer, its key and click listeners) goes with the composer.
+  useEffect(
+    () => () => {
+      for (const { stop } of autoRetries.current.values()) stop();
+      autoRetries.current.clear();
+    },
+    [],
+  );
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
       if (live.current.options.locked?.()) return;
@@ -725,14 +738,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
-  /// The chips a send waits for: every one not yet a chip. One still reading, one streaming to the
-  /// session's machine and one whose upload failed (until its Retry makes it or its x takes it
-  /// out) all hold the send, so a prompt never goes without a file the person added. Before, a
-  /// send made while a pasted video uploaded went at once without it (Leo, 2026-11-01: "oh i guess
-  /// mp4 couldnt get sent").
-  const loading = shown.length;
+  /// The chips a send waits for. One still reading, one streaming to the session's machine and
+  /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
+  /// so a prompt never goes without a file the person added. Before, a send made while a pasted
+  /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
+  /// A file the composer refused (no images here, one that would not decode) holds none: its
+  /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
+  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
-  const unsettled = shown.length;
+  const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
   /// waits for them a few seconds at most (composer/videoAttachments.ts).
   const videoReading = useVideoInfo(
@@ -770,10 +784,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// after the render that has the chips, so it must read the composer's state then (a ref). A new
 /// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
 ///
-/// `unsettled` (default `pending`) also counts the files streaming to the session's machine: a send
-/// made while files were still being read waits for those too, so the files it was sent with go
-/// with it (or their x lets it go without them); a send made once only uploads are left goes at
-/// once, and they stay for the next prompt. While one waits, a later send replaces it.
+/// `unsettled` (default `pending`) is what a held send waits for once it holds. The composer counts
+/// files streaming to the session's machine and failed uploads in both, so a send waits for every
+/// file the person added (or its x lets it go without it). While one waits, a later send replaces it.
 export function useSendWhenAttached(
   pending: number,
   scope?: string,

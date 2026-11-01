@@ -134,6 +134,17 @@ test("a failed upload that keeps failing shows Retry, and still holds a send unt
   expect(handle.current!.loading).toBe(0);
 });
 
+test("a file the composer refused never holds a send: Retry could never make it", async () => {
+  const options: AttachmentIntakeOptions = { allowImages: false, scope: "chat", pasteTarget: () => undefined };
+  const handle: { current: Probe | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options} handle={handle} />));
+  await act(() => void handle.current!.attach([new File(["png"], "shot.png", { type: "image/png" })]));
+  await until(() => Boolean(handle.current!.pending[0]?.failed));
+  expect(handle.current!.loading).toBe(0);
+  expect(handle.current!.hold(() => {})).toBe(false);
+});
+
 /// A document stand-in whose events are the person's (`isTrusted`), which jsdom cannot dispatch.
 function fakeDocument() {
   const listeners = new Map<string, Set<(event: Event) => void>>();
