@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "build": "4133907849701",
+  "notes": "notes/4133907849701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30303,
+      "title": "test(next): simulate calibration slowdown with a controlled CPU clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29388,
+      "title": "cmux NEXT: a remote chat attach cancelled while it waits its turn is never sent (#29387)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28226,
+      "title": "cmux NEXT profile menu: every row's text on one column (grid.md 5.3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27845,
+      "title": "test(next): prove multi-view split drags keep focus and visible rows lit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27338,
+      "title": "fix(tabs): cancel new-tab hold when pointer leaves",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27338/hold-dragout-after.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 31215,
+      "title": "Agent pane: drop the composer queue's received-line rules no row uses",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30977,
+      "title": "test(sidebar): unread dot and status color tests pin Reduce Motion off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31206,
+      "title": "test(sidebar): the rebuild check waits on turns and the list's state, not on fixed sleeps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31195,
+      "title": "test(tooltip guard): read only the sources that can hold a raw tooltip",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31222,
+      "title": "ci(nightly): allowlist the DMG upload retry and bound both uploads at 5 min",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
