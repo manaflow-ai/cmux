@@ -1832,6 +1832,9 @@ export class AcpmuxDirectClient {
     () => {
       for (const group of this.permissions.state.groups)
         for (const item of group.items) if (item.state !== "pending") this.groupedPermissions.delete(item.permissionId);
+      // The groups can land after the attach drew the chat's asks (`attachWatched` no longer waits
+      // for them): an ask a group now holds is the group's card, never a second one of its own.
+      if (this.permissions.state.supported && this.permissions.state.ready) this.dropGroupedAsks();
       if (!this.permissions.state.supported && !this.pendingPermission)
         this.pendingPermission = [...this.groupedPermissions.values()].at(-1);
       this.emit();
@@ -2315,6 +2318,7 @@ export class AcpmuxDirectClient {
         this.host.newSession || this.missingSession !== undefined,
       );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
+      this.seedListedSummary();
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
@@ -3715,6 +3719,17 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The turn opener `events` need without a read: none when they start a turn, start at the
+  /// chat's first record or hold all of it; the one already held when it is older than them.
+  /// `"read"` when only acpmux knows it (`fetchTurnOpener`).
+  private heldTurnOpener(sessionId: string, events: EventRecord[], hasMore: boolean): EventRecord | undefined | "read" {
+    const first = events[0];
+    if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return undefined;
+    const known = this.turnOpener;
+    if (known && known.sessionId === sessionId && known.seq < first.seq) return known;
+    return "read";
+  }
+
   /// The newest turn-opening prompt before `events` when they start mid-turn and older history
   /// exists: one small read of `user_message` records only, so a capped open page still shows
   /// what its turn was asked. A failed read leaves it out; the pane draws as before.
@@ -3723,10 +3738,9 @@ export class AcpmuxDirectClient {
     events: EventRecord[],
     hasMore: boolean,
   ): Promise<EventRecord | undefined> {
-    const first = events[0];
-    if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return undefined;
-    const known = this.turnOpener;
-    if (known && known.sessionId === sessionId && known.seq < first.seq) return known;
+    const held = this.heldTurnOpener(sessionId, events, hasMore);
+    if (held !== "read") return held;
+    const first = events[0]!;
     try {
       const result = await this.typed("_acpmux/events", {
         sessionId,
@@ -4086,25 +4100,23 @@ export class AcpmuxDirectClient {
     this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    // The reads the chat draws with (`startAttachReads`): asked with the attach, or now for a chat
-    // on another machine. The chat shows only once they are in, with the turn's opener.
-    const reads = sent.reads ?? this.startAttachReads(sessionId);
+    // The chat's permission groups and handoff (`startAttachReads`): asked with the attach, or now
+    // for a chat on another machine. The rows draw without waiting for them: each client draws its
+    // answer when it lands (its `changed`), in the asks and composer stack under the transcript,
+    // where a live ask lands too, and a chat read before shows its last groups until then
+    // (`PermissionGroupClient.select`). Waiting cost every cold open the slowest of the three reads.
+    if (!sent.reads) this.startAttachReads(sessionId);
     const rows = mergeEventRecords(page, this.events);
-    // acpmux names the turn's opener with its page; only an older one leaves it to a read of its own.
+    // acpmux names the turn's opener with its page; only an older one leaves it to a read of its
+    // own, which lands above the drawn rows as an older page does (the transcript keeps its rows
+    // in place for a prepend), instead of holding them back.
     const served = servedTurnOpener(result, page, rows, sessionId);
-    const [opener] = await Promise.all([
-      served !== undefined ? (served ?? undefined) : this.fetchTurnOpener(sessionId, rows, result?.hasMore === true),
-      reads.permissions,
-      reads.handoff,
-    ]);
-    if (!current()) return [];
-    // The row moved on while those reads were out: what this attach staged is not the chat's.
-    if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    const openerHeld =
+      served !== undefined ? (served ?? undefined) : this.heldTurnOpener(sessionId, rows, result?.hasMore === true);
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    this.turnOpener = opener;
-    // Merged after the reads: live events that landed meanwhile are kept.
-    this.events = mergeEventRecords(page, this.events);
+    this.turnOpener = openerHeld === "read" ? undefined : openerHeld;
+    this.events = rows;
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
@@ -4148,8 +4160,52 @@ export class AcpmuxDirectClient {
       this.pendingPermission = asks[0];
       this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
+    if (openerHeld === "read") this.readTurnOpenerLate(sessionId, rows, current);
     this.emit("attached");
     return page;
+  }
+
+  /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
+  /// its summary until the attach's detail replaces it, as a read-ahead tail does: whatever draws
+  /// before the attach (the hold running out on a slow daemon, a live row) shows the chat's title,
+  /// harness, model and folder, never "New chat" with no chips. The hold itself is unchanged: a
+  /// switch still draws all of the chat before or all of this one (agent-pane-switch-frames).
+  private seedListedSummary(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.summary) return;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    if (listed) this.summary = { ...listed };
+  }
+
+  /// Drops the attach's own asks that a permission group read since holds (`permissions`' change).
+  private dropGroupedAsks(): void {
+    if (!this.pendingPermission && this.waitingPermissions.size === 0) return;
+    const grouped = new Set(
+      this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId)),
+    );
+    if (grouped.size === 0) return;
+    const asks = [this.pendingPermission, ...this.waitingPermissions.values()].filter(
+      (ask): ask is AcpmuxPermission => !!ask && !grouped.has(ask.permissionId),
+    );
+    if (asks.length === (this.pendingPermission ? 1 : 0) + this.waitingPermissions.size) return;
+    this.pendingPermission = asks[0];
+    this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
+  }
+
+  /// The opener of the turn a drawn attach page starts inside, when only acpmux knows it (an older
+  /// acpmux, or a kept tail drawn first): read after the rows draw, then drawn above them, as an
+  /// older page is. Dropped when the chat moved on, its rows were replaced, or older history
+  /// reached it first.
+  private readTurnOpenerLate(sessionId: string, rows: EventRecord[], current: () => boolean): void {
+    const epoch = this.historyEpoch;
+    const generation = this.selectionGeneration;
+    void this.fetchTurnOpener(sessionId, rows, true).then((opener) => {
+      if (!opener || !current() || epoch !== this.historyEpoch || this.attachedGeneration !== generation) return;
+      if (this.turnOpener || opener.seq >= (this.firstSeq ?? 0)) return;
+      this.turnOpener = opener;
+      this.rebuildKeepingLiveState();
+      this.emit();
+    });
   }
 
   /// Read commands for a deferred chat without selecting or attaching it.
@@ -7368,6 +7424,7 @@ export class AcpmuxDirectClient {
       // A peer chat no tab read: the Mac's own copy of it, so a machine that is paused or offline
       // still opens on its history (peerCopy.ts).
       if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
+      if (generation === this.selectionGeneration) this.seedListedSummary();
     }
     if (keptThrough > 0) {
       this.drewKeptTail = true;
