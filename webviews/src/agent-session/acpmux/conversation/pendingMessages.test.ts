@@ -298,7 +298,7 @@ test("turn shaping keeps all expanded waiting deliveries in the pending group", 
   };
   const { turnViewFrom } = await import("./turns");
   const view = turnViewFrom([wrapper], new Set());
-  expect(view.rows).toHaveLength(0);
+  expect(view.rows.filter((row) => row.kind !== "date")).toHaveLength(0);
   expect(view.pending).toHaveLength(1);
   expect(pendingMessagesRow(view.pending, [])?.pendingMessages?.displayRows).toHaveLength(13);
 });
@@ -326,8 +326,9 @@ test("turn shaping removes a read inbox summary when its direct delivery is pres
   };
   const { turnViewFrom } = await import("./turns");
   const view = turnViewFrom([direct, notice], new Set());
-  const display = flattenInboxRows(view.rows);
-  expect(view.rows).toHaveLength(2);
+  const sourceRows = view.rows.filter((row) => row.kind !== "date");
+  const display = flattenInboxRows(sourceRows);
+  expect(sourceRows).toHaveLength(2);
   expect(display).toHaveLength(1);
   expect(display[0]?.incoming).toMatchObject({ kind: "message", message: { name: "lane-a", text: "merged #30213" } });
 });
@@ -483,8 +484,9 @@ test("a delivered inbox notice expands to clean rows outside the waiting group",
   };
   const { turnViewFrom } = await import("./turns");
   const view = turnViewFrom([row], new Set());
-  expect(view.rows).toEqual([row]);
-  const rendered = flattenInboxRows(view.rows);
+  const sourceRows = view.rows.filter((entry) => entry.kind !== "date");
+  expect(sourceRows).toEqual([row]);
+  const rendered = flattenInboxRows(sourceRows);
   expect(rendered).toHaveLength(1);
   expect(rendered[0]?.incoming).toMatchObject({ kind: "message", message: { name: "lane-a", text: "merged #30022" } });
   expect(rendered[0]?.text).not.toContain("inbox_read");
