@@ -51,8 +51,7 @@ extension SidebarListViewComponents {
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
-            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
-                                                         reordersTabRows: reordersTabRows)
+            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
             if displayed.hostHeadersShowing {
                 switch proposal {
                 case .intoWorkspace?, .beforeTab?: break
