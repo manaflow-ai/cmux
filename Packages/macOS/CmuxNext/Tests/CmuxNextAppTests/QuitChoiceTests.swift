@@ -1,11 +1,13 @@
 @testable import CmuxNextApp
+import CmuxNextDaemonService
 import CmuxNextSettings
 import Testing
 
 /// QUIT P0 (Lawrence 2026-11-01: "cmd q needs to prompt for what type of quit"). A person's Cmd-Q with local
 /// terminals asks how to quit: Keep Sessions (the default, Return), End Sessions and Keep Layout, End Everything, and
-/// Cancel, with "Don't ask again" writing `app.quitBehavior`. A remembered choice applies with no question, and a
-/// script, a signal or power off never asks.
+/// Cancel, with "Don't ask again" writing `app.quitBehavior`. A remembered Keep or End Sessions applies with no
+/// question (a remembered End Everything asks first: QuitEndEverythingGuardTests), and a script, a signal or power
+/// off never asks.
 struct QuitChoiceTests {
     private static let twoTerminals = QuitFacts(terminals: 2, programs: [], incognitoPrograms: [], remoteSessions: false)
 
@@ -23,7 +25,7 @@ struct QuitChoiceTests {
         #expect(content.showsSuppression, "no \"Don't ask again\" check box")
     }
 
-    @Test(arguments: [(QuitBehavior.keep, QuitSessionsChoice.keep), (.endKeepLayout, .endKeepLayout), (.endEverything, .endEverything)])
+    @Test(arguments: [(QuitBehavior.keep, QuitSessionsChoice.keep), (.endKeepLayout, .endKeepLayout)])
     func aRememberedChoiceQuitsWithNoQuestion(behavior: QuitBehavior, choice: QuitSessionsChoice) {
         #expect(QuitPolicy.decide(.interactive, behavior: behavior, facts: Self.twoTerminals) == .quit(choice))
     }
