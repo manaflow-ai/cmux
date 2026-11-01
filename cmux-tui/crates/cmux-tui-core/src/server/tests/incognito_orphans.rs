@@ -176,6 +176,34 @@ fn a_crashed_app_never_takes_another_apps_moved_workspace_with_it() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A tab moved to "a new workspace" through `move-tab-to-workspace`
+/// without a target is a move like the others: its workspace is its app's.
+#[test]
+fn a_tab_moved_to_an_unnamed_workspace_closes_with_its_crashed_app() {
+    let (mux, root) = persistent("moved-unnamed");
+    let crashed = app(&mux, "token:999999601.1");
+    let (_, tab) = private_with_two_tabs(&mux, &crashed, "private");
+    handle_command(
+        &mux,
+        crashed.0,
+        Command::MoveTabToWorkspace { surface: tab, workspace: None, transaction: None },
+        &crashed.1,
+    )
+    .unwrap();
+    let moved_to = mux.with_state(|state| {
+        let pane = state.pane_of(tab).unwrap();
+        let (workspace, _) = state.screen_of(pane).unwrap();
+        state.workspaces[workspace].public_id.to_string()
+    });
+    assert!(disconnect_client(&mux, crashed.0, false));
+    let relaunched = app(&mux, "token:999999602.1");
+    let after = listed(&mux, &relaunched, "after-crash");
+    assert!(!after.contains(&moved_to), "its moved workspace must close: {after:?}");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// An incognito workspace `client` creates with two terminal tabs: its id
 /// and its first tab.
 fn private_with_two_tabs(
