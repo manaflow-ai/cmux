@@ -155,7 +155,17 @@ export function parseLocation(href: string): SettingsLocation {
   const url = new URL(href, "settings://page");
   const match = /^\/settings\/([^/]+)/.exec(url.pathname);
   const focus = url.searchParams.get("focus");
-  const section = routeSection(match ? decodeURIComponent(match[1]!) : undefined, focus);
+  // The host can open an old or malformed deep link while Settings prepares its first screen.
+  // An invalid percent escape is an unknown category, like any other unknown section ID.
+  let requestedSection: string | undefined;
+  if (match) {
+    try {
+      requestedSection = decodeURIComponent(match[1]!);
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error;
+    }
+  }
+  const section = routeSection(requestedSection, focus);
   return {
     section,
     focus,

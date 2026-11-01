@@ -21,9 +21,12 @@ import { ChevronRight, TerminalSquare } from "./icons";
 import { ShellBlock } from "./ShellBlock";
 import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptReadOnly } from "./readOnly";
 
 export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const t = useT();
+  // Read only, the owner's terminal is not the reader's to open.
+  const readOnly = useTranscriptReadOnly();
   const { state, reason } = task;
   const [open, setOpen] = useTranscriptDisclosure(`bgtask:${task.toolCallId}`);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
@@ -75,7 +78,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             footer={
               <div className="cv-bgtask__foot">
                 {detail && <span className="cv-bgtask__detail">{detail}</span>}
-                {task.toolCallId && (
+                {task.toolCallId && !readOnly && (
                   <button
                     type="button"
                     className="cv-bgtask__open"

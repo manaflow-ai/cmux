@@ -633,6 +633,19 @@ fn connect_with_flags(
                         _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                     }
                 }
+                // The session is gone for good (it outlived the daemon's
+                // resume lease): say so, typed, so the owner stops
+                // redialing it and offers a new session.
+                if connected.runtime.session_unavailable() {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "event": "session-unavailable",
+                            "local_socket": connected.runtime.info().local_socket.display().to_string(),
+                        })
+                    );
+                    io::stdout().flush()?;
+                }
                 Ok::<_, io::Error>(())
             })?;
         } else {

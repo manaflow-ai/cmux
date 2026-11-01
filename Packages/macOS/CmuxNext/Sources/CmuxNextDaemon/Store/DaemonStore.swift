@@ -66,8 +66,8 @@ public final class DaemonStore: StateResourceQueries {
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
-    /// applies without needing a resync, and to a snapshot's barrier once
-    /// that snapshot is applied. Readers compare it with
+    /// applies without needing a resync. A snapshot can cover consumed tree events,
+    /// but cannot acknowledge session events still waiting in the inbox or pump. Readers compare it with
     /// `DaemonConnection.eventSequence()` taken after a write (read-your-writes
     /// without refetching the tree).
     public internal(set) var appliedSequence: UInt64 = 0

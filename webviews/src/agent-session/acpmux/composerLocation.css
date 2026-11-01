@@ -251,18 +251,14 @@
    outside it. The + glyph and Send's disc sit --acpmux-row-edge from the card's sides (the
    leading padding gives + its inset back).
    test/composer-row-rhythm.test.ts measures it. */
-/* New Tab's row (.nt-pickers) takes the same tokens, so Codex's look spaces both rows alike. */
-:is(.acpmux-composer-bar, .nt-pickers) {
+.acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  /* Model and effort draw 16 px apart (inset + gap + inset). Interrupt, the mic and Send draw
-     one group gap apart (22 px, as Claude desktop's ↵ and mic and Codex's mic and Send do): the
-     trailing cluster has no gap of its own (Leo 2026-10-31, design/composer.md rule 11). */
+  /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
+     and Send draw apart with the trailing cluster's own 4 px gap below. */
   --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
-}
-.acpmux-composer-bar {
   min-height: 52px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
@@ -273,9 +269,12 @@
    as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
    shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
-  /* The row's edge less its inset, as its bottom padding (composerLook.css): + and Send's hit boxes
-     stand 6 px off the sides and the bottom, their glyphs --acpmux-row-edge in. */
-  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  /* A 28 px control with 8 px over and under it (composerLook.css --acpmux-codex-row), and + as far
+     off the box's left as off its bottom. */
+  --acpmux-row-edge: calc((var(--acpmux-codex-row) - var(--acpmux-composer-control)) / 2);
+  min-height: var(--acpmux-codex-row);
+  padding-block: 0;
+  padding-inline: var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {
@@ -459,7 +458,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: var(--acpmux-row-group-gap);
+  gap: 4px;
   margin-left: 0;
   margin-inline-start: auto;
 }

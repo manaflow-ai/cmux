@@ -973,8 +973,7 @@ pub fn apply(env: &mut BTreeMap<String, String>, route_env: &RouteEnv) {
 
 pub(crate) fn resolve_reference(value: &str) -> Result<String, String> {
     if let Some(var) = value.strip_prefix("env:") {
-        return crate::login_env::allowed_var(var)
-            .or_else(|| std::env::var(var).ok())
+        return crate::login_env::reference_var(var)
             .ok_or_else(|| format!("{var} is not set in the login environment"));
     }
     if let Some(path) = value.strip_prefix("file:") {

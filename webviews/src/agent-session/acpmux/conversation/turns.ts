@@ -29,6 +29,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -148,6 +149,8 @@ export type TurnView = {
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
+  /// Unchanged display prefix, excluding its last row whose fold boundary can change.
+  reusedRows?: number;
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
   /// Other sessions' messages in the last turn the agent has not read yet, which it does not draw:
@@ -240,6 +243,7 @@ export function turnViewFrom(
   // The first turn's line depends on `now`.
   if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
     reuse = 0;
+  let reusedRows = 0;
   let index: number;
   let lead: number;
   let out: AcpmuxRow[];
@@ -251,6 +255,7 @@ export function turnViewFrom(
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
     const boundary = previous!.ends[reuse - 1];
+    reusedRows = Math.max(0, (boundary?.count ?? 0) - 1);
     out = previous!.rows.slice(0, boundary?.count);
     if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
@@ -260,11 +265,13 @@ export function turnViewFrom(
   } else {
     out = [];
     index = 0;
-    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
+    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are,
+    // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
+    out = foldBackgroundTurns(out, expanded);
     lead = index;
     starts = [];
     times = [];
@@ -337,6 +344,7 @@ export function turnViewFrom(
     working,
     sessionStatus,
     messageBreaks,
+    reusedRows,
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
@@ -356,6 +364,8 @@ type ShapedTurn = {
   source: readonly AcpmuxRow[];
   /// Which of its folds are open (`openFolds`).
   open: string;
+  /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
+  background: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -398,10 +408,12 @@ function shapedTurn(
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
+  const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
+    cached.background === background &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
@@ -420,7 +432,7 @@ function shapedTurn(
   // turn goes on under that prompt, so it neither ends nor times the turn.
   // Nor does it before the steer's own record comes, while it is the turn's last summary: the turn
   // is about to go on, and would read "You stopped after" for that moment.
-  const turn = source.filter(
+  const kept = source.filter(
     (row, at) =>
       (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
       !(
@@ -430,6 +442,9 @@ function shapedTurn(
           (last && !source.slice(at + 1).some((later) => later.kind === "turnSummary")))
       ),
   );
+  // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
+  // a quiet one, or one still running, as its one line (backgroundTurns.ts).
+  const turn = foldBackgroundTurns(kept, expanded);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -486,7 +501,8 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
-  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+  if (!live)
+    shapedTurns.set(user, { source, open, background, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
   return shaped;
 }
 
@@ -1287,7 +1303,11 @@ const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483
 /// The turn's one "Worked for" fold, keyed by its original prompt. Steers and received reports
 /// already related to that turn walk back to the same anchor. An unrelated incoming prompt still
 /// opens its own turn, and a pending or failed prompt opens nothing unless it is the first one.
+/// A row of a turn the agent ran on its own is behind that turn's line (backgroundTurns.ts), not
+/// the "Worked for" before it: Find and a link open the line.
 export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
+  const background = rows[index]?.inBackground;
+  if (background !== undefined) return backgroundTurnRowId(background);
   // With no accepted prompt before it, the turn is the first one turnView draws, which starts at
   // the first user row (a prompt not sent or refused, or a landed steer a history page starts at,
   // its temporary prompt until the older one is loaded): the earliest one walking back.

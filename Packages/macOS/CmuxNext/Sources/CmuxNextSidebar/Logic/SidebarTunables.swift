@@ -248,7 +248,7 @@ public nonisolated enum SidebarTunables {
     /// Whether the content beside the sidebar keeps one width through a show or hide slide.
     public static let slideHoldsContent = Tunable<Bool>.toggle(
         "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
-        help: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
+        help: "While the sidebar slides open or closed, the panes beside it take their final width when the slide starts and stay still, pinned to the far edge, while the sidebar slides over the near one. Off: every pane resizes on every frame.",
         default: false, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or

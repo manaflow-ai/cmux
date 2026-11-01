@@ -512,3 +512,88 @@ extension CloudHandlers {
 
     static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884
 }
+
+// The Cloud toggle (#26062): with `cloud.newWorkspacesInCloud` on, a person's New Workspace runs the
+// New Cloud Workspace flow on a new machine of its own, in their folder copied there (as Move to
+// Cloud copies a chat's) or in the machine's empty folder. Agent chats in it run on that machine.
+extension CloudHandlers {
+    /// Starts it for `invocation` when the toggle applies, Cloud can create a machine and `window`
+    /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
+    static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
+        let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
+        let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
+        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
+                                               byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
+        else { return .thisMac(notice: nil) }
+        switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {
+        case .cloud: break
+        case .thisMac(.unavailable(let reason)): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(reason))
+        case .thisMac(.signedOut): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.signInFirst))
+        case .thisMac(.noWindow): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.newWorkspaceNoWindow))
+        }
+        // A second press while this window's machine is still on its way shows that one again: one paid machine per wait.
+        if let window, let pending = pendingNewWorkspaceCreation(in: cloud.creations, window: window.id) {
+            window.page = nil
+            window.cloudCreation = pending.id
+            return .started
+        }
+        let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID, profile = window?.profileID ?? .defaultProfile
+        let checkScope: @MainActor (CloudMachineSession) throws -> Void = { session in
+            try Task.checkCancellation()
+            guard let userID, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else {
+                // An account or team switch ends the creation, as `checkCreationScope` does, so no row stays stuck at ready.
+                if let creation = cloud.creations.all.first(where: { $0.session === session }) { cloud.creations.end(creation) }
+                throw CancellationError()
+            }
+        }
+        creationFlow(AppActionContext(services: services), startedByPerson: true, proceed: { creation in
+            try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                   currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
+        }).start(in: window, existing: nil) { session in
+            try checkScope(session)
+            defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) } // one group per Cloud machine
+            let name = session.machine.title
+            guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
+            var cwd: String?
+            let folder = try await plan.folder(work: services.work)
+            try checkScope(session)
+            if let folder, let binary = cloud.move.cli {
+                guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
+                let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)
+                do {
+                    cwd = try await CloudNewWorkspacePlan.copy(folder, workRoots: cloud.move.workRoots) { remote in
+                        try checkScope(session)
+                        let answer = try await cli.syncPush(socket: socket, local: folder.root, remote: remote)
+                        return CloudNewWorkspacePlan.CopyAnswer(ok: answer.ok, errorCode: answer.errorCode, error: answer.error)
+                    }.chat
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch CloudNewWorkspacePlan.CopyFailure.outdated {
+                    throw ActionFailure(message: CloudMoveStrings.outdatedMachine(name))
+                } catch CloudNewWorkspacePlan.CopyFailure.failed(let detail) {
+                    throw ActionFailure(message: CloudMoveStrings.syncFailed(name, detail))
+                } catch {
+                    throw ActionFailure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
+                }
+            }
+            try checkScope(session)
+            let key = WorkspaceKey.generate()
+            if let room = services.machines.local.store.profile(profile), let sessionID = session.daemon.store.registryID,
+               let home = services.machines.local.connection {
+                try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                    try await home.pinWorkspace(session: sessionID, key: key, to: room.id)
+                }
+            }
+            try checkScope(session)
+            try await WorkspaceCreation.create(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
+            return key.rawValue
+        }
+        return .started
+    }
+
+    /// The toggle's creation window `id` shows that has not opened its workspace yet (requesting,
+    /// booting, or failed with Retry), if any.
+    static func pendingNewWorkspaceCreation(in creations: CloudCreations, window id: String) -> CloudMachineCreation? {
+        creations.shown(in: id).last { $0.open != nil && $0.workspaceID == nil && !$0.isTornDown }
+    }
+}
