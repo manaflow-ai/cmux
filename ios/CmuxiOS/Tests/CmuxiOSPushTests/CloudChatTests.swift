@@ -72,6 +72,18 @@ func cloudChatMissingPreferredSession() async {
     #expect(model.requestedSessionUnavailable)
 }
 
+@Test("Replacing the relay clears the old client state")
+@MainActor
+func cloudChatTransportReplacement() async {
+    let model = CloudChatViewModel(transport: FixtureTransport())
+    await model.load()
+    #expect(model.selectedSessionID == "s1")
+    model.replaceTransport(nil)
+    #expect(model.sessions.isEmpty)
+    #expect(model.messages.isEmpty)
+    #expect(model.selectedSessionID == nil)
+}
+
 @Test("Cloud attention only accepts namespaced complete payloads")
 func cloudAttentionPayload() {
     let payload: [AnyHashable: Any] = [
