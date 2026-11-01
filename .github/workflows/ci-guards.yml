@@ -958,6 +958,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
 
+      - name: Validate owned-Mac signing claims
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_signing_runner_claim.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
