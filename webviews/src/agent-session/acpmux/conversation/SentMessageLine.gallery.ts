@@ -137,12 +137,7 @@ const recordedFile = () => {
 /// Opens the finished turn's "Worked for" line, where its calls are.
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent, .cv-msggroup__line"));
-  // A run of sends draws as one group (MessageGroupRow.tsx): open it, so each send's own row shows.
-  if (ctx.document.querySelector('.cv-msggroup__line[aria-expanded="false"]')) {
-    await ctx.click({ selector: ".cv-msggroup__line" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
-  }
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
 };
 
 /// Opens the turn, then its first sent row.
