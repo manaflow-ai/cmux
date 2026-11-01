@@ -157,7 +157,7 @@ final class SidebarBridge {
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations,
-                     SidebarDocStore.current?.shownChanges), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+                     SidebarDocStore.current?.shownChanges), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true))
         }) { [weak self] value in
             let ((sections, decorations, shownAt), launching, failed, profiles, active, shown) = value

@@ -198,8 +198,8 @@ final class QuitCoordinator {
             prepareWindows: { [steps] in
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates()) },
-                    agentImages: { await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages()) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
