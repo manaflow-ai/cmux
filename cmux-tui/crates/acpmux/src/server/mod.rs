@@ -237,7 +237,6 @@ pub(super) struct TriggerScope {
     pub workspace: String,
     pub session: String,
     pub delivery: String,
-    pub turn: String,
     pub prompt_hash: String,
     pub cwd: String,
     pub harness: String,

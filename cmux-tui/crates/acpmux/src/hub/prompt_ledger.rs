@@ -2,6 +2,7 @@
 
 use super::{Hub, PromptOutcome, Session};
 use serde_json::{Value, json};
+use sha2::Digest;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -71,6 +72,7 @@ impl Hub {
         let mut status = None::<Value>;
         let mut reply = String::new();
         let mut started = false;
+        let mut prompt_hash = None::<String>;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
             if turn_id.is_none() && matches!(rec.kind.as_str(), "queued" | "user_message") {
                 let delivery_id = rec
@@ -80,16 +82,30 @@ impl Hub {
                     .or_else(|| rec.msg.get("promptId").and_then(Value::as_str));
                 if delivery_id == Some(delivery) {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    if let Some(text) = rec.msg.get("text").and_then(Value::as_str) {
+                        prompt_hash = Some(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
+                    }
                 }
             }
-            let Some(id) = turn_id.as_deref() else { return true };
-            if rec.msg.get("turnId").and_then(Value::as_str) != Some(id) {
-                return true;
-            }
-            if rec.kind == "turn_started" {
+            if turn_id.is_none()
+                && rec.kind == "turn_started"
+                && rec.msg.get("promptId").and_then(Value::as_str) == Some(delivery)
+            {
+                turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                 started = true;
             }
-            if rec.kind == "agent_message_chunk" && rec.dir == "in" {
+            let Some(id) = turn_id.as_deref() else { return true };
+            if rec.kind == "turn_started"
+                && rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+            {
+                started = true;
+            }
+            if started
+                && rec.kind == "session/update"
+                && rec.dir == "in"
+                && rec.msg.pointer("/params/update/sessionUpdate").and_then(Value::as_str)
+                    == Some("agent_message_chunk")
+            {
                 if let Some(text) =
                     rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
                 {
@@ -99,25 +115,35 @@ impl Hub {
                     }
                 }
             }
-            if matches!(rec.kind.as_str(), "turn_result" | "turn_error" | "turn_end") {
+            if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                && matches!(rec.kind.as_str(), "turn_result" | "turn_error" | "turn_end")
+            {
                 status = Some(rec.msg.clone());
             }
             true
         });
         let mut out = serde_json::Map::new();
         out.insert("delivery".into(), Value::String(delivery.to_owned()));
+        if let Some(hash) = prompt_hash {
+            out.insert("promptHash".into(), Value::String(hash));
+        }
         if let Some(id) = turn_id {
             out.insert("turnId".into(), Value::String(id));
-            out.insert(
-                "state".into(),
-                if status.is_some() {
-                    Value::String("completed".into())
-                } else if started {
-                    Value::String("running".into())
-                } else {
-                    Value::String("queued".into())
-                },
-            );
+            let state = if !session.pending_permissions().is_empty() {
+                "attention"
+            } else {
+                status
+                    .as_ref()
+                    .and_then(|v| v.get("status").and_then(Value::as_str))
+                    .map(|s| match s {
+                        "failed" | "error" => "failed",
+                        "attention" | "input_required" => "attention",
+                        _ => "completed",
+                    })
+                    .or_else(|| started.then_some("running"))
+                    .unwrap_or("queued")
+            };
+            out.insert("state".into(), Value::String(state.into()));
         } else {
             out.insert("state".into(), Value::String("unknown".into()));
         }

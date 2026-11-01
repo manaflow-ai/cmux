@@ -66,7 +66,6 @@ fn scope(p: &Value) -> Result<TriggerScope, RpcError> {
         workspace: string(p, "workspace", MAX)?,
         session: string(p, "session", MAX)?,
         delivery: string(p, "delivery", MAX)?,
-        turn: p.get("turn").and_then(Value::as_str).unwrap_or_default().to_owned(),
         prompt_hash: string(p, "promptHash", 128)?,
         cwd: string(p, "cwd", MAX)?,
         harness: string(p, "harness", 256)?,
@@ -181,9 +180,6 @@ async fn authorize(
     op.insert("workspace".into(), json!(string(params, "workspace", MAX)?));
     op.insert("session".into(), json!(string(params, "session", MAX)?));
     op.insert("delivery".into(), json!(string(params, "delivery", MAX)?));
-    if operation == "status" {
-        op.insert("turn".into(), json!(string(params, "turn", MAX)?));
-    }
     op.insert("guestKey".into(), json!(before.guest_key.clone()));
     if operation == "ensure" {
         op.insert("cwd".into(), json!(string(params, "cwd", MAX)?));
@@ -239,6 +235,18 @@ async fn authorize(
     }
     let scoped = scope(principal)?;
     validate_claims(principal, &scoped, trigger, &after)?;
+    if scoped.workspace != string(params, "workspace", MAX)?
+        || scoped.session != string(params, "session", MAX)?
+        || scoped.delivery != string(params, "delivery", MAX)?
+    {
+        return Err(RpcError::new(-32001, "trigger authorization scope does not match request"));
+    }
+    if operation == "ensure"
+        && (scoped.cwd != string(params, "cwd", MAX)?
+            || scoped.harness != string(params, "harness", 256)?)
+    {
+        return Err(RpcError::new(-32001, "trigger authorization scope does not match request"));
+    }
     Ok((scoped, after))
 }
 
@@ -260,7 +268,10 @@ fn exact_session(hub: &Hub, id: &str) -> Result<Arc<crate::hub::Session>, RpcErr
 async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError> {
     if let Ok(session) = exact_session(hub, &scope.session) {
         let meta = session.meta();
-        if meta.cwd != PathBuf::from(&scope.cwd) || meta.harness != scope.harness {
+        if meta.cwd != PathBuf::from(&scope.cwd)
+            || meta.harness != scope.harness
+            || meta.workspace_id.as_deref() != Some(scope.workspace.as_str())
+        {
             return Err(RpcError::new(-32001, "trigger session binding changed"));
         }
         return Ok(json!({
@@ -273,6 +284,7 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
             harness: Some(scope.harness.clone()),
             name: Some(scope.session.clone()),
             cwd: Some(PathBuf::from(&scope.cwd)),
+            workspace_id: Some(scope.workspace.clone()),
             remote: true,
             ..Default::default()
         })
@@ -293,6 +305,11 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
 
 async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Value, RpcError> {
     let session = exact_session(hub, &scope.session)?;
+    let prior = hub.trigger_delivery(&session, &scope.delivery);
+    if prior.get("promptHash").and_then(Value::as_str).is_some_and(|hash| hash != scope.prompt_hash)
+    {
+        return Err(RpcError::new(-32001, "trigger delivery prompt does not match prior delivery"));
+    }
     let provenance = json!({
         "kind": "trigger", "triggerId": scope.trigger, "deliveryId": scope.delivery,
         "owner": scope.owner, "team": scope.team, "machine": scope.machine,
@@ -377,8 +394,8 @@ pub(super) async fn handle(
             }
             same_identity(&identity).await?;
             let result = send(hub, &scope, body).await?;
-            let duplicate =
-                result.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true);
+            let duplicate = result.get("duplicate").and_then(Value::as_bool) == Some(true)
+                || result.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true);
             Ok(json!({
                 "ok": true,
                 "state": if duplicate { "replayed" } else { "sent" },
@@ -386,8 +403,7 @@ pub(super) async fn handle(
                 "workspace": scope.workspace,
                 "session": scope.session,
                 "delivery": scope.delivery,
-                "turn": result.pointer("/_meta/acpmux/turnId").cloned().unwrap_or(Value::Null),
-                "reply": result,
+                "turn": result.get("turnId").cloned().or_else(|| result.pointer("/_meta/acpmux/turnId").cloned()).unwrap_or(Value::Null),
             }))
         }
         "status" => {
@@ -395,22 +411,24 @@ pub(super) async fn handle(
             // no list, owner or machine data is exposed on this RPC.
             same_identity(&identity).await?;
             let requested_turn = string(&params, "turn", MAX)?;
-            if scope.turn != requested_turn {
-                return Err(RpcError::new(-32001, "trigger turn binding changed"));
-            }
             let result = status(hub, &scope)?;
-            if result.get("turnId").and_then(Value::as_str).is_some_and(|id| id != scope.turn) {
+            if result.get("turnId").and_then(Value::as_str).is_none_or(|id| id != requested_turn) {
                 return Err(RpcError::new(-32001, "trigger delivery turn mismatch"));
             }
             let current_state = result.get("state").and_then(Value::as_str).unwrap_or("failed");
             let state = match current_state {
-                "running" | "queued" => current_state,
+                "running" | "queued" => "running",
                 "completed" => "completed",
+                "failed" => "failed",
                 "unknown" => "failed",
-                _ => "attention",
+                "attention" => "attention",
+                _ => "failed",
             }
             .to_owned();
             let mut result = result;
+            if let Some(turn) = result.get("turnId").cloned() {
+                result["turn"] = turn;
+            }
             result["ok"] = Value::Bool(true);
             result["state"] = Value::String(state.to_owned());
             result["machine"] = Value::String(scope.machine.clone());
