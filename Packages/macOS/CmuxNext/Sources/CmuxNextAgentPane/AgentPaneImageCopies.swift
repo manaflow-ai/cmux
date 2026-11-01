@@ -124,6 +124,8 @@ extension AgentPaneImageCopies {
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
+        case .copyComposer(let text, let items):
+            return await copyComposer(text: text, items: items, in: model)
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }

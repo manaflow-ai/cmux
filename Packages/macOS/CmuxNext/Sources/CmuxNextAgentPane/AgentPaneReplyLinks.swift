@@ -224,11 +224,9 @@ extension AgentPaneModel {
             return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
-        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
-        case .copyComposer(let text, let items):
-            return await AgentPaneImageCopies.copyComposer(text: text, items: items, in: self)
         }
     }
 
