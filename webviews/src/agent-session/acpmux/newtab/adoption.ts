@@ -14,6 +14,34 @@ export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
 /// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
 export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 
+/// A tab opening an existing chat adopted this prewarmed page (AgentPaneView.adoptSession): the
+/// page leaves its New Tab screen and switches to that chat in place.
+export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
+
+/// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
+export type SessionAdoption = { sessionId: string; revealTurn?: string };
+
+/// The adoption an event's detail names; undefined when it names no session.
+export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
+  if (typeof sessionId !== "string" || !sessionId) return undefined;
+  return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+}
+
+/// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
+/// frame never draws its New Tab screen again.
+export function useSessionAdoption(onAdopt: (adoption: SessionAdoption) => void): void {
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const adoption = sessionAdoption((event as CustomEvent).detail);
+      if (adoption) flushSync(() => onAdopt(adoption));
+    };
+    window.addEventListener(SESSION_ADOPT_EVENT, handle);
+    return () => window.removeEventListener(SESSION_ADOPT_EVENT, handle);
+  }, [onAdopt]);
+}
+
 /// The context the host gave as the document committed (AgentPaneNavigation), for the first
 /// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
 /// or the page is not a New Tab page; `useEarlyNewTabContext` asks then.

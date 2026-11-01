@@ -160,7 +160,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             expect(state.occluded).toBe(state.distance! < -0.5);
           }
           expect(closed.scrollbarPinned).toBe(true);
-          expect(open.scrollbarPinned).toBe(true);
+          // By default it floats only where the gutter holds it (1600px); narrower, it pushes too.
+          expect(open.scrollbarPinned).toBe(width >= 1600);
           expect(pushed.scrollbarPinned).toBe(false);
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
@@ -180,11 +181,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           // Keep this same preview open while Session Info changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
           await page.evaluate(() => {
-            const samples: { rail: number; card: number | null }[] = [];
+            const samples: { pinned: number; rail: number; card: number | null }[] = [];
             const stop = window.cmuxAfterPaint(() => {
               const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
               const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
-              samples.push({ rail: rail.right, card: card?.left ?? null });
+              samples.push({ pinned: rail.left, rail: rail.right, card: card?.left ?? null });
               return true;
             });
             Object.assign(window, { railCardFrames: { samples, stop } });
@@ -206,7 +207,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const samples = await page.evaluate(() => {
             const trace = (
               window as unknown as {
-                railCardFrames: { samples: { rail: number; card: number | null }[]; stop(): void };
+                railCardFrames: { samples: { pinned: number; rail: number; card: number | null }[]; stop(): void };
               }
             ).railCardFrames;
             trace.stop();
@@ -214,8 +215,10 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           });
           expect(samples.length).toBeGreaterThan(0);
           // The rail is pinned to the pane edge (model.ts railPlacement), so Session Info and these
-          // resizes never move it; the card must stay on it on every painted frame.
-          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBe(1);
+          // resizes never move its left edge; where Session Info pushes the chat (1084px, Leo
+          // 2026-11-01), the narrower gutter may narrow the rail. The card must stay on it on every
+          // painted frame.
+          expect(new Set(samples.map((sample) => Math.round(sample.pinned))).size).toBe(1);
           expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
             [],
           );

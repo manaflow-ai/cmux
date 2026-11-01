@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
 import CmuxNextDaemon
@@ -90,6 +91,19 @@ struct CloudStartChatLoginTests {
         #expect(decision.summary.hasSuffix("guest owner, machine login rejected, cached yes -> installed"))
         #expect(Decision(gate: false, provider: .claude, signedIn: true).summary.hasPrefix("skip (build-gate-off): gate off"))
         #expect(Decision(gate: true, provider: .claude, signedIn: true, callerOwns: true, guestKind: "").summary.contains("guest (none)"))
+    }
+
+    /// Only a team guest's skip tells the chat's card it is on a team machine (handshake `cloudTeamMachine`).
+    @Test func onlyATeamGuestSkipMarksATeamMachine() {
+        #expect(Decision(gate: true, provider: .claude, signedIn: true, callerOwns: true, guestKind: "team").skippedTeamMachine)
+        #expect(!Decision(gate: true, provider: .claude, signedIn: true, callerOwns: true, guestKind: "").skippedTeamMachine)
+        #expect(!Decision(gate: true, provider: .claude, signedIn: true, callerOwns: true, guestKind: "owner").skippedTeamMachine)
+        #expect(!Decision(gate: false, provider: .claude, signedIn: true, guestKind: "team").skippedTeamMachine)
+        #expect(!Decision(gate: true, provider: .claude, signedIn: true, callerOwns: false, guestKind: "team").skippedTeamMachine)
+        var handshake = AgentPaneHandshake(transport: .mock)
+        handshake.cloudTeamMachine = true
+        let coded = String(decoding: (try? JSONEncoder().encode(handshake)) ?? Data(), as: UTF8.self)
+        #expect(coded.contains("\"cloudTeamMachine\":true"))
     }
 
     /// The guest's kind comes after a marker, so an exec that ran is told from one that failed.
