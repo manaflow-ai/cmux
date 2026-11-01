@@ -197,6 +197,10 @@ def tested_sha(run: dict) -> str:
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
+# Release-notary helpers report successful validations as `ok: ... (error: ...)`.
+# The parenthesized diagnostic is expected output, not a failed check; only
+# error annotations outside a successful `ok:` wrapper are evidence.
+SUCCESS_DIAGNOSTIC = re.compile(r"^\s*ok:\s+.*\berror:", re.IGNORECASE)
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
 SUMMARY_FAILURE = re.compile(
@@ -404,7 +408,8 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
              or (not tests and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(text)))
-                and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)):
+                and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)
+                and not SUCCESS_DIAGNOSTIC.search(text)):
             errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
 
