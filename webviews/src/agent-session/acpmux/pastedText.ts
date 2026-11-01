@@ -11,7 +11,7 @@ export const PASTE_CHIP_LINES = 20;
 /// A paste of more characters than this is a chip.
 export const PASTE_CHIP_CHARS = 2000;
 /// A paste longer than this goes as a file, never as text in the prompt or a chip that holds it:
-/// past it a prompt's text block is more than an agent's message carries (acpmux's 31 MiB) and the
+/// past it a prompt's text block is more than an agent's message carries (acpmux's 15 MiB) and the
 /// field could not lay it out (Leo, 2026-10-25: "arbitarrily large file sizes the composer should
 /// never ever freeze").
 export const PASTE_FILE_CHARS = 1024 * 1024;

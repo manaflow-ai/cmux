@@ -19,6 +19,10 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+TAIL_CONTROL_JOBS = (
+    'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
+    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+)
 
 
 def evaluate(node, context):
@@ -76,6 +80,28 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
+    def test_tail_controls_ignore_stale_prebuild_placement(self):
+        prefix = 'needs.pick-nightly-build-runner.outputs.'
+        for name in TAIL_CONTROL_JOBS:
+            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            expr = parse_expression(source)
+            for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
+                           'blacksmith-6vcpu-macos-26'):
+                for attempt in (1, 2, 3):
+                    for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                        context = {
+                            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                            prefix + 'attempt': str(attempt), prefix + 'helper': helper,
+                            prefix + 'owned': helper, prefix + 'dedicated': 'glaeda-trusted-next-nightly',
+                            'vars.LINUX_RUNNER': overflow,
+                        }
+                        expected = ('ubuntu-24.04' if attempt == 1 else
+                                    overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                        with self.subTest(job=name, helper=helper, attempt=attempt, overflow=overflow):
+                            self.assertEqual(evaluate(expr, context), expected)
+                            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}),
+                                             'ubuntu-24.04')
+
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
@@ -115,31 +141,20 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
-    def test_decide_takes_the_owned_nightly_slot_then_blacksmith_linux(self):
-        # decide is the run's first job, so no picker runs before it and every other job waits on it. Attempt 1
-        # of a nightly-next push asks for glaeda's nightly slot, which only nightly jobs take; the owned-pool
-        # rescue watches that attempt (owned_pool_rescue.nightly_target()) and moves a decide no slot takes,
-        # and that re-run (attempt 2) takes the Blacksmith Linux set. Run 41234993713 queued decide on
-        # blacksmith-32vcpu-ubuntu-2404 with no fleet route. Leo, 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END
-        # TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT".
-        source = DOC['jobs']['decide']['runs-on'].removeprefix('${{').removesuffix('}}')
-        slot = 'glaeda-nightly-std-xcode-26.6'
-        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next',
-                'github.event_name': 'push', 'github.run_attempt': 1, 'vars.CI_PR_POOL_OWNED': '1',
-                'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': slot, 'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404'}
-
-        def decide(**changes):
-            return evaluate(parse_expression(source), {**base, **changes})
-
-        self.assertEqual(decide(), slot)
-        for change in ({'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
-                       {'github.event_name': 'schedule', 'github.ref': 'refs/heads/main'},
-                       {'vars.CI_PR_POOL_OWNED': '0'}, {'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': ''}):
-            with self.subTest(change=change):
-                self.assertEqual(decide(**change), 'blacksmith-32vcpu-ubuntu-2404')
-        self.assertEqual(decide(**{'github.run_attempt': 2, 'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404'}),
-                         'blacksmith-16vcpu-ubuntu-2404')
-        self.assertEqual(decide(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
+    def test_decide_bootstraps_on_declared_hosted_linux_without_phantom_fleet(self):
+        # No preceding job can give decide a live runner receipt. Its bounded
+        # admission step still tries fleet for downstream work before overflow.
+        route = DOC['jobs']['decide']['runs-on'].removeprefix('${{').removesuffix('}}')
+        for attempt in (1, 2, 3):
+            for configured in ('', 'unregistered-fleet', 'blacksmith-16vcpu-ubuntu-2404'):
+                context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                           'vars.CI_CONTROL_RUNNER': 'unregistered-fleet',
+                           'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'unregistered-mini',
+                           'vars.LINUX_RUNNER': configured}
+                paid = configured if configured.startswith('blacksmith-') else 'blacksmith-32vcpu-ubuntu-2404'
+                self.assertEqual(evaluate(parse_expression(route), context),
+                                 'ubuntu-24.04' if attempt == 1 else paid)
+        self.assertEqual(DOC['jobs']['decide']['environment'], 'ci-routing-agent')
 
     def test_only_the_nightly_routes_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
@@ -147,10 +162,10 @@ class NightlyTrustedRouting(unittest.TestCase):
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
-        # decide and the lightweight routes use the nightly slot; the three secret-free Mac
+        # The existing native routes use the nightly slot; the three secret-free Mac
         # jobs also read it for the bounded attempt-2 retry added in #29847. OwnedVerify in
         # test_nightly_sign_runner.py checks that retry and its later overflow destinations.
-        self.assertEqual(uses, ['decide', 'generate-nightly-deltas', 'sign-nightly-identity-legacy',
+        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy',
                                 'signer-dmg-image', 'verify-final-dmg-nightly',
                                 'verify-nightly-identity-legacy', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
@@ -238,6 +253,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         def label(job, runner, primary_result=''):
             source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'github.run_attempt': 1,
                                'needs.decide.outputs.track': 'nightly-next',
                        'needs.prepare-nightly-variant-primary.result': primary_result}
             return evaluate(parse_expression(source), context)
@@ -282,6 +298,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         # (empty, the overflow switch's hosted value, an old 4 vCPU value, 16 or 32).
         # The signer jobs have their own route (test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32).
         members = {'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'}
+        import json
+        light = json.loads((ROOT / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
         checked = 0
         for name, job in DOC['jobs'].items():
             runs_on = job.get('runs-on', '')
@@ -292,12 +310,13 @@ class NightlyTrustedRouting(unittest.TestCase):
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', *sorted(members)):
                 for primary in ('success', 'failure'):
                     context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'github.run_attempt': 1,
                                'needs.decide.outputs.track': 'nightly-next',
                                'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
-                                      {"cmux-fleet-linux-x64"} if "cmux-fleet-linux-x64" in source else members)
+                                      (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
