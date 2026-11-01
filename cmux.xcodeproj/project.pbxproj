@@ -821,6 +821,7 @@
 		84ED8B0271A2FD801E8F280C /* CLIVMDevTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */; };
 		C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */; };
 		3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */; };
+		4CAEAC0E22C7A6C76C5A3C31 /* CLIVMRunBindingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0FAE817DE397A51C93CB16 /* CLIVMRunBindingStoreTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
 		C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000055 /* CLIWelcomeTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
@@ -5672,6 +5673,7 @@
 		20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMDevTests.swift; sourceTree = "<group>"; };
 		7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMLayoutEnvTests.swift; sourceTree = "<group>"; };
 		BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMReadyPollIntervalTests.swift; sourceTree = "<group>"; };
+		BA0FAE817DE397A51C93CB16 /* CLIVMRunBindingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMRunBindingStoreTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000055 /* CLIWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWelcomeTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
@@ -9706,6 +9708,7 @@
 				3E18C2CC11FD283EAA50B7D6 /* CLIJumpToLastPromptTests.swift */,
 				8C4EC34292AE45663229DB16 /* CLIAgentMessageCommandTests+Kiro.swift */,
 				5B8C7B6139C7D6DE08675A3A /* CLIAgentMessageCommandTests+Support.swift */,
+				BA0FAE817DE397A51C93CB16 /* CLIVMRunBindingStoreTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -15134,6 +15137,7 @@
 				C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */,
 				C5E74B39873F2DF220584A49 /* CLIVersionSkewErrorTests.swift in Sources */,
 				3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */,
+				4CAEAC0E22C7A6C76C5A3C31 /* CLIVMRunBindingStoreTests.swift in Sources */,
 				C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */,
 				C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */,
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
