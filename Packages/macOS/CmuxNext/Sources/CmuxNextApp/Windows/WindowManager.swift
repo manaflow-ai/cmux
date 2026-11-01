@@ -560,10 +560,10 @@ final class WindowManager {
     /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
     /// holds a surface or page), with what keeps it awake.
     func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
-        let mounted = parkedWorkspaceIDs
+        let mounted = parkedWorkspaceIDs, hidden = hiddenSpaceTest()
         return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
             .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
-                                                running: $0.running, needsAttention: $0.needsAttention) }
+                                                running: $0.running, needsAttention: $0.needsAttention, inHiddenSpace: hidden($0.workspace)) }
     }
 
     /// Workspace `id` hibernated: every window unmounts its parked content.
