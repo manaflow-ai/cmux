@@ -141,8 +141,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startupObservation?.cancel()
         previewFeaturesObservation?.cancel()
         touchBarObservation?.cancel()
-        touchBarObservation = nil
-        cmuxTouchBar = nil
         roomObservation?.cancel()
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
@@ -175,7 +173,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if enabled {
             if cmuxTouchBar == nil {
                 cmuxTouchBar = CmuxTouchBar { [weak services] action in
-                    services?.registry.perform(action, invocation: ActionInvocation(origin: .user)) ?? false
+                    services?.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user)) ?? false
                 }
             }
             window.touchBar = cmuxTouchBar?.touchBar

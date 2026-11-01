@@ -1,6 +1,4 @@
 import AppKit
-import CmuxNextActions
-
 /// The small, customizable action strip cmux contributes to a Mac Touch Bar.
 /// Actions go through the same registry as keyboard shortcuts and menus, so
 /// target resolution and focus rules remain shared with the rest of the app.
@@ -15,10 +13,10 @@ final class CmuxTouchBar: NSObject, NSTouchBarDelegate {
         static let stopAgent = "agentPane.stopTurn"
     }
 
-    private let perform: (ActionID) -> Bool
+    private let perform: (String) -> Bool
     let touchBar: NSTouchBar
 
-    init(perform: @escaping (ActionID) -> Bool) {
+    init(perform: @escaping (String) -> Bool) {
         self.perform = perform
         touchBar = NSTouchBar()
         super.init()
