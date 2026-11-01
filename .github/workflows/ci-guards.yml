@@ -977,6 +977,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_single_size.py
 
+      - name: Validate stalled CI paths use the runner set
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_set.py
+
+      - name: Validate fast checks fail over from stalled labels
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_failover.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
@@ -1642,6 +1650,10 @@ jobs:
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
+
+      - name: Validate every build-src worktree add prunes a stale registration first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_src_worktree_prune.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

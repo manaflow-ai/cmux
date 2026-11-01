@@ -262,14 +262,26 @@ def committed_url_violation(url: str, title: str, *, agent_op: bool, via_web: bo
     return None
 
 
+def download_row(rows: list[dict], token: str) -> dict | None:
+    """The newest downloads row of one download op: its file name or destination contains the op's token and a dash.
+    The dash keeps op fz5-12 off the row of fz5-123456 (review of #29769); a substring, not a basename prefix, keeps
+    the rows of uncleaned names such as 'fz5-12-../../fuzz-escape.bin', which the download_path oracle exists for
+    (review of #29818)."""
+    mark = token + "-"
+    mine = [r for r in rows or [] if mark in (r.get("filename") or "") or mark in (r.get("destination") or "")]
+    return mine[-1] if mine else None
+
+
 def download_violation(row: dict, downloads_dir: str) -> str | None:
     """A finished download must land in the downloads folder under a plain file name."""
     destination = row.get("destination") or ""
     if not destination:
         return None
     import os.path
-    real_dir = os.path.realpath(downloads_dir)
-    real = os.path.realpath(destination)
+    # Text only (normpath resolves "..", "." and "//"): the files are in the account's Downloads folder, where a file
+    # system call can wait on a privacy prompt (replay c980cdb0c1c9). A symlink escape is out of this oracle's scope.
+    real_dir = os.path.normpath(os.path.abspath(downloads_dir))
+    real = os.path.normpath(os.path.abspath(destination))
     if os.path.dirname(real) != real_dir:
         return f"a download landed outside {real_dir}: {destination!r}"
     name = os.path.basename(real)
@@ -315,3 +327,69 @@ def ddmin(ops: list[dict], fails, budget: int) -> tuple[list[dict], int]:
                 break
             granularity = min(len(rest), granularity * 2)
     return head + rest, calls
+
+
+# ---------------------------------------------------------------- hangs (job 78618b4ec57bde51c8195e4a: 45 min silent)
+
+class OpWatch:
+    """The op that runs now, and whether it ran past `limit_s`. The driver's watchdog thread asks `overdue()` every few
+    seconds; the clock is injected so the rule is tested without waiting."""
+
+    def __init__(self, limit_s: float, clock=None):
+        import threading
+        import time
+        self.limit_s = limit_s
+        self.clock = clock or time.monotonic
+        self.lock = threading.Lock()
+        self.current: dict | None = None
+
+    def start(self, seed: int, index: int, op: dict, label: str, limit_s: float | None = None):
+        """Watches one op (or end step) from now; `limit_s` overrides the watch's limit for it."""
+        with self.lock:
+            self.current = {"seed": seed, "index": index, "op": op, "label": label, "started": self.clock(),
+                            "reported": False, "limit_s": limit_s if limit_s is not None else self.limit_s}
+
+    def done(self):
+        with self.lock:
+            self.current = None
+
+    def overdue(self) -> dict | None:
+        """The current op once it ran past the limit (reported once), else None."""
+        with self.lock:
+            cur = self.current
+            if not cur or cur["reported"]:
+                return None
+            elapsed = self.clock() - cur["started"]
+            if elapsed < cur["limit_s"]:
+                return None
+            cur["reported"] = True
+            return {k: cur[k] for k in ("seed", "index", "op", "label", "limit_s")} | {"elapsed_s": elapsed}
+
+
+# The end steps of a seed ("probe", "quit", "kill", "cleanup", in browser_fuzz.run_ops). "probe" and "quit" talk to
+# the app, so a hang there is judged like an op's; "kill" and "cleanup" are the harness ending the app it launched and
+# deleting its scratch files.
+APP_END_STEPS = {"probe", "quit"}
+
+
+def hang_verdict(seed: int, index: int, op: dict, elapsed_s: float, *, app_alive: bool, ping_answered: bool,
+                 main_stall_ms: float | None) -> tuple[str, bool]:
+    """The verdict line (after "BROWSER-FUZZ-VERDICT ") for an op that ran past its deadline, and whether it is a
+    product finding. The app is at fault when its process ended, it does not answer system.ping, or its main thread does
+    not answer debug.focus (a main-actor call) within a second; else the harness itself is stuck (no verdict). A
+    system.ping that waits for a stale snapshot can also time out during a main-thread stall: the verdict is FAIL either way."""
+    if op.get("op") == "end":
+        step = op.get("step")
+        what = f"HANG in end:{step} after {elapsed_s:.0f} s (seed {seed})"
+        if step not in APP_END_STEPS:
+            # The harness ends the app on purpose here (kill, cleanup): a hang is the harness's.
+            return f"NOVERDICT {what}: the harness is stuck in its own end step", False
+    else:
+        what = f"HANG at op {index} {op.get('op')} after {elapsed_s:.0f} s (seed {seed})"
+    if not app_alive:
+        return f"FAIL {what}: the app process ended", True
+    if not ping_answered:
+        return f"FAIL {what}: the app does not answer system.ping", True
+    if main_stall_ms is not None and main_stall_ms >= 1000:
+        return f"FAIL {what}: the app's main thread is stalled ({main_stall_ms / 1000:.0f} s)", True
+    return f"NOVERDICT {what}: the app answers, so the harness is stuck", False

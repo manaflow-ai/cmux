@@ -39,12 +39,13 @@ extension SidebarItemRowView {
         activity.alphaValue = shown ? 0 : 1
         guard shown else { return }
         let control = SidebarStyle.controlSize
-        var x = b.width - SidebarStyle.horizontalInset * 2 - control
+        let rowWidth = b.width - SidebarStyle.horizontalInset
+        var slot = 0
         if let hoverClose {
-            hoverClose.frame = NSRect(x: x, y: (b.height - control) / 2, width: control, height: control)
-            x -= control + Metrics.space1
+            hoverClose.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: control)
+            slot = 1
         }
-        hoverMore?.frame = NSRect(x: x, y: (b.height - control) / 2, width: control, height: control)
+        hoverMore?.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: control, slot: slot)
         let start = (hoverMore ?? hoverClose)?.frame.minX ?? b.width
         title.frame.size.width = max(0, min(title.frame.width, start - Metrics.space2 - title.frame.minX))
     }

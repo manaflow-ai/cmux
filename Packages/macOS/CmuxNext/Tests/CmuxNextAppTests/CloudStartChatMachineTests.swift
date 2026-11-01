@@ -26,20 +26,45 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
-    /// The plan reads the send under its account, only the machines the account's list named, and the
-    /// ones made since (kept for a pin, never picked).
-    @Test func thePlanRequestCarriesTheSendItsAccountAndTheListedMachines() throws {
-        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], user: Self.me, machines: [], stored: ["vm-new"])
+    /// The plan reads the send under its account and Mac workspace, only the machines the account's list
+    /// named, and the ones made since (kept for a pin, never picked).
+    /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
+    /// never sent as made since, so a workspace or send pinned to it moves on instead of failing to connect.
+    @Test func aGoneMachineInTheStoreIsNeverKeptForAPin() {
+        let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
+                        CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
+                        CloudMachine(id: "vm-deleting", status: .deleting)]
+        #expect(machines.keptForPin(listed: ["vm-listed"]) == ["vm-new"])
+    }
+
+    /// A listed machine's plan entry: its id, title, shown status and link, the known slug and pause reason, and its
+    /// chat count only when connected (a disconnected machine's entry has no `chats` key).
+    @Test func aListedMachinesPlanEntryNamesWhatThePickReads() {
+        let machine = CloudMachine(id: "vm-a", status: .paused, displayName: "Chats", slug: "kind-aqua", pauseReason: .idle)
+        let connected = machine.startChatPlanEntry(connected: true, chats: 2)
+        #expect(connected["id"] as? String == "vm-a" && connected["title"] as? String == "Chats")
+        #expect(connected["status"] as? String == "paused" && connected["connected"] as? Bool == true)
+        #expect(connected["slug"] as? String == "kind-aqua" && connected["pause_reason"] as? String == "idle")
+        #expect(connected["chats"] as? Int == 2 && connected["created_by"] == nil)
+        let away = CloudMachine(id: "vm-b").startChatPlanEntry(connected: false, chats: nil)
+        #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
+    }
+
+    @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
+        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
+                                              stored: ["vm-new"])
         let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         #expect(object["key"] as? String == "K")
         #expect(object["account"] as? String == "user-leo/team-a")
+        #expect(object["workspace"] as? String == "ws-1")
         #expect(object["user"] as? String == Self.me)
         #expect(object["loaded"] as? Bool == true)
         #expect((object["machines"] as? [Any])?.isEmpty == true)
         #expect(object["stored"] as? [String] == ["vm-new"])
-        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], user: nil, machines: [], stored: [])
+        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
         let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
         #expect(unsigned["user"] == nil)
+        #expect(unsigned["workspace"] == nil)
     }
 
     /// A folder the page named is copied only as the pane checked it.
