@@ -48,9 +48,12 @@ builds; say so when the range is longer.
 
 In each build's notes, in this order:
 
-- `whatsNew.entries`: the reviewed highlights. Each has `title.en`,
-  `summary.en`, `category` (new, improved, fixed), and sometimes `tryIt`
-  (an `action` id or a `cmux://` `deeplink`), `docs` and `pr`.
+- `whatsNew.entries`: the highlights. Each has `title.en`, `summary.en`,
+  `category` (new, improved, fixed), and sometimes `tryIt` (an `action` id
+  or a `cmux://` `deeplink`), `docs` and `pr`. Only builds whose index row
+  has `highlights` above 0 carry curated ones; entries with an id starting
+  `summary-` are generated from commit titles, so count them with the rest
+  and never offer one as worth trying.
 - `highlights`: the same items in the older shape (`title`, `body`,
   `category`), when `whatsNew` is missing.
 - `items`: every PR that landed (`title`, `pr`, `author`). Use these only to
@@ -64,8 +67,9 @@ At most six lines:
    morning): 3 builds").
 2. Up to three highlights worth trying, newest first, entries with a `tryIt`
    ahead of the rest. One line each: what it does for them, then how to try
-   it. Offer to run a `tryIt` for them: `cmux action run <action>` or
-   `cmux open <deeplink>`.
+   it. Offer to run a `tryIt` for them: `cmux action run <action>` or, for
+   a deeplink, `open 'cmux://…'` (macOS `open`; `cmux open` does not take
+   `cmux://` links).
 3. One line for the rest ("plus 9 fixes"), offering the full list.
 
 Link each highlight's PR (`https://github.com/manaflow-ai/cmux/pull/<pr>`)
