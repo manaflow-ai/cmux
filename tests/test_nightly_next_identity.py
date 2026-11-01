@@ -114,7 +114,15 @@ def job_containing(text: str) -> str:
 def job_env(block: str, name: str) -> str:
     match = re.search(rf"\n      {name}: ([^\n]+)\n", block)
     assert match, f"no job env {name}"
-    return match.group(1)
+    value = match.group(1)
+    # A YAML anchor (`&name value`) or alias (`*name`, #30278 shares env values to keep nightly.yml
+    # under GitHub's size limit) reads as the anchored value, as YAML does.
+    alias = re.fullmatch(r"\*([A-Za-z0-9_-]+)", value)
+    if alias:
+        anchors = re.findall(rf"[ :]&{re.escape(alias[1])} ([^\n]+)\n", WORKFLOW)
+        assert len(anchors) == 1, f"alias *{alias[1]} has {len(anchors)} anchors"
+        value = anchors[0]
+    return re.sub(r"^&[A-Za-z0-9_-]+ ", "", value)
 
 
 def test_each_app_reads_the_feed_its_publisher_writes():
