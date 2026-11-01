@@ -93,6 +93,7 @@ import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
+import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -974,9 +975,19 @@ export function NewTabScreen(props: Props) {
       if (!active || active === fieldElement()?.ownerDocument.body) field.current?.focus();
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
+    // Tab with nothing focused goes to the field, not through the project and machine chips that
+    // head it (Leo 2026-10-20); Shift-Tab from the field still reaches them.
+    const doc = fieldElement()?.ownerDocument;
+    const tab = (event: KeyboardEvent) => {
+      if (!doc || !field.current || !tabsToComposer(event, doc)) return;
+      event.preventDefault();
+      field.current.focus();
+    };
+    if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
+      doc?.removeEventListener("keydown", tab);
     };
   }, [inputToken, focusOnShow, fieldReady]);
 
@@ -1918,15 +1929,25 @@ export function NewTabScreen(props: Props) {
       {content}
     </WidgetFrame>
   );
-  // The headline (off by default): "What should we work on in <project>?", its project the folder
-  // Enter asks in, picked in place as the composer's strip picks it.
+  // The headline (off by default): "What should we work on in <project> on <machine>?", its project
+  // the folder Enter asks in, picked in place as the composer's strip picks it, and its machine the
+  // one the chat starts on: a saved SSH environment's machine, else the location row's machine, else
+  // this Mac's name. Cloud and Sandboxed send the prompt to no machine of these, so it names none.
+  const offMachine =
+    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
+  const headlineMachine = offMachine
+    ? undefined
+    : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
+  // The folder askChat starts in: the saved environment's, else the picked machine's, else askFolder.
+  const headlineFolder = environment ? environment.folder : machine ? machine.folder : askFolder;
   const headline =
     widgets.has("greeting") &&
     frame(
       "greeting",
       <NewTabHeadline
         projects={props.projects ?? []}
-        {...(askFolder ? { folder: askFolder } : {})}
+        {...(headlineFolder ? { folder: headlineFolder } : {})}
+        {...(headlineMachine ? { machine: headlineMachine } : {})}
         noProject={none}
         onPick={(cwd) => pickProject(cwd)}
         onNoProject={() => pickProject(undefined)}

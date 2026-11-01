@@ -68,7 +68,7 @@
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/watch": {"params": ["enabled", "limit"], "acpmux": []},
-    "_acpmux/sessions": {"params": ["limit", "cursor"], "acpmux": []},
+    "_acpmux/sessions": {"params": ["limit", "cursor", "usage"], "acpmux": []},
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], "acpmux": []},
     "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},
     "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},

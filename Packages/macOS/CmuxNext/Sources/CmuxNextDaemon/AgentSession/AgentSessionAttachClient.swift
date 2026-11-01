@@ -438,6 +438,20 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-media", ["path": path])
     }
 
+    /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
+    /// Repository actions are cmux-tui frame commands, so they share this connection rather
+    /// than going through acpmux's JSON-RPC socket.
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration? = nil) async throws -> Data {
+        guard Self.cloudRepositoryMethods.contains(method) else {
+            throw AgentSessionAttachError(code: "cloud_repo.unsupported", message: "unsupported Cloud repository action")
+        }
+        return try await call(method, params, timeout: timeout)
+    }
+
+    private static let cloudRepositoryMethods: Set<String> = [
+        "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
+    ]
+
     /// Ends the attachment and the connection; no push after it.
     public func close() {
         closed = true

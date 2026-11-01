@@ -73,6 +73,14 @@ if (resident) {
 // prism (Spectrum with full gloss) and svg (Chromium's feDisplacementMap backdrop, svgRefraction.ts).
 const glass = new URLSearchParams(location.search).get("glass");
 if (glass) await installGlass(glass);
+// LIVE BACKGROUND: `live=<style>` draws the live background behind the pane (liveBackground.ts),
+// to measure what its loop costs the transcript's scroll.
+const live = new URLSearchParams(location.search).get("live");
+if (live) {
+  if (live !== "aurora" && live !== "drift" && live !== "grain") throw new Error(`unsupported live background ${live}`);
+  const { installLiveBackground } = await import("../../src/ui/liveBackground/liveBackground");
+  if (!installLiveBackground(document, live)) throw new Error("the live background needs WebGL");
+}
 document.documentElement.dataset.latencyFlowsReady = "true";
 
 /** A synthetic, colourful still: the picture behind the window glass, as the host sends it. */
