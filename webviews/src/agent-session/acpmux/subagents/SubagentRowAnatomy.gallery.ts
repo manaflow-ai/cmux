@@ -51,6 +51,14 @@ const script = [
   {
     name: "the tray at rest",
     run: async (ctx: PlayContext) => {
+      // Headed trays now start folded; open the list before checking row anatomy.
+      await ctx.waitFor(() =>
+        ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line, .acpmux-running-tray__head"),
+      );
+      const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+      if (head && head.getAttribute("aria-expanded") !== "true") {
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+      }
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
       anatomy(ctx);
     },
@@ -58,6 +66,14 @@ const script = [
 ];
 
 const play = (settled: boolean) => async (ctx: PlayContext) => {
+  // Headed trays now start folded; open the list before checking row anatomy.
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line, .acpmux-running-tray__head"),
+  );
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  if (head && head.getAttribute("aria-expanded") !== "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+  }
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
   anatomy(ctx);
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;

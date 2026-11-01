@@ -30,7 +30,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
+    private(set) var controllers: [WindowController] = [] { didSet { services.windowsDidChange() } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
@@ -141,8 +141,8 @@ final class WindowManager {
     var incognitoSession: BrowserProfileID?
     /// The incognito space each incognito window shows (window id to space), deleted with its window.
     var incognitoSpaces: [String: ProfileID] = [:]
-    /// Workspaces of open incognito windows, closed at the next launch when
-    /// this run ends without closing them.
+    let incognitoSpaceMarks = IncognitoSpaceMarks()
+    /// Workspaces of open incognito windows, closed at the next launch when this run ends without closing them.
     lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
@@ -262,10 +262,7 @@ final class WindowManager {
             for space in await incognitoLedger.loadSpaces() { _ = try? await home.deleteProfile(ProfileID(rawValue: space), moveTo: nil) }
         }
         let leftover = await incognitoLedger.load()
-        if !leftover.isEmpty {
-            registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
-            discard(leftover)
-        }
+        IncognitoLeftovers.discard(leftover, self)
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         guard !Task.isCancelled, !isTerminating else { return }
@@ -560,10 +557,10 @@ final class WindowManager {
     /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
     /// holds a surface or page), with what keeps it awake.
     func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
-        let mounted = parkedWorkspaceIDs
+        let mounted = parkedWorkspaceIDs, hidden = hiddenSpaceTest()
         return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
             .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
-                                                running: $0.running, needsAttention: $0.needsAttention) }
+                                                running: $0.running, needsAttention: $0.needsAttention, inHiddenSpace: hidden($0.workspace)) }
     }
 
     /// Workspace `id` hibernated: every window unmounts its parked content.

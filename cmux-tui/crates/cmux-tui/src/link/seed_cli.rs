@@ -28,6 +28,10 @@
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
 //!
+//! `cmux link seed pull --socket PATH LOCAL REMOTE` brings the seeded
+//! folder's changes back as a diff, merged against the [`record`]
+//! ([`pull`]).
+//!
 //! Output: progress on stderr as JSON lines, `{"progress":{"phase":"upload",
 //! "bytes_done","bytes_total"}}` while the bundle goes, then
 //! `{"progress":{"phase":clone|fetch|bundle|checkout|submodules|lfs,
@@ -43,6 +47,7 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
+mod pull;
 mod record;
 
 use std::path::{Path, PathBuf};
@@ -54,10 +59,13 @@ use serde_json::{Value, json};
 use super::seed::plan::{self, Fallback, FallbackCode, Planned, PreviousSeed};
 use super::{machine_gate, sync_cli};
 use record::{Kept, Record};
+use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--since-last]
-       cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER";
+       cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
+       cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
+[--base-head SHA --base-index SHA --base-work SHA]";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -115,6 +123,12 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
+/// The error code and message of a failed [`push`].
+pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
+    let error = SeedError::of(error);
+    (error.code, error.message)
+}
+
 /// What a push did.
 #[derive(Debug)]
 pub(super) struct Pushed {
@@ -166,16 +180,17 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     };
     let answer = match command {
+        Command::Pull { socket, local, remote, base } => pull::pull(&socket, &local, &remote, base),
         Command::Push { socket, local, remote, since_last } => {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
             } else {
                 push(&socket, &local, &remote)
             };
-            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error))
+            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
         }
         Command::Clone { socket, repo, git_ref, remote } => {
-            clone(&socket, &repo, git_ref.as_deref(), &remote)
+            clone(&socket, &repo, git_ref.as_deref(), &remote).map_err(|error| error.line())
         }
     };
     match answer {
@@ -183,14 +198,15 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             0
         }
-        Err(error) => {
-            println!("{}", error.line());
+        Err(line) => {
+            println!("{line}");
             1
         }
     }
 }
 
 enum Command {
+    Pull { socket: PathBuf, local: PathBuf, remote: String, base: Option<SeedBase> },
     Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
     Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
 }
@@ -198,6 +214,7 @@ enum Command {
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
+    let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -206,6 +223,9 @@ fn parse(args: &[String]) -> Option<Command> {
             "--repo" => repo = Some(rest.next()?.clone()),
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
+            "--base-head" => head = Some(rest.next()?.clone()),
+            "--base-index" => index = Some(rest.next()?.clone()),
+            "--base-work" => work = Some(rest.next()?.clone()),
             flag if flag.starts_with('-') => return None,
             value => positional.push(value),
         }
@@ -214,8 +234,25 @@ fn parse(args: &[String]) -> Option<Command> {
         (remote.starts_with('/') && remote.len() > 1)
             .then(|| remote.trim_end_matches('/').to_string())
     };
+    let base = match (head, index, work) {
+        (None, None, None) => None,
+        (Some(head), Some(index), Some(work))
+            if [&head, &index, &work].iter().all(|sha| sync_cli::is_sha(sha)) =>
+        {
+            Some(SeedBase { head, index, work })
+        }
+        _ => return None,
+    };
+    let plain = repo.is_none() && git_ref.is_none();
     match (action.as_str(), positional.as_slice()) {
-        ("push", [local, remote]) if repo.is_none() && git_ref.is_none() => Some(Command::Push {
+        ("pull", [local, remote]) if plain && !since_last => Some(Command::Pull {
+            socket: socket?,
+            local: PathBuf::from(local),
+            remote: absolute(remote)?,
+            base,
+        }),
+        _ if base.is_some() => None,
+        ("push", [local, remote]) if plain => Some(Command::Push {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
@@ -259,7 +296,7 @@ impl<'a> Machine<'a> {
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let id = identity
             .as_ref()
-            .and_then(|identity| identity["session_id"].as_str())
+            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
             .map(str::to_owned);
         Ok(Self { socket, id, seeds })
     }
@@ -287,7 +324,7 @@ pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<
     // the person (and offer the App install) while the copy runs.
     let mut announce = json!({"phase": "copy", "fallback_code": fallback.code});
     if let Some(url) = &fallback.install_url {
-        announce["install_url"] = json!(url);
+        announce.set("install_url", json!(url));
     }
     eprintln!("{}", json!({ "progress": announce }));
     copy(&machine, &local, remote, Some(fallback))
@@ -332,7 +369,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     }
     let status = run_seed(machine.socket, remote, &planned, &bundle)?;
     keep_seed(&machine, &local, remote, &planned);
-    Ok(seeded("delta", &planned, status["head"].as_str()))
+    Ok(seeded("delta", &planned, status.get("head").and_then(Value::as_str)))
 }
 
 /// Why a full seed did not happen.
@@ -371,7 +408,7 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
     match result {
         Ok(status) => {
             keep_seed(machine, local, remote, &planned);
-            Ok(seeded("seed", &planned, status["head"].as_str()))
+            Ok(seeded("seed", &planned, status.get("head").and_then(Value::as_str)))
         }
         Err(error) if FALLBACK_CODES.contains(&error.code.as_str()) => {
             // What the seed left is not the copy's to build on.
@@ -410,7 +447,7 @@ fn copy(
         bundle_bytes: 0,
         head: None,
         work: None,
-        skipped_files: line["skipped_files"].clone(),
+        skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
         fallback,
     })
@@ -500,8 +537,9 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
         }
         refused
     })?;
-    let job = started["job"]
-        .as_str()
+    let job = started
+        .get("job")
+        .and_then(Value::as_str)
         .ok_or_else(|| SeedError::new("seed.bad_request", "git.seed.start answered no job"))?
         .to_owned();
     let deadline = Instant::now() + SEED_DEADLINE;
@@ -509,26 +547,32 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
     loop {
         let status = sync_cli::machine_call(socket, "git.seed.status", json!({"job": job}))
             .map_err(|error| SeedError::of(&error))?;
-        match status["state"].as_str() {
+        match status.get("state").and_then(Value::as_str) {
             Some("done") => return Ok(status),
             Some("failed") => {
                 return Err(SeedError {
-                    install_url: status["install_url"].as_str().map(str::to_owned),
+                    install_url: status
+                        .get("install_url")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                     ..SeedError::new(
-                        status["error_code"].as_str().unwrap_or("seed.failed"),
-                        status["error"].as_str().unwrap_or("the seed failed on the machine"),
+                        status.get("error_code").and_then(Value::as_str).unwrap_or("seed.failed"),
+                        status
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the seed failed on the machine"),
                     )
                 });
             }
             _ => {}
         }
-        let progress = &status["progress"];
+        let progress = status.get("progress").unwrap_or(&Value::Null);
         report(
             json!({
-                "phase": status["phase"],
-                "bytes_done": progress["received_bytes"],
-                "objects": progress["objects"],
-                "objects_total": progress["total_objects"],
+                "phase": status.get("phase"),
+                "bytes_done": progress.get("received_bytes"),
+                "objects": progress.get("objects"),
+                "objects_total": progress.get("total_objects"),
             }),
             false,
         );
@@ -559,7 +603,8 @@ fn clone(
         start.set("ref", json!(git_ref));
     }
     let status = start_and_wait(socket, start)?;
-    Ok(json!({"ok": true, "mode": "clone", "head": status["head"], "head_ref": status["head_ref"]}))
+    let (head, head_ref) = (status.get("head"), status.get("head_ref"));
+    Ok(json!({"ok": true, "mode": "clone", "head": head, "head_ref": head_ref}))
 }
 
 /// Prints `{"progress": PROGRESS}` on stderr, at most every
@@ -630,6 +675,35 @@ mod tests {
         list.iter().map(|arg| (*arg).to_string()).collect()
     }
 
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn parses_pull_with_its_base_from_the_record_or_all_three_flags() {
+        let Some(Command::Pull { local, remote, base, .. }) =
+            parse(&args(&["pull", "--socket", "/s", "/a", "/home/w/a/"]))
+        else {
+            panic!("pull");
+        };
+        assert_eq!((local.to_str(), remote.as_str()), (Some("/a"), "/home/w/a"));
+        assert!(base.is_none(), "the record's");
+        let Some(Command::Pull { base: Some(base), .. }) = parse(&args(&[
+            "pull",
+            "--socket",
+            "/s",
+            "/a",
+            "/b",
+            "--base-head",
+            SHA,
+            "--base-index",
+            SHA,
+            "--base-work",
+            SHA,
+        ])) else {
+            panic!("pull with a base");
+        };
+        assert_eq!(base.work, SHA);
+    }
+
     #[test]
     fn parses_push_and_clone() {
         let Some(Command::Push { local, remote, since_last, .. }) =
@@ -660,6 +734,37 @@ mod tests {
             &["clone", "--socket", "/s", "/b"],
             &["plan", "--socket", "/s", "/a", "/b"],
             &["push", "--socket", "/s", "/a", "/b", "--x"],
+            &[
+                "push",
+                "--socket",
+                "/s",
+                "/a",
+                "/b",
+                "--base-head",
+                SHA,
+                "--base-index",
+                SHA,
+                "--base-work",
+                SHA,
+            ],
+            &["pull", "--socket", "/s", "/a"],
+            &["pull", "/a", "/b"],
+            &["pull", "--socket", "/s", "/a", "b"],
+            &["pull", "--socket", "/s", "/a", "/b", "--since-last"],
+            &["pull", "--socket", "/s", "/a", "/b", "--base-head", SHA],
+            &[
+                "pull",
+                "--socket",
+                "/s",
+                "/a",
+                "/b",
+                "--base-head",
+                "HEAD",
+                "--base-index",
+                SHA,
+                "--base-work",
+                SHA,
+            ],
         ] {
             assert!(parse(&args(bad)).is_none(), "{bad:?}");
         }

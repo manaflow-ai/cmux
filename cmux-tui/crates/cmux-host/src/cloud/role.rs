@@ -215,6 +215,26 @@ impl Http for PosterHttp {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post(url, body, bearer)
     }
+
+    fn request_until(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_until(url, body, bearer, deadline)
+    }
+
+    fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_with_deadline(url, body, bearer, deadline)
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
@@ -309,6 +329,7 @@ fn wg_keypair() -> Result<(String, String), String> {
 pub struct CloudRole {
     paths: Paths,
     worker: Option<WorkerHandle>,
+    bootstrap: Option<super::bootstrap_role::RoleBridge>,
 }
 
 struct WorkerHandle {
@@ -323,7 +344,15 @@ struct WorkerHandle {
 
 impl CloudRole {
     pub fn new(paths: Paths) -> CloudRole {
-        CloudRole { paths, worker: None }
+        CloudRole { paths, worker: None, bootstrap: None }
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        host: Option<Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = host.map(super::bootstrap_role::RoleBridge::new);
+        self
     }
 
     fn send(&mut self, word: &str) {
@@ -336,8 +365,11 @@ impl CloudRole {
         if let Some(worker) = self.worker.as_ref() {
             worker.github_stop.set();
         }
+        let bootstrap = self.bootstrap.as_ref().map(|bridge| bridge.stop(deadline)).transpose();
         self.send("stop");
-        let Some(worker) = self.worker.take() else { return Ok(()) };
+        let Some(worker) = self.worker.take() else {
+            return bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()));
+        };
         // The worker ends after its current request (each is bounded by
         // 20 s); a later deadline is reported, not waited out.
         let wait = deadline.saturating_duration_since(Instant::now());
@@ -347,7 +379,7 @@ impl CloudRole {
             }
             _ => {
                 let _ = worker.thread.join();
-                Ok(())
+                bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()))
             }
         }
     }
@@ -363,6 +395,7 @@ impl Role for CloudRole {
         if self.worker.is_some() {
             return Ok(());
         }
+        let bootstrap = self.bootstrap.as_mut().and_then(|bridge| bridge.start().ok());
         let (ours, theirs) = UnixStream::pair().map_err(|e| RoleError(e.to_string()))?;
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
@@ -373,7 +406,11 @@ impl Role for CloudRole {
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop);
+                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop)
+                    .map(|mut worker| {
+                        worker.bootstrap = bootstrap;
+                        worker
+                    });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
@@ -390,6 +427,9 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                if let Some(bridge) = &self.bootstrap {
+                    let _ = bridge.resume();
+                }
                 self.send("resume");
                 Ok(())
             }
@@ -405,6 +445,10 @@ impl Role for CloudRole {
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
+    output: Vec<u8>,
+    sent: usize,
+    eof: bool,
+    write_deadline: Option<u64>,
 }
 
 struct Activity {
@@ -423,6 +467,9 @@ struct Live {
 }
 
 struct Worker {
+    bootstrap: Option<super::bootstrap_role::WorkerBridge>,
+    bootstrap_retry_at: Option<u64>,
+    bootstrap_backoff: Backoff,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -465,6 +512,9 @@ impl Worker {
         let harness_logins =
             spawn_harness_logins(&paths).map_err(|e| log(&format!("harness login: {e}"))).ok();
         Ok(Worker {
+            bootstrap: None,
+            bootstrap_retry_at: None,
+            bootstrap_backoff: Backoff::new(1_000, 30_000),
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -508,13 +558,16 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
+            self.drive_bootstrap();
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
+                self.bootstrap_retry_at,
             ]
             .into_iter()
             .flatten()
+            .chain(self.clients.iter().filter_map(|c| c.write_deadline))
             .min();
             let timeout_ms =
                 deadline.map_or(-1, |at| at.saturating_sub(self.now()).min(i32::MAX as u64) as i32);
@@ -537,9 +590,14 @@ impl Worker {
             for c in &self.clients {
                 fds.push(libc::pollfd {
                     fd: c.stream.as_raw_fd(),
-                    events: libc::POLLIN,
+                    events: (if c.eof { 0 } else { libc::POLLIN })
+                        | if c.output.is_empty() { 0 } else { libc::POLLOUT },
                     revents: 0,
                 });
+            }
+            let bootstrap_wakes = self.bootstrap.as_ref().and_then(|bridge| bridge.wake_set());
+            if let Some(wakes) = &bootstrap_wakes {
+                fds.extend(wakes.fds());
             }
             // SAFETY: `fds` is a valid array of `fds.len()` pollfd entries.
             let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
@@ -554,6 +612,8 @@ impl Worker {
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
+            // The retained bootstrap descriptors wake the next loop's drive.
+            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -568,7 +628,11 @@ impl Worker {
             }
             let readable: Vec<usize> =
                 (0..polled_clients).filter(|i| ready(clients_from + i)).collect();
-            self.read_clients(&readable);
+            if self.read_clients(&readable) {
+                return Ok(());
+            }
+            let now = self.now();
+            self.clients.retain(|c| c.write_deadline.is_none_or(|at| at > now));
             self.fire_deadlines();
         }
     }
@@ -590,6 +654,14 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    self.bootstrap_retry_at = None;
+                    self.bootstrap_backoff.reset();
+                    if let Some(bridge) = &mut self.bootstrap {
+                        bridge.resume();
+                        if self.live.is_some() {
+                            bridge.enrolled();
+                        }
+                    }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
                         let reqs = live.session.resume(now);
@@ -634,57 +706,94 @@ impl Worker {
             if stream.set_nonblocking(true).is_err() {
                 continue;
             }
-            self.clients.push(Client { stream, buf: Vec::new() });
+            self.clients.push(Client {
+                stream,
+                buf: Vec::new(),
+                output: Vec::new(),
+                sent: 0,
+                eof: false,
+                write_deadline: None,
+            });
         }
     }
 
-    fn read_clients(&mut self, readable: &[usize]) {
+    fn read_clients(&mut self, readable: &[usize]) -> bool {
         let mut closed = Vec::new();
         let mut lines = Vec::new();
         for &i in readable {
             let Some(client) = self.clients.get_mut(i) else { continue };
-            let (read, open) = read_lines(&mut client.stream, &mut client.buf);
-            lines.extend(read.into_iter().map(|line| (i, line)));
-            if !open {
-                closed.push(i);
+            match read_available(&mut client.stream, &mut client.buf) {
+                Ok(open) => {
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
+                    client.eof = !open;
+                    if client.buf.len() > MAX_LINE {
+                        closed.push(i);
+                    }
+                }
+                Err(_) => closed.push(i),
             }
         }
-        // A GitHub token ask or a hand-off report takes its connection to
-        // the minter, which answers it with one line and closes it: one ask
-        // per connection, and the poll loop never waits on the API.
-        let mut session_lines = Vec::new();
         let mut asks: Vec<(usize, Ask)> = Vec::new();
         for (i, line) in lines {
-            // One ask per connection, and none from a client already gone:
-            // nobody would read the reply.
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            let ask = agent_ask(&line);
-            if closed.contains(&i) && ask.is_some() {
+            if closed.contains(&i) {
                 continue;
             }
-            match ask {
-                Some(ask) => asks.push((i, ask)),
-                None => session_lines.push(line),
+            if let Some(ask) = agent_ask(&line) {
+                asks.push((i, ask));
+                continue;
             }
-        }
-        closed.extend(asks.iter().map(|(i, _)| *i));
-        closed.sort_unstable();
-        closed.dedup();
-        let mut taken = Vec::new();
-        for i in closed.into_iter().rev() {
-            if i < self.clients.len() {
-                taken.push((i, self.clients.remove(i).stream));
-            }
-        }
-        for (i, ask) in asks {
-            if let Some(pos) = taken.iter().position(|(at, _)| *at == i) {
-                self.github.ask(ask, taken.swap_remove(pos).1);
-            }
-        }
-        for line in session_lines {
             let now = self.now();
+            if serde_json::from_str::<Value>(&line)
+                .is_ok_and(|v| v["op"] == super::receiver::POLICY_OP)
+            {
+                if !self.clients[i].output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                // A queued batch must not hold shutdown behind up to sixteen
+                // separate network deadlines. Check the role's control fd
+                // before every policy request, not only before the batch.
+                if self.control_words().unwrap_or(true) {
+                    return true;
+                }
+                // The request is deliberately parameterless. The role owns
+                // every identity and credential used for this hidden read.
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Request {
+                    op: String,
+                }
+                let valid = serde_json::from_str::<Request>(&line)
+                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
+                let value = if valid {
+                    self.live.as_mut().and_then(|live| {
+                        super::receiver_files::reply(
+                            &self.paths,
+                            &self.instance_id,
+                            &mut live.client,
+                            wall_ms(),
+                        )
+                        .ok()
+                    })
+                } else {
+                    None
+                };
+                let value = value.unwrap_or_else(
+                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
+                );
+                let client = &mut self.clients[i];
+                client.output = serde_json::to_vec(&value).unwrap_or_default();
+                if client.output.len() > 1024 * 1024 {
+                    closed.push(i);
+                    continue;
+                }
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -692,6 +801,50 @@ impl Worker {
             }
             self.drive(reqs);
         }
+        let now = self.now();
+        for &i in readable {
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            let client = &mut self.clients[i];
+            if client.write_deadline.is_some_and(|deadline| deadline <= now) {
+                closed.push(i);
+                continue;
+            }
+            while client.sent < client.output.len() {
+                match client.stream.write(&client.output[client.sent..]) {
+                    Ok(0) => {
+                        closed.push(i);
+                        break;
+                    }
+                    Ok(n) => client.sent += n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(_) => {
+                        closed.push(i);
+                        break;
+                    }
+                }
+            }
+            if client.sent == client.output.len() {
+                client.output.clear();
+                client.sent = 0;
+                client.write_deadline = None;
+                if client.eof {
+                    closed.push(i);
+                }
+            }
+        }
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        for i in closed.into_iter().rev() {
+            let client = self.clients.remove(i);
+            if let Some(pos) = asks.iter().position(|(asker, _)| *asker == i) {
+                self.github.ask(asks.swap_remove(pos).1, client.stream);
+            }
+        }
+        false
     }
 
     fn bind_now(&mut self) {
@@ -782,6 +935,9 @@ impl Worker {
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
+        if let Some(bridge) = &self.bootstrap {
+            bridge.enrolled();
+        }
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
@@ -1142,3 +1298,6 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
+
+#[path = "role_bootstrap.rs"]
+mod bootstrap;

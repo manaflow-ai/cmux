@@ -302,12 +302,22 @@ export const gridScenes: GridScene[] = [
     trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
-  scene("transcript.actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
-    trail(".cv-turn-time", token("transcript-action-trail-center")),
-    value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
-    ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-    mid(".cv-turn-time", ".cv-iconbtn"),
-  ]),
+  // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More, then its
+  // time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
+  // `footer` variant points at, is the one action row the transcript draws.
+  scene(
+    "transcript.actions",
+    "agent-pane.transcript-row-alignment",
+    "footer",
+    ".acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty)",
+    [
+      trail(".cv-turn-time", token("transcript-action-trail-center")),
+      value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
+      ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
+      mid(".cv-turn-time", ".cv-iconbtn"),
+    ],
+  ),
   card(
     "transcript.cards",
     "agent-pane.permission-card",
@@ -338,6 +348,42 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
+  // The failed turn's card (TurnRows.tsx TurnFailure, default `card` arm): Lawrence via Leo,
+  // 2026-10-28, "needs more left padding". Its icon box sits on the card's lead and the cause and
+  // its buttons on the card's text column; there is no trailing control.
+  {
+    ...scene("transcript.cards", "agent-pane.turn-error-card", "rate-limited", ".cv-turn-error--card", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      from("edge: top", ".cv-turn-error__cause", "top", point(":scope", "top"), token("cards-padding")),
+      left("lead", ".cv-turn-error__icon", "left", token("cards-lead")),
+      value("icon box", ".cv-turn-error__icon", "width", token("icon-box")),
+      left("text: heading", ".cv-turn-error__cause", "text", token("cards-text")),
+      left("text: actions", ".cv-turn-error__actions > :first-child", "left", token("cards-text")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      mid(".cv-turn-error__cause", ".cv-turn-error__icon"),
+    ]),
+    level: "fail",
+  },
+  // Session status (HarnessStatusCard.tsx): Lawrence via Leo, 2026-10-28, "copy all alignment
+  // with 'X'". The header actions centre on the header's first line (the harness eyebrow), and
+  // the close control is the card's 28 trailing control ending 12 in.
+  {
+    ...scene("transcript.cards", "agent-pane.harness-status", "claude", ".acpmux-harness-status", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      value("close control", ".acpmux-harness-status__close", "width", token("cards-control")),
+      trail(".acpmux-harness-status__close", token("cards-trail-center")),
+      ...centered(".acpmux-harness-status__close svg", ".acpmux-harness-status__close"),
+      value(
+        "mid: close on first line",
+        ".acpmux-harness-status__close",
+        "cy",
+        point(".acpmux-harness-status__eyebrow", "optical"),
+      ),
+      mid(".acpmux-harness-status__copy-all", ".acpmux-harness-status__close"),
+    ]),
+    level: "fail",
+  },
   // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
   // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
   // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
@@ -446,9 +492,12 @@ const absentBySurface: Record<string, Record<string, string>> = {
 for (const item of gridScenes) {
   item.absent = { ...absentBySurface[item.surface], ...item.absent };
   if (item.surface === "transcript.cards" && item.variant === "finished-open") {
-    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column.
+    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column. The column has
+    // no title row either (#29895: it starts with Environment, as the popover does since #28744).
     item.absent[".acpmux-summary-card__fold--icon"] =
-      "The inline summary column has a text heading without the popover fold icon.";
+      "The inline summary column has no title row, so no popover fold icon.";
+    item.absent[".acpmux-summary-card__title"] =
+      "The inline summary column has no title row; it starts with Environment (#29895).";
     item.absent[".acpmux-summary-card__close"] = "The inline summary column has no popover close control.";
   }
 }

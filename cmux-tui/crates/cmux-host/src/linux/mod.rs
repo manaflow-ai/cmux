@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::agent::{Exit, Platform, Wake};
@@ -49,7 +50,7 @@ struct Daemon {
     /// still reaps the child and signals go by pid (not yet reaped).
     pidfd: Option<PidFd>,
     /// `None` when adopted from a previous agent run (not our child).
-    child: Option<Child>,
+    child: Option<Arc<cmux_link::caller::RootOwnedDaemon>>,
     started: Instant,
 }
 
@@ -88,6 +89,7 @@ pub struct LinuxPlatform {
     observed_instance: Option<String>,
     layout: Option<DaemonLayout>,
     daemon: Option<Daemon>,
+    bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
     jobs: Vec<Job>,
 }
 
@@ -149,6 +151,7 @@ impl LinuxPlatform {
             observed_instance: None,
             layout: None,
             daemon: None,
+            bootstrap: None,
             jobs: Vec::new(),
             cfg,
         };
@@ -168,6 +171,14 @@ impl LinuxPlatform {
         let mut platform = platform;
         platform.arm_clock();
         Ok(platform)
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = bootstrap;
+        self
     }
 
     /// Re-arms the clock-set timer with the bounded `ECANCELED` retry. On
@@ -239,9 +250,10 @@ impl LinuxPlatform {
         );
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
-        let child = spawn::spawn_daemon(&spec)?;
+        let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
@@ -396,6 +408,9 @@ impl LinuxPlatform {
 
     fn daemon_gone(&mut self) -> Option<Exit> {
         let daemon = self.daemon.take()?;
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.daemon_exited();
+        }
         if let Some(fd) = &daemon.pidfd {
             self.epoll.remove(fd.raw());
         }
@@ -477,6 +492,12 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
 }
 
 impl Platform for LinuxPlatform {
+    fn invalidate_remote_authority(&self) {
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.invalidate();
+        }
+    }
+
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         loop {
             let tokens = self.epoll.wait()?;
