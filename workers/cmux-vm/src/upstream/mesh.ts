@@ -127,6 +127,12 @@ export interface UpstreamMeshService {
       readonly vmScope: KeyHasScope<C, "vm:write">;
     },
   ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
+  /** Read only the current address on this exact owned network. Never attaches a VM. */
+  readonly readVmAddress: <C, M, V>(
+    mesh: Named<M, MeshId>, vm: Named<V, VmId>,
+    proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly ownsVm: TenantOwnsResource<C, V>;
+      readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> },
+  ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
   readonly detachVm: <C, V>(
     vm: Named<V, VmId>,
     proofs: { readonly ownsVm: TenantOwnsResource<C, V>; readonly vmScope: KeyHasScope<C, "vm:write"> },

@@ -546,6 +546,12 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
+    HttpApiEndpoint.get("getMeshVm", "/v1/meshes/:meshId/vms/:vmId")
+      .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(MeshMember)
+      .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM's current mesh address", "mesh:read", `Also needs vm:read. Reads the exact owned VM and mesh without attaching or moving it. An unavailable address is null. ${EXPERIMENT}`)),
+  )
+  .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")
       .setPath(MemberPath)
       .setHeaders(GroupTeamHeaders)

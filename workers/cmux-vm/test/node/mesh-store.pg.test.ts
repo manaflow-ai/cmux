@@ -319,3 +319,17 @@ describe("mesh store", () => {
   });
 });
 
+
+it("refreshes only the same live tenant attachment and refuses a stale address observation", async () => {
+  const member = { meshId: newMeshId(), vmId: newVmId(), ipv4: null, attachedAt: at };
+  await run(Effect.flatMap(MeshStore, (store) => store.attachMember(A, member)));
+  const update = (tenant: typeof A, prior: Omit<typeof member, "ipv4"> & { ipv4: string | null }, ipv4: string | null) =>
+    run(Effect.flatMap(MeshStore, (store) => store.updateMemberAddress(tenant, prior, ipv4)));
+  expect(await update(B, member, "10.128.0.3")).toBe(false);
+  expect(await update(A, member, "10.128.0.3")).toBe(true);
+  expect(await update(A, member, "10.128.0.4")).toBe(false);
+  const current = { ...member, ipv4: "10.128.0.3" };
+  expect(await update(A, current, null)).toBe(true);
+  await run(Effect.flatMap(MeshStore, (store) => store.detachMember(A, member.meshId, member.vmId, new Date(at.getTime() + 1))));
+  expect(await update(A, member, "10.128.0.5")).toBe(false);
+});

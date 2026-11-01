@@ -252,12 +252,15 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const first = list[0];
       if (first === undefined) {
         vmNetworks.delete(vmId);
+        const vm = provider.vms.get(vmId); if (vm !== undefined) vm.vpcs = [];
         return json({ id: vmId, vpcs: [] });
       }
       const vpc = typeof first === "object" && first !== null && "vpc" in first && typeof first.vpc === "string" ? first.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
       vmNetworks.set(vmId, vpc);
-      return json({ id: vmId, vpcs: [{ vpc, vpcId: vpc, ipv4: `10.128.0.${hostCounter++}` }] });
+      const vpcs = [{ vpc, vpcId: vpc, ipv4: `10.128.0.${hostCounter++}` }];
+      const vm = provider.vms.get(vmId); if (vm !== undefined) vm.vpcs = vpcs;
+      return json({ id: vmId, vpcs });
     }
     return json({ message: "no route" }, 404);
   };

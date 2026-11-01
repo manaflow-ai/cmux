@@ -125,6 +125,7 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
   readonly attachMember: (tenantId: TenantId, member: MeshMemberRow) => Effect.Effect<boolean, StoreError>;
   readonly memberOf: (tenantId: TenantId, vmId: string) => Effect.Effect<Option.Option<MeshMemberRow>, StoreError>;
   readonly listMembers: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshMemberRow>, StoreError>;
+  readonly updateMemberAddress: (tenantId: TenantId, member: MeshMemberRow, ipv4: string | null) => Effect.Effect<boolean, StoreError>;
   readonly detachMember: (tenantId: TenantId, meshId: string, vmId: string, at: Date) => Effect.Effect<void, StoreError>;
 
   readonly currentAcl: (tenantId: TenantId, meshId: string) => Effect.Effect<Option.Option<MeshAclVersion>, StoreError>;
@@ -509,6 +510,14 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId],
           )
           .pipe(Effect.flatMap(decode(MemberRow, "mesh.listMembers")), Effect.map((rows) => rows.map(toMember))),
+      updateMemberAddress: (tenantId, member, ipv4) =>
+        sql.query("mesh.updateMemberAddress", `WITH updated AS (
+          UPDATE cmux_vm.mesh_members SET ipv4 = $5
+          WHERE tenant_id = $1 AND mesh_cmux_id = $2 AND vm_cmux_id = $3
+            AND attached_at = $4::timestamptz AND detached_at IS NULL AND ipv4 IS NOT DISTINCT FROM $6
+          RETURNING 1) SELECT count(*)::int AS claimed FROM updated`,
+          [tenantId, member.meshId, member.vmId, member.attachedAt.toISOString(), ipv4, member.ipv4])
+          .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.updateMemberAddress")), Effect.map((rows) => (rows[0]?.claimed ?? 0) === 1)),
       detachMember: (tenantId, meshId, vmId, at) =>
         sql
           .query(
