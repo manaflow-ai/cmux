@@ -33,6 +33,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
+    case searchTabs
     case commandPalette
     case agentInbox
     case openChief
