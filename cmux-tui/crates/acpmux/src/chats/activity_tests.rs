@@ -57,13 +57,13 @@ async fn activity_parent_keeps_lineage_precedence_expiry_and_one_level_visibilit
             json!({}),
             true,
         ),
-        (json!({"tags": {"spawnedBy": {"value": "root", "expiresAt": 1}}}), json!({}), false),
+        (json!({"tags": {"spawnedBy": {"value": "root", "expires_at": 1}}}), json!({}), false),
         (json!({"tags": {"spawnedBy": {"value": "child"}}}), json!({}), false),
         (json!({"tags": {"spawnedBy": {"value": "missing"}}}), json!({}), false),
         (json!({"lineage": lineage}), json!({"tags": {"archived": {"value": "1"}}}), false),
         (
             json!({"lineage": lineage}),
-            json!({"tags": {"archived": {"value": "1", "expiresAt": 1}}}),
+            json!({"tags": {"archived": {"value": "1", "expires_at": 1}}}),
             true,
         ),
         (
