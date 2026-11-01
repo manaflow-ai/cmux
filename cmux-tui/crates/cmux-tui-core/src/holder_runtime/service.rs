@@ -163,7 +163,13 @@ impl HolderService {
         let had_link = self.link.lock().recover_poison().link.is_some();
         let (link, listed) = match self.connect() {
             Ok(connected) => connected,
-            Err(_) if launch => {
+            Err(diag) if launch => {
+                eprintln!(
+                    "DIAG connect failed at {:?}: {diag:?} kind={:?} raw={:?}",
+                    std::time::SystemTime::now(),
+                    diag.kind(),
+                    diag.raw_os_error()
+                );
                 self.launch()?;
                 self.connect()?
             }
@@ -513,6 +519,11 @@ impl HolderService {
                 // daemon link it faults at once) would otherwise be linked
                 // again in a tight loop of connects, LISTs and threads.
                 let delay = service.relink_delay(linked_at);
+                eprintln!(
+                    "DIAG link end {end:?} after {:?}, relink in {delay:?}, at {:?}",
+                    linked_at.elapsed(),
+                    std::time::SystemTime::now()
+                );
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if !delay.is_zero() {
@@ -872,7 +883,8 @@ mod tests {
                         break;
                     }
                     let Ok(stream) = stream else { continue };
-                    accepted.fetch_add(1, Ordering::AcqRel);
+                    let n = accepted.fetch_add(1, Ordering::AcqRel);
+                    eprintln!("DIAG accept {n} at {:?}", std::time::SystemTime::now());
                     stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
                     welcome(&stream, &mut wire::Reader::default(), &[]);
                     let _ = stream.shutdown(std::net::Shutdown::Both);
