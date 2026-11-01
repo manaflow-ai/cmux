@@ -305,3 +305,39 @@ fn a_remote_device_never_sees_or_reopens_an_incognito_workspaces_saved_group() {
     assert!(local.to_string().contains(&saved), "the phone did not delete it: {local}");
     mux.shutdown();
 }
+
+/// One `cmux.protocol/2` line from `conn`; its response.
+fn v2(mux: &Arc<Mux>, conn: &Conn, operation: &str, mut params: Value, key: &str) -> Value {
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let request = resource_request(key, operation, params, Some(key));
+    assert!(handle_connection_message(mux, conn.0, &request, &conn.1, &conn.3));
+    pop_json(&conn.2)
+}
+
+#[test]
+fn a_remote_devices_resource_replies_leave_out_incognito_workspaces() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let made = v2(&mux, &app, "workspace_group.create", json!({"name": "Work"}), "work");
+    assert_eq!(made["ok"], true, "{made}");
+    let group = made["result"]["value"]["id"].as_str().unwrap().to_string();
+    for (workspace, key) in [(&private, "place-private"), (&normal, "place-normal")] {
+        let placed =
+            v2(&mux, &app, "workspace.place", json!({"workspace": workspace, "group": group}), key);
+        assert_eq!(placed["ok"], true, "{placed}");
+    }
+
+    // The phone deletes the group: both workspaces are ungrouped, and the
+    // answer names only the normal one.
+    let phone = phone(&mux);
+    let deleted =
+        v2(&mux, &phone, "workspace_group.delete", json!({"workspace_group": group}), "delete");
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    let text = deleted.to_string();
+    assert!(!text.contains(&private), "an incognito workspace reached the phone: {text}");
+    assert!(!text.contains("private-space"), "{text}");
+    mux.shutdown();
+}
