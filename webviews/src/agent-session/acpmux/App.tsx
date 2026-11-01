@@ -4760,7 +4760,10 @@ export function VirtualTranscript({
         keepBottomFoldRoom();
         return false;
       }
-      if (!stickyFoldRoom.current) dropFoldRoom();
+      // Reopening at the physical bottom consumes any room retained by a prior collapse. The
+      // expanded body itself supplies the height; keeping the old blank room would add a second,
+      // jarring gap while the stack moves up.
+      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
