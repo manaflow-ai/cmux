@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: Leo's three sidebar prototypes are App Store toggles that work in every build. Leo (2026-10-21):
+  "not even, like, plugins. They're just f***ing toggles in the app store area". Workspaces as Tabs
+  (`sidebar.workspacesAsTabs`), Chrome-Style Groups (`sidebar.chromeGroups`) and Workspaces Side by Side
+  (`sidebar.sideBySide`) are schema settings, off by default, each with a Sidebar card in the App Store. Each reader
+  goes through `SidebarTunables.workspacesAsTabsOn` / `groupChromeShapeOn` / `multiViewOn` (the setting or the old
+  Debug tunable), so no look changes until someone turns one on. The sidebar view menu's Compact Workspace List writes
+  the setting and is no longer DEV-only. Regression: `SidebarPrototypeTogglesSettingTests`,
+  `SidebarPrototypeStoreCardsTests`, `SidebarCompactListMenuTests`.
+
 - 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
   them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
   see the # of associated subagents and whatnot would be a lot more useful / like the details aren't even very useful

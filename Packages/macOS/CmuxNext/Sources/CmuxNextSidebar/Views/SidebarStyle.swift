@@ -144,7 +144,7 @@ enum SidebarStyle {
     /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
     /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
-    static var groupChromeShape: Bool { SidebarTunables.groupChromeShape.value && SidebarGroupHeaderStyle.tunable.value == .band }
+    static var groupChromeShape: Bool { SidebarTunables.groupChromeShapeOn && SidebarGroupHeaderStyle.tunable.value == .band }
     /// The members' line: 2 pt normally, 4 pt in the connected-shape prototype.
     static var groupBarWidth: CGFloat { groupChromeShape ? Metrics.space2 : Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }

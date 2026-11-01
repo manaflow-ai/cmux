@@ -59,10 +59,12 @@ fn sub_harnesses(h: &Harness) -> Vec<String> {
         .collect()
 }
 
+/// Off by default (Leo, 2026-11-01: "optional ofc we don't wanna change
+/// defaults or whatnot yet"): only the person turns it on.
 #[test]
-fn auto_route_is_on_unless_the_person_set_it_false() {
-    assert!(auto_route_on(None));
-    assert!(auto_route_on(Some(&json!({}))));
+fn auto_route_is_off_unless_the_person_turns_it_on() {
+    assert!(!auto_route_on(None));
+    assert!(!auto_route_on(Some(&json!({}))));
     assert!(auto_route_on(Some(
         &json!({"chief": {"autoRouteSubagents": true}})
     )));
@@ -78,7 +80,7 @@ fn auto_route_is_on_unless_the_person_set_it_false() {
 #[test]
 fn spawn_harness_routes_the_subagents_and_the_setting_turns_it_off() {
     let config = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(config.path(), "{}").unwrap();
+    std::fs::write(config.path(), r#"{"chief": {"autoRouteSubagents": true}}"#).unwrap();
     // SAFETY: the only test in this binary that reads the settings file.
     unsafe { std::env::set_var("CMUX_NEXT_CONFIG_FILE", config.path()) };
 

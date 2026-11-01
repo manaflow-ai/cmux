@@ -827,6 +827,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if quoteClicked(hit, at: p) { return }
             // cmux: an agent-message fold or notes row opens or closes (HomeStore.toggleAgentMessages).
             if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
+            // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
+            if let url = intents?.feedRowURL(hit.row.ref.messageId) {
+                if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
+                return
+            }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an

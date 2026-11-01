@@ -124,7 +124,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
              .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
@@ -222,6 +222,8 @@ extension AgentPaneModel {
             return await videoInfo(src)
         case .videoTranscript(let src):
             return await videoTranscript(src)
+        case .videoFrames(let src, let times):
+            return await videoFrames(src, times: times)
         case .quickLookVideo(let src):
             return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
