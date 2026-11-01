@@ -3,6 +3,7 @@
 # keeps this list equal to those traits, and --fix rewrites it.
 Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTests
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
+Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
@@ -19,11 +20,11 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SidebarNewRowInPlaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarPriorityMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowsMoveOnRenderServerTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarTabGapCleanupTests
-Packages/macOS/CmuxNext CmuxNextAppTests.SidebarWorkspaceTabHierarchyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TitlebarDoubleClickTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TooltipSurfaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WindowZoomTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests

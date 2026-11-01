@@ -604,7 +604,9 @@ jobs:
           fetch-depth: 2
 
       - name: The defaults guard judges changes and approvals
-        run: python3 tests/test_defaults_guard.py
+        run: |
+          python3 tests/test_defaults_guard.py
+          python3 tests/test_defaults_guard_review_rerun.py
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
@@ -712,6 +714,10 @@ jobs:
       - name: The app-linked crate license gate (check_app_crate_licenses.py)
         if: ${{ !cancelled() }}
         run: python3 tests/test_app_crate_licenses.py
+
+      - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_check_objc_selectors_step.py
 
       - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
         if: ${{ !cancelled() }}

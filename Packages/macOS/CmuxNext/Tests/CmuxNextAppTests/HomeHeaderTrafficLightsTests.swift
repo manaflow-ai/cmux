@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextHome
 @testable import CmuxNextTabs
@@ -10,7 +11,7 @@ import Testing
 /// cmux#25593: the docked Home pane has no tab bar, so with the sidebar hidden (Cmd+B) Home's list
 /// sits at the window's top-left and its Search field was under the traffic lights. Hiding the
 /// sidebar moves the list with no resize of its own, so nothing laid its header out again.
-@MainActor @Suite(.serialized) struct HomeHeaderTrafficLightsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeHeaderTrafficLightsTests {
     /// A shell window as the app makes it: titled, full-size content, its traffic lights over the top row.
     private func window() -> ShellWindow {
         _ = NSApplication.shared

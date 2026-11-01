@@ -56,13 +56,13 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     /// baseline in the title's font and ink, and no row moves or resizes.
     func begin(_ key: SidebarRowKey, inPlace: Bool = false) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
-        if case let .group(id) = key, !inPlace { return list.groupEditing.open(id) }
+        if case let .group(id) = key, !inPlace || SidebarGroup.hostMachine(id) != nil { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
         let original: String
         switch key {
         case let .workspace(id): original = list.workspaces[id]?.title ?? ""
         case let .group(id): original = list.groups[id]?.name ?? ""
-        case .tab, .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: return
+        case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: return
         }
         if let row = list.displayed.row(for: key) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
@@ -150,7 +150,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
             switch session.key {
             case let .workspace(id): list.model.send(.rename(id, text))
             case let .group(id): list.model.send(.renameGroup(id, text))
-            case .tab, .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: break
+            case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: break
             }
             list.reload(animated: false)
         }

@@ -181,6 +181,11 @@ export interface EventsParams {
   /** Default 5000. */
   limit?: (number | null);
   maxBytes?: (number | null);
+  /**
+   * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+   * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+   */
+  promptIndex?: (boolean | null);
   sessionId: string;
 }
 
@@ -604,6 +609,8 @@ export type QueuedImage = {
   mimeType: string;
   /** Its file name, when the client gave one. */
   name: (string | null);
+  /** The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise. */
+  source?: unknown;
 } & Record<string, unknown>;
 
 /** A prompt waiting for the running turn to end. */
@@ -651,7 +658,24 @@ export type QueuedPromptSummary = {
   prompt: string;
   promptId: string;
   queuedAt: number;
+  /**
+   * acpmux's own ask that the chat's agent resume a subagent that failed on a transient error
+   * (`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that
+   * subagent's resume, not as the person's prompt. Null for any other prompt, and once edited
+   * (an edit drops the provenance).
+   */
+  subagentRetry: (QueuedSubagentRetry | null);
   turnId: string;
+} & Record<string, unknown>;
+
+/** The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`). */
+export type QueuedSubagentRetry = {
+  /** The Agent tool's id for it, which the agent resumes it by. */
+  agentId: string;
+  /** The transient error it failed on. */
+  error: (string | null);
+  /** Its task or name, when acpmux knew one. */
+  name: (string | null);
 } & Record<string, unknown>;
 
 export interface RequestMeta {
@@ -1254,12 +1278,21 @@ export interface SessionsParams {
 
 export type SessionsResult = {
   /**
+   * A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
+   * changed since, and the rest of the known rows stand.
+   */
+  delta?: (boolean | null);
+  /**
    * With `limit`: the cursor for the next page, null when the list is
    * done. Absent without `limit`.
    */
   nextCursor?: (string | null);
+  /** With `delta`: the known sessions no longer listed. */
+  removed?: (string[] | null);
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
+  /** With `delta`: how many listed rows were left out as unchanged. */
+  unchanged?: (number | null);
 } & Record<string, unknown>;
 
 export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
@@ -1381,6 +1414,12 @@ export interface WatchParams {
    * `_acpmux/session_changed`.
    */
   enabled?: (boolean | null);
+  /**
+   * A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
+   * list, with the digest of its row as last listed (`""` when it changed since). The reply
+   * is then a delta: `delta: true`, the rows new or changed, and `removed`.
+   */
+  known?: (Record<string, string> | null);
   limit?: (number | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);

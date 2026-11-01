@@ -14,16 +14,21 @@ struct SidebarResizeBand: Equatable {
 
     var width: CGFloat { inside + outside }
 
-    /// The narrowest band: 10 pt, the gutter beside the curved main pane (6 pt) and 4 pt of the
-    /// sidebar. The pane dividers' 7 pt hit width alone left a 3.5 pt target here.
-    static let minimumWidth: CGFloat = 10
+    /// The narrowest band: 8 pt, the gutter beside the curved main pane (6 pt) and 2 pt of the
+    /// sidebar. Keeping only 2 pt inside leaves the trailing accessory column clear of the drag
+    /// zone while preserving a target wider than the pane dividers' 7 pt hit width.
+    static let minimumWidth: CGFloat = 8
+    /// The maximum part of the hit band that may sit over the sidebar content.
+    static let contentInset: CGFloat = 2
 
     /// - Parameter width: The band's total width.
     /// - Parameter gutter: The empty gutter beside the sidebar (`Metrics.mainPaneGutter`, 0 when
-    ///   the main pane is flush). The outside half grows into it, up to all but 4 pt of `width`.
+    ///   the main pane is flush). The outside half grows into it, up to all but 2 pt of `width`.
     init(width: CGFloat, gutter: CGFloat) {
         let half = width / 2
-        outside = min(max(gutter, half), max(half, width - 4))
+        // Keep the target at least half outside for divider hit parity, while reserving the
+        // declared content inset even when the neighboring gutter is narrower than half.
+        outside = min(width, max(max(gutter, half), width - Self.contentInset))
         inside = width - outside
     }
 }

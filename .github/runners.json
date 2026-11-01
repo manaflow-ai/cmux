@@ -203,10 +203,7 @@
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
     "cmux-next-guards.yml#ci-guard-group": "portable-checks",
     "cmux-next-guards.yml#tooling-tests": "portable-checks",
-    "cmux-next-ios-kit.yml#kit-tests": {
-      "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label; #28145 takes it from ios_runner_pool.py and removes this followup"
-    },
+    "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-media.yml#tour": "apple-gui",
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
@@ -324,6 +321,13 @@
     "nightly-next-launch-smoke.yml#smoke": "apple-gui",
     "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
+    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
+    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks"},
+    "nightly.yml#build-nightly-inputs": {"class": "portable-checks"},
+    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
+    "nightly.yml#build-nightly-remote-daemon": "portable-checks",
+    "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
@@ -386,6 +390,26 @@
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "stable-next.yml#perf-budgets": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#sign": {
+      "class": "apple-signing-release",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#smoke-26": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS 26 label (vars.MACOS_RUNNER_26, then Blacksmith macOS 26); take it from a picker job's output that keeps to macOS 26"
+    },
+    "stable-next.yml#smoke-27": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#swift-suites": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -400,5 +424,21 @@
     },
     "test-ios.yml#ios-simulator-build": "apple-ios",
     "test-ios.yml#mobile-core-package": "apple-ios"
+  },
+  "hosted_light_jobs": {
+    "$comment": [
+      "Same-repository nightly jobs may use GitHub-hosted Ubuntu only during their declared bootstrap route.",
+      "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
+    ],
+    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap"},
+    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker"},
+    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks", "reason": "client reuse lookup"},
+    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks", "reason": "helper reuse lookup"},
+    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks", "reason": "recovery lookup"},
+    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks", "reason": "visual verdict bookkeeping"},
+    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks", "reason": "visual report bookkeeping"},
+    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks", "reason": "publication state bookkeeping"},
+    "nightly.yml#report-nightly-failure": {"class": "portable-checks", "reason": "failure report bookkeeping"},
+    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks", "reason": "failure issue bookkeeping"}
   }
 }
