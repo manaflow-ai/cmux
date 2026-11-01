@@ -498,6 +498,11 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_pi_question_notification_journal.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_pi_wrapper.py"
 lane = "macos-cli-no-socket"
 
