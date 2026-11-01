@@ -23,9 +23,9 @@ struct CloudStartChatLoginTests {
 
     @Test func aCachedLoginInstallsSilentlyAndTheFirstOneAsksOnce() {
         func step(enabled: Bool = true, provider: CloudCredentialTransfer.Provider? = .claude, user: Bool = true,
-                  owns: Bool = true, has: Bool = false, cached: Bool = false) -> Step {
+                  owns: Bool = true, ownerGuest: Bool = true, has: Bool = false, cached: Bool = false) -> Step {
             CloudStartChat.loginStep(enabled: enabled, provider: provider, signedInUser: user, callerOwns: owns,
-                                     machineHasLogin: has, cachedLogin: cached)
+                                     ownerGuest: ownerGuest, machineHasLogin: has, cachedLogin: cached)
         }
         #expect(step(cached: true) == .install)
         #expect(step(cached: false) == .confirmThenInstall)
@@ -33,6 +33,10 @@ struct CloudStartChatLoginTests {
         // already has a login, no signed-in user, or a harness whose login stays per machine.
         #expect(step(enabled: false, cached: true) == .skip)
         #expect(step(owns: false, cached: true) == .skip)
+        // A team guest, even the caller's own (a creator's team machine): skipped before any confirm,
+        // since the transfer's preflight refuses a guest whose Unix user teammates share.
+        #expect(step(ownerGuest: false, cached: true) == .skip)
+        #expect(step(ownerGuest: false, cached: false) == .skip)
         #expect(step(has: true, cached: true) == .skip)
         #expect(step(user: false, cached: true) == .skip)
         #expect(step(provider: .codex, cached: true) == .skip)
@@ -42,5 +46,6 @@ struct CloudStartChatLoginTests {
     @Test func theMachineProbeUsesTheImagesOwnDetection() {
         #expect(CloudStartChat.machineLoginProbe.contains("cmux_agent_has_own_login claude"))
         #expect(!CloudStartChat.machineLoginProbe.contains("sk-ant"))
+        #expect(CloudStartChat.ownerGuestProbe.contains("/etc/cmux/vm-kind"))
     }
 }

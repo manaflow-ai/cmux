@@ -6,7 +6,8 @@ import Foundation
 
 /// A `cloud.startChat` chat's harness login, before its first prompt (Leo, 2026-10-31: "A TOKEN GETS
 /// PASSED"). On a machine the signed-in person owns (the attach answer's `vmKind == "owner"`) whose
-/// guest is an owner machine (no teammate shares its Unix user), Claude gets the person's own `claude setup-token`
+/// guest is an owner machine (no teammate shares its Unix user; a team machine, its creator's
+/// included, is left alone, cmux#29774), Claude gets the person's own `claude setup-token`
 /// login through ``CloudCredentialTransfer``: silently when cmux already holds that login for this
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
@@ -33,13 +34,20 @@ extension CloudStartChat {
     /// What the start does about the login: nothing, install with no prompt, or ask once first.
     enum LoginStep: Equatable { case skip, install, confirmThenInstall }
 
+    /// `ownerGuest`: the guest is an owner machine (`/etc/cmux/vm-kind`). A team guest, a creator's
+    /// included, is skipped before any confirm: every member's terminal there runs as the same Unix
+    /// user, so the transfer's preflight refuses it (``CloudCredentialInstaller``), and asking first
+    /// would only end in that refusal. Team machines are cmux#29774.
     nonisolated static func loginStep(enabled: Bool, provider: CloudCredentialTransfer.Provider?, signedInUser: Bool,
-                                      callerOwns: Bool, machineHasLogin: Bool, cachedLogin: Bool) -> LoginStep {
+                                      callerOwns: Bool, ownerGuest: Bool, machineHasLogin: Bool, cachedLogin: Bool) -> LoginStep {
         // Codex logins are per machine (its refresh token is VM-bound): its broker flow stays the
         // turn card's recovery until it gets the same treatment.
-        guard enabled, provider == .claude, signedInUser, callerOwns, !machineHasLogin else { return .skip }
+        guard enabled, provider == .claude, signedInUser, callerOwns, ownerGuest, !machineHasLogin else { return .skip }
         return cachedLogin ? .install : .confirmThenInstall
     }
+
+    /// The guest's own kind, as the transfer's preflight reads it. Exits 0 on an owner machine.
+    static let ownerGuestProbe = #"[ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]"#
 
     /// The probe for a login already on the machine: the image's own detection, with its config
     /// sourced as the launcher does. Exits 0 when Claude has its own sign-in there.
@@ -57,13 +65,14 @@ extension CloudStartChat {
         let api = cloud.machineAPI.pinningTeam(teamID)
         do {
             let owns = try await cloud.callerOwnsVM(machineID)
-            var hasLogin = false, cached = false
-            if owns {
+            var ownerGuest = false, hasLogin = false, cached = false
+            if owns { ownerGuest = (try? await api.exec(machineID, command: Self.ownerGuestProbe, timeoutMs: 20_000).exitCode) == 0 }
+            if ownerGuest {
                 hasLogin = (try? await api.exec(machineID, command: Self.machineLoginProbe, timeoutMs: 20_000).exitCode) == 0
                 if !hasLogin { cached = await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) }
             }
             switch Self.loginStep(enabled: enabled, provider: provider, signedInUser: true, callerOwns: owns,
-                                  machineHasLogin: hasLogin, cachedLogin: cached) {
+                                  ownerGuest: ownerGuest, machineHasLogin: hasLogin, cachedLogin: cached) {
             case .skip: return false
             case .install: break
             case .confirmThenInstall:
