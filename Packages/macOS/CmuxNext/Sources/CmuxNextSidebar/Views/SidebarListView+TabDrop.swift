@@ -52,6 +52,12 @@ extension SidebarListViewComponents {
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
+            if displayed.hostHeadersShowing {
+                switch proposal {
+                case .intoWorkspace?: break
+                default: proposal = nil
+                }
+            }
             external.slotDeadline = nil
             if slotDwell > 0, let slot = proposal, case .newWorkspace = slot {
                 let now = CACurrentMediaTime()

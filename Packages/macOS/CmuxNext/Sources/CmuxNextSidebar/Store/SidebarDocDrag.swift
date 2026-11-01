@@ -96,7 +96,7 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .folder, .status, .doneFold, .showMore:
+            case .folder, .sessionHost, .status, .doneFold, .showMore:
                 continue
             }
         }

@@ -90,7 +90,7 @@ extension SidebarListViewComponents {
             // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
             // the next Space or Return; the release toggles it.
             SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
-        case .section, .emptySection, .emptyGroup, .folder, .block, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .sessionHost, .status:
             break
         }
         self.press = press
@@ -163,6 +163,8 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
+        case let .sessionHost(host):
+            SidebarSessionTree.shared.toggleHost(host)
         case .doneFold, .showMore:
             _ = SidebarFoldAction(list: self).toggle(press.key)
             return

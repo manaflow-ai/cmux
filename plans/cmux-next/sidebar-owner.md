@@ -837,3 +837,13 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Top workspace insert lands without a cascade (2026-10-31)
 
 - PR #28205, implementation `ac80839dcfa`. Leo: "when you create a workspace at the top it's a huge cascade" and it "pushes all the workspaces below down pretty hard". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Nudge, quick and full spring remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation remain follow-up validation.
+
+
+## Session-tree host groups use the drawn workspace projection (2026-10-30)
+
+Leo: "i feel like there's still a big mess of uncategorized stuff in the sidebar", "i mean we dont want to be too opinionated by defgault", "im saying for my particular sidebar there's a lot of wack stuff there". The existing opt-in session tree groups its loose agent workspaces by their existing tab host, with a foldable host header and a count that includes folded descendants. A live parent in this window wins across machines; a loose child also follows a visible parent inside a user group. Explicit child group placement is retained. The real layout and shortcut order share this projection; the unbound remote-lane feed no longer filters children. No default or row title/subtitle changes. `SidebarSessionHostTests` exercises feed-to-layout lineage, parent absence, cross-machine lineage, folds, explicit groups and the disabled state.
+
+- Follow-up geometry: host regrouping keeps the drop gap attached to its logical insertion slot, retains section and chat-history boundary spacing, and shifts Earlier by the final visible family extent; Pinned remains above the first host header.
+
+- Dragging preserves the host projection and row identity: synthetic headers remain during an open gap, workspace rows retain their document section and sibling index, and the drop reducer maps each drawn neighbor to its underlying document slot. Fleet children of Pinned/custom rows stay in their own machine group, preserving the section boundary.
+- Grouped drag halves resolve from the drawn family: a drop maps before the row or before its next drawn sibling, and a family mismatch refuses the gap. The ungrouped layout keeps its existing reducer path.
