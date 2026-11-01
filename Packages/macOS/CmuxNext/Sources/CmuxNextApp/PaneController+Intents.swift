@@ -164,7 +164,7 @@ extension PaneController {
     /// stand-in's terminal as soon as its view has the keyboard: the view sends them to the daemon by
     /// the terminal id this create chose, which queues them for the PTY (cx-wb5.78), so no key waits
     /// for the reply (first-seconds-evidence.md: they waited 250-1600 ms and were sent again late).
-    /// A daemon that does not queue such keys, or a create on a stand-in pane (it waits for that pane), keeps them until then.
+    /// A daemon that does not queue such keys keeps them until the daemon's terminal has the keyboard.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
                                    window: NSWindow?, timing: CreateTabInterval?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
@@ -181,7 +181,7 @@ extension PaneController {
         // that view (`TabContentCache.adoptStandIn`), as a split's provisional pane keeps its own.
         if let intent { self.workspace?.focus.expect(.tab(pending.tab), generation: intent) }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
-                                                                     earlyTab: daemon.queuesCreatingInput(on: command.pane) ? pending.tab : nil, tab: pending.tab)
+                                                                     earlyTab: daemon.queuesCreatingInput ? pending.tab : nil, tab: pending.tab)
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
         showStandIn(surface: pending.surface, focus: .content, intent: intent)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job

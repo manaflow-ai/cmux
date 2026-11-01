@@ -129,7 +129,7 @@ enum PaneHandlers {
         // focus moves only after the reply; on the optimistic path the provisional view stays (it
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput(on: handle) ? provisional?.tabID : nil, tab: provisional?.tabID)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
         // The split and the even sizing of its chain are one gesture: hold the chain's target
