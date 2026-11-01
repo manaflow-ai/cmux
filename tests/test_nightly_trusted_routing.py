@@ -280,6 +280,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
             with self.subTest(job=name):
                 job = jobs[name]
+                self.assertIn("always()", str(job.get("if", "")),
+                              "an optional signing picker must not implicitly skip publication after a recovery")
                 runs_on = str(job["runs-on"])
                 for term in route:
                     self.assertIn(term, runs_on)

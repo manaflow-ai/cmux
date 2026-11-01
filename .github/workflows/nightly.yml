@@ -6710,7 +6710,7 @@ jobs:
   # they need. publish-nightly-next-github-names then writes the mutable state.
   publish-nightly-next-github:
     needs: [decide, resolve-nightly-cmux-tui-client, publish-nightly, pick-nightly-sign-runner]
-    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
+    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
@@ -6859,7 +6859,7 @@ jobs:
   # here (publish-nightly-next-github has no group).
   publish-nightly-next-github-names:
     needs: [decide, publish-nightly, publish-nightly-next-github, pick-nightly-sign-runner]
-    if: "!cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
+    if: "always() && !cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
       group: nightly-next-github-names
