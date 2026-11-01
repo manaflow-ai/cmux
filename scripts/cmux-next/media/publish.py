@@ -42,9 +42,9 @@ TOURS_DIR = "scripts/cmux-next/media/tours"
 VIDEO_FPS = 60
 # tour.py's FRAME_INTERVAL, for a manifest that names none.
 DEFAULT_FRAME_INTERVAL = 0.5
-# GIFs are intentionally lighter than the source video, while retaining smooth UI motion.
-GIF_FPS = 15
 VIDEO_SIZE = (1280, 800)
+# The GIF's frame rate comes from pr_media.gif_attempts: 50 fps from a 60 Hz recording when it fits, else 30,
+# stepping down width first and then rate until it fits under the inline limit (never above the clip's rate).
 GIF_WIDTHS = (720, 560, 440)
 VIDEO_NAME = "capture.mov"
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
@@ -189,8 +189,8 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
         return None, None
     gif = into / "tour.gif"
-    for width in GIF_WIDTHS:
-        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True, env=env)
+    for fps, width in pr_media.gif_attempts(GIF_WIDTHS, None, pr_media.source_fps(mp4, run, env)):
+        done = run(pr_media.gif_argv(mp4, gif, fps, width), capture_output=True, text=True, env=env)
         if done.returncode == 0 and gif.is_file() and gif.stat().st_size <= pr_media.INLINE_MAX_BYTES - 512 * 1024:
             return mp4, gif
     return mp4, None
