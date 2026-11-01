@@ -869,9 +869,10 @@ def fresh(run):
     wait(lambda: daemon_state() == {}, 20, 0.5)
     names = []
     for _ in range(run.rng.randint(1, 3)):
-        names.append(run.name())
-        answer, _ = cli("workspace", "create", "--name", names[-1])
-        created(names[-1], answer)
+        name = run.name()
+        answer, _ = cli("workspace", "create", "--name", name)
+        if created(name, answer):
+            names.append(name)
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
     state = daemon_state()
     listed_names = {w["name"] for w in (state or {}).values()}
@@ -1165,7 +1166,9 @@ def setup_diskfull():
     why = disk_plan(st.f_bavail * st.f_frsize, opts.disk_image_mb, tree_bytes(state))
     if why:
         return why
-    vol = DiskVolume(os.path.join(opts.out, "fz-disk.dmg"), state, opts.disk_image_mb)
+    # Never in OUT (the copy back would carry it); in the slot's own TMPDIR, removed at teardown.
+    image_dir = APP.env.get("TMPDIR") or os.path.dirname(opts.out.rstrip("/"))
+    vol = DiskVolume(os.path.join(image_dir, f"fz-disk-{os.getpid()}.dmg"), state, opts.disk_image_mb)
     made = subprocess.run(vol.create_cmd(), capture_output=True, text=True, timeout=120)
     if made.returncode:
         return f"hdiutil create failed: {made.stderr.strip()[:200]}"
@@ -1208,12 +1211,27 @@ def disk_phase(i):
 
 
 def teardown_diskfull():
-    vol = DISK.get("volume")
+    """Detaches the image, puts the original state dir back, removes the image file. Logs each step."""
+    vol = DISK.pop("volume", None)
     if not vol:
         return
     stop_build_processes()
     if not vol.detach():
         say(f"  diskfull: WARNING the image is still mounted at {vol.mountpoint}; the lease cleanup must detach it")
+        return
+    say(f"  diskfull: image detached from {vol.mountpoint}")
+    orig = DISK.get("orig")
+    if orig and os.path.isdir(orig):
+        try:
+            os.rmdir(vol.mountpoint)
+            os.rename(orig, vol.mountpoint)
+            say("  diskfull: original state dir restored")
+        except OSError as error:
+            say(f"  diskfull: WARNING could not restore the original state dir: {error}")
+    try:
+        os.remove(vol.image)
+    except OSError:
+        pass
 
 
 # ---- chaos -------------------------------------------------------------------------------------
@@ -1309,6 +1327,11 @@ def main():
             rec = iteration(it_seed, targets, label=f"iter{i}")
             if phase:
                 rec["disk"] = phase
+                # h1 class: after refused work, the app must still show exactly what the daemon has.
+                state_now = daemon_state()
+                shown = app_state()
+                if state_now is not None and shown and shown[0] != {w["name"]: sorted(w["tabs"]) for w in state_now.values()}:
+                    rec["app_daemon_differ"] = {"app": shown[0], "daemon": canon(state_now)}
                 rec["errors"] = list(ERRORS[:20])
                 rec["errors_untyped"] = sum(1 for e in ERRORS if not e["typed"])
                 # A full disk may refuse work: that is degraded, not "not run", when it refused with an answer.
@@ -1324,7 +1347,8 @@ def main():
                 f.write(json.dumps(rec, default=str) + "\n")
             say(f"  -> {rec['verdict']} {rec.get('timings', {})} {'; '.join(rec['problems'])[:400]}")
             if rec["verdict"] == "fail":
-                small = shrink(rec, targets, deadline - 30) if (seeds or len(violations) < 2) else None
+                small = (shrink(rec, targets, deadline - 30)
+                         if (seeds or len(violations) < 2) and opts.chaos != "diskfull" else None)
                 violations.append({"record": rec, "shrink": small})
                 with open(os.path.join(opts.out, "violations.json"), "w") as f:
                     json.dump(violations, f, indent=1, default=str)
@@ -1354,7 +1378,7 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
+        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} app_daemon_differ={sum(1 for r in records if r.get('app_daemon_differ'))} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
         f"hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
         f"listed_minus_shown_minus_closed30s_max={EXCESS_MAX[1]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
