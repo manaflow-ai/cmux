@@ -125,14 +125,8 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     for repo in &mut recent {
         repo.source = "recent".into();
     }
-    let install_url = args["install_url"].as_str().filter(|s| {
-        url::Url::parse(s).is_ok_and(|u| {
-            u.scheme() == "https"
-                && u.host_str() == Some("github.com")
-                && u.username().is_empty()
-                && u.password().is_none()
-        })
-    });
+    let install_url =
+        args["install_url"].as_str().filter(|url| super::engine::valid_install_url(url));
     if args.get("install_url").is_some() && install_url.is_none() {
         return Err(Failure::new(
             "seed.bad_request",
@@ -241,7 +235,10 @@ pub(super) fn set_job(
 }
 
 pub(super) fn install_url(mux: &Mux) -> Result<Option<String>, Failure> {
-    Ok(load(mux)?.0["install_url"].as_str().map(str::to_owned))
+    Ok(load(mux)?.0["install_url"]
+        .as_str()
+        .filter(|url| super::engine::valid_install_url(url))
+        .map(str::to_owned))
 }
 
 #[cfg(test)]

@@ -228,3 +228,48 @@ fn cloud_repo_remote_gate_never_exports_mac_projects_or_accepts_lookalike_comman
         assert!(!crate::server::FsGate.admit(&peer, &value.to_string()));
     }
 }
+
+// Shared hostile-link corpus exercises the same validator at every boundary.
+pub(super) const UNSAFE_INSTALL_URLS: &[&str] = &[
+    "",
+    "http://github.com/apps/cmux",
+    "javascript:alert(1)",
+    "https://evil.example/apps/cmux",
+    "https://github.com.evil.example/apps/cmux",
+    "https://github.com@evil.example/apps/cmux",
+    "https://user@github.com/apps/cmux",
+    "https://@github.com/apps/cmux",
+    "https://user:secret@github.com/apps/cmux",
+    "https://github.com:444/apps/cmux",
+    "https://github.com/apps/cmux\n",
+    "https://git\thub.com/apps/cmux",
+    "https://github.com/apps/\rcmux",
+    " https://github.com/apps/cmux",
+];
+
+#[test]
+fn cloud_repo_install_link_validation_and_engine_outputs_share_one_policy() {
+    for url in
+        ["https://github.com/apps/cmux/installations/new", "https://github.com:443/apps/cmux"]
+    {
+        assert!(engine::valid_install_url(url));
+        assert_eq!(Failure::needs_github(url).0["install_url"], url);
+    }
+    for url in UNSAFE_INSTALL_URLS {
+        assert!(!engine::valid_install_url(url), "{url:?}");
+        let failure = Failure::needs_github(url).0;
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(failure.get("install_url").is_none());
+        assert!(failure["message"].as_str().unwrap().contains("Mac"));
+        let fake = Fake { install_url: RefCell::new(Some((*url).into())), ..Default::default() };
+        assert_eq!(list(&fake, None).unwrap_err().0["code"], "seed.bad_request");
+        let failure = add(&fake, &args("project")).unwrap_err().0;
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(failure.get("install_url").is_none());
+        for code in ["seed.needs_github", "repo.needs_github", "seed.no_access", "repo.no_access"] {
+            let failure = engine::seed_failure(&json!({"error_code":code,"install_url":url})).0;
+            assert!(failure.get("install_url").is_none(), "{code}: {failure}");
+            assert!(!failure["message"].as_str().unwrap().is_empty());
+        }
+    }
+}

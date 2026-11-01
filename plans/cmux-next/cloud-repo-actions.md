@@ -17,6 +17,10 @@ failures retain the normal `ok:false` envelope.
 | `cloud.repo.remember` | `{session,attachment:{state:"done",repo,folder,head}}` | `{remembered:true}` |
 
 `session` is the chat ID, a single safe path component. It is not the daemon session selector.
+Agent tools verify this ID against the caller authenticated by acpmux's initialize handshake.
+A presented ACP launch credential also restricts daemon actions to that same chat. Existing
+local-user CLI access and authenticated Mac links remain authorized; same-user raw sockets
+are not a process isolation boundary.
 A bare repo name is resolved in source order: local Mac remotes, previous Cloud chat repos,
 then all pages of the GitHub installation catalog. One match attaches; multiple matches within
 one source return `repo.ambiguous` with `choices` in the same repo-row shape. An explicit
@@ -39,6 +43,9 @@ it with the catalog. Machine VM bearers can enumerate repositories, but cannot e
 agent accepts `{github_repos:{query?,cursor?}}`, fixes team/environment from its binding, and
 uses `GET /v1/connectors/github/repos`. A proven unlinked account returns `connect:{}` when
 VM install-link issuance is refused; the daemon fills the URL from the synchronized catalog.
+Every installation link is checked for HTTPS, the exact `github.com` host, and absence of
+credentials or a nondefault port. A valid synchronized Mac link takes precedence over
+connector or seed responses. Unsafe links never become card destinations.
 
 ## Clone, recovery and persistence
 

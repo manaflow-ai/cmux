@@ -112,3 +112,26 @@ fn cloud_repo_remember_rejects_invalid_attachment_without_mutating_catalog() {
     );
     assert!(sources(&mux).unwrap().is_empty());
 }
+
+#[test]
+fn cloud_repo_install_links_are_checked_on_sync_and_when_reading_old_records() {
+    let mux = mux("cloud-repo-install-link-validation");
+    let trusted = "https://github.com/apps/cmux/installations/new?state=mac";
+    for url in crate::cloud_repos::tests::UNSAFE_INSTALL_URLS {
+        let failure = sync(&mux, &json!({"repos":[],"install_url":url})).unwrap_err().0;
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(install_url(&mux).unwrap().is_none());
+        assert!(load(&mux).unwrap().0.get("install_url").is_none());
+    }
+    sync(&mux, &json!({"repos":[],"install_url":trusted})).unwrap();
+    for url in crate::cloud_repos::tests::UNSAFE_INSTALL_URLS {
+        assert!(sync(&mux, &json!({"repos":[],"install_url":url})).is_err());
+        assert_eq!(install_url(&mux).unwrap().as_deref(), Some(trusted));
+    }
+    // Old versions could persist links that the new writer rejects. Reading
+    // one must not expose it or prevent a validated connector fallback.
+    for url in crate::cloud_repos::tests::UNSAFE_INSTALL_URLS {
+        change(&mux, |doc| doc.set("install_url", json!(url))).unwrap();
+        assert!(install_url(&mux).unwrap().is_none());
+    }
+}
