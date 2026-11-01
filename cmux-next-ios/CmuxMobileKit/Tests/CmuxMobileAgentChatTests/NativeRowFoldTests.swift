@@ -215,8 +215,10 @@ import UIKit
         let key = "tool-\(row.call)"
 
         native.perform(.toggle(key))
+        // Every frame until the hold lets go (its animation completes; a loaded simulator's frames
+        // come late), and at least 60.
         var opening: [CGFloat] = []
-        for _ in 0 ..< 60 {
+        for frame in 0 ..< 240 where frame < 60 || chat.controller.isHoldingFold {
             await chat.frame()
             if let line = chat.line(row.id) { opening.append(line.y) }
         }
@@ -232,10 +234,11 @@ import UIKit
         let disclosures = chat.surface.disclosures
         toggleDisclosure(chat.list.context.foldHold) { disclosures.set(key, false) }
         var closing: [CGFloat] = []
-        for _ in 0 ..< 60 {
+        for frame in 0 ..< 240 where frame < 60 || chat.controller.isHoldingFold {
             await chat.frame()
             if let line = chat.line(row.id) { closing.append(line.y) }
         }
+        #expect(!chat.controller.isHoldingFold, "the hold lets go")
         let closed = try #require(chat.line(row.id))
         #expect(abs(closed.height - before.height) <= 1, "back to its line: \(closed.height), was \(before.height)")
         #expect(!closing.isEmpty && closing.allSatisfy { abs($0 - before.y) <= 1 },
