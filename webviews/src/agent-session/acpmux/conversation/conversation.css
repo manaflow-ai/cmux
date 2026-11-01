@@ -3637,15 +3637,6 @@ a.cv-sha:focus-visible {
   letter-spacing: 0.08em;
   user-select: text;
 }
-.cv-turn-signin__link {
-  color: var(--agent-link);
-  font-size: calc(var(--cv-font-size) * 12 / 14);
-  text-decoration: none;
-  cursor: default;
-}
-.cv-turn-signin__link:hover {
-  text-decoration: underline;
-}
 .cv-turn-error__details[open] {
   flex-basis: 100%;
 }

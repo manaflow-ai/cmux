@@ -329,9 +329,11 @@ nonisolated enum AcpmuxPaneMethods {
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         "_acpmux/app_reply": .always,
-        // Saving an API key on the chat's machine: the card's Save click. The login's start, finish
-        // and cancel take none: start opens the provider's page with the click's gesture
-        // (`browser.openIn`), and finish's Continue keeps its gesture for the failed prompt's resend.
+        // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
+        // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
+        // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture
+        // for the failed prompt's resend. Cancel stops work: none.
+        "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work

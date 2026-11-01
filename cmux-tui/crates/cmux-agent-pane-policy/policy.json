@@ -53,6 +53,7 @@
     "_acpmux/secret_submit": "always",
     "_acpmux/agent_pair_resume": "always",
     "_acpmux/app_reply": "always",
+    "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],

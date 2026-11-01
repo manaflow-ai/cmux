@@ -112,7 +112,8 @@ export type CloudSignIn = {
   agent: LoginAgent;
   /// Starts the login on the machine. Throws a ``LoginFailure`` (as `{failure}`).
   start(): Promise<LoginStart>;
-  /// Opens the sign-in page as a link click in this pane does (spends the click's gesture).
+  /// Opens the sign-in page as a link click in this pane does (spends the click's gesture, so only
+  /// from its own click: the Sign in click's gesture goes to the start).
   open(url: string): void;
   /// Finishes the login (Claude's pasted code; Codex waits for the approval). True when signed in.
   finish(loginId: string, code?: string): Promise<boolean>;
@@ -171,8 +172,14 @@ export function cloudAgentLogin(options: {
     agent,
     start: () =>
       step(async () => {
-        const started = startOf(await client().agentLoginStart(agent));
-        if (!started) throw new LoginStepError("failed");
+        const reply = await client().agentLoginStart(agent);
+        const started = startOf(reply);
+        if (!started) {
+          // A page this Mac will not open: stop the login acpmux started, so it holds nothing.
+          const loginId = (reply as { loginId?: unknown } | undefined)?.loginId;
+          if (typeof loginId === "string" && loginId) void currentClient()?.agentLoginCancel(loginId).catch(() => undefined);
+          throw new LoginStepError("failed");
+        }
         return started;
       }),
     open: (url) => {

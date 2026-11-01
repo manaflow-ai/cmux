@@ -243,12 +243,14 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
   expect(calls[0]).toEqual(["start", "claude"]);
-  expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
+  // The Sign in click's gesture went to the start: the page opens on its own click, which leads.
+  expect(opened).toEqual([]);
   expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
-  const link = host.querySelector<HTMLAnchorElement>(".cv-turn-signin__link")!;
-  expect(link.textContent).toBe("Open sign-in page");
-  await act(async () => link.click());
-  expect(opened).toHaveLength(2);
+  expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Open sign-in page")!.click());
+  expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
+  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(true);
   // Nothing goes again before the code: no gesture taken, nothing sent.
   expect(intents).toEqual([]);
   const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
@@ -393,7 +395,7 @@ test("Cancel stops the login on the machine", async () => {
 
 test("a start reply whose page is not an allowed host is a failure, and nothing opens", async () => {
   const opened: string[] = [];
-  const { client } = mockClient({
+  const { client, calls } = mockClient({
     start: () => ({ loginId: "login-6", url: "https://evil.example/login", needsCode: true }),
   });
   const { signIn } = signInFor(client, { opened });
@@ -401,6 +403,8 @@ test("a start reply whose page is not an allowed host is a failure, and nothing 
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
   expect(opened).toEqual([]);
+  // The login acpmux started for it is stopped.
+  expect(calls).toContainEqual(["cancel", "login-6"]);
   expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe("Sign-in didn't finish. Try again.");
 });
 
@@ -435,4 +439,23 @@ test("the wire log keeps no sign-in code, API key or device code", async () => {
   const text = JSON.stringify(log.entries());
   for (const secret of ["DEVICE-CODE-9", "PASTED-CODE-7", "sk-ant-SECRET"]) expect(text).not.toContain(secret);
   expect(text).toContain("auth.openai.com");
+});
+
+test("a card that goes away cancels its login and sends nothing after", async () => {
+  let finish!: (value: unknown) => void;
+  const { client, calls, sent } = mockClient({
+    start: () => ({ loginId: "login-7", url: "https://claude.ai/oauth/authorize", needsCode: true }),
+    finish: () => new Promise((resolve) => (finish = resolve)),
+  });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-7");
+  await act(async () => button("Continue")!.click());
+  await act(async () => root.render(<></>));
+  expect(calls).toContainEqual(["cancel", "login-7"]);
+  await act(async () => finish({ signedIn: true }));
+  await flush();
+  expect(sent).toEqual([]);
 });

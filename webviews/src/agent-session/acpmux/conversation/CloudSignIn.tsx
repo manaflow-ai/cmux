@@ -1,6 +1,7 @@
 // A Cloud chat's sign-in on its own machine (Leo 2026-11-01, on the one-click sign-in: "yes those
 // are important"): inline in the failed turn's card, never a modal. Sign in to Claude (or Codex)
-// runs that agent's login on the machine (cloudAgentLogin.ts) and opens its page here; Claude's
+// starts that agent's login on the machine (cloudAgentLogin.ts), and Open sign-in page opens its
+// page here on its own click (the host lets only a click start a login); Claude's
 // page gives a code to paste back, Codex's asks for the code the card shows. Use an API key saves
 // one on the machine instead. Once signed in, the failed prompt goes again on the person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
@@ -54,6 +55,7 @@ export function CloudSignIn({
   const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [opened, setOpened] = useState(false);
   // The login this card started and has not finished: cancelled when the card goes away.
   const open = useRef<string | undefined>(undefined);
   // A step that lands after the person moved on (Cancel, another try) is dropped.
@@ -64,9 +66,12 @@ export function CloudSignIn({
   useEffect(() => {
     latest.current = signIn;
   }, [signIn]);
+  // Going away ends every step in flight: none opens, finishes or sends after it.
   useEffect(
     () => () => {
+      generation.current++;
       if (open.current) latest.current.cancel(open.current);
+      open.current = undefined;
     },
     [],
   );
@@ -82,15 +87,16 @@ export function CloudSignIn({
   /// Sends the failed prompt again under the ticket the click reserved (never without one).
   const sendAgain = (ticket: ReturnType<SignIn["reserve"]>) => {
     if (!resendable) return;
+    const mine = generation.current;
     setStage({ at: "sending" });
     void ticket
       .then((held) => {
-        if (!held) throw new LoginStepError("failed");
+        if (!held || mine !== generation.current) throw new LoginStepError("failed");
         return signIn.resend(rowId, prompt, held);
       })
       .then(
-        () => setStage({ at: "sent" }),
-        () => setStage({ at: "signedIn" }),
+        () => mine === generation.current && setStage({ at: "sent" }),
+        () => mine === generation.current && setStage({ at: "signedIn" }),
       );
   };
 
@@ -104,8 +110,7 @@ export function CloudSignIn({
           return;
         }
         open.current = login.loginId;
-        // The click's gesture opens the page; the link below stays for when it did not.
-        signIn.open(login.url);
+        setOpened(false);
         if (login.needsCode) {
           setStage({ at: "code", login });
           return;
@@ -199,17 +204,19 @@ export function CloudSignIn({
     start();
   };
 
-  const pageLink = (login: LoginStart) => (
-    <a
-      className="cv-turn-signin__link"
-      href={login.url}
-      onClick={(event) => {
-        event.preventDefault();
+  // The page opens on its own click: the Sign in click's gesture went to the login's start, which
+  // the host lets only a click begin. It leads until the person opened it; it stays for another try.
+  const pageButton = (login: LoginStart) => (
+    <button
+      type="button"
+      className={`cv-turn-auth-action${opened ? "" : " cv-turn-error__primary"}`}
+      onClick={() => {
+        setOpened(true);
         signIn.open(login.url);
       }}
     >
       {t("turn.signIn.openPage")}
-    </a>
+    </button>
   );
   const cancelButton = (
     <button type="button" className="cv-turn-auth-action" onClick={cancel}>
@@ -249,6 +256,10 @@ export function CloudSignIn({
             submitCode(stage.login);
           }}
         >
+          <span className="cv-turn-signin__row">
+            {pageButton(stage.login)}
+            {cancelButton}
+          </span>
           <span className="cv-turn-signin__text">{t("turn.signIn.pasteCode")}</span>
           <span className="cv-turn-signin__row">
             <input
@@ -264,19 +275,21 @@ export function CloudSignIn({
             />
             <button
               type="submit"
-              className="cv-turn-auth-action cv-turn-error__primary"
+              className={`cv-turn-auth-action${opened ? " cv-turn-error__primary" : ""}`}
               disabled={stage.busy || !code.trim()}
             >
               {t("turn.continue")}
             </button>
-            {cancelButton}
           </span>
-          {pageLink(stage.login)}
         </form>
       );
     case "device":
       return (
         <div className="cv-turn-signin">
+          <span className="cv-turn-signin__row">
+            {pageButton(stage.login)}
+            {cancelButton}
+          </span>
           <span className="cv-turn-signin__row">
             <span className="cv-turn-signin__code" data-testid="cloud-signin-code">
               {stage.login.userCode}
@@ -295,10 +308,8 @@ export function CloudSignIn({
                 {copied ? t("turn.copied") : t("turn.signIn.copyCode")}
               </button>
             )}
-            {cancelButton}
           </span>
           <span className="cv-turn-signin__text">{t("turn.signIn.enterCode")}</span>
-          {pageLink(stage.login)}
         </div>
       );
     case "key":
