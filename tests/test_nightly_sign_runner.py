@@ -437,7 +437,7 @@ class OwnedVerify(unittest.TestCase):
     (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
     """
 
-    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "signer-build-macos")
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
     # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
     # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
     LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
@@ -448,8 +448,6 @@ class OwnedVerify(unittest.TestCase):
         # 51 min on blacksmith-6vcpu-macos-26: the pick ran only on attempt 1 of a push.
         jobs = WORKFLOW["jobs"]
         for name in self.OWNED_JOBS:
-            if name == "signer-build-macos":
-                continue
             with self.subTest(job=name):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
@@ -534,23 +532,10 @@ class OwnedVerify(unittest.TestCase):
         for name, job in WORKFLOW["jobs"].items():
             if self.OWNED not in str(job.get("runs-on", "")):
                 continue
-            if name == "signer-build-macos":
-                continue  # no secrets; this job builds the native rcodesign artifact for signer-dmg
             with self.subTest(job=name):
                 self.assertIn(name, self.OWNED_JOBS + self.LEGACY_OWNED_JOBS)
                 self.assertFalse(job.get("environment"))
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
-
-    def test_dmg_release_signer_uses_the_owned_signing_pick_then_blacksmith_mac(self) -> None:
-        job = WORKFLOW["jobs"]["signer-dmg"]
-        runs_on = str(job["runs-on"])
-        self.assertIn("pick-nightly-sign-runner", job["needs"])
-        self.assertIn("needs.pick-nightly-sign-runner.outputs.sign_owned", runs_on)
-        self.assertIn("needs.pick-nightly-sign-runner.outputs.runner", runs_on)
-        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
-        self.assertNotIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
-        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt", runs_on)
-        self.assertIn("fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)", runs_on)
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
