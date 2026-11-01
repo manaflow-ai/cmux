@@ -416,8 +416,10 @@ impl ServedSession {
         // state lock (`TerminalSessions`).
         let key = stream.peer_process_key();
         let connections = self.mux.connection_stats();
-        let permit = if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
-            claim_watched_terminal_connection(connections, &*stream)
+        let permit = if let Some(terminal) =
+            self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref())
+        {
+            claim_watched_terminal_connection(connections, &*stream, Some(terminal))
         } else {
             claim_watched_connection(connections, &*stream)
         };

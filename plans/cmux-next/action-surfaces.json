@@ -11088,6 +11088,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "home hide",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.hideConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Delete Conversation from List",
+      "title_key" : "action.home.hideConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home show-hidden",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.showHiddenConversations",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Hidden Conversations",
+      "title_key" : "action.home.showHiddenConversations",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "chat colors",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -31702,6 +31758,34 @@
       "palette_suggested" : null,
       "title" : "Move Tab to Workspace…",
       "title_key" : "action.tab.moveToWorkspace",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab move-to-space",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.moveToSpace",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Tab to Space…",
+      "title_key" : "action.tab.moveToSpace",
       "title_table" : "LayoutActions"
     },
     {
