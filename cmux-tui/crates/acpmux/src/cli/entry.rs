@@ -359,6 +359,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::TriggerChat) => crate::cli::trigger_chat::run().await,
         Some(Command::Capabilities) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());

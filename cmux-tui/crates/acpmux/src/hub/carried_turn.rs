@@ -42,6 +42,8 @@ pub(super) struct Continues {
     pub(super) trust_gate: bool,
     /// A steer's: it is a lane report. A carried turn's: every steer it carried is one.
     pub(super) reports: bool,
+    /// A trigger-originated turn stays quiet across Claude's carried steers.
+    pub(super) trigger: bool,
 }
 
 /// An answer that ended its turn while the agent runs on with steers it read after.
@@ -116,6 +118,7 @@ impl NextTurn {
             "control": control.as_str(),
             "trustGate": self.continues.trust_gate,
             "reportsOnly": self.continues.reports,
+            "trigger": self.continues.trigger,
             "seq": self.carried.seq,
             "promptIds": self.carried.prompt_ids,
         })
@@ -141,8 +144,12 @@ impl NextTurn {
             next.show(&line);
         }
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
-        let continues =
-            Continues { from: None, trust_gate: flag("trustGate"), reports: flag("reportsOnly") };
+        let continues = Continues {
+            from: None,
+            trust_gate: flag("trustGate"),
+            reports: flag("reportsOnly"),
+            trigger: flag("trigger"),
+        };
         Some(Self { carried, next, continues })
     }
 }
@@ -404,6 +411,7 @@ impl Hub {
                     turn_id,
                     turn.turn_seq,
                     None,
+                    continues.as_ref().is_some_and(|c| c.trigger),
                     next.as_deref(),
                 )
                 .await;

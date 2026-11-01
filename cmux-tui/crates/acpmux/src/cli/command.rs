@@ -147,6 +147,9 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
+    #[command(name = "trigger-chat", hide = true)]
+    TriggerChat,
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,

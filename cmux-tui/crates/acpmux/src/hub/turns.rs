@@ -1080,6 +1080,7 @@ impl Hub {
                 &turn_id,
                 turn_seq,
                 Some(joined),
+                crate::prompt_provenance::is_trigger(run.provenance.as_ref()),
                 carried.as_deref(),
             )
             .await;
@@ -1139,6 +1140,7 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
+        trigger: bool,
         next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
@@ -1398,7 +1400,7 @@ impl Hub {
         // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
         // started still runs (a background subagent, a working sub-session) the task is not
         // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !self.shown(session) {
+        if !trigger && !self.shown(session) {
             self.mark_unread_unless_work_below(session);
         }
         if session.status() != SessionStatus::Closed {

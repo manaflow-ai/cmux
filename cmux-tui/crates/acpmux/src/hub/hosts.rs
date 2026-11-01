@@ -1260,7 +1260,9 @@ impl Hub {
                         }
                         let next = carried.as_deref();
                         let mut result = hub
-                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
+                            .finish_turn(
+                                &s, &c, result, &prompt_id, &turn_id, turn_seq, None, false, next,
+                            )
                             .await;
                         if let Ok(value) = &mut result {
                             super::merge_mux_meta(

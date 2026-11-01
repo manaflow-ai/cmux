@@ -168,10 +168,16 @@ impl Hub {
     pub(crate) fn prompt_provenance(
         params: &Value,
         origin: crate::server::Origin,
+        trigger: bool,
     ) -> Result<Option<Value>, RpcError> {
         use crate::prompt_provenance::Sender;
-        let sender =
-            if origin == crate::server::Origin::Local { Sender::Local } else { Sender::Other };
+        let sender = if trigger {
+            Sender::Trigger
+        } else if origin == crate::server::Origin::Local {
+            Sender::Local
+        } else {
+            Sender::Other
+        };
         crate::prompt_provenance::of(params, sender)
     }
 
