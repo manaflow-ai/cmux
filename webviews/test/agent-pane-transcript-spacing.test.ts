@@ -192,7 +192,8 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastActions = userRow("Ship it when green.").querySelector(".cv-user__actions")!;
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
       const firstContent = afterFirst.querySelector(".cv-md, .cv-worked") ?? afterFirst;
-      const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked");
+      // A Claude turn's first run line, where a Codex turn draws Worked for (turns.ts claudeGroups).
+      const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked, .cv-tool");
       // Turn footers only: a reply's own row (cv-reply-actions) reuses their look.
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
@@ -219,7 +220,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     expect(measured.metaRowHeight).toBeLessThanOrEqual(24);
     // An older prompt's hidden row reserves only its own line (4 + 24), then the 8px message gap.
     expect(measured.olderPromptToNext).toBeLessThanOrEqual(37);
-    // "Worked for" follows the prompt's meta row at the message gap.
+    // The turn's first line (a run's, in this Claude chat) follows the prompt's meta row at the message gap.
     expect(measured.promptToWorked).toBeGreaterThanOrEqual(0);
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
     // A reply's footer starts right under the reply.

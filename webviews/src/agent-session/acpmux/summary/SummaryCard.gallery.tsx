@@ -4,7 +4,7 @@
 // ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { GALLERY_NOW } from "../../../gallery/clock";
@@ -22,7 +22,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo"
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo" | "tools"
 > & { tabRowHeight?: number; preview?: boolean; popover?: boolean; sessionInfoPush?: boolean };
 
 const none = () => undefined;
@@ -39,6 +39,8 @@ const card: SummaryCardControl = {
 };
 
 function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, ...props }: Props) {
+  const [shown, setShown] = useState(true);
+  const control = popover ? { ...card, column: false, shown, close: () => setShown(false) } : card;
   return (
     <div
       className="acpmux-shell"
@@ -65,7 +67,7 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, .
             <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
               <div />
               <div className="acpmux-header-tools">
-                <SummaryButton card={card} />
+                <SummaryButton card={control} />
               </div>
             </header>
           </div>
@@ -97,7 +99,7 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, .
         />
       ) : sessionInfoPush ? null : (
         <SummaryCard
-          card={popover ? { ...card, column: false } : card}
+          card={control}
           environment={{
             summary: { sessionId: "gallery-session", cwd: CWD, branch: "feature/session-details" },
             machineName: "Development Mac",
@@ -250,6 +252,20 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/session-info/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "nested-sources-menu": {
+      note: "Sources opens inside the floating Summary card. Dismissing or picking in the menu leaves the card open.",
+      props: {
+        popover: true,
+        rows: [],
+        onAttach: none,
+        tools: {
+          rows: [
+            { id: "mcp:docs", name: "Documentation", kind: "mcp", source: "claude", enabled: true, canToggle: true },
+          ],
+          set: async () => "now",
+        },
+      },
+    },
     "popover-environment": {
       note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
       props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },

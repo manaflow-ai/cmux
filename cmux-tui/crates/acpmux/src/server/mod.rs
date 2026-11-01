@@ -1906,6 +1906,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_login;
 mod agent_messages;
 mod app_reply;
 mod client_request;

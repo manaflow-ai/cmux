@@ -29,13 +29,28 @@ struct CloudStartChatMachineTests {
     /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
     /// copy with `machine_outdated` and the first send failed with "Update the machine". That answer
     /// (about the machine, never this Mac's side) updates the machine and copies again; nothing else does.
-    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() {
-        let outdated = CloudMoveStrings.outdatedCode
-        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated)))
-        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "target")))
-        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "source")))
-        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: "sync_failed")))
-        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: true)))
+    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() async throws {
+        let outdated = CloudOutdatedMachine.code
+        #expect(CloudMoveStrings.outdatedCode == outdated)
+        let read = { (answer: CloudMoveCLI.Answer) -> (ok: Bool, errorCode: String?, side: String?) in (answer.ok, answer.errorCode, answer.side) }
+        for (first, updates) in [(CloudMoveCLI.Answer(ok: false, errorCode: outdated), true),
+                                 (.init(ok: false, errorCode: outdated, side: "target"), true),
+                                 (.init(ok: false, errorCode: outdated, side: "source"), false),
+                                 (.init(ok: false, errorCode: "sync_failed"), false), (.init(ok: true), false)] {
+            for updated in [true, false] {
+                var copies = 0, asked = 0
+                let answer = try await CloudOutdatedMachine.copy({ () async throws -> CloudMoveCLI.Answer in
+                    copies += 1
+                    return copies == 1 ? first : CloudMoveCLI.Answer(ok: true)
+                }, answer: read) {
+                    asked += 1
+                    return updated
+                }
+                #expect(asked == (updates ? 1 : 0))
+                #expect(copies == (updates && updated ? 2 : 1))
+                #expect(answer == (updates && updated ? CloudMoveCLI.Answer(ok: true) : first))
+            }
+        }
     }
 
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
