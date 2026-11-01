@@ -325,6 +325,129 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     }
 }
 
+/// QUIT P0 (Lawrence 2026-11-01: "after quitting and reopening, i lose all
+/// the workspaces and terminals"): a new owner's startup pass must never end
+/// a shell the holder still runs. A previous owner that stopped (a version
+/// handoff at the app's reopen, a crash) while one of its terminals was still
+/// adopting leaves that row `adopting`; the next owner re-attaches it from the
+/// holder like a running one, instead of recording it ended and closing its
+/// shell (`release_unclaimed_holder_terminals`).
+#[test]
+fn a_restart_reattaches_a_holder_terminal_whose_row_was_left_adopting() {
+    let mut daemon = Daemon::start();
+    let mut terminals = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("adopting-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("kept-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("kept-{index}"));
+        terminals.push((created["terminal_id"].as_str().unwrap().to_string(), surface));
+    }
+    let shells: Vec<i32> =
+        terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
+    daemon.sigkill();
+    // The previous owner stopped mid-adoption of terminal 0.
+    let registry = walk(&daemon.dir.join("state"))
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("the daemon wrote its workspace registry");
+    let connection = rusqlite::Connection::open(&registry).unwrap();
+    let changed = connection
+        .execute(
+            "UPDATE terminal_hosts SET lifecycle = 'adopting' WHERE terminal_id = ?1",
+            [&terminals[0].0],
+        )
+        .unwrap();
+    assert_eq!(changed, 1, "terminal 0's registry row");
+    drop(connection);
+
+    daemon.restart();
+    for (index, (terminal_id, _)) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        screen_contains(&daemon.socket, surface, &format!("kept-{index}"));
+        assert!(alive(shells[index]), "terminal {index}: the new owner ended its shell");
+        assert_eq!(
+            shell_pid(&daemon.socket, surface),
+            shells[index],
+            "terminal {index} got a new shell"
+        );
+        send(&daemon.socket, surface, &format!("again-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("again-{index}"));
+    }
+}
+
+/// The registry row of a holder terminal, changed while its daemon is down
+/// (the previous owner's state at a restart).
+fn edit_registry(daemon: &Daemon, sql: &str, terminal_id: &str) {
+    let registry = walk(&daemon.dir.join("state"))
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("the daemon wrote its workspace registry");
+    let connection = rusqlite::Connection::open(&registry).unwrap();
+    assert_eq!(connection.execute(sql, [terminal_id]).unwrap(), 1, "{sql} for {terminal_id}");
+}
+
+/// Two `cat` terminals on the holder, each with a marker on screen: (terminal id, shell pid).
+fn two_holder_terminals(daemon: &mut Daemon, name: &str) -> Vec<(String, i32)> {
+    (0..2)
+        .map(|index| {
+            let created = request(
+                &daemon.socket,
+                json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                    "name": format!("{name}-{index}"), "cols": 80, "rows": 24}),
+            );
+            let surface = created["surface"].as_u64().unwrap();
+            daemon.track(surface);
+            send(&daemon.socket, surface, &format!("{name}-kept-{index}"));
+            screen_contains(&daemon.socket, surface, &format!("{name}-kept-{index}"));
+            let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+            (terminal_id, shell_pid(&daemon.socket, surface))
+        })
+        .collect()
+}
+
+/// Waits until `pid` has exited (the holder's hang-up grace is 2 s).
+fn exits_within(pid: i32, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    while Instant::now() < deadline {
+        if !alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+/// QUIT P0: the startup pass ends a holder terminal only when its row ended
+/// (the shell exited, or the person closed the tab): an exited row's shell
+/// is closed, and a terminal the registry has no row for keeps its shell.
+#[test]
+fn a_restart_closes_only_holder_terminals_whose_row_ended() {
+    let mut daemon = Daemon::start();
+    let terminals = two_holder_terminals(&mut daemon, "rows");
+    daemon.sigkill();
+    edit_registry(
+        &daemon,
+        "UPDATE terminal_hosts SET lifecycle = 'tombstoned' WHERE terminal_id = ?1",
+        &terminals[0].0,
+    );
+    edit_registry(&daemon, "DELETE FROM terminal_hosts WHERE terminal_id = ?1", &terminals[1].0);
+    daemon.restart();
+    // Any request: the startup pass ran before the daemon answers.
+    request(&daemon.socket, json!({"cmd": "identify"}));
+    assert!(
+        exits_within(terminals[0].1, Duration::from_secs(20)),
+        "the tombstoned terminal's shell was not ended"
+    );
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(alive(terminals[1].1), "a start ended the shell of a terminal with no registry row");
+}
+
 /// The daemon holds the custody master of every holder terminal for its
 /// whole life; a shell that exits must still end its terminal, with its
 /// own status.
