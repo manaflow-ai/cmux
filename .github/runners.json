@@ -54,6 +54,12 @@
 
   "default_fleet": "hosted",
 
+  "hosted_light_jobs": {
+    "fast-checks.yml:admit": {
+      "runner": "ubuntu-24.04",
+      "why": "Read-only live runner admission; no source snapshot or arbitrary test command"
+    }
+  },
   "pools": {
     "$comment": [
       "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",

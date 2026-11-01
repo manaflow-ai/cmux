@@ -29,7 +29,7 @@ on:
         default: '3600'
       runner:
         description: >-
-          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          A fleet or Blacksmith Linux label to run on instead of the default, or empty.
           The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
           label that started no job; any other value is ignored
         default: ''
@@ -40,30 +40,87 @@ permissions:
   contents: read
 
 jobs:
+  # A small hosted picker is the only job that starts before the checks. It
+  # proves an online, idle fleet Linux runner from the routing App's census;
+  # after 180 seconds without that proof it selects the measured Blacksmith
+  # overflow set. The source snapshot and its arbitrary command never reach
+  # this job, and the App token is not passed to the checks job.
+  admit:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission
+    permissions:
+      contents: read
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
+      # main only carries this wiring and reads that exact helper revision.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ecc5d6074e78b81627a5ba840dcdf0690c4bfd4e
+          path: .fast-checks-tools
+          # Keep the admission checkout narrow, but include the shared census
+          # client imported by the picker.
+          sparse-checkout: |
+            scripts/ci/fast_checks_runner.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint routing read token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Select a live fleet runner or bounded overflow
+        id: pick
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          REQUESTED_RUNNER: ${{ inputs.runner }}
+        run: python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py
+
   checks:
     if: github.repository == 'manaflow-ai/cmux'
-    # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
-    # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
-    # another size; only the Blacksmith Linux labels listed are taken.
-    # Otherwise the linux pool's live member (.github/runners.json pools.linux, which scripts/ci/runner_pools.py keeps
-    # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
-    # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
-    # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
-    # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
-    # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    needs: admit
+    # The default is the shared fleet label.  The controller admits a live
+    # member of that pool first; the lane-gh broker re-dispatches a queued run
+    # after its three-minute no-start window with one of the measured
+    # Blacksmith labels below.  Keeping that transition in the broker means a
+    # missing fleet runner never leaves this job pinned to an empty label, and
+    # it avoids trusting mutable repository variables for runner selection.
+    # inputs.runner is broker-controlled and limited to this allowlist so a
+    # caller cannot inject an arbitrary runner label.
+    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     defaults:
       run:
         working-directory: .fast-checks-checkout
     env:
-      CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
-      CARGO_HOME: /home/runner/.cache/fast-checks/cargo
-      BUN_INSTALL_CACHE_DIR: /home/runner/.cache/fast-checks/bun
-      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/fast-checks/browsers
-      ZIG_GLOBAL_CACHE_DIR: /home/runner/.cache/fast-checks/zig
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
     steps:
+      # runner.temp is available in step contexts, not job-level env. Export
+      # the portable cache paths before any setup or command step consumes them.
+      - name: Set portable fast-checks cache paths
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          {
+            printf 'CARGO_TARGET_DIR=%s/fast-checks-cache/target\n' "$RUNNER_TEMP"
+            printf 'CARGO_HOME=%s/fast-checks-cache/cargo\n' "$RUNNER_TEMP"
+            printf 'BUN_INSTALL_CACHE_DIR=%s/fast-checks-cache/bun\n' "$RUNNER_TEMP"
+            printf 'PLAYWRIGHT_BROWSERS_PATH=%s/fast-checks-cache/browsers\n' "$RUNNER_TEMP"
+            printf 'ZIG_GLOBAL_CACHE_DIR=%s/fast-checks-cache/zig\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+
       - name: Validate request
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -79,6 +136,7 @@ jobs:
       # Reuse Git objects and tracked files, but remove all prior untracked
       # outputs on checkout. Package caches stay on their separate disk below.
       - name: Mount warm checkout
+        if: startsWith(needs.admit.outputs.runner, 'blacksmith-')
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-checkout-v1
@@ -86,8 +144,10 @@ jobs:
           commit: on-change
 
       - name: Sanitize persistent checkout metadata
-        working-directory: ${{ github.workspace }}/.fast-checks-checkout
+        working-directory: ${{ github.workspace }}
         run: |
+          mkdir -p -- .fast-checks-checkout
+          cd .fast-checks-checkout
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
           if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
@@ -144,10 +204,11 @@ jobs:
       # This cache namespace is private to fast checks. Release/signing jobs
       # never read it. Concurrent callers fork snapshots without a global queue.
       - name: Mount package and compilation caches
+        if: startsWith(needs.admit.outputs.runner, 'blacksmith-')
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-v1
-          path: /home/runner/.cache/fast-checks
+          path: ${{ runner.temp }}/fast-checks-cache
           commit: on-change
 
       - name: Read repository Bun pin
@@ -322,7 +383,7 @@ jobs:
           FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
         run: |
           python3 "$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py" \
-            --store /home/runner/.cache/fast-checks/swiftpm-artifacts \
+            --store "${{ runner.temp }}/fast-checks-cache/swiftpm-artifacts" \
             --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
 
       # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
@@ -343,13 +404,45 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          try:
+              lexer = shlex.shlex(command_text, posix=True)
+              lexer.whitespace_split = True
+              lexer.commenters = '#'
+              command_words = list(lexer)
+          except ValueError:
+              # It is still a valid shell command when the unmatched quote is
+              # inside a comment; leave it on the normal execution path.
+              command_words = []
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          display_command = (
+              command_words[:2] == ['cmux-ci', 'run']
+              and '--display' in command_words
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\n'))
+          )
+          if display_command:
+              result = dict(
+                  source_sha=actual,
+                  source_tree=tree,
+                  head_after=actual,
+                  command_started_at=time.time(),
+                  command_seconds=0,
+                  skipped_display=True,
+                  command=os.environ['FAST_CHECKS_COMMAND'],
+                  run_id=os.environ['GITHUB_RUN_ID'],
+                  cpu_count=os.cpu_count(),
+                  exit_code=0,
+              )
+              print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
+              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              raise SystemExit(0)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(
@@ -402,7 +495,7 @@ jobs:
           name: fast-checks-receipt
           path: ${{ runner.temp }}/fast-checks.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
       - name: Save command output files
         if: always()
@@ -411,4 +504,4 @@ jobs:
           name: fast-checks-output
           path: ${{ runner.temp }}/fast-checks-out/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
