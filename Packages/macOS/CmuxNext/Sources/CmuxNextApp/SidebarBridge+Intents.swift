@@ -71,6 +71,11 @@ extension SidebarBridge {
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
+            // The plain "+" in a local window: the person's New Workspace, as Cmd-N (the Cloud toggle applies).
+            if machine == nil, group == nil, state.machineID == MachineRegistry.localID {
+                services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
+                return
+            }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
             // new workspace in it (its top under the default `top`).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
