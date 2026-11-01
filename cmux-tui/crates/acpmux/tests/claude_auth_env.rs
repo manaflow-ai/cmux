@@ -170,13 +170,16 @@ async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
 /// `ask`, in a session named `name` (one daemon, several sessions).
 async fn ask_as(d: &Daemon, harness: &str, name: &str) -> (Result<Value, String>, Value) {
     let mut rpc = Rpc::connect(&d.socket).await;
-    let s = rpc
-        .call(
+    let created = rpc
+        .answer(
             "session/new",
             json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": name}}}),
         )
         .await;
-    let id = s["sessionId"].as_str().unwrap().to_owned();
+    if let Some(error) = created.get("error") {
+        return (Err(error["message"].as_str().unwrap_or_default().to_owned()), Value::Null);
+    }
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
     let answer = rpc
         .answer(
             "session/prompt",
