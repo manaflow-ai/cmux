@@ -78,7 +78,8 @@ extension CloudStartChat {
         let listed = cloud.listedMachineIDs, access = try? await ((account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
-                                       stored: machines.cloud.map(\.machine).keptForPin(listed: listed), access: access != nil)
+                                       stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment,
+                                       access: access != nil)
         let plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
         var invocation = invocation
         if let id = plan.machine {

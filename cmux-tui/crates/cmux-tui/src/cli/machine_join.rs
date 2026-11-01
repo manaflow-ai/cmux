@@ -440,6 +440,11 @@ impl Platform {
         self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
     }
 
+    /// `GET path` with the same authenticated platform client.
+    pub(crate) fn get(&self, path: &str) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(reqwest::Method::GET, path, None))
+    }
+
     /// Every joined machine's entry, as the platform lists them.
     pub(super) fn credentials(&self) -> Result<Vec<Value>, CallError> {
         self.runtime.block_on(self.credentials_async())
