@@ -97,9 +97,7 @@ enum AgentSessionWorkspace {
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`; `top` first below Home whatever they say.
+        // Placed like Cmd-N (`workspaces.newPlacement`, cx-caoh), then into the named `group`, else below the caller's grouped row; `top` first below Home.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
@@ -107,8 +105,10 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
+        let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: services.machines.allWorkspaces.map { $0.0 }) : nil
+        let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
         let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, then: join, windows: windows)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to

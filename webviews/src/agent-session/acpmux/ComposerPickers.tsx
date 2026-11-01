@@ -50,7 +50,7 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
-import { contextBreakdown } from "./inspector/ContextSection";
+import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -493,6 +493,20 @@ export function ComposerPickers({
   // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
   // the session names once it opens (heldOptions.ts), or drops when it offers none.
   const presession = holdsModePick && !summary?.sessionId;
+  // A harness picked without a model (an account, a profile's New chat, another harness's row) is a
+  // pick too: the next New Tab, new chat and split start on it (lastPick.ts).
+  const pickHarness =
+    switchHarness &&
+    ((picked: string, pickedModel?: string, options?: Readonly<Record<string, string>>) => {
+      if (remembers)
+        rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
+      switchHarness(picked, pickedModel, options);
+    });
+  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
+  const forkTo = (picked: string) => {
+    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
+    fork?.to(picked);
+  };
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
@@ -998,8 +1012,8 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={switchHarness}
-          {...(locked && fork ? { fork } : {})}
+          onHarness={pickHarness}
+          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1370,7 +1384,7 @@ const TABBABLE =
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
 /// (contextCard.css).
@@ -1387,7 +1401,7 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
 }) {
   const t = useT();

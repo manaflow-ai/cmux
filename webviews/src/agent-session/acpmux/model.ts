@@ -35,6 +35,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -774,7 +775,7 @@ export type AcpmuxSnapshot = {
   /// another person's computer or a remote browser.
   ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
-  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
   reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
@@ -1585,6 +1586,9 @@ function measuredRowHeight(
     }
     return finish(height + MESSAGE_GAP);
   }
+  // Empty or zero-width message text has no article; attachments and incoming cards returned
+  // above remain visible through `isVisiblyEmptyMessage`'s content checks.
+  if (isVisiblyEmptyMessage(row)) return finish(0);
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
