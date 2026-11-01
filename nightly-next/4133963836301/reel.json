@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4133963836301",
+  "notes": "notes/4133963836301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31174,
+      "title": "Artifacts: guard the side panel's passive frame like the inline preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31223,
+      "title": "cmux-api: read a personal tenant's members from Stack's team-member-profiles",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
