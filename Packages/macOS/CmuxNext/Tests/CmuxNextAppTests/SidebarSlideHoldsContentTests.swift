@@ -204,7 +204,7 @@ struct SidebarSlideHoldsContentTests {
     }
 
     /// A square main pane (radius 0, the flat chrome styles) clips nothing at rest. While it holds
-    /// content wider than itself it clips, so nothing shows past its edge, and Chromium pages and
+    /// content at another width than its own it clips, so nothing shows past its edge, and Chromium pages and
     /// the overlay's rings see that edge (`CEFClipShape.clips(around:)`, `OverlayPlane.roundedClip`).
     @Test func aSquareMainPaneClipsOnlyWhileItHolds() throws {
         try withHold(true) {

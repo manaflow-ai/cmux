@@ -36,7 +36,7 @@ extension WindowRootView {
     /// sidebar's width animation moves the card's edge on every frame, and a card that resized its
     /// content with it laid out every pane, terminal and Chromium page at a new width per frame. The
     /// content takes its landing width now, pinned to the card's far edge (which does not move), and
-    /// stays still while the sidebar slides over its near edge. Riding the moving edge at the widest
+    /// stays still: a hide uncovers it, a show narrows it at once. Riding the moving edge at the widest
     /// width laid it out away from where it lands and jumped there (Leo, 2026-11-01: "THE ENTIRE
     /// OTHER PART OF THE APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK"). A turnaround lays out again.
     /// The rail style opens over the content (`WindowRootView+SidebarRail`), which never resizes:
