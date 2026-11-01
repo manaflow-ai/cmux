@@ -1221,6 +1221,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]
