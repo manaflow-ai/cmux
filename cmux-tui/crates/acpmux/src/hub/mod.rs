@@ -220,8 +220,6 @@ mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 pub mod background_turn;
-#[cfg(all(test, unix))]
-mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -333,8 +331,6 @@ pub(super) struct PendingPermission {
 
 #[derive(Debug, Clone)]
 pub struct TurnInfo {
-    /// Admitted Cloud trigger provenance, never client-supplied local metadata.
-    pub trigger: bool,
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
@@ -356,6 +352,9 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
+    /// inbox notice and no other agent's steer goes into it.
+    pub persons: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -644,9 +643,6 @@ pub struct Hub {
     /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
     #[cfg(test)]
     pub(super) finish_seam: full_access_bound::WriteSeam,
-    /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
-    #[cfg(test)]
-    pub(super) purge_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
@@ -856,8 +852,6 @@ impl Hub {
             first_work_seam: Default::default(),
             #[cfg(test)]
             finish_seam: Default::default(),
-            #[cfg(test)]
-            purge_seam: Default::default(),
             #[cfg(test)]
             retry_seam: Default::default(),
             harness_watch: Default::default(),
@@ -1153,7 +1147,6 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
-            close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
