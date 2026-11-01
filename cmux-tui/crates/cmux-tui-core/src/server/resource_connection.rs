@@ -317,7 +317,7 @@ pub(super) fn handle_resource_connection_message(
             match handled {
                 Ok(response) => {
                     if let Some(claim) = claim
-                        && response["ok"] == true
+                        && super::incognito_orphans::answered_ok(&response)
                     {
                         claim.finish(mux, client);
                     }

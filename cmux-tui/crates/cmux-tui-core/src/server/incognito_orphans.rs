@@ -51,12 +51,13 @@ pub(super) fn note_create(
     ephemeral: bool,
     response: &Value,
 ) {
-    if operation != ResourceOperation::WorkspaceCreate || !ephemeral || response["ok"] != true {
+    if operation != ResourceOperation::WorkspaceCreate || !ephemeral || !answered_ok(response) {
         return;
     }
-    let result = &response["result"];
-    let Some(workspace) =
-        result["value"]["workspace_id"].as_str().or_else(|| result["workspace_id"].as_str())
+    let Some(workspace) = response
+        .pointer("/result/value/workspace_id")
+        .or_else(|| response.pointer("/result/workspace_id"))
+        .and_then(Value::as_str)
     else {
         return;
     };
@@ -67,6 +68,11 @@ pub(super) fn note_create(
         .lock()
         .recover_poison()
         .insert(workspace.to_string(), peer_key);
+}
+
+/// Whether a resource response says `ok`.
+pub(super) fn answered_ok(response: &Value) -> bool {
+    response.get("ok").and_then(Value::as_bool) == Some(true)
 }
 
 /// A move in flight that may make incognito workspaces
