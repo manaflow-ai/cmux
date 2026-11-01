@@ -124,15 +124,16 @@ fn sub_verb(tail: &[String], map: &[(&str, &str)]) -> Vec<String> {
             break;
         }
         if word == "--json" || is_assigned_global(word) {
-            at += 1;
+            at = at.saturating_add(1);
             continue;
         }
         if CMUX_VM_VALUE_GLOBALS.contains(&word.as_str()) {
-            at += 2;
+            at = at.saturating_add(2);
             continue;
         }
-        if let Some((_, to)) = map.iter().find(|(from, _)| *from == word.as_str()) {
-            words[at] = (*to).to_owned();
+        let to = map.iter().find(|(from, _)| *from == word.as_str()).map(|(_, to)| *to);
+        if let (Some(to), Some(slot)) = (to, words.get_mut(at)) {
+            *slot = to.to_owned();
         }
         break;
     }
@@ -292,16 +293,27 @@ pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, Scope, &[String]
 }
 
 /// `vm add|revoke|rotate|doctor …` as `machine …`: `vm` is the old name of
-/// `machine` for those verbs too, which other modules own. `None` otherwise.
+/// `machine` for those verbs too, which other modules own. A `--json` or
+/// `--idempotency-key K` typed between `vm` and the verb moves before
+/// `machine`, where those modules read it. `None` otherwise.
 pub(super) fn machine_alias(args: &[String]) -> Option<Vec<String>> {
     let (_, scope, after) = split_raw(args)?;
-    let verb = after.first()?;
+    let (rest, json) = without_json(after);
+    let (rest, key) = without_idempotency_key(rest);
+    let verb = rest.first()?;
     if scope != Scope::Vm || !OTHER_MACHINE_VERBS.contains(&verb.as_str()) {
         return None;
     }
-    let at = args.len() - after.len() - 1;
-    let mut rewritten = args.to_vec();
-    rewritten[at] = "machine".to_owned();
+    let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
+    let mut rewritten = before.to_vec();
+    if json {
+        rewritten.push("--json".to_owned());
+    }
+    if let Some(key) = key {
+        rewritten.extend(["--idempotency-key".to_owned(), key]);
+    }
+    rewritten.push("machine".to_owned());
+    rewritten.extend(rest);
     Some(rewritten)
 }
 

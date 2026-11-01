@@ -485,6 +485,15 @@ fn vm_is_machine_for_the_verbs_other_modules_own() {
         Some(args(&["machine", "rotate", "m_1"]))
     );
     assert_eq!(machine_alias(&args(&["vm", "doctor"])), Some(args(&["machine", "doctor"])));
+    // Flags typed between `vm` and the verb move before `machine`.
+    assert_eq!(
+        machine_alias(&args(&["vm", "--json", "add"])),
+        Some(args(&["--json", "machine", "add"]))
+    );
+    assert_eq!(
+        machine_alias(&args(&["vm", "--idempotency-key", "k", "doctor"])),
+        Some(args(&["--idempotency-key", "k", "machine", "doctor"]))
+    );
     assert_eq!(machine_alias(&args(&["vm", "ls"])), None);
     assert_eq!(machine_alias(&args(&["machine", "add"])), None);
     assert_eq!(machine_alias(&args(&["vm", "exec", "vm_1", "--", "add"])), None);
