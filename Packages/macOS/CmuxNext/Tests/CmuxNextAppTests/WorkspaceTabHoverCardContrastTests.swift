@@ -62,8 +62,12 @@ import Testing
         var best = 0.0
         let y0 = Int((host.isFlipped ? rect.minY : host.bounds.height - rect.maxY) * scale)
         let y1 = Int((host.isFlipped ? rect.maxY : host.bounds.height - rect.minY) * scale)
-        for y in max(0, y0)..<min(rep.pixelsHigh, y1) {
-            for x in max(0, Int(rect.minX * scale))..<min(rep.pixelsWide, Int(rect.maxX * scale)) {
+        // A row scrolled out of the list (every tab is listed since #29980) lies outside the host: no pixels.
+        let rows = max(0, y0)..<max(max(0, y0), min(rep.pixelsHigh, y1))
+        let x0 = max(0, Int(rect.minX * scale))
+        let columns = x0..<max(x0, min(rep.pixelsWide, Int(rect.maxX * scale)))
+        for y in rows {
+            for x in columns {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let lum = ThemeRGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent)).relativeLuminance
                 best = max(best, lum)
