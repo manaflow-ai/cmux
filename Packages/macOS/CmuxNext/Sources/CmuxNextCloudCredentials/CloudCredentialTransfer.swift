@@ -34,7 +34,7 @@ public import Foundation
     /// DEV and dogfood builds only (``CloudCredentialInstaller/creatorTeamGuest``): a team guest
     /// whose creator is the caller (the platform's `vmKind == "owner"` answer, still required) may
     /// receive the login although teammates share its Unix user. Off everywhere else.
-    let allowsCreatorTeamGuest: Bool
+    public let allowsCreatorTeamGuest: Bool
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
                 openTerminal: @escaping @MainActor (String) async -> Bool) {
