@@ -188,3 +188,51 @@ fn a_create_with_placement_top_shows_first_under_a_bottom_setting() {
     );
     mux.shutdown();
 }
+
+/// Closing the last workspace removes only its item, including through the
+/// persisted daemon path that publishes changes to the app's pinned FFI mirror.
+#[test]
+fn closing_last_workspace_keeps_nested_groups_and_reopen_returns_to_them() {
+    let session = Session::new("close-keeps-groups");
+    let mux = session.open();
+    let last = empty_workspace(&mux, "last");
+    let work = mutate(&mux, "workspace_group.create", json!({"name": "Work"}), "group-work")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    mutate(&mux, "workspace.place", json!({"workspace": last, "group": work}), "last-in-work");
+    let (member, section, outer) = item_of(&mux, &last);
+    let outer = outer.unwrap();
+    send(
+        &mux,
+        "sidebar.group.create",
+        json!({"name": "Inner", "items": [member],
+               "to": {"section": section, "parent": outer}}),
+        Some("inner"),
+    )
+    .unwrap();
+    let inner = item_of(&mux, &last).2.unwrap();
+    let groups = |mux: &Arc<Mux>| {
+        mux.read_registry_state(|connection| {
+            super::sidebar_doc_store::with_doc(connection, |doc| {
+                Ok([&outer, &inner].map(|id| doc.item(id).cloned()))
+            })
+        })
+        .unwrap()
+    };
+    let before = groups(&mux);
+    assert!(before.iter().all(Option::is_some));
+    mutate(&mux, "workspace.close", json!({"workspace": last}), "close-last");
+    assert!(shown(&mux, &[last.as_str()]).is_empty());
+    assert_eq!(groups(&mux), before, "both headers keep their identity, order and fold");
+    mux.shutdown();
+    drop(mux);
+
+    let mux = session.open();
+    assert_eq!(groups(&mux), before, "the empty groups persist across restart");
+    let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen-last");
+    let restored = reopened["workspace_id"].as_str().unwrap();
+    assert_eq!(item_of(&mux, restored).2.as_deref(), Some(inner.as_str()));
+    assert_eq!(groups(&mux), before, "reopen reuses the existing groups");
+    mux.shutdown();
+}

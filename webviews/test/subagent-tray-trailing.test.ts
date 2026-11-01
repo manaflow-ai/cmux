@@ -2,8 +2,9 @@
 // The running tray's trailing column in real Chromium (Playwright; CI fails the file when it cannot
 // launch, requireBrowserLane). Leo's open tray (2026-10-31) hung each line's Stop below and right of
 // the line, outside its box and off its centre, and put the header's chevron and the lines' in two
-// columns; his folded header floated its elapsed time far from its counts. Here: every Stop is inside
-// its line and on the line's centre (on its controls' row when the line is narrow), every chevron
+// columns; his folded header floated its elapsed time far from its counts. No line carries a Stop
+// now (#28533: it is in each line's menu); every line's Stop track (its empty slot) is inside its
+// line and on the line's centre (on its controls' row when the line is narrow), every chevron
 // (the header's, each line's, View all's) ends on one x, and the header's time follows its counts.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -67,7 +68,8 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           // running line says no state word; design/chat-transcript.md "Subagent row anatomy").
           time: box(line.querySelector(".acpmux-agent-line__time"))!,
           track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
-          stop: box(line.querySelector(".acpmux-agent-line__stop-slot > button")),
+          slot: box(line.querySelector(".acpmux-agent-line__stop-slot"))!,
+          stops: line.querySelectorAll(".acpmux-agent-line__stop-slot > button").length,
           chevron: box(line.querySelector(".acpmux-agent-line__chevron > svg")),
         })),
       };
@@ -77,7 +79,7 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
 
   for (const width of [760, 300]) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
-      test(`Stop sits inside its line on its centre, and every chevron shares one x at ${width}px (${theme})`, async () => {
+      test(`no line has a Stop; its track sits inside its line, and every chevron shares one x at ${width}px (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
           viewport: { width, height: 420 },
@@ -90,41 +92,40 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
           await settle(page);
           const geometry = await measure(page);
-          const stopped = geometry.lines.filter((line) => line.stop);
           expect(geometry.lines.length).toBeGreaterThanOrEqual(3);
-          expect(stopped.length).toBeGreaterThanOrEqual(1);
-          for (const line of stopped) {
-            const stop = line.stop!;
+          expect(geometry.lines.every((line) => line.stops === 0)).toBe(true);
+          for (const line of geometry.lines) {
+            const slot = line.slot;
             // Inside the line's box.
-            expect(stop.top).toBeGreaterThanOrEqual(line.row.top - 0.5);
-            expect(stop.bottom).toBeLessThanOrEqual(line.row.bottom + 0.5);
-            expect(stop.left).toBeGreaterThanOrEqual(line.row.left - 0.5);
-            expect(stop.right).toBeLessThanOrEqual(line.row.right + 0.5);
+            expect(slot.top).toBeGreaterThanOrEqual(line.row.top - 0.5);
+            expect(slot.bottom).toBeLessThanOrEqual(line.row.bottom + 0.5);
+            expect(slot.left).toBeGreaterThanOrEqual(line.row.left - 0.5);
+            expect(slot.right).toBeLessThanOrEqual(line.row.right + 0.5);
             // On the centre line of its row of controls: the line's own when it is one row, its second
             // row (where its time sits) when the line is narrow.
-            expect(Math.abs(middle(stop) - middle(line.time))).toBeLessThanOrEqual(1);
-            if (width > 400) expect(Math.abs(middle(stop) - middle(line.row))).toBeLessThanOrEqual(1);
-            // In its own track, between the time and the chevron.
+            expect(Math.abs(middle(slot) - middle(line.time))).toBeLessThanOrEqual(1);
+            if (width > 400) expect(Math.abs(middle(slot) - middle(line.row))).toBeLessThanOrEqual(1);
+            // Over its own track, between the time and the chevron.
             expect(
-              Math.abs((stop.left + stop.right) / 2 - (line.track.left + line.track.right) / 2),
+              Math.abs((slot.left + slot.right) / 2 - (line.track.left + line.track.right) / 2),
             ).toBeLessThanOrEqual(1);
-            expect(stop.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
-            if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(stop.right - 0.5);
+            expect(slot.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
+            if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(slot.right - 0.5);
           }
-          // Each Stop, scrolled into the list's view, is the thing under the pointer at its centre.
+          // The empty slot never takes a click: at its centre the line's own button is under the pointer.
           const hits = await page.evaluate(() =>
-            [
-              ...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"),
-            ].map((stop) => {
-              stop.scrollIntoView({ block: "nearest" });
-              const rect = stop.getBoundingClientRect();
-              return stop.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+            [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].map((line) => {
+              const slot = line.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot")!;
+              slot.scrollIntoView({ block: "nearest" });
+              const rect = slot.getBoundingClientRect();
+              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              return Boolean(hit && line.querySelector(".acpmux-agent-line__button")?.contains(hit));
             }),
           );
-          expect(hits.length).toBe(stopped.length);
+          expect(hits.length).toBe(geometry.lines.length);
           expect(hits.every(Boolean)).toBe(true);
           await page.evaluate(() => document.querySelector(".acpmux-running-tray__list")?.scrollTo(0, 0));
-          // Stop's track holds its x on every line, with a Stop or without.
+          // Stop's track holds its x on every line.
           expect(new Set(geometry.lines.map((line) => line.track.left)).size).toBe(1);
           // One chevron column: the header's, every line's and View all's end on one x.
           const chevrons = [

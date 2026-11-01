@@ -566,6 +566,12 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// An agent CLI's own sign-in on this machine (`agent_login.rs`): the
+    /// unix socket, the local app and the owner's own peer daemon.
+    pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
+    pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
