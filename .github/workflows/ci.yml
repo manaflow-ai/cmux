@@ -121,6 +121,8 @@ jobs:
       # swift-package) take it in place of the pool label, so they never hold
       # a root runner.
       macos_pr_side_runner: ${{ steps.macos-pool.outputs.side_runner }}
+      # 'true' only when the picker chose an owned pool (simple_pool_picker.write_outputs()).
+      macos_pr_persistent: ${{ steps.macos-pool.outputs.persistent }}
       # Set only when some side lanes take the light minis' idle side runners
       # (pr_runner_pool.light_side_lanes()): glaeda-side-light-xcode-<version>,
       # which the side lanes in macos_pr_light_side_jobs (" swift-package ")
@@ -1125,8 +1127,10 @@ jobs:
       web: ${{ needs.changes.outputs.web }}
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
-      # web-subarea-scope takes the picker's owned side label on attempt 1 (ci-web.yml); else the Linux pool.
-      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' web-subarea-scope ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
+      # web-subarea-scope takes an owned mini only when the picker chose an owned pool (simple_pool_picker.py
+      # writes side_runner=side or choice.label, a Blacksmith macOS label on a non-owned pick); else '' and
+      # the Linux pool (ci-web.yml).
+      pr_side_runner: ${{ needs.changes.outputs.macos_pr_persistent == 'true' && startsWith(needs.changes.outputs.macos_pr_side_runner, 'glaeda-') && needs.changes.outputs.macos_pr_side_runner || '' }}
 
   # macOS compile admission starts as soon as `changes` and the static stage
   # pass, beside the fast Linux-only jobs instead of behind them. Over 75 gated

@@ -238,9 +238,38 @@ class WorkflowTests(unittest.TestCase):
             "|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
         self.assertEqual(document[True]["workflow_call"]["inputs"]["pr_side_runner"]["default"], "")
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
-        self.assertEqual(ci["jobs"]["web"]["with"]["pr_side_runner"],
-                         "${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' web-subarea-scope ') && "
-                         "needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}")
+        passed = ci["jobs"]["web"]["with"]["pr_side_runner"]
+        self.assertEqual(passed, "${{ needs.changes.outputs.macos_pr_persistent == 'true' && startsWith("
+                                 "needs.changes.outputs.macos_pr_side_runner, 'glaeda-') && "
+                                 "needs.changes.outputs.macos_pr_side_runner || '' }}")
+        self.assertEqual(ci["jobs"]["changes"]["outputs"]["macos_pr_persistent"],
+                         "${{ steps.macos-pool.outputs.persistent }}")
+
+    def test_a_non_owned_or_zero_job_pick_gives_web_subarea_scope_no_mini(self) -> None:
+        # simple_pool_picker.write_outputs() writes side_runner=side or choice.label: on a non-owned pick
+        # (a web-only PR with no macOS jobs included) that is a Blacksmith macOS label, which must not
+        # reach web-subarea-scope. Evaluate ci.yml's input over the picker's real outputs.
+        import importlib.util
+        import sys
+        spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
+        picker = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("simple_pool_picker", picker)
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        spec.loader.exec_module(picker)
+
+        def route(outputs: dict[str, str]) -> str:
+            side = outputs.get("side_runner", "")
+            return side if outputs.get("persistent") == "true" and side.startswith("glaeda-") else ""
+
+        for jobs in (0, 3):
+            with self.subTest(jobs=jobs):
+                outputs = picker.write_outputs(picker.Choice(label="blacksmith-6vcpu-macos-26", owned=False), jobs, env={})
+                self.assertTrue(outputs["side_runner"].startswith("blacksmith-"), outputs)
+                self.assertEqual(route(outputs), "")
+        # An owned pick does route: its configured side label.
+        owned = picker.write_outputs(picker.Choice(label="glaeda-std-xcode-26.6", owned=True), 2,
+                                     env={"CI_OWNED_POOL_SLOTS": '{"glaeda-side-std-xcode-26.6": 2}'})
+        self.assertEqual(route(owned), "glaeda-side-std-xcode-26.6")
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()
