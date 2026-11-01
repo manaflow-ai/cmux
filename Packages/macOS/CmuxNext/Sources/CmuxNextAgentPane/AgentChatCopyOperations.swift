@@ -43,7 +43,7 @@ public struct AgentChatCopyOperations {
         return value.flatMap({ $0.isEmpty ? nil : $0 }).map(AgentChatCopyOutcome.copied) ?? .missing
     }
 
-    @MainActor public static func details(info: @escaping () async -> [String: Any]?, files: @escaping () async -> [String: Any]? = { nil },
+    @MainActor public static func details(info: @escaping () async -> [String: Any]?, files: @escaping () async -> [String: Any]?,
                                           identifier: String, fallbackHarnessSessionID: String?, fallbackCWD: String?, host: String?,
                                           isCurrent: @escaping @MainActor () -> Bool) async -> AgentChatCopyOutcome {
         guard let metadata = await info() else { return .missing }

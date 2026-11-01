@@ -29,7 +29,7 @@ import Testing
 
     @Test @MainActor func copySessionDetailsActionWritesExplicitMetadata() async {
         let outcome = await AgentChatCopyOperations.details(
-            info: { ["name": "sr2/nx-settings", "cwd": "/repo", "agentSessionId": "claude-456"] },
+            info: { ["name": "sr2/nx-settings", "cwd": "/repo", "agentSessionId": "claude-456"] }, files: { nil },
             identifier: "acp-123", fallbackHarnessSessionID: nil, fallbackCWD: nil, host: "lawrence", isCurrent: { true }
         )
         #expect(Self.copiedText(outcome) == "Agent name: sr2/nx-settings\nAgent identifier: acp-123\nHarness session ID: claude-456\nCWD: /repo\nHost: lawrence")
