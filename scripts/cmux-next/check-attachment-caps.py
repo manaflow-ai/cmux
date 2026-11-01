@@ -66,7 +66,6 @@ RETAINED_BOUNDS = {
         "maxBytes": "Derived image representation budget; original upload is uncapped.",
     },
     "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
-        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
         "MAX_FILES": "Open: the Cloud upload CLI takes 64 files a call; removed with its size cap (#27016).",
     },
     "cmux-tui/crates/cmux-tui-core/src/conversation_attachments.rs": {
