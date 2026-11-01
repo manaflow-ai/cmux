@@ -870,7 +870,7 @@ Object.assign(variants, {
   "computer-use-off": variant("agents", {
     host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
   }),
   "computer-use-failed": variant("agents", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },

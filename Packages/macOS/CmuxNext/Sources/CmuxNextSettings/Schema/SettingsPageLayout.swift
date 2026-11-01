@@ -313,10 +313,13 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],
-        // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-        // removes the ones you added. Agent integrations (optional help, collapsed) installs the
-        // hooks that report an agent's state, through `cmux agent hook`.
-        trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations])
+        // Computer Use (#28997) comes first: its card draws the on/off switch, the guided setup
+        // and the helper's grants together, and the `settings.group.computerUse` rows (the page
+        // does not draw that group a second time). Harnesses lists every harness; Your Agents
+        // (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations
+        // (optional help, collapsed) installs the hooks that report an agent's state, through
+        // `cmux agent hook`.
+        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations])
 
     // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
     // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
