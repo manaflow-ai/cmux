@@ -198,8 +198,8 @@ export function useVideoInfo(
   const since = useRef(new Map<string, number>());
   const out = useRef(new Map<symbol, Read>());
   const shown = useSyncExternalStore(subscribe, busyNow, busyNow);
-  /// What is left of chip `id`'s deadline, in milliseconds.
-  const left = (id: string) => (since.current.get(id) ?? -Infinity) + VIDEO_INFO_DEADLINE_MS - Date.now();
+  /// What is left of chip `id`'s deadline, in milliseconds: all of it for a chip not yet seen.
+  const left = (id: string) => (since.current.get(id) ?? Date.now()) + VIDEO_INFO_DEADLINE_MS - Date.now();
   useEffect(() => {
     const reads = out.current;
     const requested = asked.current;
@@ -229,6 +229,9 @@ export function useVideoInfo(
     for (const chip of attachments) {
       if (!isVideoAttachment(chip)) continue;
       const video = chip.video;
+      // A chip that comes with its video (rebuilt for Retry or Edit after a reload) starts its
+      // deadline now, so the send still waits for its speech.
+      if (video && !since.current.has(chip.id)) since.current.set(chip.id, Date.now());
       const times = video ? picks.current.get(video) : undefined;
       if (video && times?.length && !video.picked && !framed.current.has(video)) {
         // The answer is on the chip: its picked frames, within what is left of its deadline.

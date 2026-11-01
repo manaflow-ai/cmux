@@ -380,6 +380,16 @@ try {
     await act(async () => calls[0]!.answer(INFO));
     expect(host.querySelector(".acpmux-attachment-video img")?.getAttribute("src")).toBe(POSTER);
   });
+  test("a chip that comes with its video (Edit after a reload) is still heard, and the send waits for it", async () => {
+    await render([{ ...video(), video: parseVideoInfo(INFO)! }]);
+    const listen = calls.find((call) => call.method === "video.transcript")!;
+    expect(calls.map((call) => call.method)).toEqual(["video.transcript"]);
+    expect(state?.reading).toBe(1);
+    await act(async () => listen.answer(SPEECH));
+    expect(state?.reading).toBe(0);
+    expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
+  });
+
   test("a video's speech is asked once and goes on its chip", async () => {
     await render([video()]);
     await act(async () => calls[0]!.answer(INFO));
