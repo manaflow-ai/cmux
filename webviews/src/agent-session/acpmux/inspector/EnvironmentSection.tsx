@@ -1,7 +1,8 @@
 // Session Info's Environment (Claude Code desktop's): where a running chat runs, the one place
 // that says so. The machine by its own name, with its kind in words at the row's end (This Mac,
-// SSH, Cloud), never "This computer"; then the chat's project (chatFolders.ts), named by its
-// repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
+// SSH, Cloud), never "This computer", with Save where the App offers it; then the chat's project
+// (chatFolders.ts), named by its repository, whose full path only a hover shows; the GitHub
+// repository; the branch. Then Remote
 // Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane

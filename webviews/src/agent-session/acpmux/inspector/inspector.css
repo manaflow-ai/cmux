@@ -592,6 +592,10 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* The machine row's kind (This Mac, SSH, Cloud) is the end; a Save after it sits beside it, at the row's gap. */
+.acpmux-chat-inspector-row__end + .acpmux-chat-inspector-row__end {
+  margin-left: 0;
+}
 .acpmux-chat-inspector-row__end[data-state="failed"] {
   color: var(--agent-status-failure);
 }
