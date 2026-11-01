@@ -338,7 +338,8 @@ fn watch_list_shows_each_running_watchs_latest_output() {
     watch(
         &mut h,
         WatchCall {
-            command: Some("echo 'build 1/3'; echo 'build 2/3'; sleep 30".into()),
+            // The listed command never holds the expected lines itself.
+            command: Some("printf 'build %s/3\\n' 1 2; sleep 30".into()),
             until: Some("never".into()),
             note: Some("the build".into()),
             ..WatchCall::default()
