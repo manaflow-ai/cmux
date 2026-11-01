@@ -10,6 +10,9 @@ import CmuxNextSidebar
 /// (`SidebarPriorityRowActions`), which its hover buttons run through the registry.
 extension SidebarPriorityFeed {
     static let toggleAction: ActionID = "sidebar.priorityView.toggle"
+    static let nextNeedingInputAction: ActionID = "agent.jumpToNextNeedingInput"
+    /// The chat Go to Next Agent Needing Input opened last: the next run goes on from it.
+    private static var lastNeedingInput: String?
 
     convenience init(services: AppServices) {
         let preferences = { DesignSettings.shared.sidebarSections }
@@ -49,19 +52,21 @@ extension SidebarPriorityFeed {
                                                 local: { nil })
         SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
             .bind(into: registry)
-        // Available even with the optional Priority sidebar hidden. Count and destination
-        // use the same eligible, currently observed chat lanes; never jump to a mere unread tab.
-        var lastNeedsInput: String?
-        registry.bind("agent.jumpToNextNeedingInput", run: { _ in
-            let chats = AgentPriorityChats.app
-            let snapshot = chats.snapshot()
-            guard let id = AgentPriorityRanking.nextNeedingInput(after: lastNeedsInput, in: chats.entries(snapshot)),
-                  let lane = snapshot.lanes.first(where: { $0.id == id }) else {
-                lastNeedsInput = nil
-                throw ActionFailure.invalidTarget(SidebarSectionStrings.noSuchPriorityChat)
+        // Available even with the Priority view hidden. Count and destination read the same
+        // waiting chats (`AgentPriorityChats.needingInput`: each store's waiting index, never a
+        // ranking of every lane); never a mere unread tab. A focus move: it does all its work on
+        // the input's turn and returns `.done`.
+        registry.bindEffect(nextNeedingInputAction, effect: { _ in
+            let waiting = AgentPriorityChats.app.needingInput()
+            guard let id = AgentPriorityRanking.next(after: Self.lastNeedingInput, in: waiting.map(\.id)),
+                  let lane = waiting.first(where: { $0.id == id }) else {
+                Self.lastNeedingInput = nil
+                return .refused(SidebarSectionStrings.noAgentNeedsInput, quiet: true)
             }
-            lastNeedsInput = id
+            guard ActionRunScope.viewChangeAllowed() else { return .done }
+            Self.lastNeedingInput = id
             Self.open(lane, services: context.services)
+            return .done
         })
     }
 }

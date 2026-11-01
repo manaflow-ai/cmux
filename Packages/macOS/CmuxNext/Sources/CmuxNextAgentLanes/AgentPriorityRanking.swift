@@ -16,11 +16,27 @@ public nonisolated struct AgentPriorityRanking: Sendable {
 
     public init() {}
 
-    /// The menu-bar and palette action cycles only agents actually waiting for the person.
-    /// This uses the same ranked, snooze/archived-aware entries as the Priority view; unseen
-    /// results and failed agents never satisfy a row labelled "Needs input".
-    public static func nextNeedingInput(after previous: String?, in entries: [SidebarPriorityEntry]) -> String? {
-        let ids = entries.filter { $0.state == .needsYou }.map(\.id)
+    /// The chats Go to Next Agent Needing Input visits, in its order: of `waiting` (lanes the caller
+    /// read from its waiting index), the ones still at a permission prompt or question and neither
+    /// archived nor snoozed, pinned first, then the newest ask. The Priority view's needs-you tier
+    /// in its order (a dragged row's place aside), built from those lanes alone: unseen results and
+    /// failed chats never satisfy "Needs input", and nothing ranks the other chats.
+    public static func needingInput(_ waiting: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [AgentActivityLane] {
+        waiting.filter { lane in
+            lane.state == .input && !marks.archived.contains(lane.id)
+                && !marks.isSnoozed(lane.id, stamp: AgentPriorityMarks.stamp(lane), now: now)
+        }.sorted { a, b in
+            let pinnedA = marks.pinned.contains(a.id), pinnedB = marks.pinned.contains(b.id)
+            if pinnedA != pinnedB { return pinnedA }
+            let sinceA = a.since ?? .distantPast, sinceB = b.since ?? .distantPast
+            if sinceA != sinceB { return sinceA > sinceB }
+            return a.id < b.id
+        }
+    }
+
+    /// The chat after `previous` in `ids` (``needingInput(_:marks:now:)``'s order), wrapping; the
+    /// first when `previous` is nil or no longer waits; nil when none waits.
+    public static func next(after previous: String?, in ids: [String]) -> String? {
         guard let first = ids.first else { return nil }
         guard let previous, let index = ids.firstIndex(of: previous) else { return first }
         return ids[(index + 1) % ids.count]

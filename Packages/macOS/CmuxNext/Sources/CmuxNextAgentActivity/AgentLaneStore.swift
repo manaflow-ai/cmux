@@ -25,8 +25,24 @@ public final class AgentLaneStore {
         }
         set {
             withMutation(keyPath: \.lanes) { storage = newValue }
+            waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
             syncCells()
         }
+    }
+
+    /// The sessions whose lane waits for the person (`.input`: a permission prompt or a question),
+    /// kept with every write, so a reader that wants only those (Go to Next Agent Needing Input,
+    /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
+    /// it when it is used.
+    @ObservationIgnored public private(set) var waiting: Set<String> = []
+
+    /// Writes one session's lane (nil: it ended), as ``lanes``' setter does for that session, but
+    /// in place and keeping ``waiting`` by that session alone: the watch's per-session changes,
+    /// many a second while an agent works, never copy or rescan the map.
+    public func set(_ session: String, _ lane: AgentActivityLane?) {
+        withMutation(keyPath: \.lanes) { storage[session] = lane }
+        if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        syncCells()
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
