@@ -57,11 +57,11 @@ enum SidebarStyle {
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
     /// Where a workspace row's title starts, from its icon and session tree depth.
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
         let side: CGFloat
         let swatch: Bool
         switch icon {
-        case nil: side = 0; swatch = false
+        case nil: side = reservesColorRail ? dotSize + Metrics.space1 : 0; swatch = reservesColorRail
         case .swatch: side = dotSize + Metrics.space1; swatch = true
         case .symbol, .emoji, .favicon: side = iconBox; swatch = false
         }

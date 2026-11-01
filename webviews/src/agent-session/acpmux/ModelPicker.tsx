@@ -56,6 +56,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     effortsDeclared?: boolean;
+    defaultEffort?: string;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -78,6 +79,8 @@ type ModelChoice = {
   unavailable?: string;
   efforts?: string[];
   effortsDeclared?: boolean;
+  /** The level the catalog recommends (a pick with no effort of its own lands it). */
+  defaultEffort?: string;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -157,6 +160,7 @@ function sectionsFor(
           ? { efforts: model.efforts }
           : {}),
         ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
+        ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
         ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
@@ -282,6 +286,8 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
       ? { efforts: model.efforts }
       : {}),
     ...(model.unavailable || model.defaultChoice ? { disabled: true } : {}),
+    ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
+    ...(model.fast ? { canFast: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
@@ -943,6 +949,8 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
+    // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
+    // models are routes of its tab, chosen in the menu's Account row.
     const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
