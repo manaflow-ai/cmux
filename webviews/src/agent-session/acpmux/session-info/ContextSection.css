@@ -1,0 +1,170 @@
+/* Session Info's Context, open (ContextSection.tsx): the total line, the bar split by part, and a row
+   per part with its colored square, its tokens and its share of the window, as Claude Code desktop's. */
+.acpmux-session-info-context {
+  --acpmux-context-used: var(--agent-accent);
+  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  min-width: 0;
+  padding-bottom: 4px;
+}
+.acpmux-session-info-context__total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 8px 6px;
+  white-space: nowrap;
+}
+.acpmux-session-info-context__tokens {
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Compact session: "130K until auto-compact" on the rows' leading edge and a real button on their
+   trailing edge, both inset 8px as the rows are, as Claude Code desktop's Session Info. */
+.acpmux-session-info-context__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) 0;
+}
+.acpmux-session-info-context__until {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-session-info-context__compact {
+  flex: none;
+  height: var(--cmux-control-height);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-session-info-context__compact:hover {
+  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-session-info-context__compact:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-session-info-context__bar {
+  display: flex;
+  gap: 0;
+  height: 6px;
+  margin: 0 8px 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--acpmux-context-free);
+}
+.acpmux-session-info-context__bar > span {
+  flex: none;
+  min-width: 2px;
+  height: 100%;
+}
+.acpmux-session-info-context__bar > span:not(:last-child) {
+  position: relative;
+}
+.acpmux-session-info-context__bar > span:not(:last-child)::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(2px, 25%);
+  background: var(--acpmux-context-free);
+  content: "";
+  pointer-events: none;
+}
+.acpmux-session-info-context__bar > [data-part="used"],
+.acpmux-session-info-context__swatch[data-part="used"] {
+  background: var(--acpmux-context-used);
+}
+.acpmux-session-info-context__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.acpmux-session-info-context__swatch[data-part="free"] {
+  background: var(--acpmux-context-free);
+}
+.acpmux-session-info-context__count {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-context__share {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A /context breakdown: each used category takes a step of the theme accent, largest first, so the
+   bar reads as one color family over the glass; the autocompact buffer is a stronger tint of the text,
+   a deferred category (which takes no room yet) a fainter one with its row dimmed, and the free space
+   is the bar's track. The gallery's other palettes set --acpmux-context-tone-N (SessionInfo.gallery). */
+.acpmux-context-breakdown {
+  /* Its own, so the ring's details (outside Session Info's Context wrapper) draw the track too. */
+  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --acpmux-context-buffer: color-mix(in srgb, var(--agent-text) 34%, transparent);
+  min-width: 0;
+}
+.acpmux-context-breakdown [data-tone="0"] { background: var(--acpmux-context-tone-0, var(--agent-accent)); }
+.acpmux-context-breakdown [data-tone="1"] { background: var(--acpmux-context-tone-1, color-mix(in oklab, var(--agent-accent) 74%, transparent)); }
+.acpmux-context-breakdown [data-tone="2"] { background: var(--acpmux-context-tone-2, color-mix(in oklab, var(--agent-accent) 54%, transparent)); }
+.acpmux-context-breakdown [data-tone="3"] { background: var(--acpmux-context-tone-3, color-mix(in oklab, var(--agent-accent) 40%, transparent)); }
+.acpmux-context-breakdown [data-tone="4"] { background: var(--acpmux-context-tone-4, color-mix(in oklab, var(--agent-accent) 29%, transparent)); }
+.acpmux-context-breakdown [data-tone="5"] { background: var(--acpmux-context-tone-5, color-mix(in oklab, var(--agent-accent) 21%, transparent)); }
+.acpmux-context-breakdown [data-kind="buffer"] > .acpmux-session-info-context__swatch,
+.acpmux-context-breakdown .acpmux-session-info-context__bar > [data-kind="buffer"] {
+  background: var(--acpmux-context-buffer);
+}
+.acpmux-context-breakdown .acpmux-session-info-context__swatch[data-kind="free"] {
+  background: var(--acpmux-context-free);
+}
+.acpmux-context-breakdown .acpmux-session-info-context__swatch[data-kind="deferred"] {
+  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+.acpmux-context-breakdown .acpmux-session-info-row[data-kind="deferred"] {
+  opacity: 0.55;
+}
+.acpmux-context-breakdown .acpmux-session-info-row__end {
+  margin-left: auto;
+}
+.acpmux-context-breakdown__fold[aria-expanded="true"] > svg {
+  color: var(--agent-text);
+}
+/* The fold's items: a name, its server or path, and its tokens; read-only, so they never hover. */
+.acpmux-context-breakdown__items {
+  padding-left: 18px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-context-breakdown__items .acpmux-session-info-row {
+  height: 24px;
+}
+/* In the composer ring's details (ComposerPickers ContextRing), outside Session Info's cards: the
+   rows line up with the details' title, and a fold hovers as Session Info's rows do. */
+.acpmux-context-pop.acpmux-context-pop--breakdown {
+  --acpmux-session-info-row-radius: 6px;
+  --acpmux-session-info-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  width: 230px;
+  max-width: min(230px, calc(100vw - 24px));
+}
+.acpmux-context-pop .acpmux-session-info-context__bar {
+  margin: 8px 0 6px;
+}
+.acpmux-context-pop .acpmux-session-info-row {
+  margin: 0 -4px;
+  padding: 0 4px;
+  width: calc(100% + 8px);
+}

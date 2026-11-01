@@ -12,7 +12,8 @@
 # start its service, redeem the token once through `acpmux host join` (the
 # token goes on its stdin, never in argv, env, a URL or a log), then print
 # this machine's join status. Run it again with no token to repair the
-# install and the service; a joined machine never spends a new token.
+# install and the service, or to finish a join that was cut off; a joined
+# machine never spends a new token.
 #
 # The join grants mesh membership only. Screen sharing and control stay off
 # until a person at this machine allows them.
@@ -231,49 +232,105 @@ if [ -z "$name" ]; then
 fi
 
 # 6. Redeem, once. A machine already joined spends nothing unless
-# CMUX_JOIN_REPLACE=1.
+# CMUX_JOIN_REPLACE=1. A join cut off between redeem and its local commit
+# (joinIncomplete: a pending proposal is on disk) wins over a present
+# credential: any rerun resumes it, with no token when acpmux can recover it
+# from the hub. A revoked or expired enrollment takes a fresh line, joined
+# with --replace.
 status_json() { "$acpmux" host join --status --json 2>/dev/null | tr -d ' \t\r\n'; }
+fresh_line="paste a new line: cmux machine add (or Add Machine in the app)"
 joined=0
-if [ -n "$t" ]; then
+resume=0
+revoked=0
+replace="${CMUX_JOIN_REPLACE:-}"
+if has_capability "$acpmux"; then
   st="$(status_json || true)"
   case "$st" in
+    *'"joinIncomplete":true'*) resume=1 ;;
+    *'"revoked":true'*) revoked=1 ;;
     *'"credentialPresent":true'*'"revoked":false'* | *'"revoked":false'*'"credentialPresent":true'*) joined=1 ;;
   esac
-  if [ "$joined" = 1 ] && [ "${CMUX_JOIN_REPLACE:-}" != 1 ]; then
-    say "already joined; nothing redeemed (CMUX_JOIN_REPLACE=1 swaps the credential)"
-    t=""
-  fi
 fi
-if [ -n "$t" ]; then
-  set -- host join --hub "$origin" --name "$name" --json
-  if [ "${CMUX_JOIN_REPLACE:-}" = 1 ]; then
-    set -- "$@" --replace
-  fi
-  # printf is a shell builtin: the token reaches acpmux on stdin only.
-  # acpmux's stderr is redacted on its way to disk (acpmux redacts its own
-  # errors; anything token-shaped is cut anyway), and its exit status comes
-  # back through a file, since a pipeline's status is its last command's.
-  rc=0
-  {
-    rc=0
-    printf '%s\n' "$t" | "$acpmux" "$@" 2>&1 >"$tmp/join.json" || rc=$?
-    printf '%s\n' "$rc" >"$tmp/join.rc"
-  } | sed 's/cmj_[A-Za-z0-9_-]*/[redacted token]/g' >"$tmp/join.err"
-  rc="$(cat "$tmp/join.rc")"
+if [ "$resume" = 1 ]; then
+  say "resuming a join that did not finish"
+elif [ "$revoked" = 1 ]; then
+  [ -n "$t" ] || die 3 "this machine's enrollment was revoked or has expired; $fresh_line"
+  replace=1
+elif [ "$joined" = 1 ] && [ -n "$t" ] && [ "$replace" != 1 ]; then
+  say "already joined; nothing redeemed (CMUX_JOIN_REPLACE=1 swaps the credential)"
   t=""
-  set --
+fi
+if [ -n "$t" ] || [ "$resume" = 1 ]; then
+  with_token=0
+  [ -z "$t" ] || with_token=1
+  while :; do
+    # A resume leaves out --name: the pending proposal keeps its own. One
+    # with no token leaves out --hub too, so acpmux asks the pending hub; a
+    # token only ever goes to this script's origin.
+    set -- host join
+    [ "$resume" = 1 ] && [ "$with_token" = 0 ] || set -- "$@" --hub "$origin"
+    [ "$resume" = 1 ] || set -- "$@" --name "$name"
+    set -- "$@" --json
+    if [ "$replace" = 1 ]; then
+      set -- "$@" --replace
+    fi
+    # printf is a shell builtin: the token reaches acpmux on stdin only.
+    # acpmux's stderr is redacted on its way to disk (acpmux redacts its own
+    # errors; anything token-shaped is cut anyway), and its exit status comes
+    # back through a file, since a pipeline's status is its last command's.
+    # A resume with no token gives acpmux an empty stdin.
+    rc=0
+    {
+      rc=0
+      if [ "$with_token" = 1 ]; then
+        printf '%s\n' "$t" | "$acpmux" "$@" 2>&1 >"$tmp/join.json" || rc=$?
+      else
+        "$acpmux" "$@" </dev/null 2>&1 >"$tmp/join.json" || rc=$?
+      fi
+      printf '%s\n' "$rc" >"$tmp/join.rc"
+    } | sed 's/cmj_[A-Za-z0-9_-]*/[redacted token]/g' >"$tmp/join.err"
+    rc="$(cat "$tmp/join.rc")"
+    set --
+    # The hub revoked the pending proposal: only --replace with a fresh token
+    # starts over, and the token on hand was never redeemed.
+    if [ "$rc" = 3 ] && grep -q 'revoked:' "$tmp/join.err"; then
+      [ "$with_token" = 1 ] || die 3 "this machine's enrollment was revoked or has expired; $fresh_line"
+      if [ "$replace" != 1 ]; then
+        replace=1
+        continue
+      fi
+    fi
+    break
+  done
+  t=""
+  if [ "$rc" = 2 ] && [ "$resume" = 1 ]; then
+    cat "$tmp/join.err" >&2
+    die 2 "the join that did not finish could not resume: paste the same line again (same CMUX_JOIN_NAME), or $fresh_line"
+  fi
   case "$rc" in
     0)
       if tr -d ' \t\r\n' <"$tmp/join.json" | grep -q '"alreadyJoined":true'; then
         say "already joined; nothing redeemed"
       else
-        say "joined as $name"
+        if [ "$resume" = 1 ]; then say "joined"; else say "joined as $name"; fi
         "$acpmux" daemon restart >/dev/null 2>&1 || true
       fi
       ;;
     2) die 2 "the line was damaged; copy it again from cmux" ;;
-    3) die 3 "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)" ;;
-    4) die 4 "cannot reach $origin: check this machine's outbound HTTPS, then paste a new line" ;;
+    3)
+      # acpmux's own reason (an enrollment that cannot authorize a
+      # replacement, say), already redacted; a revocation says it above.
+      grep -q 'revoked:' "$tmp/join.err" || cat "$tmp/join.err" >&2
+      die 3 "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)"
+      ;;
+    4)
+      # A resume needs its original line, and one with no token asked the
+      # pending hub, not $origin.
+      if [ "$resume" = 1 ]; then
+        die 4 "the hub could not be reached; rerun the same line once this machine's outbound HTTPS works"
+      fi
+      die 4 "cannot reach $origin: check this machine's outbound HTTPS, then paste a new line"
+      ;;
     5)
       store="$(status_json | sed -n 's/.*"credentialPath":"\([^"]*\)".*/\1/p')"
       die 5 "could not store the machine credential in ${store:-$HOME/.acpmux}: free disk / fix permissions, then paste a new line"

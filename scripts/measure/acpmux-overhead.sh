@@ -40,6 +40,17 @@
 # run and the next prompt's time to its first answer text. With before=SHA both builds run.
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=hibernate --arg=harness=claude,codex [--arg=n=4] [--arg=before=SHA] --timeout 5400
+#
+# bench=build-turn: an agent turn that runs a build (acpmux cpu_class.rs, the CPU class a session's
+# harness starts at): Claude Code through acpmux, each run a fresh session whose one Bash call is a
+# cold debug build of crate= (default cmux-history) in a fresh target dir. Per acpmux build: the
+# turn's time, the build's own seconds and the base priority of the shell it ran in (4: background
+# class). Then the same build run directly at each class (ACPMUX-BUILD-RAW lines): default,
+# `taskpolicy -c utility` and `taskpolicy -b`, interleaved. With before=SHA both builds run.
+# Output: ACPMUX-OVERHEAD and ACPMUX-BUILD-RAW lines. Exit 1 when a run failed.
+#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=build-turn --arg=harness=claude [--arg=n=3] [--arg=crate=cmux-history] \
+#     [--arg=before=SHA] --timeout 5400
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -49,6 +60,7 @@ codex_version="0.163.0"
 opencode_version="1.19.3"
 guard_ms=5
 bench=harness
+crate=cmux-history
 for arg in "$@"; do
   case "$arg" in
     bench=*) bench="${arg#bench=}" ;;
@@ -59,6 +71,7 @@ for arg in "$@"; do
     codex=*) codex_version="${arg#codex=}" ;;
     opencode=*) opencode_version="${arg#opencode=}" ;;
     guard_ms=*) guard_ms="${arg#guard_ms=}" ;;
+    crate=*) crate="${arg#crate=}" ;;
     *) echo "acpmux-overhead.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -69,7 +82,9 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm or hibernate" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate|build-turn)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm, hibernate or build-turn" >&2; exit 2; }
+[[ "$crate" =~ ^[a-z0-9_-]{1,64}$ ]] || { echo "acpmux-overhead.sh: crate= is a cmux-tui package name" >&2; exit 2; }
+[[ "$bench" != build-turn || "$harness" == claude ]] || { echo "acpmux-overhead.sh: bench=build-turn runs harness=claude only" >&2; exit 2; }
 # Every tool this bench always calls, checked before anything runs, so a worker without one says
 # which at once instead of failing after a build (cmux20-bench had no npm). Build tools are checked
 # where a build happens: cargo for the cmux fallback below, cargo and rustup in build-acpmux.sh when
@@ -84,6 +99,9 @@ need_tools() {  # need_tools WHAT TOOL...: exit 2 naming every TOOL not on PATH.
 }
 if [[ "$bench" == daemon ]]; then
   need_tools "bench=daemon" git sysctl sw_vers cargo
+elif [[ "$bench" == build-turn ]]; then
+  # The turn's build runs cargo and perl (its clock); ps reads its shell's priority.
+  need_tools "bench=build-turn" git sysctl sw_vers curl shasum awk python3 npm ps cargo perl
 elif [[ "$bench" == hibernate ]]; then
   # Hibernation counts the agent's processes with ps (acpmux-overhead-bench.py).
   need_tools "bench=hibernate" git sysctl sw_vers curl shasum awk python3 npm ps
@@ -185,6 +203,52 @@ echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) op
 status=0
 mode=overhead
 [[ "$bench" == prewarm ]] && mode=prewarm
+if [[ "$bench" == build-turn ]]; then
+  # The bench gives the harness a scratch HOME: the build names the step's own toolchain.
+  cargo_home="${CARGO_HOME:-$HOME/.cargo}" rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+  (cd cmux-tui && CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" cargo fetch --locked >/dev/null)
+  mkdir -p "$work/build-targets"
+  # The turn's Bash call runs this script: its shell's priority, then the build's seconds and exit.
+  cat > "$work/build-turn.sh" <<SH
+echo "BUILD-PRI \$(ps -o pri= -p \$\$)"
+cd "$root/cmux-tui" || exit 1
+t="\$(mktemp -d "$work/build-targets/t.XXXXXX")"
+s="\$(perl -MTime::HiRes=time -e 'printf "%.2f", time')"
+CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" PATH="$(dirname "$(command -v cargo)"):\$PATH" \\
+  CARGO_TARGET_DIR="\$t" cargo build --offline --locked -q -p "$crate" >/dev/null 2>&1
+e=\$?
+echo "BUILD-SECONDS \$(perl -MTime::HiRes=time -e 'printf "%.2f", time - \$ARGV[0]' "\$s")"
+echo "BUILD-EXIT \$e"
+rm -rf "\$t"
+exit "\$e"
+SH
+  build_cmd="/bin/sh $(printf '%q' "$work/build-turn.sh")"
+  turn() {
+    local label="$1" bin="$2"
+    python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --mode build-turn --build-cmd "$build_cmd" \
+      -n "$n" --warmup 1 --label "$label" --json "$work/$label.json" --md "$work/table.md" 2> "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD /"
+    tail -n 8 "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD-LOG $label /"
+    python3 -I -c 'import json,sys; sys.exit(1 if json.load(open(sys.argv[1]))["claude"]["errors"] else 0)' "$work/$label.json"
+  }
+  [[ -n "$before" ]] && { turn before "$work/before/acpmux" || status=1; }
+  turn after "$work/after/acpmux" || status=1
+  # The same build, run directly at each class, interleaved.
+  for k in $(seq 1 "$n"); do
+    for cls in default utility background; do
+      case "$cls" in
+        default) wrap=() ;;
+        utility) wrap=(/usr/sbin/taskpolicy -c utility) ;;
+        background) wrap=(/usr/sbin/taskpolicy -b) ;;
+      esac
+      rc=0
+      out="$(${wrap[@]+"${wrap[@]}"} /bin/sh -c "$build_cmd")" || rc=$?
+      echo "ACPMUX-BUILD-RAW $cls run=$k $(echo "$out" | tr '\n' ' ')"
+      (( rc == 0 )) || { echo "ACPMUX-BUILD-RAW-FAIL $cls run=$k exit=$rc"; status=1; }
+    done
+  done
+  echo "ACPMUX-OVERHEAD-LOAD end $(sysctl -n vm.loadavg)"
+  exit "$status"
+fi
 [[ "$bench" == hibernate ]] && mode=hibernate
 run() {
   local label="$1" bin="$2"

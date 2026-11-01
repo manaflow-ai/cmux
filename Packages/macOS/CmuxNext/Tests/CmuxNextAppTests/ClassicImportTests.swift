@@ -18,7 +18,7 @@ import Testing
 ///   hand in classic's schema: the Claude Code session on the `claude`
 ///   terminal (`terminal.agent`) and the `vm box` Cloud VM workspace
 ///   (`cloudVM`). The capture mini had no credentials for either.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicImportTests {
     private static func fixture(_ name: String) -> URL {
         var root = URL(fileURLWithPath: #filePath)

@@ -5,6 +5,8 @@
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
 //! the headless enroll on a machine with no app.
 
+use cmux_json::JsonSet as _;
+
 mod model;
 mod network;
 mod removal;
@@ -48,15 +50,18 @@ pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
     if raw_args.get(lead).map(String::as_str) != Some("device") {
         return None;
     }
-    let rest = &raw_args[lead + 1..];
+    let (leading, after_lead) = raw_args.split_at_checked(lead)?;
+    let rest = after_lead.get(1..).unwrap_or_default();
     let verb = rest.iter().position(|w| !output_flag(w));
-    let handled = match verb.map(|i| (i, rest[i].as_str())) {
-        Some((_, verb)) if VERBS.contains(&verb) => true,
-        Some((i, "add")) => rest[i + 1..].iter().any(|a| a == "--yes" || a == "-y"),
+    let handled = match verb.and_then(|i| rest.get(i..)) {
+        Some([verb, ..]) if VERBS.contains(&verb.as_str()) => true,
+        Some([verb, after @ ..]) if verb == "add" => {
+            after.iter().any(|a| a == "--yes" || a == "-y")
+        }
         None => true,
         _ => false,
     };
-    handled.then(|| raw_args[..lead].iter().chain(rest).cloned().collect())
+    handled.then(|| leading.iter().chain(rest).cloned().collect())
 }
 
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
@@ -126,7 +131,9 @@ fn verb_and_args(words: &[String]) -> (String, Vec<String>) {
     let Some(verb) = words.get(lead) else {
         return ("help".to_owned(), words.to_vec());
     };
-    (verb.clone(), words[..lead].iter().chain(&words[lead + 1..]).cloned().collect())
+    let before = words.get(..lead).unwrap_or_default();
+    let after = words.get(lead + 1..).unwrap_or_default();
+    (verb.clone(), before.iter().chain(after).cloned().collect())
 }
 
 /// Stdout pointed at the null device until this is dropped.
@@ -368,7 +375,7 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let listing = current(&flags, &auth, &mut notes)?;
     if flags.has("json") {
         let mut v = serde_json::to_value(&listing)?;
-        v["notes"] = json!(notes);
+        v.set("notes", json!(notes));
         println!("{v}");
         return Ok(());
     }

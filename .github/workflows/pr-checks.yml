@@ -158,7 +158,10 @@ jobs:
           sparse-checkout: scripts/ci/pr_status.py
           sparse-checkout-cone-mode: false
 
+      # Advisory: the line is a convenience, so a GitHub API error writing it warns and never turns
+      # the check red (in its last 31 hours this check was red 47 times and never on a PR's code).
       - name: Update the PR's review line
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -197,8 +200,8 @@ jobs:
   # "as long as you're mindful about it, I feel like it's reasonable, but you
   # don't need to make it, like, a hard gate". It is not a ruleset required check.
   #
-  # Cheap by design: one paginated pulls/N/files call with the read-only
-  # GITHUB_TOKEN, the body from the event payload, and the script from the base
+  # Cheap by design: one paginated GraphQL query (files and the current body) with
+  # the read-only GITHUB_TOKEN, REST only as its fallback, and the script from the base
   # commit (sparse, no pull request code). Editing the body to add a `Size:` line
   # runs it again. Drafts skip until marked ready, and CI_QUOTA_HOLD=1 pauses it
   # while the token budget is reserved for the nightly
@@ -248,20 +251,35 @@ jobs:
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0
           fi
-          # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
-          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
-            echo "::warning title=PR size::could not read the pull request's files; size not measured"
-            exit 0
-          fi
-          # The body as it is now, not the event's copy: a re-run of an older run must not
-          # answer with a `Size:` line the body no longer has. A failed read keeps the event's.
+          # The files and the body as it is now (not the event's copy: a re-run of an older run must
+          # not answer with a `Size:` line the body no longer has) in one GraphQL query a 100 files.
+          # GraphQL has its own hourly pool; the REST reads below, the GITHUB_TOKEN pool every
+          # workflow shares (it ran out at 00:50Z on 2026-10-31), are only the fallback.
+          # --paginate advances only a cursor named $endCursor. Each page repeats the body line.
+          # shellcheck disable=SC2016 # GraphQL's $variables, not the shell's
+          query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){body changedFiles files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{path additions deletions}}}}}'
+          rows='.data.repository.pullRequest | ({pull_request: {body, changed_files: .changedFiles}} | @json), (.files.nodes[] | {filename: .path, additions, deletions} | @json)'
           event="$GITHUB_EVENT_PATH"
-          if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
-            > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+          if gh api graphql --paginate -f query="$query" -f owner="${REPOSITORY%%/*}" -f name="${REPOSITORY#*/}" \
+            -F number="$PR" --jq "$rows" > "$RUNNER_TEMP/graphql.jsonl" 2>/dev/null \
+            && grep -m1 '^{"pull_request":' "$RUNNER_TEMP/graphql.jsonl" > "$RUNNER_TEMP/live-event.json"; then
+            grep -v '^{"pull_request":' "$RUNNER_TEMP/graphql.jsonl" > "$RUNNER_TEMP/files.jsonl" || true
             event="$RUNNER_TEMP/live-event.json"
           else
-            echo "::notice title=PR size::could not read the current body; using the event's"
+            echo "::notice title=PR size::GraphQL read failed; reading the files over REST"
+            # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
+            if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
+              echo "::warning title=PR size::could not read the pull request's files; size not measured"
+              exit 0
+            fi
+            # A failed read of the current body keeps the event's.
+            if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+              > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+              event="$RUNNER_TEMP/live-event.json"
+            else
+              echo "::notice title=PR size::could not read the current body; using the event's"
+            fi
           fi
           status=0
           python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$event" || status=$?
@@ -270,6 +288,67 @@ jobs:
             3) ;;  # over the limit with no `Size:` line: the script printed the warning; never a gate
             *) echo "::warning title=PR size::the size script failed (exit $status); size not measured" ;;
           esac
+
+  # Webview UI changes carry the review loop from the aiforui course. This is
+  # intentionally advisory: a missing section warns, but never blocks a PR.
+  # The checker comes from the base branch so a PR cannot weaken its own policy.
+  ui-review:
+    name: UI review advisory
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the advisory from the base
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ui_review_advisory.py
+          sparse-checkout-cone-mode: false
+
+      - name: Read changed files and body
+        id: read
+        if: steps.checkout.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FILES_JSON: ${{ runner.temp }}/ui-review-files.json
+          BODY_FILE: ${{ runner.temp }}/ui-review-body.md
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            fs.writeFileSync(process.env.FILES_JSON, JSON.stringify(files.map(file => ({ filename: file.filename }))));
+            fs.writeFileSync(process.env.BODY_FILE, context.payload.pull_request.body || '');
+
+      - name: Warn when the UI review is missing
+        if: steps.read.outcome == 'success'
+        env:
+          FILES_JSON: ${{ runner.temp }}/ui-review-files.json
+          BODY_FILE: ${{ runner.temp }}/ui-review-body.md
+        run: |
+          if [ ! -f scripts/ci/ui_review_advisory.py ]; then
+            echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
+            exit 0
+          fi
+          python3 scripts/ci/ui_review_advisory.py --body-file "$BODY_FILE" --files-json "$FILES_JSON" \
+            || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
+
+      - name: Warn when changed files could not be read
+        if: steps.read.outcome != 'success'
+        run: echo "::warning title=UI review::could not check out the advisory or read changed files; review the UI section manually"
 
   # Every push-group event runs it (ready_for_review too, which the old workflow did not):
   # that event can cancel a push run, and its own run must answer for all three checks.

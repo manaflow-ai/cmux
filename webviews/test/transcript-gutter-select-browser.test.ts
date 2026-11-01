@@ -88,15 +88,17 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const column = node.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: column.left, right: column.right };
     }, id);
-  /// The midpoint between two mounted row text boxes. This is the blank vertical rhythm where a
-  /// transcript-level press should still be able to start a native text selection.
-  const gapBetween = async (page: Page, above: string, below: string) => {
-    const [upper, lower] = await Promise.all([box(page, above), box(page, below)]);
-    return {
-      x: (upper.left + upper.right) / 2,
-      y: (upper.bottom + lower.top) / 2,
-    };
-  };
+  /// Press the explicit empty row padding. The midpoint between prose boxes can hit the
+  /// reply's action footer, which must retain native control ownership.
+  const gapAfter = (page: Page, above: string) =>
+    page.evaluate((id) => {
+      const gap = document.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-transcript-gap="row"]`)!;
+      const rect = gap.getBoundingClientRect();
+      const point = { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 };
+      if (rect.height <= 0 || document.elementFromPoint(point.x, point.y) !== gap)
+        throw new Error(`No exposed row gap after ${id}`);
+      return point;
+    }, above);
   /// Waits for the transcript to draw rows (`prefix`'s, when given): React commits the shown rows after
   /// the harness call returns, so the scroller may not be in the page yet.
   const rowsIn = (page: Page, prefix = "") =>
@@ -285,7 +287,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
         ["m1", "m2"],
         ["m2", "m3"],
       ] as const) {
-        const gap = await gapBetween(page, above, below);
+        const gap = await gapAfter(page, above);
         const lower = await box(page, below);
         await drag(page, gap, { x: lower.left + 220, y: lower.top + 4 });
         const text = await selected(page);
@@ -424,7 +426,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const unmountedOnBase = await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
         return scroller.scrollTop;
@@ -495,7 +497,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
       });
@@ -547,7 +549,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
       });

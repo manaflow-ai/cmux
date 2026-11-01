@@ -13,7 +13,8 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       any cannot-run attempt. Prints pass, crash or cannot-run.
 
   pick --feed LIVE.xml [--build BUILD]
-      The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=): the newest feed item that
+      The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=, ed_signature=, the item's
+      sparkle:edSignature the smoke checks the downloaded DMG against): the newest feed item that
       Nightly apps are offered (untagged, cmux-next or cmux-next-stable) and that has a nightly-next
       DMG, or BUILD when given. A Dev-ring (cmux-next-dev) or Canary-only item is never picked, so a
       newer Dev-only build is skipped and the Nightly build below it is smoked. Exit 1 with no pick.
@@ -26,6 +27,14 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       and a rollback never pulls a newer build (a Dev one included) or goes past the kept good one.
       The rollback itself is nightly-next-rollback.yml (bad_build=BUILD).
 
+  in-flight --build BUILD
+      Another run's smoke of BUILD that is queued or running, as a GITHUB_OUTPUT line (in_flight=RUN or
+      in_flight= ), read live from this workflow's runs (GITHUB_REPOSITORY, GITHUB_RUN_ID, GH_TOKEN). A
+      scheduled tick skips such a build, so each build has one smoke at a time: on 2026-10-29 the smokes
+      waited 45 minutes to 2 hours for a Mac and the 10-minute ticks queued up to three per build. A read
+      that fails prints a warning and in_flight=unknown; scheduled ticks skip dispatch until the next
+      successful read. Manual and pull-request runs still proceed.
+
   evidence --report report.json --out FILE [--app-log app.log] [--crash FILE]...
       The crash issue's body: the harness failures, the app's system-log errors, the crash
       report's exception and termination, and the app output's last lines.
@@ -34,11 +43,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import urllib.request
 from pathlib import Path
+from typing import Callable, Mapping
 
-PASS, CRASH, CANNOT_RUN = "pass", "crash", "cannot-run"
+PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
@@ -87,7 +99,8 @@ def read_attempts(directory: Path) -> list[tuple[int, dict]]:
     return found
 
 
-ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"')
+ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>')
+ED_SIGNATURE = re.compile(r'\ssparkle:edSignature="([^"]*)"')
 DMG_PREFIXES = ("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
                 "https://files-next.cmux.com/nightly-next/next/")
 
@@ -97,14 +110,17 @@ def nightly_offered(item: str) -> bool:
     return (channel.group(1) if channel else None) in NIGHTLY_CHANNELS
 
 
-def pick(text: str, wanted: str = "") -> tuple[int, str, str]:
-    """(build, DMG url, length) to smoke: the newest Nightly-offered item with a DMG, or WANTED."""
+def pick(text: str, wanted: str = "") -> tuple[int, str, str, str]:
+    """(build, DMG url, length, edSignature) to smoke: the newest Nightly-offered item with a DMG, or
+    WANTED. The edSignature is empty when the enclosure has none (the DMG check then fails)."""
     items = []
     for item in ITEM.findall(text):
         version = VERSION.search(item)
         enclosure = ENCLOSURE.search(item)
         if version and enclosure:
-            items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2), nightly_offered(item)))
+            signature = ED_SIGNATURE.search(enclosure.group(0))
+            items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2), nightly_offered(item),
+                          signature.group(1) if signature else ""))
     if wanted:
         items = [i for i in items if str(i[0]) == wanted]
         if items and not items[0][3]:
@@ -112,10 +128,10 @@ def pick(text: str, wanted: str = "") -> tuple[int, str, str]:
     items = [i for i in items if i[3]]
     if not items:
         raise ValueError(f"no Nightly feed item {'for build ' + wanted if wanted else 'with a DMG'}")
-    build, url, length, _ = max(items)
+    build, url, length, _, signature = max(items)
     if not url.startswith(DMG_PREFIXES):
         raise ValueError(f"{url} is not a nightly-next download")
-    return build, url, length
+    return build, url, length, signature
 
 
 def feed_builds(text: str) -> list[tuple[int, bool]]:
@@ -192,6 +208,52 @@ def evidence(report: dict, app_log: str | None, crashes: list[Path]) -> str:
     return "\n".join(out) + "\n"
 
 
+SMOKE_WORKFLOW = "nightly-next-launch-smoke.yml"
+API = "https://api.github.com"
+
+
+def smoke_job(build: int | str) -> str:
+    """The smoke job's name for BUILD (the workflow's `name: smoke ${{ needs.pick.outputs.build }}`)."""
+    return f"smoke {build}"
+
+
+def in_flight(runs: list[dict], jobs_of: Callable[[int], list[dict]], build: int | str, own_run: int) -> int | None:
+    """The id of another run that has a smoke of BUILD queued or running, else None.
+
+    `runs` are this workflow's runs, newest first (the REST list). A run that has not completed (a pull
+    request's too: its smoke takes a Mac like any other) holds BUILD while its `smoke BUILD`
+    job exists and was not skipped: queued for a runner, running, or done while its run still records the
+    verdict or files the crash. Only a completed run lets the next tick smoke BUILD again, which a recorded
+    pass or cannot-run then stops in pick and a crash does not (it is retried until its rollback lands).
+    """
+    name = smoke_job(build)
+    for run in runs:
+        if run.get("status") == "completed" or int(run.get("id") or 0) == own_run:
+            continue
+        for job in jobs_of(int(run["id"])):
+            if job.get("name") == name and job.get("conclusion") != "skipped":
+                return int(run["id"])
+    return None
+
+
+def read_in_flight(build: int | str, env: Mapping[str, str]) -> int | None:
+    """in_flight() over the live runs, read with GH_TOKEN (the repository is public, so any token reads it)."""
+    repo = env["GITHUB_REPOSITORY"]
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "cmux-nightly-next-launch-smoke"}
+    if env.get("GH_TOKEN"):
+        headers["Authorization"] = f"Bearer {env['GH_TOKEN']}"
+
+    def get(path: str) -> dict:
+        request = urllib.request.Request(f"{API}/repos/{repo}{path}", headers=headers)
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.load(response)
+
+    runs = get(f"/actions/workflows/{SMOKE_WORKFLOW}/runs?per_page=100").get("workflow_runs") or []
+    return in_flight(runs, lambda run: get(f"/actions/runs/{run}/jobs?filter=latest&per_page=100").get("jobs") or [],
+                     build, int(env.get("GITHUB_RUN_ID") or 0))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -204,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--feed", type=Path, required=True)
     d.add_argument("--build", type=int, required=True)
     d.add_argument("--verdict", choices=[PASS, CRASH, CANNOT_RUN], required=True)
+    f = sub.add_parser("in-flight")
+    f.add_argument("--build", required=True)
     e = sub.add_parser("evidence")
     e.add_argument("--report", type=Path, required=True)
     e.add_argument("--app-log", type=Path)
@@ -212,11 +276,32 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "pick":
         try:
-            build, url, length = pick(args.feed.read_text(encoding="utf-8"), args.build)
+            build, url, length, signature = pick(args.feed.read_text(encoding="utf-8"), args.build)
         except ValueError as error:
             print(error, file=sys.stderr)
             return 1
-        print(f"build={build}\nurl={url}\nlength={length}")
+        print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
+    elif args.command == "in-flight":
+        try:
+            run = read_in_flight(args.build, os.environ)
+        except Exception as error:  # noqa: BLE001 - preserve manual/PR behavior, fail closed on schedule
+            message = f"could not read the in-flight smokes ({error}); scheduled dispatch is paused"
+            print(f"::warning title=nightly-next launch smoke::{message}", file=sys.stderr)
+            summary = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary:
+                try:
+                    with open(summary, "a", encoding="utf-8") as output:
+                        output.write("### cmux NEXT launch smoke: in-flight state unknown\n\n")
+                        output.write(f"{message}. The next scheduled tick will retry the read.\n")
+                except OSError as summary_error:
+                    print(f"::warning title=nightly-next launch smoke::could not write the step summary "
+                          f"({summary_error})", file=sys.stderr)
+            print(f"in_flight={UNKNOWN}")
+            return 0
+        if run:
+            print(f"::notice title=nightly-next launch smoke::run {run} already has a smoke of build {args.build} "
+                  "queued or running; this tick does not start another", file=sys.stderr)
+        print(f"in_flight={run or ''}")
     elif args.command == "verdict":
         print(verdict(read_attempts(args.dir)))
     elif args.command == "decide":

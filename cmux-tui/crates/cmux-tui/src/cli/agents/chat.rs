@@ -30,6 +30,7 @@ use serde_json::{Map, Value, json};
 use super::super::agent_message::{self, Body, MessagePlan};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError, wire};
+use cmux_json::JsonSet as _;
 
 /// Items one read returns by default and at most.
 pub(in crate::cli) const DEFAULT_READ_LIMIT: usize = 50;
@@ -335,6 +336,11 @@ fn send(
                     json!({"code": "transport.failed", "message": message, "details": {},
                            "retryable": true}),
                 ),
+                super::super::resolve::Failure::Refused => (
+                    FailureKind::NotRun,
+                    json!({"code": "session.busy", "message": "session is busy", "details": {},
+                           "retryable": true}),
+                ),
                 super::super::resolve::Failure::AppAction { action, .. } => (
                     FailureKind::NotRun,
                     json!({"code": "usage.invalid", "message": format!("{action} is an app action"),
@@ -356,15 +362,15 @@ fn send(
     if let Some(reason) =
         delivery.and_then(|delivery| delivery.get("reason")).filter(|r| !r.is_null())
     {
-        result["reason"] = reason.clone();
+        result.set("reason", reason.clone());
     }
     // Stored but not handed to the chat: the receipt says so, and the CLI
     // and the tool report it as an error (`delivery_failed`).
     if sent.failed {
-        result["state"] = json!("failed");
+        result.set("state", json!("failed"));
     }
     if !sent.problems.is_empty() {
-        result["problems"] = json!(sent.problems);
+        result.set("problems", json!(sent.problems));
     }
     Ok(json!({
         "schema_version": 1,
@@ -586,7 +592,7 @@ impl Transcript {
                 let Some(&index) = self.tools.get(id) else { return };
                 let item = &mut self.items[index];
                 if let Some(status) = update["status"].as_str() {
-                    item.extra["tool"]["status"] = json!(status);
+                    item.extra.set_path(&["tool", "status"], json!(status));
                 }
             }
             _ => {}

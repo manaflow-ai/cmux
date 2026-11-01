@@ -39,7 +39,7 @@ struct AcpmuxRefusedRestartTests {
     /// The page learns it may offer Restart acpmux; the offer names the daemon on that very socket.
     @Test func aRefusedHandshakeOffersRestartAcpmux() async throws {
         try await withFakeDaemon { environment, _ in
-            let model = AgentPaneModel(host: AcpmuxHost(environment: environment))
+            let model = AgentPaneModel(host: AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment))
             let reply = await model.respond(to: .reconnect)
             let error = try #require(reply["error"] as? [String: Any], "the daemon was accepted")
             let details = error["details"] as? [String: Any]
@@ -48,14 +48,25 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
-    /// An update handoff can finish without a person's action; missing/stopped daemons cannot.
-    @Test func onlyAnUpdateHandoffIsAReconnectingHandshake() async throws {
-        for cause in [AgentPaneHostError.daemonRestarting, .acpmuxNotFound, .daemonStopped, .chiefStopped] {
+    /// A daemon's start or restart ends without the person, so the page shows nothing while it
+    /// lasts; acpmux missing and another build's daemon do not, and are said at once.
+    @Test func onlyARecoveryIsAReconnectingHandshake() async throws {
+        let recovering: [AgentPaneHostError] = [
+            .daemonRestarting, .timedOut, .daemonStopped, .chiefStopped, .chiefStarting,
+            .daemonFailed(logPath: "/l", cause: .exited),
+            .daemonRefused(holder: nil, socketPath: "/s", reason: "the socket's peer process is unknown"),
+        ]
+        let refused: [AgentPaneHostError] = [
+            .acpmuxNotFound,
+            .daemonRefused(holder: "cmux NIGHTLY", socketPath: "/s", reason: "another build"),
+            .daemonFailed(logPath: "/l", cause: .refused("a temporary folder")),
+        ]
+        for cause in recovering + refused {
             let model = AgentPaneModel(host: RefusingHost(cause))
             let reply = await model.respond(to: .reconnect)
             let error = try #require(reply["error"] as? [String: Any])
             let details = error["details"] as? [String: Any]
-            #expect((details?["reconnecting"] as? Bool == true) == (cause == .daemonRestarting))
+            #expect((details?["reconnecting"] as? Bool == true) == recovering.contains(cause), "\(cause)")
         }
     }
 
@@ -73,7 +84,7 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxNeverStopsADaemonWithoutAgentHosts() async throws {
         try await withFakeDaemon(agentHosts: false) { environment, daemon in
             let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath)
-            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner) == false)
+            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: AcpmuxLocalDaemons()) == false)
             #expect(!daemon.calls.joined().contains("_acpmux/shutdown"))
         }
     }
@@ -83,7 +94,7 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxNeverStopsADaemonTheRefusalDidNotName() async throws {
         try await withFakeDaemon { environment, daemon in
             let owner = AcpmuxSocketOwner(path: "/elsewhere/acpmux", socketPath: environment.socketPath)
-            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner) == false)
+            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: AcpmuxLocalDaemons()) == false)
             #expect(!daemon.calls.joined().contains("_acpmux/shutdown"))
         }
     }
@@ -94,10 +105,10 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxNeverStopsADaemonOnAnotherSocket() async throws {
         try await withFakeDaemon { environment, daemon in
             let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath + ".chief")
-            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
+            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: AcpmuxLocalDaemons(),
                                                            bootOut: { _, _ in false }, exited: { _ in true })
             #expect(!stopped)
-            let restarted = await AcpmuxHost(environment: environment).restartAcpmux(owner: owner)
+            let restarted = await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment).restartAcpmux(owner: owner)
             #expect(!restarted)
             let asked = daemon.calls.contains { !$0.isEmpty }
             #expect(!asked, "a daemon on another socket was asked: \(daemon.calls)")
@@ -110,10 +121,27 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxStopsTheNamedDaemonOnItsOwnSocket() async throws {
         try await withFakeDaemon { environment, daemon in
             let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath)
-            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
+            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: AcpmuxLocalDaemons(),
                                                            bootOut: { _, _ in false }, exited: { _ in true })
             #expect(stopped)
             #expect(daemon.calls.contains(["initialize", "_acpmux/status", "_acpmux/shutdown"]), "\(daemon.calls)")
+        }
+    }
+
+    /// A second Restart acpmux while the first one stops that daemon asks it nothing: the claim is
+    /// the app's one ``AcpmuxLocalDaemons``, which every host gets, and it ends with that restart.
+    @Test func aSecondRestartWhileTheFirstRunsAsksNothing() async throws {
+        try await withFakeDaemon { environment, daemon in
+            let daemons = AcpmuxLocalDaemons()
+            let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath)
+            // The fake daemon is this test process: the first restart holds its pid.
+            #expect(daemons.claimStop(getpid()))
+            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons,
+                                                           bootOut: { _, _ in false }, exited: { _ in true })
+            #expect(!stopped)
+            #expect(!daemon.calls.contains { !$0.isEmpty }, "the daemon was asked: \(daemon.calls)")
+            daemons.endStop(getpid())
+            #expect(daemons.claimStop(getpid()), "the claim ends with the restart that made it")
         }
     }
 
@@ -215,10 +243,10 @@ struct AcpmuxRefusedRestartDaemonTests {
     /// Another binary's daemon, the offer a refusal leaves, Restart acpmux, and the reconnect; the daemon that runs after.
     private func restart(otherBin: URL, bin: URL, socket: String,
                          environment: (URL) throws -> AcpmuxEnvironment) async throws -> Int32 {
-        try await AcpmuxHost(environment: try environment(otherBin)).prewarm()
+        try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(otherBin)).prewarm()
         let before = try #require(try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid)
 
-        let model = AgentPaneModel(host: AcpmuxHost(environment: try environment(bin)))
+        let model = AgentPaneModel(host: AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(bin)))
         let owner = try #require(AcpmuxSocketOwner.read(socketPath: socket))
         #expect(owner.path == otherBin.appendingPathComponent("acpmux").resolvingSymlinksInPath().path)
         model.acpmuxRestartOffered = owner

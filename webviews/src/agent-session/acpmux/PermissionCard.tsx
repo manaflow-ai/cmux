@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
+import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -394,6 +395,7 @@ export function PermissionCard({
           </div>
         )}
       </div>
+      <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && (
         <div className="acpmux-permission-buttons">
           {allowOnce && (

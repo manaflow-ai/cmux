@@ -8,11 +8,14 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
     public var code: Int?
     public var name: String?
     public var message: String
+    /// The folder named by a trust refusal, retained for the pane's Trust route.
+    public var cwd: String?
 
-    public init(code: Int? = nil, name: String? = nil, message: String) {
+    public init(code: Int? = nil, name: String? = nil, message: String, cwd: String? = nil) {
         self.code = code
         self.name = name
         self.message = message
+        self.cwd = cwd
     }
 
     init(_ error: [String: Any]) {
@@ -20,6 +23,7 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
         code = (error["code"] as? NSNumber)?.intValue
         name = data?["reason"] as? String ?? data?["code"] as? String
         message = error["message"] as? String ?? "acpmux request failed"
+        cwd = data?["cwd"] as? String
     }
 
     /// The daemon does not serve the method (an older acpmux): callers fall back to the CLI.
@@ -119,7 +123,8 @@ extension AcpmuxEnvironment {
     public nonisolated func watchHarnesses(_ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
-            let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+            guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
+            let connection = NWConnection(to: endpoint, using: .tcp)
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, onChange: onChange)
@@ -137,7 +142,10 @@ extension AcpmuxEnvironment {
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-harness-settings", "version": "1"],
                        "clientCapabilities": [:]],
         ]
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
+        // We only consume harness-change notifications. Keep the initial
+        // session snapshot to one row; sending the whole watch page makes a
+        // large daemon's first reply needlessly multi-megabyte.
+        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true, "limit": 1]]
         var payload = Data()
         for request in [initialize, watch] {
             payload += try JSONSerialization.data(withJSONObject: request)

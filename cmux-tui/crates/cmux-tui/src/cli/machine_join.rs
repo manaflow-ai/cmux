@@ -31,6 +31,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_json::JsonSet as _;
 
 /// The development platform: joining is on there alone until it is flipped.
 pub(super) const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
@@ -698,7 +699,7 @@ fn add_machine(
         }
         OutputMode::JsonLines => {
             let mut event = summary.clone();
-            event["event"] = json!("minted");
+            event.set("event", json!("minted"));
             if let Some(event) = event.as_object_mut() {
                 event.remove("joined");
             }
@@ -734,9 +735,9 @@ fn add_machine(
                 machine.last_heartbeat.clone()
             };
             let joined = json!({ "machineId": machine.machine_id, "name": machine.name, "at": at });
-            summary["joined"] = joined.clone();
+            summary.set("joined", joined.clone());
             let mut event = joined;
-            event["event"] = json!("joined");
+            event.set("event", json!("joined"));
             (event, 0)
         }
         WaitEnd::Expired => (json!({ "event": "expired" }), 3),
@@ -1022,13 +1023,13 @@ fn confirm(question: &str) -> bool {
 /// out of its words before the daemon's grammar reads them.
 static LIST_AUTH: std::sync::OnceLock<Auth> = std::sync::OnceLock::new();
 
-/// `args` without the platform flags when they are `machine list`'s
+/// `args` without the platform flags when they are `machine list`'s (or `ls`'s)
 /// (`--platform`, `--cloud-token-file`, `--cloud-token-stdin`), which are
 /// kept for its joined rows; `None` when there are none to take.
 pub(super) fn take_list_auth(args: &[String]) -> Option<Vec<String>> {
     let (_, command_args) = super::parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("machine")
-        || command_args.get(1).map(String::as_str) != Some("list")
+        || !matches!(command_args.get(1).map(String::as_str), Some("list" | "ls"))
     {
         return None;
     }

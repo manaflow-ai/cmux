@@ -164,6 +164,11 @@ fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bou
     let took = started.elapsed();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!output.status.success(), "ensure succeeded on a frozen owner: {stdout}");
-    assert!(stdout.contains("\"server.unavailable\""), "not reported unavailable: {stdout}");
+    // With --json, a CLI error is one JSON object on stderr (cli/wire.rs
+    // print_local_error); stdout carries only a success.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let error: Value = serde_json::from_str(stderr.trim())
+        .unwrap_or_else(|_| panic!("stderr is not one JSON error: {stderr}"));
+    assert_eq!(error["code"], "server.unavailable", "not reported unavailable: {stderr}");
     assert!(took < std::time::Duration::from_secs(60), "ensure waited {took:?} on a frozen owner");
 }

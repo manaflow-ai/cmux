@@ -30,11 +30,13 @@ nonisolated extension AcpmuxPaneMethods {
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
         "_acpmux/peer_snapshot": (["sessionId"], []),
+        // The peer machine to retry; `wait` asks the daemon to include the settled doctor result.
+        "_acpmux/peer_reconnect": (["name", "wait"], []),
         // runRetry sends `{sessionId, subagentId}` for a subagent, `{sessionId}` for a sub-session
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -68,6 +70,7 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
+        "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
@@ -94,9 +97,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/forum/rules": ([], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
+        "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
+        "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
@@ -106,7 +112,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
+        // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
+        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.

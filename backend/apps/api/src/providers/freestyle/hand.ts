@@ -1,5 +1,6 @@
 import type { Env } from "../../env.ts"
 import type { MadeMachine, SandboxProvider } from "../../hand-providers.ts"
+import { freestyleCustomer } from "./customer.ts"
 
 const TIMEOUT_MS = 20_000
 const IDLE_SECONDS = 1800
@@ -22,6 +23,7 @@ export const freestyleHands: SandboxProvider = {
       idleTimeoutSeconds: IDLE_SECONDS,
       automaticRestart: false,
       metadata: { cmux_hand: input.hand, cmux_owner: input.owner, cmux_deployment: input.deployment },
+      ...freestyleCustomer(input.owner),
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     })
     const body = (await res?.json().catch(() => null)) as { vmId?: string; id?: string } | null

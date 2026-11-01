@@ -10,8 +10,9 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). A disposable-account run
+// points `ACPMUX_TEST_BINARY` at a relocated build (`machine_consent_home::binary`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&["ACPMUX_TEST_BINARY"]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
