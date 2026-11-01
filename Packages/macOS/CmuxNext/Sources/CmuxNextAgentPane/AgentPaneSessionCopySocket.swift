@@ -11,4 +11,20 @@ public extension AgentPaneModel {
         try? await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/info",
                                            params: ["sessionId": sessionID], deadline: .seconds(5))
     }
+
+    /// The daemon-owned paths of the focused chat's session files (`_acpmux/session_files`): the
+    /// harness config and settings, its native transcript and the acpmux session record. The daemon
+    /// accepts this only over its local Unix socket, so the paths are always on this Mac.
+    @concurrent nonisolated static func sessionCopyFiles(socketPath: String, sessionID: String) async -> sending [String: Any]? {
+        try? await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/session_files",
+                                           params: ["sessionId": sessionID], deadline: .seconds(5))
+    }
+
+    /// Reads one session file named by `sessionCopyFiles` off the main actor. Nil when it is
+    /// missing, a directory or not UTF-8 text.
+    @concurrent nonisolated static func sessionCopyFileText(path: String) async -> String? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { return nil }
+        return try? String(contentsOfFile: path, encoding: .utf8)
+    }
 }
