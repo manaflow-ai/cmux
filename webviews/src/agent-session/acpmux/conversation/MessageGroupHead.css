@@ -51,6 +51,15 @@
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
 }
+/* A delivered batch's head keeps LaneNoticeBatch.css's toggle class (its tests and plays find it
+   by it), but not that toggle's inset or hover plate: a tool row's glyph starts at the row's edge,
+   and it lights its words, never a plate behind them. */
+.cv-message-group__head.cv-lane-batch__toggle {
+  padding-inline: 0;
+}
+.cv-message-group__head.cv-lane-batch__toggle:hover {
+  background: none;
+}
 .cv-message-group__head:focus-visible {
   outline: none;
   border-radius: 6px;

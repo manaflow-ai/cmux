@@ -10,7 +10,7 @@
 .cv-lane-batch[data-kind="inbox"] {
   container-type: inline-size;
 }
-.cv-lane-batch__toggle:not(.cv-message-group__head) {
+.cv-lane-batch__toggle {
   display: flex;
   box-sizing: border-box;
   align-items: center;
@@ -21,7 +21,7 @@
   border-radius: var(--ds-radius-control);
   cursor: default;
 }
-.cv-lane-batch__toggle:not(.cv-message-group__head) > svg {
+.cv-lane-batch__toggle > svg {
   flex: none;
 }
 .cv-lane-batch__title {
@@ -29,8 +29,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-lane-batch__toggle:not(.cv-message-group__head):hover,
-.cv-lane-batch__toggle:not(.cv-message-group__head):focus-visible {
+.cv-lane-batch__toggle:hover,
+.cv-lane-batch__toggle:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-lane-batch__body {
