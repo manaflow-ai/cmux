@@ -1287,6 +1287,7 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 _DELIVERY_CONTROL_JOBS = frozenset({
     "changes", "decide", "runner", "pick-nightly-app-runner", "pick-nightly-build-runner",
     "pick-nightly-sign-runner", "find-nightly-next-recovery", "resolve-nightly-cmux-tui-client",
+    "route-visual-gate-nightly",
 })
 
 

@@ -1582,6 +1582,21 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("newer:main", api.calls)
         self.assertIn("started delivery work", summary)
 
+    def test_finished_visual_router_does_not_protect_an_unstarted_build(self):
+        clock = Clock()
+        def jobs(_seconds):
+            return [job("decide", status="completed"),
+                    job("route-visual-gate-nightly", status="completed", runner="mini"),
+                    job("build-nightly-app", status="queued")]
+        api = NightlyAPI(clock, jobs, head="b" * 40)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True,
+                               path=rescue.NIGHTLY_WORKFLOW_PATH, event="push",
+                               push_branch="nightly-next")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertIn("cancelled", result)
+        self.assertIn("cancel", api.calls)
+
     def test_completed_build_protects_a_later_queued_signer(self):
         clock = Clock()
         def jobs(_seconds):
