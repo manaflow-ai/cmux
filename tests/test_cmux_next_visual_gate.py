@@ -1125,6 +1125,40 @@ class WiringTests(unittest.TestCase):
         following = re.search(r"\n  [a-z0-9-]+:\n", rest[len(name) + 3:])
         return rest[:following.start() + len(name) + 3] if following else rest
 
+    def jobs(self):
+        """Return the workflow's top-level job bodies and their direct needs."""
+        starts = list(re.finditer(r"(?m)^  ([a-z0-9-]+):\n", self.nightly))
+        jobs = {}
+        for i, match in enumerate(starts):
+            body = self.nightly[match.end():starts[i + 1].start() if i + 1 < len(starts) else None]
+            needs_match = re.search(r"(?m)^    needs:\s*(.+)$", body)
+            raw = needs_match.group(1).strip() if needs_match else ""
+            if raw.startswith("[") and raw.endswith("]"):
+                needs = [item.strip() for item in raw[1:-1].split(",") if item.strip()]
+            elif raw:
+                needs = [raw]
+            else:
+                needs = []
+            jobs[match.group(1)] = needs
+        return jobs
+
+    def test_sign_and_publish_jobs_never_depend_on_visual_jobs_transitively(self):
+        jobs = self.jobs()
+        visual = {name for name in jobs if "visual-gate" in name}
+        targets = {name for name in jobs if re.search(r"(?:^|-)(?:sign|publish)(?:-|$)", name)}
+        self.assertTrue(targets)
+        for target in sorted(targets):
+            seen = set()
+            pending = list(jobs[target])
+            while pending:
+                dependency = pending.pop()
+                if dependency in seen:
+                    continue
+                seen.add(dependency)
+                self.assertNotIn(dependency, visual, f"{target} directly depends on visual job {dependency}")
+                pending.extend(jobs.get(dependency, []))
+            self.assertTrue(seen.isdisjoint(visual), f"{target} transitively depends on visual jobs: {seen & visual}")
+
     def test_publish_nightly_does_not_need_visual_jobs(self):
         publish = self.job("publish-nightly")
         needs = [name.strip() for name in
@@ -1142,9 +1176,8 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("route-visual-gate-nightly.outputs.mode", own)
         self.assertNotIn("OWN_GATE_BLOCKS", publish)
 
-    def test_a_gate_mode_that_cannot_be_resolved_holds_this_runs_build(self):
-        # The gate's own misconfiguration fails closed: the resolver failing gives `invalid`, which
-        # runs no gate and holds this run's build, instead of a skipped verdict job that publishes.
+    def test_a_gate_mode_that_cannot_be_resolved_stays_advisory(self):
+        # A mode error is visible and skips visual coverage, but cannot hold the signed build.
         body = self.step_body("route-visual-gate-nightly", "Resolve the visual gate mode")
         for code, mode in ((2, "invalid"), (1, "invalid"), (0, "report")):
             with tempfile.TemporaryDirectory() as tmp, self.subTest(code=code):
@@ -1210,10 +1243,10 @@ class WiringTests(unittest.TestCase):
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)
         # A held build fails this job too, so "Re-run failed jobs" retries it with the gate instead
         # of keeping a successful job's stale `blocks=true`.
-        hold = verdict[verdict.index("- name: Fail with the gate when it holds the build"):]
+        hold = verdict[verdict.index("- name: Record failed advisory verdict"):]
         self.assertIn("if: steps.await.outputs.blocks == 'true'", hold.splitlines()[1])
         self.assertIn("exit 1", hold)
-        self.assertLess(verdict.index("id: await"), verdict.index("- name: Fail with the gate when it holds the build"))
+        self.assertLess(verdict.index("id: await"), verdict.index("- name: Record failed advisory verdict"))
 
     def test_the_wait_is_short_on_attempt_1_and_whole_on_a_re_run(self):
         body = self.step_body("visual-gate-nightly-verdict",
@@ -1257,11 +1290,9 @@ class WiringTests(unittest.TestCase):
         self.assertIn("VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}", job)
         # The step's shell lives in its script (nightly.yml's size limit).
         recover = (ROOT / "scripts/ci/nightly-steps/recover-continue-pending-notarization.sh").read_text()
-        admit = recover.index("nightly_next_canary_mode.py admit")
-        # After the manifest names the build, before anything is notarized or stapled.
-        self.assertLess(recover.index('source "$dir/manifest.env"'), admit)
-        self.assertLess(admit, recover.index("./scripts/ci/notarize-nightly-dmg.sh"))
-        self.assertIn('--build-sha "$BUILD_SHA"', recover[admit:admit + 300])
+        # Recovery remains gated by the manifest, lineage, notarization and feed checks;
+        # it has no visual publication gate.
+        self.assertNotIn("nightly_next_canary_mode.py admit", recover)
 
     def test_every_judged_build_is_recorded(self):
         report = self.job("report-visual-gate-nightly")
@@ -1298,7 +1329,7 @@ class WiringTests(unittest.TestCase):
 
     def test_every_exit_code_of_the_gate_records_a_verdict(self):
         # Actions runs `run:` under `bash -e`: a failed gate must still write its verdict, or
-        # enforce never holds the build it failed.
+        # enforce marks the advisory job when it fails, but never controls publication.
         body = self.step_body("visual-gate-nightly", "Run the visual gate")
         for code, verdict, blocks in ((0, "pass", "false"), (1, "fail", "true"), (3, "unavailable", "false"),
                                       (2, "unavailable", "false")):
@@ -1323,7 +1354,7 @@ class WiringTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual(out.read_text().split(), ["verdict=unavailable", "blocks=false"])
 
-    def test_a_bad_gate_variable_never_stops_a_recovery_nor_admits_a_failed_build(self):
+    def test_a_bad_gate_variable_never_stops_recovery(self):
         find = self.job("find-nightly-next-recovery")
         step = find[find.index("- name: Read the visual gate's verdicts"):]
         self.assertIn("continue-on-error: true", step[:step.index("run: |")])
@@ -1337,12 +1368,16 @@ class WiringTests(unittest.TestCase):
             done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True, timeout=60,
                                   env=dict(os.environ, GITHUB_OUTPUT=str(out)))
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            # Read as enforce: a recovered build the gate recorded as failed is still refused.
-            self.assertEqual(out.read_text().split(), ["mode=enforce", "verdicts={}"])
+            # A resolver failure leaves recovery advisory while retaining the verdict output.
+            self.assertEqual(out.read_text().split(), ["mode=report", "verdicts={}"])
 
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")
         self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE", route)
+        resolver = (ROOT / "scripts/ci/nightly-steps/visual-gate-resolve-mode.sh").read_text()
+        recovery_resolver = (ROOT / "scripts/ci/nightly-steps/visual-gate-read-verdicts.sh").read_text()
+        self.assertIn("--default-enforce-after never", resolver)
+        self.assertIn("--default-enforce-after never", recovery_resolver)
         self.assertIn("scripts/ci/cmux_next_media_runner.py", route)
         job = self.job("visual-gate-nightly")
         self.assertIn("scripts/cmux-next/visual-gate/visual_gate.py", job)

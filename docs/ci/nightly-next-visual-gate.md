@@ -159,17 +159,16 @@ A build whose notarization was still pending can be published later by
 another run, through `find-nightly-next-recovery` →
 `recover-nightly-next-notarization` → `publish-nightly`, or by a
 `nightly_next_continue_only` dispatch. Such a build is judged by its own
-recorded verdict, not by the gate of the run that recovers it.
+recorded signed/provenance checks, not by the visual gate of the run that
+recovers it. Visual findings remain advisory and are recorded for follow-up.
 `find-nightly-next-recovery` reads the verdicts from the issue (the last 14
 days; `nightly_next_canary_mode.py verdicts`). For each candidate, the
-continuation runs `nightly_next_canary_mode.py admit`:
+continuation keeps the notarization and lineage checks; it does not run a
+visual publication gate:
 
 | Mode | Verdict of that build | Result |
 | --- | --- | --- |
-| `enforce` | `fail` | Refused, and the next candidate is tried. |
-| `enforce` | `pass` | Published. |
-| `enforce` | none (skipped, `unavailable`, or the issue can't be read) | Published, with a warning. |
-| `report`, `off` | any | Published. |
+| any mode | any verdict | Published when signing, notarization, lineage and feed checks pass. |
 
 The run's own `blocks` value is recorded for its own build, never used to hold
 publication or recovery. Recovery still reads the recorded verdicts so a
@@ -191,9 +190,9 @@ python3 scripts/cmux-next/visual-gate/visual_gate.py ~/.cache/pr-capture/<sha8>/
 | Value | Effect |
 | --- | --- |
 | `report` | Captures and reports; never blocks. |
-| `enforce` | A failing verdict stops publication. |
+| `enforce` | A failing verdict fails the advisory visual job and is recorded; publication is unaffected. |
 | `off` | Skips the gate. |
-| unset or `auto` | Reports until `NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER` (default 2026-10-28T16:00Z), then enforces. It enforces only if, in the week before that date, the gate failed no build and passed at least 3. Otherwise it stays in report until someone triages it and sets `enforce` or moves the date. |
+| unset or `auto` | Reports indefinitely by default. Set `NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER` to opt into the report-week auto mode; it still cannot block publication. |
 
 This is the canary's one-week flip, read from this gate's own issue, plus a
 minimum of passes (`--min-passes 3`). A week in which the gate was mostly

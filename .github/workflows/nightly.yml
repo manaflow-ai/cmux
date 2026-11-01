@@ -6110,7 +6110,7 @@ jobs:
           GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
         run: bash scripts/ci/nightly-steps/visual-gate-await.sh
 
-      - name: Fail with the gate when it holds the build
+      - name: Record failed advisory verdict
         if: steps.await.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
 
@@ -6137,8 +6137,8 @@ jobs:
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let body = `cmux NEXT visual gate passed ${process.env.SHA}: ${run}`;
             if (process.env.VERDICT === 'fail') {
-              const action = `The gate is in \`${process.env.MODE}\` mode, but visual coverage is advisory, so the build was published anyway.`;
-              body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} The stills and the findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
+              const action = `The gate is in \`${process.env.MODE}\` mode, but visual coverage is advisory and does not block publication.`;
+              body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} Publication still requires the signed, verified build checks. The stills and findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
             }
             const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
             let issue = open.find(i => i.title === title && !i.pull_request);
