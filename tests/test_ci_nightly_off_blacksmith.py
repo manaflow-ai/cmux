@@ -43,9 +43,9 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs", "pick-nightly-build-runner",
-    "attest-nightly-remote-daemon", "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary",
+    "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "find-nightly-next-recovery", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
+    "route-visual-gate-nightly", "visual-gate-nightly-verdict",
     "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
@@ -223,8 +223,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                 or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on, runs_on)
                 self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER \|\|")
                 self.assertNotIn("macos", runs_on)
+                # decide's light-job placement (a mini idle when decide finished) is the one fleet route ahead of
+                # the Linux set; with no placement (needs read as '') the job takes the set as before.
+                if "needs.decide.outputs.light_mini_runner" in runs_on:
+                    self.assertIn("needs.decide.outputs.light_attempt == format('{0}', github.run_attempt) && "
+                                  f"contains(needs.decide.outputs.light_mini_jobs, ' {name} ') && "
+                                  "needs.decide.outputs.light_mini_runner || ", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
-                                                            "LINUX_RUNNER": sorted(linux)})
+                                                            "LINUX_RUNNER": sorted(linux)}, silent=("needs",))
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")

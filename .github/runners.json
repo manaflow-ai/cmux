@@ -327,6 +327,8 @@
     },
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
+    "nightly.yml#resolve-nightly-cmux-tui-client": "portable-checks",
+    "nightly.yml#find-nightly-next-recovery": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",

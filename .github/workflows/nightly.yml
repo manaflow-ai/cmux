@@ -258,6 +258,10 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      # Where decide's light dependents run (resolve-nightly-cmux-tui-client, find-nightly-next-recovery).
+      light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
+      light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
+      light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
     steps:
       # The build-input check below classifies changed paths with the same
       # router CI uses, which reads the Xcode project and the package graph.
@@ -801,6 +805,34 @@ jobs:
                 ...nightlyNextSafetyRows,
               ])
               .write();
+
+      # decide's light dependents take a mini idle now, else Blacksmith (as build-nightly-app's light jobs do). Leo,
+      # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT".
+      - name: Mint the routing token for the light-job placement
+        id: light-route-token
+        if: success() && steps.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_unsigned_run == '' && github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the light jobs on a free mini
+        id: place-light
+        if: success() && steps.light-route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          JOBS: resolve-nightly-cmux-tui-client find-nightly-next-recovery
+          NIGHTLY: "1"
+          FLEET_LINUX: ""
+          SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
 
   # Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
   # push run passed its Release compile. Runs only on main, in `release`, with the release App
@@ -3175,7 +3207,7 @@ jobs:
     # Runs for every app build (build_only and fast included): it picks the
     # commit every app job checks out (build_sha).
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.light_mini_jobs, ' resolve-nightly-cmux-tui-client ') && needs.decide.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       actions: read
@@ -5690,7 +5722,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.light_mini_jobs, ' find-nightly-next-recovery ') && needs.decide.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 70
     permissions:
       actions: read

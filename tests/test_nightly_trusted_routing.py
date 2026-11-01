@@ -460,7 +460,8 @@ class LightJobsOnAFreeMini(unittest.TestCase):
                 self.assertNotIn('id-token', DOC['jobs'][job].get('permissions', {}))
 
     def test_only_the_light_jobs_read_the_placement(self):
-        readers = sorted(name for name, job in DOC['jobs'].items() if 'light_mini' in str(job.get('runs-on', '')))
+        readers = sorted(name for name, job in DOC['jobs'].items()
+                         if 'build-nightly-app.outputs.light_mini' in str(job.get('runs-on', '')))
         self.assertEqual(readers, sorted(self.LIGHT))
         step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light')
         self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
@@ -481,6 +482,78 @@ class LightJobsOnAFreeMini(unittest.TestCase):
                          ['permission-administration', 'permission-organization-self-hosted-runners'])
         self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
 
+
+class DecideLightJobsOnAFreeMini(unittest.TestCase):
+    """decide's light dependents take a mini idle when decide finished, else Blacksmith.
+
+    resolve-nightly-cmux-tui-client and find-nightly-next-recovery need only decide, hold no environment
+    and no secret, and run git, gh, curl, bash and stdlib Python. They waited on blacksmith-32vcpu-ubuntu-2404
+    on every nightly-next run (41254086065: 23:53:55-23:53:56) with no fleet route. decide's last step places
+    them (scripts/ci/portable_job_placement.py, NIGHTLY=1), as build-nightly-app places its light jobs. Leo,
+    2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT
+    CUTS OUT"."""
+
+    LIGHT = ('resolve-nightly-cmux-tui-client', 'find-nightly-next-recovery')
+    MINI = 'glaeda-side-std-xcode-26.6'
+
+    def runs_on(self, job, **changes):
+        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                   'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                   'needs.decide.outputs.light_attempt': '1',
+                   'needs.decide.outputs.light_mini_runner': self.MINI,
+                   'needs.decide.outputs.light_mini_jobs': f' {" ".join(self.LIGHT)} ', **changes}
+        source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
+        return evaluate(parse_expression(source), context)
+
+    def test_a_placed_light_job_takes_the_free_mini(self):
+        for job in self.LIGHT:
+            with self.subTest(job=job):
+                self.assertEqual(self.runs_on(job), self.MINI)
+                other = next(name for name in self.LIGHT if name != job)
+                self.assertEqual(self.runs_on(job, **{'needs.decide.outputs.light_mini_jobs': f' {other} '}),
+                                 'blacksmith-32vcpu-ubuntu-2404')
+
+    def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
+        for job in self.LIGHT:
+            for changes, expected in (
+                    ({'needs.decide.outputs.light_mini_jobs': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'needs.decide.outputs.light_attempt': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    # A re-run of failed jobs keeps decide's earlier outputs: the mini may be busy by now.
+                    ({'github.run_attempt': 2}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404', 'github.run_attempt': 2},
+                     'blacksmith-16vcpu-ubuntu-2404'),
+                    ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
+                with self.subTest(job=job, changes=changes):
+                    self.assertEqual(self.runs_on(job, **changes), expected)
+
+    def test_only_decide_s_light_jobs_read_its_placement(self):
+        readers = sorted(name for name, job in DOC['jobs'].items()
+                         if 'decide.outputs.light_mini' in str(job.get('runs-on', '')))
+        self.assertEqual(readers, sorted(self.LIGHT))
+        for job in self.LIGHT:
+            with self.subTest(job=job):
+                self.assertEqual(DOC['jobs'][job]['needs'] if isinstance(DOC['jobs'][job]['needs'], list)
+                                 else [DOC['jobs'][job]['needs']], ['decide'])
+                self.assertNotIn('environment', DOC['jobs'][job])
+                self.assertNotIn('secrets.', json.dumps(DOC['jobs'][job]))
+                self.assertNotIn('id-token', DOC['jobs'][job].get('permissions', {}))
+        steps = DOC['jobs']['decide']['steps']
+        step = next(step for step in steps if step.get('id') == 'place-light')
+        self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
+        self.assertEqual(step['env']['NIGHTLY'], '1')
+        self.assertEqual(step['env']['FLEET_LINUX'], '')
+        self.assertTrue(step['continue-on-error'])
+        self.assertIn("steps.light-route-token.outputs.token != ''", step['if'])
+        mint = next(step for step in steps if step.get('id') == 'light-route-token')
+        for needle in ("github.ref == 'refs/heads/nightly-next'", "inputs.nightly_next_unsigned_run == ''",
+                       "steps.decide.outputs.should_build == 'true'"):
+            self.assertIn(needle, mint['if'])
+        self.assertTrue(mint['continue-on-error'])
+        self.assertEqual(sorted(key for key in mint['with'] if key.startswith('permission-')),
+                         ['permission-administration', 'permission-organization-self-hosted-runners'])
+        self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
+        # The placement runs after decide's own decision, so a failed placement never fails decide.
+        self.assertLess(next(i for i, s in enumerate(steps) if s.get('id') == 'decide'), steps.index(mint))
 
 class PickerReRun(unittest.TestCase):
     """The owned-pool rescue and the nightly-next tick re-run pick-nightly-build-runner, and with it every job

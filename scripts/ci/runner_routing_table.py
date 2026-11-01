@@ -82,7 +82,7 @@ PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$"
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
 # Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-NIGHTLY_MINI = re.compile(r"needs\.build-nightly-app\.outputs\.light_mini_runner$")
+NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app|decide)\.outputs\.light_mini_runner$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
