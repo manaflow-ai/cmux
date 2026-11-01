@@ -84,20 +84,28 @@ extension RenderMotionHitTestTests {
             let overlay = try #require(screen.geometry.dock.first { $0.dock.mode == .overlay }, "no overlay column")
             let pane = try fixture.host("o").frame
             let strip = try ["p1", "p2", "p3"].map { try fixture.host($0) }
-            let drawn = try strip.map { try Self.drawn($0, at: half, clock: clock) }
+            // Where a strip pane is drawn, the way the press path maps it (ScreenContentView.stripPoint, then
+            // PaneHostView.restPoint): the strip container springs too, so a point goes through the container's
+            // presented frame and bounds into its layer, then into each host's presented frame there.
+            let container = try #require(screen.stripContainer.layer?.presentation(), "the strip container has no presentation")
+            let hosts = try strip.map { try #require($0.layer?.presentation(), "\($0.pane) has no presentation") }
+            func drawnPane(at point: CGPoint) -> PaneID? {
+                let inLayer = screen.convertToLayer(point)
+                guard container.frame.contains(inLayer) else { return nil }
+                let inner = CGPoint(x: inLayer.x - container.frame.minX + container.bounds.minX,
+                                    y: inLayer.y - container.frame.minY + container.bounds.minY)
+                return zip(strip, hosts).first { $0.1.frame.contains(inner) }?.0.pane
+            }
             // On the glass, off its pane (right of the pane, else above it), with a strip pane drawn under it.
             var glass: [CGPoint] = []
             for x in stride(from: pane.maxX + 1, to: overlay.cover.maxX, by: 1) { glass.append(CGPoint(x: x, y: pane.midY)) }
             for y in stride(from: overlay.cover.minY + 1, to: pane.minY, by: 1) { glass.append(CGPoint(x: pane.midX, y: y)) }
             let local = try #require(glass.first { point in
-                guard overlay.cover.contains(point), !pane.insetBy(dx: -1, dy: -1).contains(point) else { return false }
-                let inWindow = screen.convert(point, to: nil)
-                return drawn.contains { $0.contains(inWindow) }
-            }, "no point of the overlay's glass (cover \(overlay.cover), pane \(pane)) has a strip pane drawn under it: \(drawn)")
-            let container = try #require(screen.stripContainer.layer?.presentation(), "the strip container has no presentation")
-            try #require(screen.convertFromLayer(container.frame).contains(local), "the strip is not drawn under the glass at \(local)")
+                overlay.cover.contains(point) && !pane.insetBy(dx: -1, dy: -1).contains(point) && drawnPane(at: point) != nil
+            }, "no point of the overlay's glass (cover \(overlay.cover), pane \(pane)) has a strip pane drawn under it: container drawn \(container.frame) bounds \(container.bounds), hosts \(hosts.map(\.frame))")
+            let under = try #require(drawnPane(at: local))
             let hit = Self.hit(fixture, at: screen.convert(local, to: nil))
-            #expect(!strip.contains { Self.reaches(hit, $0) }, "a press on the overlay's glass reached the strip: \(String(describing: hit))")
+            #expect(!strip.contains { Self.reaches(hit, $0) }, "a press on the overlay's glass over \(under) reached the strip: \(String(describing: hit))")
             let pressed = screen.pressedPane(at: local)
             #expect(!["p1", "p2", "p3"].contains(pressed), "a press on the overlay's glass focuses the strip pane \(String(describing: pressed))")
         }
