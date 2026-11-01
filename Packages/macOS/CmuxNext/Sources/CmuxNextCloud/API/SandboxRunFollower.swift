@@ -68,8 +68,8 @@ public final class SandboxRunFollower {
     /// Runs this app asked to cancel, newest last (bounded), noted before or after their follow
     /// starts: a cancel that races the send's hand-off still ends silently.
     private var cancelledHere: [String] = []
-    /// Incognito tasks still open, newest last (ids only, as the incognito ledger keeps; the ones no
-    /// longer followed are bounded by ``pruneIncognitoIDs(keeping:)``): their
+    /// Incognito tasks that may still be open, newest last (ids only, as the incognito ledger keeps). Never
+    /// evicted for count: an id goes when its task ends or the server no longer shows it (403, 404). Their
     /// records are never saved, so one found again after a relaunch (a hand-off in the owner's list) is
     /// given back its flag (#31040).
     private var incognitoIDs: [String] = []
@@ -149,22 +149,10 @@ public final class SandboxRunFollower {
         add(record)
     }
 
-    /// Past ``cancelLimit`` ids, drops the oldest of tasks no longer followed (age, a sign-out, a 403). A task
-    /// still followed, and `id`, keep theirs: found again after a relaunch, it stays incognito however many run.
-    private func pruneIncognitoIDs(keeping id: String) {
-        var excess = incognitoIDs.count - Self.cancelLimit
-        guard excess > 0 else { return }
-        incognitoIDs.removeAll { other in
-            guard excess > 0, other != id, records[other] == nil else { return false }
-            excess -= 1
-            return true
-        }
-    }
-
     /// Keeps `record` (unless followed or ended already) and starts its poll.
     private func add(_ record: SandboxRunRecord) {
         var record = record
-        if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id); pruneIncognitoIDs(keeping: record.id) }
+        if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id) }
         if incognitoIDs.contains(record.id) { record.incognito = true }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
@@ -236,6 +224,7 @@ public final class SandboxRunFollower {
                     return
                 } catch CloudAPIError.http(let status, _, _, _, _) where status == 403 || status == 404 {
                     // The server doesn't show this Run to this account any more: nothing to wait for.
+                    self.incognitoIDs.removeAll { $0 == id }
                     return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 } catch {
                     answer = .unreadable
