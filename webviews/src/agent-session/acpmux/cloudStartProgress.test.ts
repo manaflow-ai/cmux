@@ -121,3 +121,20 @@ test("a copy's files and bytes, its fallback and an https install link reach the
   });
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });
+
+test("forwards the environment id and setup ran or cached state", () => {
+  const ran = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    environmentId: "denv_0123456789abcdef01234567",
+    setup: { state: "done", started_at: 1000, finished_at: 3500 },
+  });
+  expect(ran?.environmentId).toBe("denv_0123456789abcdef01234567");
+  expect(ran?.setup).toEqual({ state: "done", startedAt: 1000, finishedAt: 3500 });
+
+  const cached = cloudStartPushed(begun(), {
+    key: "k-1",
+    setup: { state: "done", status: "ready" },
+  });
+  expect(cached?.setup).toEqual({ state: "done", status: "ready" });
+});

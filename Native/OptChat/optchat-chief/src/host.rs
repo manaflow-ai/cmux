@@ -1462,6 +1462,7 @@ fn start(
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
         .with_engine_file(Some(crate::engine::path(home)))
+        .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())

@@ -1308,6 +1308,28 @@
 .cv-codeblock--corner .cv-codeblock__body {
   margin-top: 13px;
 }
+/* The first line keeps the strip's room after its end (cmux#30689): 26px an action, the gap after
+   each, and the strip's 6px from the card's edge less the body's 1px, so scrolled to its end the
+   line stops 4px short of the strip. model.ts codeCardHeight estimates the same room. */
+.cv-codeblock--corner {
+  --cv-code-corner-actions: 1;
+  --cv-code-corner-reserve: calc(var(--cv-code-corner-actions) * (26px + var(--cv-action-gap)) + 5px);
+}
+.cv-codeblock--corner:has(.cv-codeblock__actions > :nth-child(2)) {
+  --cv-code-corner-actions: 2;
+}
+.cv-codeblock--corner:has(.cv-codeblock__actions > :nth-child(3)) {
+  --cv-code-corner-actions: 3;
+}
+.cv-codeblock--corner:has(.cv-codeblock__actions > :nth-child(4)) {
+  --cv-code-corner-actions: 4;
+}
+.cv-codeblock--corner .cv-code-plain__line:first-child {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding-inline-end: var(--cv-code-corner-reserve);
+}
 /* Gallery version B (CodeHeader.tsx `muted`): a short quiet row that names the block. */
 .cv-codeblock--muted .cv-codeblock__header {
   min-height: calc(var(--cv-font-size) * 34 / 14);
