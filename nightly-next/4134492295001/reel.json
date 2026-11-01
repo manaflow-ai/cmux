@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4134492295001",
+  "notes": "notes/4134492295001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31266,
+      "title": "ci(nightly): build-nightly-app takes the warm nightly-only builder when it is idle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31244,
+      "title": "perf(next): keep Home agent glance observations narrow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31260,
+      "title": "prepush-gate: validate the What's New highlights a push changes (the release-notary rule, before the merge)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31262,
+      "title": "acpmux transfer guard: Ultracode and Fast mode do not block Bring Back Local",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31264,
+      "title": "Cloud start: record why the harness login was or was not passed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31236,
+      "title": "cmux NEXT incognito: drop saved incognito task ids whose tasks ended while the app was stopped (#31208)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31259,
+      "title": "fix(acpmux): honor advertised trigger capabilities",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31254,
+      "title": "ci: keep routing App off Actions backlog reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31258,
+      "title": "base red: Show the Feed in Chief draws in Settings > Chief > Look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31252,
+      "title": "base red: two What's New highlights fit the rules (#31156 two sentences and a docs link, #31140 a docs link)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31220,
+      "title": "Chief spawn: routing follow-ups (trim recovered route, prepared presets only, cap before split)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31245,
+      "title": "fix(webviews): a title or preview cut with an ellipsis never ends inside an emoji",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
