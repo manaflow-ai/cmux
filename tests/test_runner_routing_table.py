@@ -73,6 +73,19 @@ class RoutingTableTests(unittest.TestCase):
         self.addCleanup(fixture.close)
         return fixture.check()
 
+    def test_next_admission_cannot_escape_to_a_paid_literal(self) -> None:
+        gate = "needs.decide.outputs.track == 'nightly-next'"
+        attempt = "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)"
+        picked = "needs.decide.outputs.early_resolve_nightly_tui_client_runner"
+        expression = "${{ " + gate + " && (" + attempt + " && " + picked + " || 'cmux-fleet-linux-x64') || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        self.assertEqual(table.portable_order(expression, nightly=True), "")
+        for changed in (expression.replace("'cmux-fleet-linux-x64'", "'blacksmith-16vcpu-ubuntu-2404'"),
+                        expression.replace("${{ ", "${{ 'blacksmith-16vcpu-ubuntu-2404' || "),
+                        expression.replace(attempt, "github.run_attempt == 1"),
+                        expression.replace(gate, "needs.decide.outputs.track != 'nightly-next'")):
+            with self.subTest(expression=changed):
+                self.assertTrue(table.portable_order(changed, nightly=True))
+
     def test_the_tree_classifies_every_macos_job(self) -> None:
         self.assertEqual(table.check(), [])
 

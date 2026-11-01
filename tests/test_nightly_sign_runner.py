@@ -28,6 +28,8 @@ import nightly_sign_runner as picker  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                             "blacksmith-32vcpu-ubuntu-2404")
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
 
 # The jobs that sign, notarize, verify a signed build or publish it, and the job whose
@@ -61,6 +63,10 @@ def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
     generated = (NOW - dt.timedelta(minutes=age_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"generated_at": generated,
             "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait} for label, wait in waits.items()}}
+
+
+def linux_snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
+    return snapshot({**{label: 0 for label in picker.LINUX_LABELS}, **waits}, age_minutes)
 
 
 class Pick(unittest.TestCase):
@@ -122,6 +128,7 @@ class Pick(unittest.TestCase):
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({SMALL: 3}), now=NOW), 0)
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=verified\n")
 
+
     def test_a_pick_made_on_a_rerun_is_its_own_alternate(self) -> None:
         # A full re-run runs the picker again; its fresh pick must win over the other size.
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +152,40 @@ class Pick(unittest.TestCase):
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
             # 12 vCPU is stalled, so a re-run keeps 6 vCPU rather than moving onto it.
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
+
+
+class LinuxPick(unittest.TestCase):
+    """Release-pool signer jobs stay on the trusted Blacksmith Linux set."""
+
+    def test_linux_picker_rotates_a_stalled_size(self) -> None:
+        snap = linux_snapshot({LINUX4: 4, LINUX16: 2}, age_minutes=0)
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_counts_snapshot_age_toward_stall(self) -> None:
+        # A queue that was two minutes old in a fourteen-minute-old snapshot
+        # has long passed the three-minute overflow threshold.
+        snap = linux_snapshot({LINUX4: 2}, age_minutes=14)
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_does_not_claim_a_mac_only_snapshot_is_verified(self) -> None:
+        label, alternate, _, verified = picker.linux_place(LINUX4, snapshot({}), NOW, 1)
+        self.assertEqual((label, alternate, verified), (LINUX4, LINUX16, False))
+
+    def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:
+        for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-26.6"):
+            label, alternate, _, _ = picker.linux_place(variable, None, NOW, 1)
+            self.assertIn(label, picker.LINUX_LABELS)
+            self.assertIn(alternate, picker.LINUX_LABELS)
+
+    def test_linux_mode_writes_bounded_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"PLATFORM": "linux", "CANDIDATE": LINUX32, "SNAPSHOT_TOKEN": "t",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
+            self.assertEqual(picker.main(env, read=lambda t, r: linux_snapshot({LINUX32: 90}), now=NOW), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertIn(values["runner"], picker.LINUX_LABELS)
+            self.assertIn(values["alternate"], picker.LINUX_LABELS)
 
 
 class Unverified(unittest.TestCase):

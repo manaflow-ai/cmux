@@ -256,6 +256,20 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
+    /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
+    /// less the pane padding. A split's or a close's panes read their final widths from the turn the
+    /// layout changes, not what a running spring shows: the source of a split keeps its old width until
+    /// the spring lands, and the new pane starts as a zero-width sliver (review of #29787 at 29861047).
+    /// No layout pass: the geometry is computed when the layout syncs. Nil for a pane no screen view
+    /// lays out, or one not sized yet.
+    public func restingContentWidth(of pane: PaneID) -> CGFloat? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0,
+              let cell = view.baseGeometry.panes[pane] else { return nil }
+        let width = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: cell.size), style: context.style).width
+        return width > 0 ? width : nil
+    }
+
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
