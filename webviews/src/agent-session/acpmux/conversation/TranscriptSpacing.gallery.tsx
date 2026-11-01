@@ -62,7 +62,11 @@ function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
 }
 
 // Measure the real virtual rows, including their padding and the received line's margin: the 26px
-// disclosure line sits under a 2px top margin, 2px beyond the shared turn gap.
+// disclosure line sits under a 2px top margin, 2px beyond the shared turn gap. The footer's line sits
+// FOOTER_DROP lower in its own row, taken off its bottom padding, so it is centred between the reply
+// and the sender (conversation.css `--cv-footer-drop`, #29860; Leo, 2026-10-31: "padding after ==
+// padding before that kinda thing all around").
+const FOOTER_DROP = 4;
 const checkSpacing =
   (gap: number, emptyFooter = false): Play =>
   async (ctx) => {
@@ -75,7 +79,7 @@ const checkSpacing =
     await ctx.waitFor(() => rect(footer("a")).height > 0 && rect(chip("b")).height > 0);
     const before = measure();
     for (const value of before) {
-      const expected = gap + 2;
+      const expected = gap + 2 - FOOTER_DROP;
       if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
     }
 
