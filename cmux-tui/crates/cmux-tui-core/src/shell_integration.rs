@@ -352,8 +352,14 @@ fn integrate_with(
         export_features(&mut env, &lookup, &user);
         env
     };
-    let shell = shell_for(user.mode, &command)
-        .or_else(|| if incognito { detect_shell(&command) } else { None });
+    // An incognito shell is integrated as the shell it is: a forced mode
+    // naming another shell would give it that shell's flags and no history
+    // hook of its own.
+    let shell = if incognito {
+        detect_shell(&command).or_else(|| shell_for(user.mode, &command))
+    } else {
+        shell_for(user.mode, &command)
+    };
     let Some(shell) = shell else {
         return ShellLaunch { env: features_only(extra_env), command };
     };
