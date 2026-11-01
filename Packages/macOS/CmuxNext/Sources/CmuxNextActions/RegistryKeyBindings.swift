@@ -56,10 +56,12 @@ public struct RegistryKeyBindings {
 
     /// Runs a resolved binding with the context of the window whose key
     /// ran it, so availability is checked against that window, never
-    /// against the context another window published.
+    /// against the context another window published. `target`: the object the key was typed for when it is not the
+    /// focused one (a key held for a terminal still being made, run after the focus moved on).
     @discardableResult
-    public func run(_ binding: KeyBinding, keyContext: ActionContext) -> Bool {
+    public func run(_ binding: KeyBinding, keyContext: ActionContext, target: ActionTargetRef? = nil) -> Bool {
         var invocation = ActionInvocation(arguments: binding.arguments)
+        invocation.target = target
         if let argument = binding.argument {
             let schema = registry.descriptor(for: binding.command)?.arguments.first
             invocation.arguments[schema?.name ?? "value"] = schema?.parse(argument) ?? .string(argument)
