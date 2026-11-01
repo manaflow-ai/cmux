@@ -44,6 +44,20 @@ fn three_thousand_records_page_once_in_append_order_with_a_byte_budget() {
 }
 
 #[test]
+fn a_complete_short_page_returns_the_same_rows_as_the_unpaged_contract() {
+    let mut table = ProcessTable::default();
+    for index in 0..3 {
+        table.upsert(make(index, format!("command-{index}")));
+    }
+    let full = process_values(table.snapshot(), output_len);
+    let (window, more) = table.page_snapshot(10, None).unwrap();
+    assert!(!more);
+    let page = process_page_values(window, more, 16_000).unwrap();
+    assert_eq!(page["processes"], json!(full));
+    assert!(page["nextCursor"].is_null());
+}
+
+#[test]
 fn a_page_sees_live_changes_and_new_records_after_its_cursor() {
     let mut table = ProcessTable::default();
     for index in 0..4 {
