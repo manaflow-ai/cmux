@@ -158,14 +158,14 @@ final class NewTabSparePool {
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                Self.traceSpare(.spareEmpty)
+                Self.traceSpare(.empty)
                 return nil
             }
             guard Self.servesChat(handshake: spare.model.hasHandshake, painted: spare.model.hasPainted,
                                   clientReady: spare.model.clientReady,
                                   lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
                                   thermal: ProcessInfo.processInfo.thermalState) else {
-                Self.traceSpare(.spareUnready)
+                Self.traceSpare(.unready)
                 return nil
             }
             return take(for: window, size: nil, refill: .whenQuiet)?.view
@@ -261,9 +261,19 @@ final class NewTabSparePool {
         fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
     }
 
-    /// The chat-open trace's account of what an existing chat's open found in the pool (bench builds).
-    static func traceSpare(_ mark: ChatOpenTrace.Mark, note: @autoclosure () -> String? = nil) {
+    /// What an existing chat's open found in the pool.
+    enum SpareOutcome { case adopted, empty, unready, refused }
+
+    /// The chat-open trace's account of `outcome` (bench and debug builds only; a no-op in Release,
+    /// which has no ``ChatOpenTrace``).
+    static func traceSpare(_ outcome: SpareOutcome, note: @autoclosure () -> String? = nil) {
         #if DEBUG || CMUX_BENCH_HOOKS
+        let mark: ChatOpenTrace.Mark = switch outcome {
+        case .adopted: .spareAdopted
+        case .empty: .spareEmpty
+        case .unready: .spareUnready
+        case .refused: .spareRefused
+        }
         ChatOpenTrace.shared.mark(mark)
         if let note = note() { ChatOpenTrace.shared.note(note) }
         #endif
