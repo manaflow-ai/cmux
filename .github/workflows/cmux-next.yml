@@ -3014,7 +3014,7 @@ jobs:
             local status=0
             "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
               --arg=suite --arg="$2" --arg="$3" --no-supersede \
-              --env CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
+              --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
               --timeout 1500 --queue-timeout 600 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
             echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
           }
