@@ -236,4 +236,9 @@ export function useKeptAttachments(
   }, []);
 }
 
-const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
+/// What a write would change: each chip's id; its source, which the host may say a moment after
+/// the chip appears (composer/attachmentSources.ts); and its paths, since a file's full-resolution
+/// original may finish uploading after the preview chip was already saved (SW-00). Only short
+/// metadata: image data and long pasted text still travel once, never on every render.
+const signature = (chips: readonly ComposerAttachment[]) =>
+  JSON.stringify(chips.map((chip) => [chip.id, chip.source ?? null, chip.path, chip.originalPath, chip.originalName]));

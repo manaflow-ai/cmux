@@ -1,34 +1,34 @@
 // l10n-allow-file: gallery-only sample labels, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import { ChatMenu, menuGroups, type ChatMenuItem } from "./ChatHeaderTools";
 import { ThreadTitle } from "./ThreadTitle";
 
-const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenuItem[] => [
-  { key: "rename", label: "Rename", icon: "action.edit", shortcutLabel: "R", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", shortcutLabel: "F", onSelect: () => undefined },
-  {
-    key: "move",
-    label: move === "local" ? "Move to machine" : "Bring Back Local",
-    icon: "machine.remote",
-    children:
-      move === "local"
-        ? targets.map((label) => ({ key: label, label, onSelect: () => undefined }))
-        : [{ key: move, label: "Bring Back Local", onSelect: () => undefined }],
-  },
-  {
-    key: "open",
-    label: "Open in",
-    icon: "app.open.external",
-    children: [
-      { key: "browser", label: "Browser", onSelect: () => undefined },
-      { key: "terminal", label: "Terminal", onSelect: () => undefined },
-      { key: "window", label: "New window", onSelect: () => undefined },
+// The ⋮ menu's rows the title menu used to hold (the rest of the real menu is left out here).
+const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenuItem[] =>
+  menuGroups(
+    [{ key: "rename", label: "Rename", icon: "action.edit", accelerator: "R", onSelect: () => undefined }],
+    [
+      { key: "newTerminal", label: "New terminal", icon: "terminal", onSelect: () => undefined },
+      { key: "newBrowser", label: "New browser", icon: "browser", onSelect: () => undefined },
+      { key: "fork", label: "Fork", icon: "agent.fork", accelerator: "F", onSelect: () => undefined },
     ],
-  },
-  { key: "archive", label: "Archive", icon: "inbox", shortcutLabel: "A", onSelect: () => undefined },
-  { key: "delete", label: "Delete", icon: "action.delete", shortcutLabel: "D", onSelect: () => undefined },
-];
+    [
+      {
+        key: "moveMachine",
+        label: move === "local" ? "Move to machine" : "Bring Back Local",
+        icon: "machine.remote",
+        children:
+          move === "local"
+            ? targets.map((label) => ({ key: label, label, onSelect: () => undefined }))
+            : [{ key: move, label: "Bring Back Local", onSelect: () => undefined }],
+      },
+    ],
+    [
+      { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
+      { key: "delete", label: "Delete", icon: "action.delete", onSelect: () => undefined },
+    ],
+  );
 
 function TitleMenuGallery({
   title,
@@ -45,12 +45,14 @@ function TitleMenuGallery({
     <div className={`acpmux-shell acpmux-thread-title-gallery acpmux-thread-title-gallery--${treatment}`}>
       <header className="acpmux-header">
         <div className="acpmux-header-status-slot">
-          <ThreadTitle title={title} menu={() => menuRows(move, targets)} />
+          <ThreadTitle title={title} onRename={() => undefined} />
         </div>
-        <div className="acpmux-header-tools" />
+        <div className="acpmux-header-tools">
+          <ChatMenu items={() => menuRows(move, targets)} registerPickerLabel={null} />
+        </div>
       </header>
       <main className="acpmux-thread-title-gallery-copy">
-        <p>Click the title to rename, fork, move or open this chat.</p>
+        <p>The title is plain text; double-click it (or ⌘R) to rename. ⋮ holds the chat's actions.</p>
         <p className="acpmux-muted">
           Move uses the chat’s existing Cloud transfer path; Delete purges the session and closes the tab.
         </p>
@@ -60,7 +62,7 @@ function TitleMenuGallery({
 }
 
 const open: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-thread-title-trigger" });
+  await ctx.click({ selector: ".acpmux-header-tools button" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
@@ -71,7 +73,7 @@ export default componentEntry<{
   treatment: string;
 }>({
   id: "agent-pane.thread-title",
-  title: "Chat title menu",
+  title: "Chat title",
   area: "Agent pane",
   pane: true,
   height: 240,
@@ -107,7 +109,7 @@ export default componentEntry<{
         treatment: "compact",
       },
       play: open,
-      note: "Narrow header treatment: a long title ellipsizes while the chevron and action menu remain reachable.",
+      note: "Narrow header treatment: a long title ellipsizes and the ⋮ menu stays reachable.",
     },
   },
 });

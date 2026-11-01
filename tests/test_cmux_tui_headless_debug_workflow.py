@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+import sys
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 
 
 def load(name: str) -> dict:
@@ -62,7 +65,11 @@ class HeadlessDebugDaemon(unittest.TestCase):
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
         # must be the one conformance picks for a same-repository pull request.
-        trusted = "!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}"
+        trusted = ("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+                   + blacksmith_route("cmux-tui-sdks.yml", "conformance") + " }}")
+        # The two jobs share one Blacksmith size (.github/runners.json linux_sizes).
+        self.assertEqual(blacksmith_route("cmux-tui-sdks.yml", "conformance"),
+                         blacksmith_route("cmux-tui-headless-debug.yml", "build"))
         self.assertTrue(self.consumer["runs-on"].endswith("|| " + trusted), self.consumer["runs-on"])
         self.assertEqual(self.producer["runs-on"], "${{ " + trusted)
 

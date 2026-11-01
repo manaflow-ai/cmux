@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSettings
 
 // Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
@@ -40,8 +41,10 @@ extension PaneHandlers {
         registry.bind("closePane", invoke: { invocation in
             // While the focus a split asked for is on its way, the focused pane is its new pane: the
             // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
-            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
-            guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
+            // Either way the window drops the stand-in and the focus goes to a live pane in this turn (showCancelledCreation).
+            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation() }
+            guard let pane = ctx.daemonPane(invocation) else { return }
+            if ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) { ctx.services.paneController(for: pane)?.workspace?.showCancelledCreation(); return }
             // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
             // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
             if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
@@ -137,6 +140,21 @@ extension PaneHandlers {
         ]
         for (id, binding) in bindings {
             registry.bind(id, invoke: { invocation in
+                // The same keys change the chat's text size when its composer or transcript
+                // owns focus. The page-zoom actions remain available from the View menu/palette.
+                // A selected chat is not enough to claim a keyboard shortcut: the key router
+                // records the window's actual focused surface on the invocation. Keep direct
+                // palette/menu runs (which have no key context) target-scoped, but let a sidebar
+                // or native control retain the workspace-terminal action while a chat remains
+                // selected.
+                let inAppUser = invocation.origin == .user && !invocation.viaControlSocket
+                let chatOwnsKeyboard = inAppUser && invocation.keyContext?.contains(.agentPaneFocused) == true
+                let targetIsChat = inAppUser && invocation.keyContext == nil
+                    && ctx.scope(invocation).pane.map { if case .agent = $0.currentContent { true } else { false } } == true
+                if chatOwnsKeyboard || targetIsChat {
+                    changeChatFontSize(id, ctx)
+                    return
+                }
                 guard let content = ctx.content(invocation) else { return }
                 var applied = 0
                 for pane in content.panes.values {
@@ -147,5 +165,50 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
+    }
+
+    // Key repeats read after the preceding write, or two quick Cmd-Plus presses
+    // both read 14 and save 15. Keep the chain only until its last write settles.
+
+    /// One point per key press, within the Settings row's range. An absent value is its 14 pt
+    /// default; reset removes the override so later default changes still apply.
+    private static func changeChatFontSize(_ id: ActionID, _ ctx: AppActionContext) {
+        guard let settings = ctx.services.settings else { return ctx.refuse(RefusalStrings.settingsNotLoaded) }
+        let path = AgentPaneDisplaySetting.fontSizePath
+        if let managed = settings.managedKey(forPath: path) {
+            return ctx.refuse(RefusalStrings.settingManaged(managed.key))
+        }
+        let writer = SettingWriter.currentRun()
+        let queue = ctx.services.agentChatFontSizeWrites
+        let previous = queue.latest
+        queue.generation += 1
+        let generation = queue.generation
+        let task: Task<ActionWorkFailure?, Never> = Task { @MainActor in
+            _ = await previous?.value
+            defer {
+                if queue.generation == generation { queue.latest = nil }
+            }
+            let value: CmuxNextSettings.JSONValue?
+            if id == "resetWorkspaceTerminalFontSize" {
+                value = nil
+            } else {
+                let current = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
+                    .values[path.joined(separator: ".")]?.doubleValue ?? AgentPaneDisplaySetting.fontSizeFallback
+                let delta = id == "increaseWorkspaceTerminalFontSize" ? 1.0 : -1.0
+                let range = AgentPaneDisplaySetting.fontSizeRange
+                let next = min(max(current + delta, range.lowerBound), range.upperBound)
+                guard next != current else { return nil }
+                value = .number(next)
+            }
+            do {
+                try await settings.setSetting(at: path, to: value, by: writer)
+                return nil
+            } catch {
+                await settings.reload()
+                return ActionWorkFailure(String(describing: error))
+            }
+        }
+        queue.latest = task
+        ctx.report { await task.value }
     }
 }

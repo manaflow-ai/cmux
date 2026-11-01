@@ -2,7 +2,7 @@
 // A background task that starts while its list is drawn enters it (Leo 2026-10-20, directional
 // motion): its row carries `data-enter="top"` (the lists are newest first), which ui/popupSurface.css
 // plays once on mount, on the host's motion tokens. The rows a list is drawn with are simply there,
-// so opening the Inspector, the Summary or the finished fold never replays every row.
+// so opening Session Info, the Summary or the finished fold never replays every row.
 import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,14 +10,14 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import {
-  resetInspectorState,
-  setInspectorOpen,
-  setInspectorSection,
-} from "../src/agent-session/acpmux/inspector/inspectorState";
-import type { BackgroundCommand, InspectorProcess } from "../src/agent-session/acpmux/inspector/processes";
-import { TasksSection } from "../src/agent-session/acpmux/inspector/TasksSection";
+  resetSessionInfoState,
+  setSessionInfoOpen,
+  setSessionInfoSection,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import type { BackgroundCommand, SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
+import { TasksSection } from "../src/agent-session/acpmux/session-info/TasksSection";
 import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
 
@@ -56,7 +56,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  resetInspectorState();
+  resetSessionInfoState();
   setHeaderState({ inspector: false });
   dom?.window.close();
   dom = undefined;
@@ -86,16 +86,16 @@ const played = (row: Element) =>
     row.dispatchEvent(new dom!.window.Event("animationend", { bubbles: true }));
   });
 
-test("the Inspector's new running task enters from the top; the ones it was drawn with do not", async () => {
+test("Session Info's new running task enters from the top; the ones it was drawn with do not", async () => {
   const container = installDom();
   const first = [command("a", "tsc --watch")];
   await act(async () => {
     root = createRoot(container);
     root.render(<TasksSection commands={first} />);
   });
-  expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["tsc:-"]);
+  expect(entering(container, "li.acpmux-session-info-task--command")).toEqual(["tsc:-"]);
   await act(async () => root!.render(<TasksSection commands={[command("b", "pytest -x"), ...first]} />));
-  expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["pytest:top", "tsc:-"]);
+  expect(entering(container, "li.acpmux-session-info-task--command")).toEqual(["pytest:top", "tsc:-"]);
 });
 
 test("the Summary's new running task enters from the top; the ones it was drawn with do not", async () => {
@@ -117,9 +117,9 @@ test("opening the finished fold does not replay its rows", async () => {
     root = createRoot(container);
     root.render(<TasksSection commands={commands} />);
   });
-  const fold = container.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!;
+  const fold = container.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold")!;
   await act(async () => fold.click());
-  expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["tsc:-"]);
+  expect(entering(container, "li.acpmux-session-info-task--command")).toEqual(["tsc:-"]);
 });
 
 // Custom properties inherit, so a row's entrance must not pick up the axis or the travel of the
@@ -137,14 +137,14 @@ test("an entering row inside an entering card keeps its own edge and distance", 
   expect(rule(":where([data-enter] [data-enter])")).toContain("--ui-enter-distance: 8px");
 });
 
-// The Inspector stays drawn while the pane switches chats: the next chat's tasks are the ones its
+// Session Info stays drawn while the pane switches chats: the next chat's tasks are the ones its
 // list is drawn with, so none of them drops in.
-test("switching chats with the Inspector open replays none of the next chat's tasks", async () => {
+test("switching chats with Session Info open replays none of the next chat's tasks", async () => {
   const container = installDom();
   setHeaderState({ inspector: true });
   setChatDisplay({});
-  resetInspectorState();
-  const process = (id: string, command: string): InspectorProcess => ({
+  resetSessionInfoState();
+  const process = (id: string, command: string): SessionInfoProcess => ({
     id,
     command,
     startedAt: 1_000,
@@ -152,14 +152,14 @@ test("switching chats with the Inspector open replays none of the next chat's ta
   });
   const first: AcpmuxSnapshot = chat([user("Build it", 4), assistant("Done.", 3)]);
   const second: AcpmuxSnapshot = { ...first, sessionId: "other-session" };
-  let show: (chat: AcpmuxSnapshot, processes: InspectorProcess[]) => void = () => {};
+  let show: (chat: AcpmuxSnapshot, processes: SessionInfoProcess[]) => void = () => {};
   function Pane() {
     const [state, setState] = useState({
       snapshot: first,
       processes: [process("s1/a", "tsc --watch")],
     });
     show = (snapshot, processes) => setState({ snapshot, processes });
-    const inspector = useChatInspector({
+    const inspector = useSessionInfo({
       snapshot: state.snapshot,
       shell: null,
       processes: { processes: state.processes, listed: true },
@@ -171,10 +171,10 @@ test("switching chats with the Inspector open replays none of the next chat's ta
     root.render(<Pane />);
   });
   await act(async () => {
-    setInspectorSection("tasks", true);
-    setInspectorOpen(true);
+    setSessionInfoSection("tasks", true);
+    setSessionInfoOpen(true);
   });
-  const rows = () => entering(container, "li.acpmux-chat-inspector-task--command");
+  const rows = () => entering(container, "li.acpmux-session-info-task--command");
   expect(rows()).toEqual(["tsc:-"]);
   await act(async () => show(second, [process("other-session/b", "pytest -x")]));
   expect(rows()).toEqual(["pytest:-"]);
@@ -198,7 +198,7 @@ test("a transcript-only command the registry then lists does not enter again", a
     processId: "s1/a",
   };
   await act(async () => root!.render(<TasksSection commands={[listed]} />));
-  expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["tsc:-"]);
+  expect(entering(container, "li.acpmux-session-info-task--command")).toEqual(["tsc:-"]);
 
   await act(async () => root!.render(<SummaryTasks commands={[transcriptOnly]} />));
   await act(async () => root!.render(<SummaryTasks commands={[listed]} />));

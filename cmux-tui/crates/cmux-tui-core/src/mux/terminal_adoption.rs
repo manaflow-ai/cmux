@@ -347,6 +347,11 @@ impl Mux {
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
         // The threads start after this pass: their registry commits would
         // otherwise queue each read above behind them (745 ms for 60 hosts).
+        // The workspace the user sees adopts first (startup_adoption_gate.rs).
+        let visible = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        deferred.sort_by_key(|(record, _)| Some(&record.workspace_key) != visible.as_ref());
         for (record, record_path) in deferred {
             self.schedule_terminal_adoption_after(
                 options.clone(),
@@ -708,6 +713,9 @@ impl Mux {
 
         let before = state.clone();
         let restored_public_id = surface.terminal_public_id().cloned();
+        // Kept to publish the replayed reports once the terminal is live;
+        // `surface` itself moves into state below.
+        let adopted = surface.clone();
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
@@ -767,6 +775,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // The host's replay carries the shell's last directory and progress
+        // reports, pending until the terminal is live: publish them now, as
+        // a reconnect does. An idle shell prints nothing that would.
+        adopted.publish_pending_directory();
+        adopted.publish_pending_progress();
         self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {
@@ -875,6 +888,8 @@ impl Mux {
         }
         let cleanup_id = terminal_id.clone();
         let mux = self.clone();
+        // A start's adoption (no first delay) takes a turn for its first attempt.
+        let ticket = first_delay.is_zero().then(|| self.startup_adoption_gate.ticket());
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
@@ -886,11 +901,7 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
-                        && !mux
-                            .terminal_adoptions_now
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .contains(&terminal_id)
+                        && !mux.terminal_adoption_wanted_now(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
@@ -906,9 +917,33 @@ impl Mux {
                 {
                     std::thread::sleep(Duration::from_millis(ms));
                 }
+                // A terminal a request waits on (a reopen) gives its place up
+                // and adopts at once, without a turn.
+                let mut turn = ticket.and_then(|ticket| {
+                    mux.startup_adoption_gate.turn(ticket, || {
+                        mux.shutting_down.load(Ordering::Acquire)
+                            || mux.terminal_adoption_wanted_now(&terminal_id)
+                    })
+                });
+                // Test seam: a slow first attempt, held inside its turn (debug only).
+                #[cfg(debug_assertions)]
+                if turn.is_some()
+                    && let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPT_TURN_DELAY_MS")
+                        .ok()
+                        .and_then(|value| value.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms.min(5_000)));
+                }
+                let mut first_attempt = true;
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
+                    // Only the first attempt holds the turn: a retry waits on its
+                    // own backoff without blocking the next host.
+                    if !std::mem::take(&mut first_attempt) {
+                        turn = None;
+                    }
+                    let _ = &turn;
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
@@ -1124,13 +1159,16 @@ impl Mux {
     }
 
     /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
-    /// ended, and has it start at once instead of after the owner says ready.
-    /// Holds no other lock while it waits.
+    /// ended, and has it start at once instead of after the owner says ready
+    /// or after its turn in the start's adoption gate. Holds no other lock
+    /// while it waits.
     pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
         self.terminal_adoptions_now
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(terminal_id.to_owned());
+        // An adoption waiting for its turn re-checks and gives its place up.
+        self.startup_adoption_gate.wake_all();
         let deadline = Instant::now() + bound;
         let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
         while adoptions.contains(terminal_id) {
@@ -1149,6 +1187,15 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id);
+    }
+
+    /// Whether a request waits on the adoption of `terminal_id`
+    /// (`wait_for_terminal_adoption`): it then skips the start's waits.
+    fn terminal_adoption_wanted_now(&self, terminal_id: &str) -> bool {
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     /// The running terminal `terminal_id` names, for a reopen that gives it a

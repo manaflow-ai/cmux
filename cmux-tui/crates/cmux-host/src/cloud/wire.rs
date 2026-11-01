@@ -78,6 +78,16 @@ impl Env {
         }
     }
 
+    /// The connector owner for this environment. Socket callers cannot
+    /// choose an origin and redirect the machine's bearer elsewhere.
+    pub fn platform_origin(self) -> &'static str {
+        match self {
+            Env::Dev => "https://cmux-platform-development.debussy.workers.dev",
+            Env::Stg => "https://cmux-platform-staging.debussy.workers.dev",
+            Env::Prod => "https://cmux-platform-production.debussy.workers.dev",
+        }
+    }
+
     /// The Worker's ENVIRONMENT, named in the auth challenge prefix.
     pub fn auth_environment(self) -> &'static str {
         match self {

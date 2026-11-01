@@ -206,7 +206,8 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
+  selector: '[data-card="computer-use"] [data-action-row] button',
   action: "focus",
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
@@ -870,7 +871,7 @@ Object.assign(variants, {
   "computer-use-off": variant("agents", {
     host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
   }),
   "computer-use-failed": variant("agents", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
@@ -983,6 +984,44 @@ Object.assign(variants, {
     ],
     note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
   }),
+  "agents-harness-sign-in-expired": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.4.0",
+          latest: "0.4.0",
+          outdated: false,
+          auth: "expired",
+          update: null,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          latest: "2.0.9",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness="codex"]'),
+      // Scrolls the Codex row into view; the control exists before and after the change.
+      { selector: '[data-harness="codex"] [data-harness-action="check"]', action: "focus" },
+    ],
+    note: "Codex's sign-in expired: Agents gets its badge and the row says Signed out, as for a signed-out harness.",
+  }),
   "agents-harness-update-manual": variant("agents", {
     harnesses: {
       loading: false,
@@ -1080,6 +1119,19 @@ Object.assign(variants, {
     focus: "agents.registry",
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-stable-check-idle": variant("agents", {
+    note: "Check actions at rest, reserving their translated Checking label width.",
+    agents: { doctor: {} },
+  }),
+  "agents-stable-check-busy": variant("agents", {
+    note: "The same Check actions while diagnostics run; button widths stay fixed.",
+    agents: { doctor: { "acme-agent": { running: true } } },
+  }),
+  "agents-stable-added": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait('[data-registry-agent="goose"]'), click('[data-registry-agent="goose"] button')],
+    note: "The registry action after Add becomes Added, with its original width preserved.",
   }),
   "agents-doctor": variant("agents", {
     steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
