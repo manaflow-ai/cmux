@@ -242,6 +242,7 @@ fn an_unknown_terminal_keeps_its_screen_off_the_disk_until_the_registry_answers(
 
 /// The daemon's command history (`terminal-command-history-v1`, when on)
 /// stored an incognito terminal's commands in SQLite.
+#[cfg(unix)]
 #[test]
 fn an_incognito_terminal_commands_stay_out_of_the_command_history() {
     const NORMAL: &str = "00000000000040008000000000000c01";
