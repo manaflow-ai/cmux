@@ -685,6 +685,7 @@ impl ClientRegistry {
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY
                     || agent_session_presence(capability)
+                    || capability == "cloud-mobile-chat-v1"
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY

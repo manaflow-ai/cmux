@@ -160,6 +160,8 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
         for frame in [
             json!({"cmd":"identify"}),
             json!({"cmd":"set-client-info", "vm_kind":"owner"}),
+            json!({"cmd":"set-client-info", "kind":"frontend", "device_kind":"ios",
+                "capabilities":["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]}),
             json!({"cmd":"subscribe", "tree_events":"deltas"}),
             json!({"cmd":"list-workspaces"}),
             json!({"cmd":"create-workspace", "vm_kind":"owner"}),
@@ -176,6 +178,38 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
         }
         fake.no_connection();
     }
+}
+
+#[test]
+fn native_owner_mobile_handshake_keeps_phone_policy_for_the_connection() {
+    let fake = FakeAcpmux::start("native-mobile-handshake");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    assert!(identity["capabilities"].as_array().unwrap().contains(&json!("cloud-mobile-chat-v1")));
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-client-info", "kind":"frontend", "device_kind":"ios",
+            "capabilities":["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]}),
+    );
+    let client = *remote_clients(&entry.mux).first().unwrap();
+    assert!(entry.mux.is_native_agent_owner(client));
+    assert!(entry.mux.control_clients.supports_capability(client, "cloud-mobile-chat-v1"));
+    // A later ordinary hello cannot clear the stricter phone policy. It lasts
+    // until this authenticated connection closes, not until the next hello.
+    ok(&mut stream, &mut reader, json!({"cmd":"set-client-info", "capabilities":[]}));
+    assert!(entry.mux.control_clients.supports_capability(client, "cloud-mobile-chat-v1"));
+    entry.mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
+    assert!(!entry.mux.is_native_agent_owner(client));
+    assert_eq!(
+        call(&mut stream, &mut reader, json!({"cmd":"list-workspaces"}))["error_code"],
+        json!(REMOTE_DENIED)
+    );
+    fake.no_connection();
 }
 
 #[test]

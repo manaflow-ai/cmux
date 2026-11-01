@@ -53,6 +53,7 @@ const COMMANDS: &[&str] = &[
 ];
 
 const CAPABILITIES: &[&str] = &[
+    "cloud-mobile-chat-v1",
     VIEW_ATTACHMENT_LEASE_CAPABILITY,
     VIEW_ATTACHMENT_DETACH_CAPABILITY,
     ATTACH_INITIAL_SIZE_CAPABILITY,
@@ -183,6 +184,7 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
         identity["capabilities"] = json!(
             identify_capabilities(mux)
                 .into_iter()
+                .chain(mux.serves_agent_session_attach().then_some("cloud-mobile-chat-v1"))
                 .filter(|cap| CAPABILITIES.contains(cap))
                 .collect::<Vec<_>>()
         );
