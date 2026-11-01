@@ -17,7 +17,7 @@ import {
   type LinkItem,
 } from "./attachments";
 import { awaitsOriginals } from "./promptBudget";
-import type { UploadResult } from "./cloudUploads";
+import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
@@ -345,7 +345,11 @@ type Props = {
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
-  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
+  upload?(
+    files: File[],
+    cancelled?: (index: number) => boolean,
+    progress?: UploadProgressReport,
+  ): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
