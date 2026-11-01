@@ -2601,6 +2601,58 @@ async fn run_fails_fast_and_deletes_a_vm_whose_answer_has_no_state() {
     assert!(out.stderr.contains("state"), "{}", out.stderr);
 }
 
+/// A stored token whose JSON cannot be read names a recovery that works:
+/// `token revoke` removes the local copy it cannot revoke (#29706).
+// The file store; macOS keeps the token in the login Keychain.
+#[cfg(not(target_os = "macos"))]
+#[tokio::test]
+async fn revoke_removes_an_unreadable_stored_token() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("cmux-vm-unreadable-token-{}", std::process::id()));
+    let file = dir.join("cmux").join("vm-token.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let store = |text: &str| {
+        std::fs::write(&file, text).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    };
+    store("{not json");
+    let xdg = dir.to_string_lossy().into_owned();
+    let env = [("XDG_CONFIG_HOME", xdg.as_str())];
+
+    let status = cli_with_env(&["token", "status"], &env).await;
+    assert_ne!(status.code, exit::OK);
+    assert!(status.stderr.contains("token revoke"), "{}", status.stderr);
+    assert!(status.stderr.contains("expires"), "{}", status.stderr);
+    // Every other verb refuses it with the same advice.
+    let get = cli_with_env(&["get", VM_ID], &env).await;
+    assert_eq!(get.code, exit::UNAUTHENTICATED, "{}", get.stderr);
+    assert!(get.stderr.contains("token revoke"), "{}", get.stderr);
+
+    // Nothing is sent anywhere (no server): the key cannot be read to revoke.
+    let revoke = cli_with_env(&["token", "revoke"], &env).await;
+    assert_eq!(revoke.code, exit::OK, "{}", revoke.stderr);
+    assert!(revoke.stdout.contains("removed"), "{}", revoke.stdout);
+    assert!(revoke.stdout.contains("expires"), "{}", revoke.stdout);
+    assert!(!file.exists());
+    let status = cli_with_env(&["token", "status"], &env).await;
+    assert_eq!(status.code, exit::UNAUTHENTICATED, "{}", status.stderr);
+    assert!(
+        status.stderr.contains("no stored VM token"),
+        "{}",
+        status.stderr
+    );
+
+    store("[]");
+    let revoke = cli_with_env(&["--json", "token", "revoke"], &env).await;
+    assert_eq!(revoke.code, exit::OK, "{}", revoke.stderr);
+    assert_eq!(
+        json_stdout(&revoke),
+        json!({"id": null, "revoked": false, "removed": true})
+    );
+    assert!(!file.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The guest command that removes the run's archives on every exit path.
 const REMOVE_ARCHIVES: &str = "rm -f /tmp/cmux-run.tgz /tmp/cmux-pull.tgz /tmp/cmux-pull.tgz.rc";
 
