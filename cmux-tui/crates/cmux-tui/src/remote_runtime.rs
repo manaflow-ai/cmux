@@ -608,6 +608,13 @@ impl ClientRuntimeHandle {
         self.connection.snapshot().await
     }
 
+    /// Whether the daemon no longer has this client's session (it outlived
+    /// the daemon's resume lease, or was closed there). Permanent: the
+    /// connection stops redialing, and only a new session can continue.
+    pub fn session_unavailable(&self) -> bool {
+        self.connection.session_unavailable() || self.multiplexer.session_unavailable()
+    }
+
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }
@@ -1487,6 +1494,7 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
         ) | ConnectionError::Protocol(_)
             | ConnectionError::GenerationExhausted
             | ConnectionError::Closed
+            | ConnectionError::SessionUnavailable
     )
 }
 
