@@ -3164,11 +3164,15 @@ export function VirtualTranscript({
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
   /// closed (Leo, ask-a736047107: "WHEN I COLLAPSE IT JUMPS ME UP"). The room shrinks with the view's
-  /// end as the reader scrolls up, and goes once the rows reach it again (`trimFoldRoom`), on a send
-  /// and on Jump to latest; a fold that left the rows past it gives it up at the next pass.
+  /// end as the reader scrolls up unless this was a bottom tool collapse. Bottom room stays until
+  /// the rows grow into it again; a send or Jump to latest releases either kind.
   const [foldRoom, setFoldRoom] = useState(0);
   const foldRoomRef = useRef(0);
   foldRoomRef.current = foldRoom;
+  /// A bottom collapse keeps the end created by its open body. Unlike the transient room used to
+  /// hold a line clicked away from the end, this room remains while the reader scrolls up and back.
+  /// It is released only when the rows grow into it, or an explicit latest/send transition drops it.
+  const stickyFoldRoom = useRef<{ shrunk: boolean } | undefined>(undefined);
   /// The content's end without that room, as of the last render.
   const rowsEndRef = useRef(0);
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
@@ -3176,6 +3180,7 @@ export function VirtualTranscript({
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
   /// before the caller reads the layout (Jump to latest's target).
   const dropFoldRoom = useCallback((now = false) => {
+    stickyFoldRoom.current = undefined;
     if (!foldRoomRef.current) return;
     foldRoomRef.current = 0;
     if (now) flushSync(() => setFoldRoom(0));
@@ -3186,6 +3191,20 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
+    // A tool body opened at the end gives the transcript a larger physical end. Keep that end when
+    // its body closes, including through an upward scroll and a return to the latest row. The room
+    // is still released once the rows themselves grow back to it.
+    if (stickyFoldRoom.current) {
+      // A wheel can release the clicked-line anchor before the collapse's first measurement.
+      // Only growth after an observed shrink may consume this room.
+      if (rowsEndRef.current < kept - 0.5) stickyFoldRoom.current.shrunk = true;
+      if (stickyFoldRoom.current.shrunk && !foldHolding(foldAnchor.current) && rowsEndRef.current >= kept - 0.5) {
+        stickyFoldRoom.current = undefined;
+        foldRoomRef.current = 0;
+        setFoldRoom(0);
+      }
+      return;
+    }
     const holding = foldHolding(foldAnchor.current);
     // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
     if (followingRef.current && !holding) {
@@ -4584,6 +4603,14 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
+    const keepBottomFoldRoom = () => {
+      if (!node) return;
+      const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
+      stickyFoldRoom.current = { shrunk: rowsEndRef.current < end - 0.5 };
+      if (end === foldRoomRef.current) return;
+      foldRoomRef.current = end;
+      setFoldRoom(end);
+    };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
       // This ask is for tool/work disclosures. Message Show more/less and other controls retain
       // their established row anchor, including the room they need when closing at the end.
@@ -4600,7 +4627,12 @@ export function VirtualTranscript({
       stopBottomStackFold();
       followGlide.current?.stop();
       stopJump();
-      dropFoldRoom();
+      // A closing tool keeps its expanded extent and clicked line rather than sliding down.
+      if (toggle.matches(".cv-tool.is-toggle") && toggle.getAttribute("aria-expanded") === "true") {
+        keepBottomFoldRoom();
+        return false;
+      }
+      if (!stickyFoldRoom.current) dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
