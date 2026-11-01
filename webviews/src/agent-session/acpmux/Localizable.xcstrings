@@ -193101,6 +193101,270 @@
         }
       }
     },
+    "newTab.headline.inOn": {
+      "comment": "Agent pane: the New Tab page's optional headline over the composer; {project} is the project's name, drawn as an inline project picker, and {machine} the name of the machine the chat starts on.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على ماذا سنعمل في {project} على {machine}؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na čemu ćemo raditi u {project} na {machine}?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvad skal vi arbejde på i {project} på {machine}?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Woran sollen wir in {project} auf {machine} arbeiten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What should we work on in {project} on {machine}?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿En qué vamos a trabajar en {project} en {machine}?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur quoi voulez-vous travailler dans {project} sur {machine} ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su cosa lavoriamo in {project} su {machine}?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine} の {project}で何に取り組みますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តើយើងគួរធ្វើការលើអ្វីក្នុង {project} នៅលើ {machine}?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine}의 {project}에서 무엇을 작업할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hva skal vi jobbe med i {project} på {machine}?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nad czym pracujemy w projekcie {project} na {machine}?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No que vamos trabalhar em {project} em {machine}?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Над чем будем работать в {project} на {machine}?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เราจะทำงานอะไรใน {project} บน {machine} ดี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine} makinesinde {project} içinde ne üzerinde çalışalım?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Над чим працюватимемо в {project} на {machine}?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chúng ta nên làm gì trong {project} trên {machine}?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {machine} 上的 {project} 中做什么？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 {machine} 上的 {project} 做什麼？"
+          }
+        }
+      }
+    },
+    "newTab.headline.on": {
+      "comment": "Agent pane: the New Tab page's optional headline over the composer when no project is picked yet; {machine} is the name of the machine the chat starts on.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على ماذا سنعمل على {machine}؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na čemu ćemo raditi na {machine}?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvad skal vi arbejde på, på {machine}?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Woran sollen wir auf {machine} arbeiten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What should we work on at {machine}?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿En qué vamos a trabajar en {machine}?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur quoi voulez-vous travailler sur {machine} ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su cosa lavoriamo su {machine}?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine}で何に取り組みますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តើយើងគួរធ្វើការលើអ្វីនៅលើ {machine}?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine}에서 무엇을 작업할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hva skal vi jobbe med på {machine}?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nad czym pracujemy na {machine}?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No que vamos trabalhar em {machine}?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Над чем будем работать на {machine}?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เราจะทำงานอะไรบน {machine} ดี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine} makinesinde ne üzerinde çalışalım?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Над чим працюватимемо на {machine}?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chúng ta nên làm gì trên {machine}?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {machine} 上做什么？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 {machine} 上做什麼？"
+          }
+        }
+      }
+    },
     "newTab.template.minimal": {
       "comment": "The New Tab page's Minimal layout: a greeting and the composer (a dot's name under the page).",
       "extractionState": "manual",

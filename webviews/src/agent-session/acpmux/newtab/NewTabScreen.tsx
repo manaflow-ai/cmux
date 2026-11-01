@@ -1929,15 +1929,21 @@ export function NewTabScreen(props: Props) {
       {content}
     </WidgetFrame>
   );
-  // The headline (off by default): "What should we work on in <project>?", its project the folder
-  // Enter asks in, picked in place as the composer's strip picks it.
+  // The headline (off by default): "What should we work on in <project> on <machine>?", its project
+  // the folder Enter asks in, picked in place as the composer's strip picks it, and its machine the
+  // one the chat starts on: a saved SSH environment's machine, else the location row's machine, else
+  // this Mac's name.
+  const headlineMachine =
+    (environment?.kind === "ssh" ? environment.host : undefined) ?? machine?.peer ?? props.machineName;
+  const headlineFolder = machine && !environment ? machine.folder : askFolder;
   const headline =
     widgets.has("greeting") &&
     frame(
       "greeting",
       <NewTabHeadline
         projects={props.projects ?? []}
-        {...(askFolder ? { folder: askFolder } : {})}
+        {...(headlineFolder ? { folder: headlineFolder } : {})}
+        {...(headlineMachine ? { machine: headlineMachine } : {})}
         noProject={none}
         onPick={(cwd) => pickProject(cwd)}
         onNoProject={() => pickProject(undefined)}
