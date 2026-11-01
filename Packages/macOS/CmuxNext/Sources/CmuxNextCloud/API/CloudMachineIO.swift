@@ -27,13 +27,15 @@ public struct CloudMachineIO: Sendable {
         var route: String
     }
 
-    /// The child gave no answer line. `dispatched` false: it never started (no binary, a cancel first) or
-    /// said it took nothing (route `none`), so nothing ran and the caller may take the HTTP route.
+    /// The child gave no answer line. `dispatched` false: it never started (no binary, a cancel first,
+    /// a cmux without `machine-io`) or said it took nothing (route `none`), so nothing ran and the caller may take the HTTP route.
     /// `dispatched` true: it started and then crashed, timed out or printed nothing usable, so the
     /// operation may have run and a change must not be sent a second time.
     struct NoAnswer: Error { var dispatched: Bool }
 
     func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
+        // A bundled cmux from before `machine-io` never runs the call: it goes over HTTP.
+        guard try await speaksMachineIO() else { throw NoAnswer(dispatched: false) }
         var request = request
         request["cache_dir"] = cacheDirectory.path
         let input = try JSONSerialization.data(withJSONObject: request)
@@ -45,6 +47,28 @@ public struct CloudMachineIO: Sendable {
         let body = object["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
         return Answer(status: status, code: object["code"] as? String, body: body ?? Data(), route: route)
     }
+
+    /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
+    /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
+    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept.
+    func speaksMachineIO() async throws -> Bool {
+        let modified = (try? binary.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
+        if let known = Self.probes.withLock({ $0[key] }) { return known }
+        let output: Data
+        do {
+            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10))
+        } catch is NoAnswer {
+            return false
+        }
+        let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty })
+        let object = line.flatMap { (try? JSONSerialization.jsonObject(with: Data($0))) as? [String: Any] }
+        let speaks = object?["route"] is String
+        Self.probes.withLock { $0[key] = speaks }
+        return speaks
+    }
+
+    private static let probes = Mutex<[String: Bool]>([:])
 
     /// Runs the child with `stdin` written through a pipe after launch (a file write's request is
     /// larger than a pipe buffer) and its stdout in an unlinked temp file. Past `timeout` the child is

@@ -24,12 +24,14 @@ struct CloudMachineIOTests {
         override func stopLoading() {}
     }
 
-    /// A stand-in `cmux` that saves its stdin and argv, then prints `line`.
-    private func fakeCLI(printing line: String) throws -> (binary: URL, folder: URL) {
+    /// A stand-in `cmux` that saves its stdin and argv, then prints `line`. It answers the empty
+    /// `machine-io` probe as a current cmux does, unless `speaksMachineIO` is false (an older cmux).
+    private func fakeCLI(printing line: String, speaksMachineIO: Bool = true) throws -> (binary: URL, folder: URL) {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("machine-io-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let binary = folder.appendingPathComponent("cmux")
-        let script = "#!/bin/sh\ncat > \"\(folder.path)/stdin\"\necho \"$@\" > \"\(folder.path)/argv\"\nprintf '%s\\n' '\(line)'\n"
+        let probe = speaksMachineIO ? #"{"route":"none","status":400,"code":"validation.invalid","body":null}"# : line
+        let script = "#!/bin/sh\ninput=$(cat)\nif [ \"$input\" = '{}' ]; then printf '%s\\n' '\(probe)'; exit 2; fi\nprintf '%s' \"$input\" > \"\(folder.path)/stdin\"\necho \"$@\" > \"\(folder.path)/argv\"\nprintf '%s\\n' '\(line)'\n"
         try Data(script.utf8).write(to: binary)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
         return (binary, folder)
@@ -105,5 +107,14 @@ struct CloudMachineIOTests {
         defer { try? FileManager.default.removeItem(at: other) }
         try await client(refusing, other).makeDirectory("vm_abcdefghij0123456789", path: "/a")
         #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"], "a change cmux never took goes over HTTP")
+    }
+
+    @Test func aCmuxWithoutMachineIOSendsEveryCallOverHTTP() async throws {
+        let (binary, folder) = try fakeCLI(printing: "error: unrecognized subcommand machine-io", speaksMachineIO: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Route.paths = []
+        try await client(binary, folder).makeDirectory("vm_abcdefghij0123456789", path: "/a")
+        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"])
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("stdin").path), "the call itself never ran")
     }
 }
