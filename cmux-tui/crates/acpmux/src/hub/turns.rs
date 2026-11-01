@@ -1930,6 +1930,18 @@ impl Hub {
         purge: bool,
         _using: impl Send,
     ) -> Result<(), RpcError> {
+        // Transfer retirement also closes this exact instance before replacing it.
+        // Keep it registered until all cleanup by ID finishes, even across awaits.
+        let _closing = session.close_lock.lock().await;
+        if !self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&session.id)
+            .is_some_and(|current| Arc::ptr_eq(current, session))
+        {
+            return Ok(());
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -1983,13 +1995,24 @@ impl Hub {
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
-            self.sessions.lock().unwrap().remove(&session.id);
+            if !self
+                .sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&session.id)
+                .is_some_and(|current| Arc::ptr_eq(current, session))
+            {
+                return Ok(());
+            }
             self.child_tags.forget(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
             {
                 let id = session.id.clone();
-                tokio::task::spawn_blocking(move || crate::agent::session_tmp::remove_session(&id));
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::agent::session_tmp::remove_session(&id)
+                })
+                .await;
             }
             self.git_branch_forget(&session.id);
             // Tell watchers (peers, TUIs) the session is gone.
@@ -2010,6 +2033,14 @@ impl Hub {
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            #[cfg(test)]
+            {
+                let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
             // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
             // itself comes back under this id.
             if !replaced {
@@ -2017,6 +2048,11 @@ impl Hub {
                 let _ =
                     tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
                         .await;
+            }
+            // No awaits follow unregistering: a fixed-ID creator may now publish.
+            let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if sessions.get(&session.id).is_some_and(|current| Arc::ptr_eq(current, session)) {
+                sessions.remove(&session.id);
             }
         }
         Ok(())

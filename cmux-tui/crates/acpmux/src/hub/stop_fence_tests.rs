@@ -40,6 +40,41 @@ async fn has_live_child(session: &Session) -> bool {
     }
 }
 
+#[tokio::test]
+async fn trigger_purge_keeps_its_incarnation_registered_through_cleanup() {
+    let (hub, session) = chat().await;
+    let (arrived, at_cleanup) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *hub.purge_seam.lock().unwrap() = Some((arrived, released));
+    let purge = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move { hub.kill(&session, true).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), at_cleanup).await.unwrap().unwrap();
+    assert!(session.purged.load(Ordering::SeqCst));
+    assert!(
+        hub.sessions.lock().unwrap().get(&session.id).is_some_and(|s| Arc::ptr_eq(s, &session))
+    );
+    assert!(session.close_lock.try_lock().is_err(), "a transfer retirement must wait for cleanup");
+    release.send(()).unwrap();
+    purge.await.unwrap().unwrap();
+    assert!(!hub.sessions.lock().unwrap().contains_key(&session.id));
+
+    let mut meta = session.meta();
+    meta.name = "replacement".into();
+    let replacement = hub.make_session(meta.clone());
+    hub.store.save(&meta).unwrap();
+    hub.sessions.lock().unwrap().insert(session.id.clone(), replacement.clone());
+    hub.kill(&session, true).await.unwrap();
+    assert!(
+        hub.sessions.lock().unwrap().get(&session.id).is_some_and(|s| Arc::ptr_eq(s, &replacement))
+    );
+    assert!(
+        hub.store.load(&session.id).unwrap().is_some(),
+        "stale purge deleted replacement storage"
+    );
+}
+
 /// A prompt that came before the stop and reaches its agent start after it (it waited on the
 /// spawn lock a start in flight held): the start ends, nothing reopens the chat, and a request
 /// after the stop still reopens it.
