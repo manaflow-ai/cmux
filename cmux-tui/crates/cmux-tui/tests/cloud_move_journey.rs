@@ -301,7 +301,7 @@ fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
         "the daemon must not write a per-home model-plane.env (it would shadow the image's)"
     );
 
-    let repo = dirty_repo(&mac.home());
+    let repo = dirty_repo(&mac.home(), &root.join("github"));
     let synced = vm.home().join("work/app");
     let (ok, summary) = run_json(
         Command::new(bin())
