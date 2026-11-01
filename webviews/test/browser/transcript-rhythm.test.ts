@@ -68,7 +68,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               const copyEl = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
               const copy = copyEl ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg') : undefined;
               const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-              // Every tool row's trailing chevron: its 16 glyph centred on trail = col-right - 8.
+              // Every tool row's disclosure caret (inline after its label, cmux#28018).
               const chevronCenters = [...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__line .cv-rotor)")].map((el) => {
                 const r = el.getBoundingClientRect();
                 return composerBox.right - (r.left + r.right) / 2;
@@ -129,10 +129,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, ...(state.copy ? [state.copy] : [])]) {
               expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
             }
-            expect(Math.abs(state.chevron.right - state.composer.right), "col-right").toBeLessThanOrEqual(0.5);
+            // Disclosure carets sit right after their label, not on col-right (cmux#28018, Leo,
+            // 2026-10-31: "we can fit stuff closer"); this test checks only that one is drawn.
             expect(state.chevronCenters.length, "tool chevrons").toBeGreaterThan(0);
-            for (const center of state.chevronCenters)
-              expect(Math.abs(center - 8), "chevron on trail = col-right - 8").toBeLessThanOrEqual(0.5);
             for (const ink of state.firstInk) expect(Math.abs(ink.left), `first ink on col-left: ${ink.id}`).toBeLessThanOrEqual(0.5);
           }
           expect(shown).toEqual(hidden);
@@ -294,12 +293,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               column.left;
             result["message/gap"] = message.top - box(".cv-agentmsg__line").bottom;
             result["message/under-gap"] = box(".cv-agentmsg__under").top - message.bottom;
-            for (const [name, selector] of Object.entries({
-              message: ".cv-agentmsg__line > .cv-agentmsg__chevron",
-              subsession: ".cv-disclosure__line .cv-rotor",
-              group: "[data-grid-count] .cv-tool__chevron",
-            }))
-              result[`${name}/trail`] = box(selector).right - column.right;
+            // Carets sit inline after their label (cmux#28018), so no `trail` line is measured here.
             const panel = box(".cv-disclosure__panel");
             result["subsession/nesting"] = panel.left - column.left;
             const card = box(".cv-agent-card");
@@ -317,7 +311,6 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
                 throw new Error("A count summary's verb must not take the verb column");
               const label = document.querySelector(`${root} .cv-tool__summary, ${root} .cv-tool__text`)!.textContent ?? "";
               if (!/^\S+ \d+ \S/.test(label)) throw new Error(`Count label must be "verb N noun": ${JSON.stringify(label)}`);
-              result[`count-${count}/trail`] = box(`${root} .cv-tool__chevron`).right - column.right;
               if (
                 getComputedStyle(document.querySelector(`${root} .cv-tool__text`)!).fontVariantNumeric !==
                 "tabular-nums"
