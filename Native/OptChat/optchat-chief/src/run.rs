@@ -399,22 +399,18 @@ impl RunSteps {
     }
 
     /// Call `id` ended. When the line named it, the line moves to the earliest
-    /// call still running (from no earlier than the line's own start, so the
-    /// steps' starts never go back), or to the model ("Thinking") from now.
+    /// call still running, or to the model ("Thinking"), from now: a queued call's
+    /// time waiting behind the one that ended is not its own, and the steps'
+    /// starts never go back.
     fn call_ended(&mut self, id: &str) {
         self.running.retain(|(call, _, _)| call != id);
         if self.activity_tool.as_deref() != Some(id) {
             return;
         }
-        match self.running.first() {
-            Some((call, line, since)) => {
-                let since = self
-                    .activity
-                    .as_ref()
-                    .map_or(*since, |(_, old)| (*since).max(*old));
-                self.activity = Some((line.clone(), since));
-                self.activity_tool = Some(call.clone());
-                self.activity_dirty = true;
+        match self.running.first().cloned() {
+            Some((call, line, _)) => {
+                self.set_activity(line);
+                self.activity_tool = Some(call);
             }
             None => self.set_activity("Thinking".to_owned()),
         }

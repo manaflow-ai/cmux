@@ -111,7 +111,14 @@ fn a_calls_input_sharpens_its_line_but_keeps_its_start() {
         second["since"], first["since"],
         "the same call keeps its start"
     );
-    // A new call starts its own clock.
+    // The call ends; a new call starts its own clock.
+    run.tool_update(
+        "t1",
+        "mcp__optchat__tell",
+        &json!({"status": "completed"}),
+        "",
+        None,
+    );
     std::thread::sleep(std::time::Duration::from_millis(5));
     run.tool_call("t2", "mcp__optchat__zoom", &json!({}), None);
     let third = run.take_live();
@@ -160,12 +167,14 @@ fn the_line_names_the_call_that_runs_not_the_newest_announced() {
     let sharper = activity(&mut run).expect("an activity frame");
     assert_eq!(sharper["line"], "Wait for the PR checks");
     assert_eq!(sharper["since"], first["since"]);
-    // It ends: the queued call runs now, from now on.
+    // It ends: the queued call runs now, and its clock starts now, not at its
+    // announce (its wait behind the shell loop is not its own).
     std::thread::sleep(std::time::Duration::from_millis(5));
+    let ended = optchat_chief::run::epoch_ms();
     run.tool_update("bash", "Bash", &json!({"status": "completed"}), "", None);
     let next = activity(&mut run).expect("an activity frame");
     assert_eq!(next["line"], "ToolSearch");
-    assert!(next["since"].as_u64() > first["since"].as_u64());
+    assert!(next["since"].as_u64().unwrap() >= ended);
 }
 
 /// A call that ended no longer reads as running: with nothing else running
