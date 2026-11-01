@@ -52,7 +52,10 @@ await requireBrowserLane("agent-activity-split.test.ts", async () => {
         return {
           titleLines: lineTops.size,
           buttonsRight: Math.max(...buttons.map((b) => b.right)),
-          layoutPickerRight: document.querySelector("nav .segmented")?.getBoundingClientRect().right,
+          // The segments, not the fieldset: the fieldset shrinks and lets its segments overflow it.
+          layoutPickerRight: Math.max(
+            ...[...document.querySelectorAll("nav .segment")].map((s) => s.getBoundingClientRect().right),
+          ),
           headerLines: new Set([...header.children].map((c) => Math.round(c.getBoundingClientRect().top / 8))).size,
         };
       });
