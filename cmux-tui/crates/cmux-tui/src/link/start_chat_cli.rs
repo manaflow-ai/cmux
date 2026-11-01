@@ -419,10 +419,19 @@ impl StartCopy {
                 }
             }
         };
-        if let Err(error) =
-            Ledger::update(ledger, |pins| pins.start_copy(&send, &self.machine, &place))
-        {
-            return refused("ledger_failed", format!("{error:#}"));
+        // Checked again under the lease: a copy that finished between the
+        // first read and the lease (and let it go) is the send's copy now,
+        // and its folder may hold a chat; it is never pushed over.
+        match Ledger::update(ledger, |pins| {
+            let finished = pins.copied_chat(&send, &self.machine);
+            if finished.is_none() {
+                pins.start_copy(&send, &self.machine, &place);
+            }
+            finished
+        }) {
+            Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(None) => {}
+            Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
         for root in &self.work_roots {
