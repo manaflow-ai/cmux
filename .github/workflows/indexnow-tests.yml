@@ -3,7 +3,7 @@ name: IndexNow notification tests
 on:
   pull_request:
     paths:
-      - .github/workflows/indexnow.yml
+      - .github/workflows/indexnow-hourly.yml
       - .github/workflows/indexnow-tests.yml
       - scripts/ci/notify-indexnow.py
       - tests/test_indexnow_notification.py
