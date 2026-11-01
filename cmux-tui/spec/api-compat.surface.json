@@ -7719,25 +7719,6 @@
         "required": true
       }
     },
-    "request:cloud-environment": {
-      "/access_token": {
-        "ty": "string",
-        "required": true
-      },
-      "/action": {
-        "ty": "string",
-        "required": true
-      },
-      "/params": {
-        "ty": "json",
-        "required": true,
-        "nullable": true
-      },
-      "/platform_origin": {
-        "ty": "string",
-        "required": true
-      }
-    },
     "request:cloud-host-replica-clear": {
       "/purge": {
         "ty": "boolean"
@@ -12643,12 +12624,6 @@
       }
     },
     "response:cloud-conversation-unsubscribe": {
-      "/data": {
-        "ty": "json",
-        "required": true
-      }
-    },
-    "response:cloud-environment": {
       "/data": {
         "ty": "json",
         "required": true

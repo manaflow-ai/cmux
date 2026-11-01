@@ -581,7 +581,7 @@ mod trigger_tests {
         let parsed = of(&value, Sender::Trigger).unwrap().unwrap();
         assert_eq!(parsed["kind"], "trigger");
         assert!(is_trigger(Some(&parsed)));
-        assert!(!crate::author::of_provenance(Some(&parsed)).is_some());
+        assert!(crate::author::of_provenance(Some(&parsed)).is_none());
     }
 
     #[test]
