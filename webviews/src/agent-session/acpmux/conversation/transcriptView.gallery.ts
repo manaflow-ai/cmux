@@ -67,7 +67,11 @@ function archiveInView(ctx: PlayContext): void {
   const height = ctx.document.defaultView?.innerHeight ?? 0;
   const items = [...popup.children].map((n) => `${(n.textContent ?? "").trim().slice(0, 18)}:${Math.round(n.getBoundingClientRect().height)}`).join(",");
   const cs = ctx.document.defaultView!.getComputedStyle(popup);
-  const DIAG = ` DIAG top ${Math.round(shown.top)} h ${Math.round(shown.height)} sh ${popup.scrollHeight} maxh ${cs.maxHeight} pad ${cs.paddingTop}/${cs.paddingBottom} items ${items}`;
+  const hdr = ctx.document.querySelector<HTMLElement>(".acpmux-header");
+  const trail = ctx.document.querySelector<HTMLElement>(".acpmux-handoff-header-tools");
+  const kids = [...(hdr?.children ?? [])].map((n) => `${n.className}:${Math.round(n.getBoundingClientRect().width)}`).join(",");
+  const tools = [...(trail?.querySelectorAll("button") ?? [])].map((b) => b.getAttribute("aria-label")).join(",");
+  const DIAG = ` HDR ${hdr?.clientWidth} pad ${hdr ? getComputedStyle(hdr).paddingLeft : ""} kids ${kids} tools ${tools} vw ${ctx.document.defaultView?.innerWidth} DIAG top ${Math.round(shown.top)} h ${Math.round(shown.height)} sh ${popup.scrollHeight} maxh ${cs.maxHeight} pad ${cs.paddingTop}/${cs.paddingBottom} items ${items}`;
   if (popup.scrollTop !== 0 || row.bottom > shown.bottom + 0.5 || row.bottom > height)
     throw new Error(
       `Archive is out of view: row ${Math.round(row.top)}-${Math.round(row.bottom)}, menu to ${Math.round(shown.bottom)}, window ${height}${DIAG}`,
