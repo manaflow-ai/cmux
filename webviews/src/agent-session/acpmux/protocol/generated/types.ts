@@ -181,6 +181,11 @@ export interface EventsParams {
   /** Default 5000. */
   limit?: (number | null);
   maxBytes?: (number | null);
+  /**
+   * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+   * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+   */
+  promptIndex?: (boolean | null);
   sessionId: string;
 }
 
@@ -1273,12 +1278,21 @@ export interface SessionsParams {
 
 export type SessionsResult = {
   /**
+   * A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
+   * changed since, and the rest of the known rows stand.
+   */
+  delta?: (boolean | null);
+  /**
    * With `limit`: the cursor for the next page, null when the list is
    * done. Absent without `limit`.
    */
   nextCursor?: (string | null);
+  /** With `delta`: the known sessions no longer listed. */
+  removed?: (string[] | null);
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
+  /** With `delta`: how many listed rows were left out as unchanged. */
+  unchanged?: (number | null);
 } & Record<string, unknown>;
 
 export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
@@ -1400,6 +1414,12 @@ export interface WatchParams {
    * `_acpmux/session_changed`.
    */
   enabled?: (boolean | null);
+  /**
+   * A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
+   * list, with the digest of its row as last listed (`""` when it changed since). The reply
+   * is then a delta: `delta: true`, the rows new or changed, and `removed`.
+   */
+  known?: (Record<string, string> | null);
   limit?: (number | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
