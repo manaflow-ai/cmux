@@ -166,7 +166,6 @@ export function EnvironmentSection({
   const [repositoryPickerOpen, setRepositoryPickerOpen] = useState(false);
   const [attachedRepos, setAttachedRepos] = useState<AttachedCloudRepo[]>([]);
   const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
-  const [attachedLoaded, setAttachedLoaded] = useState(false);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
@@ -204,7 +203,6 @@ export function EnvironmentSection({
     if (!cloudSession || !canUseCloudRepositories) {
       setAttachedRepos([]);
       setPendingRepos([]);
-      setAttachedLoaded(false);
       return;
     }
     let live = true;
@@ -213,13 +211,11 @@ export function EnvironmentSection({
         if (live) {
           setAttachedRepos(repos);
           setPendingRepos(pending);
-          setAttachedLoaded(true);
         }
       })
       .catch(() => {
         if (live) setAttachedRepos([]);
         if (live) setPendingRepos([]);
-        if (live) setAttachedLoaded(false);
       });
     return () => {
       live = false;
@@ -227,7 +223,7 @@ export function EnvironmentSection({
   }, [canUseCloudRepositories, cloudSession]);
   return (
     <ul className="acpmux-session-info-list" data-section="environment">
-      {(!cloudSession || !attachedLoaded) && <li className="acpmux-session-info-row" data-machine={machine.kind}>
+      <li className="acpmux-session-info-row" data-machine={machine.kind}>
         <Icon
           name={machine.icon}
           size={ROW_ICON}
@@ -250,7 +246,7 @@ export function EnvironmentSection({
             {t(saved ? "artifact.saved" : "sessionInfo.environment.save")}
           </button>
         )}
-      </li>}
+      </li>
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
@@ -309,7 +305,7 @@ export function EnvironmentSection({
           {t("environment.saveFailed", { reason: t("error.requestFailed") })}
         </li>
       )}
-      {(!cloudSession || !attachedLoaded) && project && (
+      {project && (
         <Row
           icon={project.worktree ? "git.worktree" : "folder"}
           title={project.path}
@@ -322,12 +318,12 @@ export function EnvironmentSection({
           )}
         </Row>
       )}
-      {(!cloudSession || !attachedLoaded) && repository && (
+      {repository && (
         <Row icon="brand.github" href={repositoryUrl}>
           <span className="acpmux-session-info-row__name">{repository}</span>
         </Row>
       )}
-      {(!cloudSession || !attachedLoaded) && branch && !(projectLook === "branch" && project) && (
+      {branch && !(projectLook === "branch" && project) && (
         <Row icon="git.branch" href={branchUrl}>
           <span className="acpmux-session-info-row__name">{branch}</span>
         </Row>

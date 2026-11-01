@@ -780,6 +780,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
         artifacts={artifacts}
