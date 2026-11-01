@@ -248,6 +248,41 @@ test("a newer summary start replaces a previous live turn before its start event
   }
 });
 
+test("a summary naming the next turn keeps the live turn until the stream reaches it", async () => {
+  // T1 opened live; acpmux's summary moves to T2 before the stream carries T1's result and T2's
+  // start. T1's result is still T1's: it ends the turn (its footer and cleanup), and T2 opens on
+  // its own start event.
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "first" }], started]), {
+    turn: { turnId: "t1", startedAt: START + 2_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    expect((client as any).runningTurnId).toBe("t1");
+    daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
+    await until(() => snapshot.summary?.title === "next", "the next turn's summary");
+    expect((client as any).runningTurnId).toBe("t1");
+    expect(snapshot.turnStartedAtMs).toBe(START + 2_000);
+    const ended = snapshot.turnsEnded;
+    daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 3));
+    await until(() => snapshot.turnsEnded === ended + 1, "T1's end");
+    expect((client as any).turnOpen).toBe(false);
+    daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 30));
+    await until(() => snapshot.isWorking === true, "T2's start");
+    expect((client as any).runningTurnId).toBe("t2");
+    expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
+  } finally {
+    client.close();
+  }
+});
+
 test("an idle summary ends a summary-only turn when its terminal event was missed", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "old prompt" }]]), {
     turn: { turnId: "t2", startedAt: START + 30_000 },
