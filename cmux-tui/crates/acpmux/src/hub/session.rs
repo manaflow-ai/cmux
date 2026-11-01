@@ -331,7 +331,7 @@ impl Session {
                     .find(|p| p.prompt_id == prompt_id)
                     .cloned()
                 {
-                    return Ok((done.turn_id, done.queued, true, done.generation, done.attempt_id));
+                    return Ok((done.turn_id, done.queued, true, done.generation, attempt_id.to_owned()));
                 }
                 if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
                     if existing.abandoned
@@ -339,14 +339,14 @@ impl Session {
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, existing.attempt_id.clone()));
+                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, attempt_id.to_owned()));
                     }
                     if pending.iter().find(|p| !p.abandoned).is_some_and(|p| p.prompt_id == prompt_id)
                         && self.turn().is_none()
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, existing.attempt_id.clone()));
+                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, attempt_id.to_owned()));
                     }
                 } else {
                     let queued = self.turn().is_some()

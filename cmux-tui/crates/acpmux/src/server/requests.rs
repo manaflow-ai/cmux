@@ -1879,8 +1879,21 @@ async fn dispatch_request(
             }
             let generation = params.get("generation").and_then(Value::as_u64);
             let attempt_id = params.get("attempt_id").and_then(Value::as_str).unwrap_or(prompt_id);
+            let workspace = params.get("workspace").and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("workspace is required"))?;
+            let machine = params.get("machine").and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("machine is required"))?;
+            let generation = generation.ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let authorization: crate::cloud_rewind::CloudTurnEnvelope = serde_json::from_value(
+                params.get("authorization").cloned().ok_or_else(|| RpcError::invalid_params("authorization is required"))?
+            ).map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
+            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
+                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            crate::cloud_rewind::verify_preparation(
+                &origin, workspace, machine, &s.id, prompt_id, generation, attempt_id, &authorization,
+            ).await.map_err(|e| RpcError::new(-32000, format!("Cloud turn authorization refused: {e}")))?;
             let (turn_id, queued, accepted, generation, attempt_id) = s
-                .prepare_turn(prompt_id, generation, attempt_id)
+                .prepare_turn(prompt_id, Some(generation), attempt_id)
                 .await
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             if accepted {
