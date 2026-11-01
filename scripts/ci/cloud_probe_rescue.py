@@ -37,6 +37,9 @@ NO_START_SECONDS = 180
 MAX_ATTEMPT = 3
 CANCEL_WAIT_SECONDS = 20 * 60
 FORCE_CANCEL_AFTER_SECONDS = 5 * 60
+# A nested read may itself wait for quota. Never send a cancellation using
+# a validation that took that long; a later rescue can try afresh.
+SEND_CHECK_MAX_SECONDS = 5
 
 # The probe matrix occupies the measured Linux labels. Keep its first rescue on
 # the measured 8-vCPU Linux size, then use the existing Mac and 16-vCPU sizes.
@@ -52,6 +55,10 @@ class Decision:
     action: str  # "rescue" or "noop"
     reason: str
     next_label: str = ""
+
+
+class CancelNoLongerSafe(Exception):
+    """Abort a mutation when the send-time snapshot no longer permits it."""
 
 
 def _time(value: object) -> dt.datetime | None:
@@ -140,11 +147,13 @@ def decide(run: Mapping[str, object], jobs: list[Mapping[str, object]],
 
 
 def rescue_control(api: object, run: Mapping[str, object], *, now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc),
-                   sleep: Callable[[float], None] = time.sleep) -> Decision:
+                   sleep: Callable[[float], None] = time.sleep,
+                   monotonic: Callable[[], float] = time.monotonic) -> Decision:
     """Cancel-settle-rerun one stalled probe run; return the next label.
 
     ``api`` is the existing rescue client: ``jobs(id, attempt)``,
-    ``run(id)``, ``cancel(id)``, ``force_cancel(id)`` and ``rerun(id, next)``.
+    ``run(id)``, ``cancel(id, before_send=...)``,
+    ``request(method, path, before_send=...)`` and ``rerun(id, next)``.
     No caller should invoke this for a nightly run; ``decide`` rejects every
     other workflow path before a mutation.
     """
@@ -182,7 +191,35 @@ def rescue_control(api: object, run: Mapping[str, object], *, now: Callable[[], 
     confirmed = decide(confirm, list(api.jobs(run_id, attempt)), now=now())
     if confirmed.action != "rescue":
         return confirmed
-    api.cancel(run_id)
+    authorized_sha = current.get("head_sha")
+
+    def same_run(snapshot: Mapping[str, object]) -> bool:
+        return (snapshot.get("run_attempt") == attempt and _trusted_source(snapshot)
+                and snapshot.get("path") == WORKFLOW_PATH
+                and snapshot.get("head_sha") == authorized_sha
+                and snapshot.get("status") in QUEUED | {"in_progress"})
+
+    def before_cancel() -> None:
+        # Main's transport calls this after token refresh and before *every*
+        # send, including retries after a rate-limit wait. Both run reads
+        # must name the same trusted revision/attempt around the jobs read.
+        checked_at = monotonic()
+        snapshot = api.run(run_id)
+        if not same_run(snapshot):
+            raise CancelNoLongerSafe("run changed before cancellation send")
+        queued = decide(snapshot, list(api.jobs(run_id, attempt)), now=now())
+        latest = api.run(run_id)
+        if not same_run(latest):
+            raise CancelNoLongerSafe("run changed during cancellation validation")
+        if queued.action != "rescue":
+            raise CancelNoLongerSafe(queued.reason)
+        if monotonic() - checked_at > SEND_CHECK_MAX_SECONDS:
+            raise CancelNoLongerSafe("cancellation validation exceeded freshness budget")
+
+    try:
+        api.cancel(run_id, before_send=before_cancel)
+    except CancelNoLongerSafe as error:
+        return Decision("noop", str(error))
     started = now()
     forced = False
     while True:
@@ -197,7 +234,12 @@ def rescue_control(api: object, run: Mapping[str, object], *, now: Callable[[], 
             break
         elapsed = (now() - started).total_seconds()
         if not forced and elapsed >= FORCE_CANCEL_AFTER_SECONDS:
-            api.force_cancel(run_id)
+            try:
+                # Main's force_cancel wrapper has no callback argument. Keep
+                # its existing transport/token authority and guard the POST.
+                api.request("POST", f"/actions/runs/{run_id}/force-cancel", before_send=before_cancel)
+            except CancelNoLongerSafe as error:
+                return Decision("noop", str(error))
             forced = True
         if elapsed >= CANCEL_WAIT_SECONDS:
             return Decision("noop", "cancel did not settle before rescue deadline")
