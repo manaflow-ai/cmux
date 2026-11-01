@@ -53,13 +53,7 @@ impl Store for SeedStore {
 }
 
 fn persisted_offset(hub: &Hub, session: &Session) -> u64 {
-    hub.store
-        .load(&session.id)
-        .unwrap()
-        .unwrap()
-        .watching
-        .unwrap()
-        .offset
+    hub.store.load(&session.id).unwrap().unwrap().watching.unwrap().offset
 }
 
 fn markers(hub: &Hub, session: &Session) -> usize {
@@ -79,15 +73,19 @@ async fn native_history_seed_survives_append_flush_and_checkpoint_failures() {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
         "defaultHarness": "fake",
-    })).unwrap();
+    }))
+    .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let faults = Arc::new(Faults::default());
     let store = Box::new(SeedStore { memory: MemoryStore::default(), faults: faults.clone() });
     let hub = Hub::new(cfg, store);
-    let session = hub.new_session(crate::hub::NewRequest {
-        cwd: Some(std::env::temp_dir()),
-        ..Default::default()
-    }).await.unwrap();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     {
         let mut meta = session.meta.lock().unwrap();
         meta.watching = Some(Watching {
