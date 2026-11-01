@@ -61,8 +61,9 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
-    /// Only sessions on this host: a peer's name, or this machine's (`local` too).
-    #[arg(long, value_name = "HOST")]
+    /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
+    /// works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     host: Option<String>,
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
