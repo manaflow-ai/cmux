@@ -241,7 +241,7 @@ import Testing
 
                     let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
                                                  gutter: Metrics.mainPaneGutter)
-                    #expect(band.inside <= SidebarResizeBand.contentInset + tolerance,
+                    #expect(band.inside <= 2 + tolerance,
                             "\(c) resize band takes \(band.inside) pt of the content")
                     let contentEdge = width - band.inside
                     for (name, frame, sharesColumn) in accessories {
