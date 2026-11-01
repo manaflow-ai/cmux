@@ -6,6 +6,7 @@ import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
+import { usePopupPadding } from "./popupInset";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -81,6 +82,7 @@ export function Popover({
 }: PopoverProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const padding = usePopupPadding();
   return (
     <BasePopover.Root
       open={open}
@@ -94,6 +96,7 @@ export function Popover({
           anchor={virtualAnchor(anchor)}
           side={side}
           collisionAvoidance={popupCollision(flip)}
+          collisionPadding={padding}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

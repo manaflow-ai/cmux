@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { setPopupInsetTop } from "../../../ui/popupInset";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow, the
 /// `chrome.tabs.rowTools` Debug setting; Leo 2026-10-14, "why is there even a top bar"). The App
@@ -31,6 +32,8 @@ export function setTabRow(value: unknown): void {
     height > 0
       ? { height, trailingInset: pixels(raw.trailingInset), nativeRowTools: raw.nativeRowTools === true }
       : NONE;
+  // The native row draws over the page's top, so menus and popovers open below it (ui/popupInset.ts).
+  setPopupInsetTop(current.height);
   for (const listener of listeners) listener();
 }
 
