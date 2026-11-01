@@ -48,7 +48,7 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     }
     // SAFETY: fd was created above and has exactly one owner.
     let stream = unsafe { UnixStream::from_raw_fd(fd) };
-    let addr_len = libc::socklen_t::try_from(std::mem::size_of_val(&addr))
+    let addr_len = libc::socklen_t::try_from(size_of_val(&addr))
         .map_err(|_| io::Error::other("invalid socket address size"))?;
     // SAFETY: addr is initialized and its complete size is passed.
     let rc = unsafe { libc::connect(fd, (&addr as *const libc::sockaddr_un).cast(), addr_len) };
@@ -62,7 +62,7 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
 fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     // SAFETY: zero initializes ucred; getsockopt writes within the supplied size.
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut len = libc::socklen_t::try_from(std::mem::size_of_val(&cred))
+    let mut len = libc::socklen_t::try_from(size_of_val(&cred))
         .map_err(|_| io::Error::other("invalid peer credential size"))?;
     // SAFETY: valid fd and writable ucred/length pointers.
     let rc = unsafe {
@@ -77,7 +77,7 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
-    if usize::try_from(len).ok() != Some(std::mem::size_of_val(&cred)) {
+    if usize::try_from(len).ok() != Some(size_of_val(&cred)) {
         return Err(io::Error::other("invalid peer credentials"));
     }
     Ok(cred.uid)
@@ -181,6 +181,7 @@ mod tests {
     #[test]
     fn identity_socket_round_trip_and_fail_closed_reply() {
         let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let socket = dir.path().join("identity.sock");
         let mut listener = Listener::bind(&socket, None).unwrap();
         let id = HostIdentity {
@@ -224,6 +225,7 @@ mod tests {
     #[test]
     fn identity_socket_rejects_an_untrusted_peer_before_reading() {
         let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let socket = dir.path().join("identity.sock");
         let _listener = Listener::bind(&socket, None).unwrap();
         // SAFETY: geteuid has no preconditions. Use a different required uid.
