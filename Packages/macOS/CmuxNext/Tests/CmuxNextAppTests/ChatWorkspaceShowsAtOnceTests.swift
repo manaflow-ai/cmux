@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextAgentPane
 import CmuxNextAppCore
@@ -51,6 +52,41 @@ struct ChatWorkspaceShowsAtOnceTests {
         #expect(mirrored, "the daemon's tab never took the stand-in over")
         #expect(settled.count == 1, "the daemon's tab replaced the stand-in in place: \(settled.map(\.surface))")
         #expect(settled.first?.agentSession?.session == session)
+    }
+
+    /// The stand-in can be closed before the daemon answers (an agent opened a chat; the person closes its row at
+    /// once). That close runs after the daemon's create, in the same lane, so it closes what the daemon made: no
+    /// workspace and no tab are left, in the store or the daemon, and the row does not come back. Without the lane the
+    /// close was sent for a workspace the daemon did not have yet, failed, and the daemon's create then listed it again.
+    @Test func aCloseOfTheStandInBeforeTheDaemonAnswersLeavesNothing() async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let store = services.daemon.store
+        let key = WorkspaceKey.generate()
+        let session = "s-close-\(UUID().uuidString.prefix(8).lowercased())"
+
+        let work = try AgentSessionWorkspace.open(session: session, name: "closed lane", key: key, cwd: nil, services: services)
+        let standIn = store.workspaces.contains { $0.key == key }
+        // Same turn: the daemon has not answered the create yet.
+        let ran = services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: key.rawValue)))
+        _ = await work.value
+        let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !store.workspaces.contains { $0.key == key } }
+        // Long enough for a create the close missed to list again, then the store caught up with the daemon.
+        try await Task.sleep(for: .seconds(2))
+        if let connection = services.daemon.connection, let barrier = await connection.eventSequence() {
+            await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.appliedSequence >= barrier }
+        }
+        let back = store.workspaces.filter { $0.key == key }
+        let tabLeft = tabs.tab(showing: session, host: tabs.localHost)
+        await launched.stop()
+
+        try #require(standIn, "the open showed no stand-in to close")
+        #expect(ran, "Close Workspace refused the stand-in")
+        #expect(gone, "the workspace never left after its close")
+        #expect(back.isEmpty, "the closed workspace is listed again (the daemon's create outlived the close): \(back.map(\.id))")
+        #expect(tabLeft == nil, "a chat tab on the session is left: \(tabLeft ?? "")")
     }
 
     @Test func openChatShowsItsWorkspaceBeforeTheDaemonAnswers() async throws {
