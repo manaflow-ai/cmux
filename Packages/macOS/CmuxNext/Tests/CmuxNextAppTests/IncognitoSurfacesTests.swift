@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextSettings
@@ -78,8 +79,26 @@ struct IncognitoSurfacesTests {
         let posted = services.notifications.desktop.posted.last
         #expect(posted?.title == DesktopNotifier.incognitoTitle && posted?.body == DesktopNotifier.incognitoBody,
                 "an incognito tab's passkey banner names its agent or site: \(String(describing: posted))")
-        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_normal", agent: "Chief", site: "bank.example"))
-        #expect(services.notifications.desktop.posted.last?.body.contains("bank.example") == true)
+        // A tab closed while the request waited may have been an incognito one: its banner names nothing either.
+        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_closed", agent: "Chief", site: "bank.example"))
+        #expect(services.notifications.desktop.posted.last?.body == DesktopNotifier.incognitoBody)
+    }
+
+    /// A Run or hand-off from an incognito chat is never saved for the next launch (its task or summary
+    /// included), so no later launch can post it.
+    @Test func incognitoRunsAreNeverSaved() async throws {
+        let suite = "incognito-surfaces-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let follower = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        follower.account("u")
+        var secret = SandboxRunRecord(id: "run_secret", task: "rotate the prod key", key: "k1", user: "u", team: nil, started: Date())
+        secret.incognito = true
+        follower.watch(secret)
+        follower.watch(SandboxRunRecord(id: "run_normal", task: "make test", key: "k2", user: "u", team: nil, started: Date()))
+        let saved = String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self)
+        #expect(saved.contains("run_normal"))
+        #expect(!saved.contains("run_secret") && !saved.contains("prod key"), "an incognito Run was saved for the next launch")
     }
 
     /// The tabs the quit leaves out are taken before its window step closes the incognito workspaces (after
