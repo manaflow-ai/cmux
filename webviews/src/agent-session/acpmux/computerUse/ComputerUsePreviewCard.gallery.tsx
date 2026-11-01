@@ -86,8 +86,8 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
       className="acpmux-shell"
       data-cu-preview-fixture
       data-session-info-chat-placement={sessionInfo}
-      // A component stage's #root has no height of its own, so 100% here was 0 and the shell's
-      // overflow clip hid the card from a click; the stage's viewport is the pane.
+      // The stage's viewport is the pane. A component stage's #root has no height of its own, so 100%
+      // here was 0 and the shell's overflow clip hid the card: a click on Hide Preview missed it.
       style={{ position: "relative", height: "100vh" }}
     >
       {/* With Session Info open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
@@ -115,17 +115,8 @@ const closeHover: Play = async (ctx) => {
 
 /// A close plays the card's exit, then the card is gone.
 const close: Play = async (ctx) => {
-  const d = ctx.document;
-  const r = (q: string) => { const e = d.querySelector<HTMLElement>(q); if (!e) return `${q}:none`; const b = e.getBoundingClientRect(); return `${q}:${Math.round(b.left)},${Math.round(b.top)} ${Math.round(b.width)}x${Math.round(b.height)}`; };
-  const btn = d.querySelector<HTMLElement>(".acpmux-cu-preview__close") ?? d.querySelector<HTMLElement>('[aria-label="Hide Preview"]');
-  const bb = btn?.getBoundingClientRect();
-  const hit = bb ? d.elementFromPoint(bb.left + bb.width / 2, bb.top + bb.height / 2) : null;
-  const before = [r("html"), r("body"), r("#root"), r("[data-cu-preview-fixture]"), r(".acpmux-stage"), r(".acpmux-cu-preview"), `btn:${btn?.className}`, `hit:${hit?.tagName}.${hit?.className}`].join(" | ");
   await ctx.click({ role: "button", name: "Hide Preview" });
-  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cu-preview")).catch(() => {
-    const card = d.querySelector<HTMLElement>(".acpmux-cu-preview");
-    throw new Error(`DIAG close: before ${before}; after card ${card?.className} ${[...(card?.attributes ?? [])].map((a) => `${a.name}=${a.value}`).join(",")} anim=${card?.getAnimations().length}`);
-  });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cu-preview"));
 };
 
 export default componentEntry<Props>({
