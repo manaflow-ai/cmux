@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Proves the native signing seam can import a non-secret PKCS#12 through an
+# inherited descriptor. Unlike the regular import test this never writes a
+# P12, PEM or P8 to disk: OpenSSL text stays in shell pipes, PKCS#12 is
+# base64 on stdout, and security import reads /dev/fd/3.
+set -euo pipefail
+
+if [ "$(uname -s)" != Darwin ]; then
+  echo "SKIP: fd credential import needs macOS security/codesign"
+  exit 0
+fi
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CMUX_SIGNING_KEYCHAIN_FD_TEST:-}" != 1 ]; then
+  echo "SKIP: set CMUX_SIGNING_KEYCHAIN_FD_TEST=1 to run outside GitHub Actions"
+  exit 0
+fi
+
+OPENSSL="${OPENSSL:-/usr/bin/openssl}"
+[ -x "$OPENSSL" ] || OPENSSL="$(command -v openssl)"
+SECURITY="${CMUX_SECURITY_TOOL:-security}"
+TMP_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-fd-import.XXXXXX")"
+NAME="cmux-fd-import-$$.keychain"
+KEYCHAIN_FILE="$HOME/Library/Keychains/$NAME-db"
+PASSWORD="cmux-fd-test-$RANDOM"
+SUBJECT="cmux fd credential test $$"
+SAVED_LIST=()
+
+while IFS= read -r line; do
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%\"}"; line="${line#\"}"
+  [ -n "$line" ] && SAVED_LIST+=("$line")
+done < <("$SECURITY" list-keychains -d user)
+
+cleanup() {
+  "$SECURITY" delete-keychain "$NAME" >/dev/null 2>&1 || true
+  if [ "${#SAVED_LIST[@]}" -gt 0 ]; then
+    "$SECURITY" list-keychains -d user -s "${SAVED_LIST[@]}" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# Keep private-key text in pipes and shell variables only. OpenSSL output is
+# ASCII, so command substitution does not discard binary NUL bytes.
+KEY_PEM="$($OPENSSL genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
+CERT_PEM="$(printf '%s\n' "$KEY_PEM" | "$OPENSSL" req -new -x509 -days 1 -key /dev/stdin \
+  -subj "/CN=$SUBJECT/OU=CMUX-FD-TEST" 2>/dev/null)"
+P12_B64="$(printf '%s\n' "$KEY_PEM" | "$OPENSSL" pkcs12 -export -inkey /dev/stdin \
+  -in <(printf '%s\n' "$CERT_PEM") -passout "pass:$PASSWORD" -name "$SUBJECT" \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 2>/dev/null | base64)"
+[ -n "$P12_B64" ] || fail "OpenSSL produced no PKCS#12 fixture"
+unset KEY_PEM CERT_PEM
+
+"$SECURITY" create-keychain -p "$PASSWORD" "$NAME" >/dev/null
+"$SECURITY" set-keychain-settings -lut 120 "$NAME"
+"$SECURITY" unlock-keychain -p "$PASSWORD" "$NAME"
+# The descriptor is the only PKCS#12 input. No pathname points at a secret.
+"$SECURITY" import /dev/fd/3 -k "$NAME" -f pkcs12 -P "$PASSWORD" \
+  -T /usr/bin/codesign -T /usr/bin/security \
+  3< <(printf '%s' "$P12_B64" | base64 --decode) \
+  || fail "security could not import PKCS#12 from fd 3"
+unset P12_B64 PASSWORD
+
+IDENTITY="$("$SECURITY" find-identity -p codesigning "$NAME" | awk -v s="$SUBJECT" 'index($0, s) { print $2; exit }')"
+[ -n "$IDENTITY" ] || { "$SECURITY" find-identity -p codesigning "$NAME" >&2; fail "fd import made no signing identity"; }
+cp /usr/bin/true "$TMP_DIR/signed-binary"
+"$SECURITY" list-keychains -d user -s "$NAME"
+codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN_FILE" "$TMP_DIR/signed-binary" \
+  || fail "codesign could not use the fd-imported identity"
+codesign -dvv "$TMP_DIR/signed-binary" 2>&1 | grep -F "Authority=$SUBJECT" >/dev/null \
+  || fail "signed binary does not contain fd-imported identity"
+
+"$SECURITY" delete-keychain "$NAME" >/dev/null || fail "keychain delete failed"
+[ ! -e "$KEYCHAIN_FILE" ] || fail "fd-test keychain survived cleanup"
+[ -z "$(find "$TMP_DIR" -type f -maxdepth 1 -print)" ] || fail "credential artifact remained in test temp dir"
+echo "PASS: owned-Mac security import from fd 3, codesign, and cleanup"
