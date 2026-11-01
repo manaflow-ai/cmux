@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 
 extension AgentPaneCloudMachines {
     private struct ChatUnavailable: Error {}
