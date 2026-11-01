@@ -378,6 +378,16 @@ public final class DaemonStore: StateResourceQueries {
         connectionState = .failed(message)
     }
 
+    /// A remote machine's reconnect spent its timed retries and waits for an event only
+    /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
+    /// #4877 G4). Cleared by the next connect and by a new attempt.
+    public private(set) var retriesSpent = false
+
+    public func noteRetriesSpent(_ spent: Bool) {
+        if spent, case .connected = connectionState { return }
+        if retriesSpent != spent { retriesSpent = spent }
+    }
+
     // MARK: Derived state
 
     /// Indexes the whole tree again, primes every record and flattens the

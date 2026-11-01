@@ -6,7 +6,7 @@ import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/ac
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import type { TurnFile } from "../../src/agent-session/acpmux/diff";
-import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { toggleTurnFold, turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import { clearShadowHighlight, prepareShadowHighlight } from "./transcript-shadow-highlight.fixture";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
@@ -60,8 +60,7 @@ const draw = () =>
       rows={rawRows ? shown : turnView(shown, expanded)}
       sessionId={sessionId}
       onToggleActivity={(id) => {
-        expanded = new Set(expanded);
-        if (!expanded.delete(id)) expanded.add(id);
+        expanded = toggleTurnFold(shown, expanded, id);
         draw();
       }}
       expanded={expanded}

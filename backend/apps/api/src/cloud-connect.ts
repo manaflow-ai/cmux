@@ -44,13 +44,11 @@ export const allowedServices = (entity: string, row: MachineRow, p: Principal, p
 export const callerCreated = (row: MachineRow, p: Principal): boolean => p.agent === undefined && p.user !== undefined && p.user !== "" && p.user === row.creator
 
 /**
- * The caller's vm_kind on `row` in team `entity`, the classic attach answer's rule (web
- * vmKindForCaller): `owner` only for the creator on the creator's personal team; every shared-team
- * machine is `team`, its creator included, even while the creator is its only member (membership
- * is not a revocation receipt). Computed per request, never stored. Another team never gets here:
- * CloudDO refuses a principal of another team first.
+ * The caller's vm_kind: the creator is owner on any team, regardless of member count.
+ * Other members and agent tokens get team; their existing connect/exec/fs access is unchanged.
+ * Computed per request, never stored. CloudDO checks the caller's team before this answer.
  */
-export const callerVmKind = (entity: string, row: MachineRow, p: Principal): CloudVmKind => (callerCreated(row, p) && entity === personalTeamIdFor(row.creator) ? "owner" : "team")
+export const callerVmKind = (_entity: string, row: MachineRow, p: Principal): CloudVmKind => (callerCreated(row, p) ? "owner" : "team")
 
 /** Retention of connect/link audit rows: 400 days, above the 365-day policy floor (coordinator decision). */
 export const ACCESS_AUDIT_KEEP_MS = 400 * 86_400_000

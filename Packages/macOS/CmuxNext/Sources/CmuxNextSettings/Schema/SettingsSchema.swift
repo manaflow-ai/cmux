@@ -208,7 +208,6 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.nativeNewTabPage(group: tabs),
-            TabSettingsSchema.terminalFirst(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [

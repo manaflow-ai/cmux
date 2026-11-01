@@ -150,8 +150,24 @@ pub(super) struct Fixture {
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
     pub(super) history: Vec<Value>,
+    /// Records every history page answers after [`Fixture::history`], added while the fake runs.
+    pub(super) history_later: Arc<Mutex<Vec<Value>>>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// `_acpmux/sessions` answers its list in two pages, as acpmux does past its
+    /// largest reply: the first rows with a `nextCursor`, the rest from that cursor.
+    pub(super) sessions_pages: bool,
+    /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
+    /// from that cursor answers the rest ([`Fixture::watch`]).
+    pub(super) watch_pages: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
+    pub(super) watch_bad_page: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor is an error.
+    pub(super) watch_page_error: bool,
+    /// When set, each history page and each prompt's acceptance waits for one message on it (at
+    /// most [`WAIT`], or until its sender is gone).
+    pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
 fn serve(
@@ -193,11 +209,34 @@ fn serve(
             }
             "_acpmux/watch" => {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
-                sessions.extend(fixture.watch.iter().cloned());
-                Some(json!({"sessions": sessions}))
+                if fixture.watch_pages {
+                    Some(json!({"sessions": sessions, "nextCursor": "w1"}))
+                } else {
+                    sessions.extend(fixture.watch.iter().cloned());
+                    Some(json!({"sessions": sessions}))
+                }
+            }
+            "_acpmux/sessions" if params["cursor"] == json!("w1") => {
+                Some(if fixture.watch_bad_page {
+                    json!({"nextCursor": null})
+                } else if fixture.watch_page_error {
+                    json!({FAKE_ERROR: "list.paced"})
+                } else {
+                    json!({"sessions": fixture.watch})
+                })
             }
             // The machine's whole list: the attached session's family and others
-            // (agent_session_children_tests.rs).
+            // (agent_session_children_tests.rs), its older rows first, as acpmux's byte
+            // pages (in no time order) can come.
+            "_acpmux/sessions" if fixture.sessions_pages => {
+                let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                let older = rows.split_off(3);
+                Some(if params["cursor"] == json!("c1") {
+                    json!({"sessions": rows})
+                } else {
+                    json!({"sessions": older, "nextCursor": "c1"})
+                })
+            }
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],
@@ -206,7 +245,12 @@ fn serve(
                 ),
             })),
             "_acpmux/events" => {
-                Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
+                if let Some(gate) = &fixture.events_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                let mut events = fixture.history.clone();
+                events.extend(fixture.history_later.lock().unwrap().iter().cloned());
+                Some(json!({"events": events, "hasMore": false, "lastSeq": 1}))
             }
             "_acpmux/typing" => {
                 typing_calls += 1;
@@ -239,6 +283,9 @@ fn serve(
                 reply
             }
             "session/prompt" => {
+                if let Some(gate) = &fixture.prompt_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
