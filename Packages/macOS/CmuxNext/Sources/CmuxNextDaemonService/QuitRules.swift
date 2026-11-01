@@ -114,7 +114,8 @@ public enum QuitDecision: Equatable, Sendable {
     case ask(QuitPrompt)
 }
 
-public enum QuitRules {
+public struct QuitRules {
+    public init() {}
     public static let busiestLimit = 3
 
     /// Whether the decision needs `QuitFacts` (read from the daemon).
