@@ -115,13 +115,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
-    def test_decide_takes_the_owned_nightly_slot_then_blacksmith_linux(self):
-        # decide is the run's first job, so no picker runs before it and every other job waits on it. Attempt 1
-        # of a nightly-next push asks for glaeda's nightly slot, which only nightly jobs take; the owned-pool
-        # rescue watches that attempt (owned_pool_rescue.nightly_target()) and moves a decide no slot takes,
-        # and that re-run (attempt 2) takes the Blacksmith Linux set. Run 41234993713 queued decide on
-        # blacksmith-32vcpu-ubuntu-2404 with no fleet route. Leo, 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END
-        # TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT".
+    def test_next_decide_bootstraps_on_owned_minis_for_every_event_and_attempt(self):
+        # decide mints the routing App token. Its bootstrap must stay on the
+        # existing owned nightly pool even for a manual dispatch or rerun;
+        # no earlier job can supply an authenticated no-start receipt.
         source = DOC['jobs']['decide']['runs-on'].removeprefix('${{').removesuffix('}}')
         slot = 'glaeda-nightly-std-xcode-26.6'
         base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next',
@@ -131,14 +128,17 @@ class NightlyTrustedRouting(unittest.TestCase):
         def decide(**changes):
             return evaluate(parse_expression(source), {**base, **changes})
 
-        self.assertEqual(decide(), slot)
-        for change in ({'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
-                       {'github.event_name': 'schedule', 'github.ref': 'refs/heads/main'},
-                       {'vars.CI_PR_POOL_OWNED': '0'}, {'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': ''}):
-            with self.subTest(change=change):
-                self.assertEqual(decide(**change), 'blacksmith-32vcpu-ubuntu-2404')
-        self.assertEqual(decide(**{'github.run_attempt': 2, 'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404'}),
-                         'blacksmith-16vcpu-ubuntu-2404')
+        for event in ('push', 'workflow_dispatch', 'schedule'):
+            for attempt in (1, 2, 3):
+                for configured in ('', slot, 'blacksmith-16vcpu-ubuntu-2404', 'cmux-fleet-linux-x64'):
+                    with self.subTest(event=event, attempt=attempt, configured=configured):
+                        self.assertEqual(decide(**{'github.event_name': event, 'github.run_attempt': attempt,
+                            'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': configured,
+                            'vars.CI_PR_POOL_OWNED': '0', 'vars.CI_CONTROL_RUNNER': 'blacksmith-32vcpu-ubuntu-2404'}), slot)
+        self.assertEqual(decide(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-nightly-std-xcode-27'}),
+                         'glaeda-nightly-std-xcode-27')
+        self.assertEqual(decide(**{'github.event_name': 'schedule', 'github.ref': 'refs/heads/main'}),
+                         'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(decide(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_only_the_nightly_routes_read_the_next_build_runner(self):

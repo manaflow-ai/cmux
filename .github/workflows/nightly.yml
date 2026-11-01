@@ -192,7 +192,7 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !startsWith(vars.CI_CONTROL_RUNNER, 'blacksmith-') && vars.CI_CONTROL_RUNNER || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && !startsWith(vars.CI_CONTROL_RUNNER, 'blacksmith-') && vars.CI_CONTROL_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       early_build_nightly_inputs_runner: ${{ steps.place-early.outputs.build_nightly_inputs_runner }}
       early_find_nightly_next_recovery_runner: ${{ steps.place-early.outputs.find_nightly_next_recovery_runner }}
