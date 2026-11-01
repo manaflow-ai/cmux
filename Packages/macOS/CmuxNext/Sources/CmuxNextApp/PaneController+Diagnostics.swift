@@ -129,10 +129,10 @@ extension PaneController {
         var ownPages = 0
         var kind = "none"
         switch content {
-        case .agent:
-            kind = "agent"
+        case .agent: // an agent chat or New Tab page, and a cmux page, draw in their own Chromium page window: not foreign
+            (kind, ownPages) = ("agent", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
         case .page:
-            kind = "page"
+            (kind, ownPages) = ("page", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics
