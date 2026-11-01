@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextAgentLanes
 import CmuxNextCompat
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -80,7 +80,6 @@ import Testing
 private final class ImportRig {
     let clock = ManualClock()
     let attempts = ImportAttempts()
-    let services = AppServices(environment: AppEnvironment.current([:]))
     private(set) var importer: ProjectsImport!
     private var connection: NSObject = NSObject()
     var failing: Bool {
@@ -90,12 +89,12 @@ private final class ImportRig {
 
     init() {
         attempts.failing = true
-        importer = ProjectsImport(services: services, target: { [unowned self] in
+        importer = ProjectsImport(target: { [unowned self] in
             let attempts = self.attempts
             return ProjectsImport.Target(id: ObjectIdentifier(self.connection)) { _, fresh in
                 attempts.record(fresh: fresh)
             }
-        }, clock: clock)
+        }, socketPath: { nil }, connection: { nil }, clock: clock)
     }
 
     /// A new daemon connection, whose sends fail or not.

@@ -1,4 +1,3 @@
-import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextWakeups
@@ -18,19 +17,22 @@ import os
 /// can make it succeed) retries at once. Without the wait, a failed sync left
 /// every later relay fresh, and each chat change sent the sync and every list
 /// again (v2.2.10-opt: 5,311 failures in 17 h on a Mac deep in swap).
+///
+/// It knows no app type: the app passes where the projects go (``Target``), the acpmux socket and
+/// the local daemon connection it follows (`AppServices.projectsImport`).
 @MainActor
-final class ProjectsImport {
+public final class ProjectsImport {
     /// One harness's projects: each cwd with its newest chat.
-    nonisolated struct Batch: Equatable, Sendable {
-        nonisolated struct Entry: Equatable, Sendable {
-            let path: String
-            let lastUsedMs: Int64
+    public nonisolated struct Batch: Equatable, Sendable {
+        public nonisolated struct Entry: Equatable, Sendable {
+            public let path: String
+            public let lastUsedMs: Int64
         }
 
-        let source: String
-        let entries: [Entry]
+        public let source: String
+        public let entries: [Entry]
 
-        var fingerprint: Int {
+        public var fingerprint: Int {
             var hasher = Hasher()
             for entry in entries {
                 hasher.combine(entry.path)
@@ -39,7 +41,7 @@ final class ProjectsImport {
             return hasher.finalize()
         }
 
-        var entriesJSON: [JSONValue] {
+        public var entriesJSON: [JSONValue] {
             entries.map { .object(["path": .string($0.path), "last_used_ms": .string(String($0.lastUsedMs))]) }
         }
     }
@@ -63,22 +65,42 @@ final class ProjectsImport {
     }
 
     /// Where the projects go: the local daemon's connection (its identity) and the sends over it.
-    nonisolated struct Target: Sendable {
-        let id: ObjectIdentifier
-        let send: @Sendable (_ batches: [Batch], _ fresh: Bool) async -> Sent
+    public nonisolated struct Target: Sendable {
+        public let id: ObjectIdentifier
+        public let send: @Sendable (_ batches: [Batch], _ fresh: Bool) async -> Sent
+
+        public init(id: ObjectIdentifier, send: @escaping @Sendable (_ batches: [Batch], _ fresh: Bool) async -> Sent) {
+            self.id = id
+            self.send = send
+        }
+
+        /// A daemon `connection` that lists projects: `project.sync` and `project.observe` over it.
+        @MainActor public init(daemon connection: DaemonConnection) {
+            let client = ProjectStateClient(connection: connection)
+            self.init(id: ObjectIdentifier(connection)) { batches, fresh in await ProjectsImport.deliver(batches, fresh: fresh, to: client) }
+        }
     }
 
     /// What one relay delivered: whether its `project.sync` went (a fresh connection), each
     /// harness's fingerprint, and whether a request failed.
-    nonisolated struct Sent: Sendable {
-        var synced: Bool
-        var delivered: [String: Int]
-        var failed = false
+    public nonisolated struct Sent: Sendable {
+        public var synced: Bool
+        public var delivered: [String: Int]
+        public var failed = false
+
+        public init(synced: Bool, delivered: [String: Int], failed: Bool = false) {
+            self.synced = synced
+            self.delivered = delivered
+            self.failed = failed
+        }
     }
 
-    private weak var services: AppServices?
     /// The local daemon as a ``Target`` while it is connected and lists projects; tests pass their own.
     private let target: @MainActor () -> Target?
+    /// The acpmux socket whose grouped projects are read, nil while there is none.
+    private let socketPath: @MainActor () -> String?
+    /// The local daemon connection, read inside observation tracking: a change relays again.
+    private let connection: @MainActor () -> AnyObject?
     private var connectionID: ObjectIdentifier?
     private var sent: [String: Int] = [:]
     private var sending: Task<Void, Never>?
@@ -92,12 +114,16 @@ final class ProjectsImport {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "projects-import")
 
     /// - Parameters:
-    ///   - target: Where the projects go; nil reads the local daemon of `services`.
+    ///   - target: Where the projects go, nil while the local daemon is away or lists no projects.
+    ///   - socketPath: The acpmux socket to read the grouped projects from.
+    ///   - connection: The local daemon connection to follow (an observable read).
     ///   - clock: The clock a failed relay's retry waits on.
-    init(services: AppServices, target: (@MainActor () -> Target?)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
-        self.services = services
+    public init(target: @escaping @MainActor () -> Target?, socketPath: @escaping @MainActor () -> String?,
+                connection: @escaping @MainActor () -> AnyObject?, clock: any Clock<Duration> = ContinuousClock()) {
+        self.target = target
+        self.socketPath = socketPath
+        self.connection = connection
         self.clock = clock
-        self.target = target ?? { [weak services] in Self.localDaemon(services) }
     }
 
     /// The relay in flight, if any (tests await it).
@@ -106,17 +132,9 @@ final class ProjectsImport {
     /// The wait before a failed relay's retry, if one is pending (tests await it).
     var pendingRetry: Task<Void, Never>? { retry?.wait }
 
-    /// `services`' local daemon as a ``Target``, nil while it is away or does not list projects.
-    private static func localDaemon(_ services: AppServices?) -> Target? {
-        guard let services, let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapability.projectList.rawValue) else { return nil }
-        let client = ProjectStateClient(connection: connection)
-        return Target(id: ObjectIdentifier(connection)) { batches, fresh in await deliver(batches, fresh: fresh, to: client) }
-    }
-
     /// `project.sync` first on a `fresh` connection, then one complete `project.observe` per batch, in order.
     /// The first failed request ends the relay. On the main actor, as the relay's sends have always run.
-    private static func deliver(_ batches: [Batch], fresh: Bool, to client: ProjectStateClient) async -> Sent {
+    fileprivate static func deliver(_ batches: [Batch], fresh: Bool, to client: ProjectStateClient) async -> Sent {
         var sent = Sent(synced: !fresh, delivered: [:])
         do {
             if fresh {
@@ -143,7 +161,7 @@ final class ProjectsImport {
     }
 
     /// Follows the chat index and the local daemon connection for the app's life.
-    func start(feed: ChatsFeed?) {
+    public func start(feed: ChatsFeed?) {
         feed?.observe(self) { [weak self] in self?.indexChanged() }
         armConnection()
         relay()
@@ -153,9 +171,8 @@ final class ProjectsImport {
     func indexChanged() { relay() }
 
     private func armConnection() {
-        guard let daemon = services?.machines.local else { return }
         withObservationTracking {
-            _ = daemon.connection
+            _ = connection()
         } onChange: { [weak self] in
             // task-owner: one hop per connection change, re-arms itself; ends with the relay
             Task { @MainActor [weak self] in
@@ -185,7 +202,7 @@ final class ProjectsImport {
         if fresh { sent = [:] }
         // acpmux groups its own index (`_acpmux/chat_projects`): a few rows, read off the main
         // actor, never a walk over every chat here.
-        let socket = services?.chatsFeed?.socketPath
+        let socket = socketPath()
         let alreadySent = sent
         sending = Task { [weak self] in
             var batches: [Batch] = []
