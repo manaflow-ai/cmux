@@ -28,18 +28,23 @@ if [[ "$APPLE_SIGNING_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]]; then
   identity_record="$("$SECURITY_TOOL" find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null \
     | grep -iF "$APPLE_SIGNING_IDENTITY" \
     | grep 'Developer ID Application:' | head -n 1 || true)"
-  identity_name="$(sed -n 's/.*Developer ID Application:/Developer ID Application:/p' <<<"$identity_record")"
-  [[ -n "$identity_name" && "$authority" == *"$identity_name"* ]] || { echo "error: DMG signature identity fingerprint mismatch" >&2; exit 1; }
+  identity_name="$(sed -n 's/.*"\(Developer ID Application:.*\)"[[:space:]]*$/\1/p' <<<"$identity_record")"
+  [[ -n "$identity_name" && "$authority" == "$identity_name" ]] || { echo "error: DMG signature identity fingerprint mismatch" >&2; exit 1; }
 else
-  [[ -n "$authority" && "$authority" == *"$APPLE_SIGNING_IDENTITY"* ]] || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
+  [[ -n "$authority" && "$authority" == "$APPLE_SIGNING_IDENTITY" ]] || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
 fi
 team_identifier="$(sed -n 's/^TeamIdentifier=//p' <<<"$signature_info" | head -n 1)"
 [[ "$team_identifier" == 7WLXT3NR37 ]] || { echo "error: DMG signature team mismatch" >&2; exit 1; }
 identifier="$(sed -n 's/^Identifier=//p' <<<"$signature_info" | head -n 1)"
-[[ -n "$identifier" ]] || { echo "error: DMG signature has no identifier" >&2; exit 1; }
+expected_identifier="$(basename "$DMG_PATH" .dmg)"
+[[ "$identifier" == "$expected_identifier" ]] || { echo "error: DMG signature identifier mismatch" >&2; exit 1; }
+grep -Eiq '^Flags=0x0([[:space:]]|$)' <<<"$signature_info" || { echo "error: DMG signature has unexpected flags" >&2; exit 1; }
 requirement_info="$("$CODESIGN_TOOL" --display --requirements :- "$DMG_PATH" 2>&1 || true)"
 grep -Fq 'designated' <<<"$requirement_info" || { echo "error: DMG signature has no designated requirement" >&2; exit 1; }
 grep -Fq 'anchor apple generic' <<<"$requirement_info" || { echo "error: DMG designated requirement is not Developer ID" >&2; exit 1; }
+grep -Fq '1.2.840.113635.100.6.2.6' <<<"$requirement_info" || { echo "error: DMG requirement lacks Developer ID application OID" >&2; exit 1; }
+grep -Fq '1.2.840.113635.100.6.1.13' <<<"$requirement_info" || { echo "error: DMG requirement lacks Developer ID installer OID" >&2; exit 1; }
+grep -Fq 'certificate leaf[subject.OU] = "7WLXT3NR37"' <<<"$requirement_info" || { echo "error: DMG requirement has wrong team" >&2; exit 1; }
 TMP_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-native-dmg-notary.XXXXXX")"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT

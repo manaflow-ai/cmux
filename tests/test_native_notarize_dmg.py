@@ -20,7 +20,7 @@ KEYCHAIN = "#!/bin/sh\nprintf 'keychain %s\\n' \"$*\" >> \"$FIXTURE_LOG\"\n"
 SECURITY = r'''#!/usr/bin/env python3
 import os, sys
 if sys.argv[1:3] == ["find-identity", "-v"]:
-    print(os.environ.get("FIXTURE_IDENTITIES", "  1) ABC Developer ID Application: Fixture"))
+    print(os.environ.get("FIXTURE_IDENTITIES", "  1) ABC \"Developer ID Application: Fixture\""))
 '''
 CODESIGN = r'''#!/usr/bin/env python3
 import os, pathlib, sys
@@ -33,9 +33,9 @@ if "--force" in args:
 elif "--verify" in args and os.environ.get("FIXTURE_VERIFY_FAIL"):
     raise SystemExit(1)
 elif "--requirements" in args:
-    print(os.environ.get("FIXTURE_REQUIREMENTS", "designated => anchor apple generic"))
+    print(os.environ.get("FIXTURE_REQUIREMENTS", "designated => identifier \"cmux-nightly\" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"7WLXT3NR37\""))
 elif "--display" in args:
-    print(os.environ.get("FIXTURE_DISPLAY", "Authority=Developer ID Application: Fixture\nIdentifier=cmux\nTeamIdentifier=7WLXT3NR37"))
+    print(os.environ.get("FIXTURE_DISPLAY", "Authority=Developer ID Application: Fixture\nIdentifier=cmux-nightly\nTeamIdentifier=7WLXT3NR37\nFlags=0x0"))
 '''
 XCRUN = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -97,8 +97,8 @@ class NativeDmgTests(unittest.TestCase):
             ASC_API_KEY_P8_BASE64="Zml4dHVyZS1wOA==",  # fixture-p8
             FIXTURE_LOG=str(self.log),
             FIXTURE_KEY_BYTES=str(self.key_bytes),
-            FIXTURE_DISPLAY="Authority=Developer ID Application: Fixture\nIdentifier=cmux\nTeamIdentifier=7WLXT3NR37",
-            FIXTURE_REQUIREMENTS="designated => anchor apple generic",
+            FIXTURE_DISPLAY="Authority=Developer ID Application: Fixture\nIdentifier=cmux-nightly\nTeamIdentifier=7WLXT3NR37\nFlags=0x0",
+            FIXTURE_REQUIREMENTS="designated => identifier \"cmux-nightly\" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"7WLXT3NR37\"",
         )
 
     def run_dmg(self, **updates: str) -> subprocess.CompletedProcess[str]:
@@ -117,13 +117,13 @@ class NativeDmgTests(unittest.TestCase):
     def test_fingerprint_identity_is_accepted(self) -> None:
         result = self.run_dmg(
             APPLE_SIGNING_IDENTITY="A" * 40,
-            FIXTURE_IDENTITIES="  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA Developer ID Application: Fixture",
+            FIXTURE_IDENTITIES="  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \"Developer ID Application: Fixture\"",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_identity_team_and_designated_requirement_are_required(self) -> None:
         for updates in (
-            {"FIXTURE_DISPLAY": "Authority=Developer ID Application: Other\nIdentifier=cmux\nTeamIdentifier=7WLXT3NR37"},
+            {"FIXTURE_DISPLAY": "Authority=Developer ID Application: Other\nIdentifier=cmux-nightly\nTeamIdentifier=7WLXT3NR37\nFlags=0x0"},
             {"FIXTURE_DISPLAY": "Authority=Developer ID Application: Fixture\nIdentifier=cmux\nTeamIdentifier=WRONG"},
             {"FIXTURE_DISPLAY": "Authority=Developer ID Application: Fixture\nTeamIdentifier=7WLXT3NR37"},
             {"FIXTURE_REQUIREMENTS": "designated => anchor apple"},
