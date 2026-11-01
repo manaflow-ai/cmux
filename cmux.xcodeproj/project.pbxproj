@@ -3151,6 +3151,7 @@
 		A2A2A2A2A2A2A2A2A2A20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */; };
 		7911A0017911A0017911A001 /* RemoteTmuxMirrorPaneTabBarVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7911B0017911B0017911B001 /* RemoteTmuxMirrorPaneTabBarVisibilityTests.swift */; };
 		74060000000000000000000C /* RemoteTmuxMirrorPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */; };
+		9B716557F21A1319B1833ED5 /* RemoteTmuxMirrorProgramStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65E2EA65B9596F0C5F2E3C0 /* RemoteTmuxMirrorProgramStatusTests.swift */; };
 		838000000000000000000004 /* RemoteTmuxMirrorRenameHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838000000000000000000003 /* RemoteTmuxMirrorRenameHarness.swift */; };
 		838000000000000000000002 /* RemoteTmuxMirrorRenameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838000000000000000000001 /* RemoteTmuxMirrorRenameTests.swift */; };
 		7837E0037837E0037837E003 /* RemoteTmuxMirrorResizeRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */; };
@@ -7826,6 +7827,7 @@
 		B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorPaneInputMappingTests.swift; sourceTree = "<group>"; };
 		7911B0017911B0017911B001 /* RemoteTmuxMirrorPaneTabBarVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorPaneTabBarVisibilityTests.swift; sourceTree = "<group>"; };
 		74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorPlacementTests.swift; sourceTree = "<group>"; };
+		F65E2EA65B9596F0C5F2E3C0 /* RemoteTmuxMirrorProgramStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxMirrorProgramStatusTests.swift"; sourceTree = "<group>"; };
 		838000000000000000000003 /* RemoteTmuxMirrorRenameHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorRenameHarness.swift; sourceTree = "<group>"; };
 		838000000000000000000001 /* RemoteTmuxMirrorRenameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorRenameTests.swift; sourceTree = "<group>"; };
 		7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorResizeRoutingTests.swift; sourceTree = "<group>"; };
@@ -14311,6 +14313,7 @@
 				C977F027484909BFDB0FE0E5 /* DividerDoubleClickSettingsFileTests.swift */,
 				CB22E358DB4A0CDAE76D29C9 /* DividerTrackingEventProbe.swift */,
 				ED0B9F5049CC27EC7AAA3419 /* CMUXCLIRestoreRecordRefreshTests.swift */,
+				F65E2EA65B9596F0C5F2E3C0 /* RemoteTmuxMirrorProgramStatusTests.swift */,
 				25FD7520201E1CA17A64BAEE /* ClaudeRelaunchRestoresEveryWorkspaceTests.swift */,
 				116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
 				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
@@ -19290,6 +19293,7 @@
 				A2A2A2A2A2A2A2A2A2A20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift in Sources */,
 				7911A0017911A0017911A001 /* RemoteTmuxMirrorPaneTabBarVisibilityTests.swift in Sources */,
 				74060000000000000000000C /* RemoteTmuxMirrorPlacementTests.swift in Sources */,
+				9B716557F21A1319B1833ED5 /* RemoteTmuxMirrorProgramStatusTests.swift in Sources */,
 				838000000000000000000004 /* RemoteTmuxMirrorRenameHarness.swift in Sources */,
 				838000000000000000000002 /* RemoteTmuxMirrorRenameTests.swift in Sources */,
 				7837E0037837E0037837E003 /* RemoteTmuxMirrorResizeRoutingTests.swift in Sources */,
