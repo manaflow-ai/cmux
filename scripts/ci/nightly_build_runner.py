@@ -98,6 +98,7 @@ import datetime as dt
 import json
 import os
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -370,6 +371,28 @@ NIGHTLY_ONLY_LABEL = "glaeda-nightly-only-m4pro"
 NIGHTLY_ONLY_BUILDER_LABEL = "glaeda-nightly-only-m4pro-builder"
 
 
+# The builder read is the dedicated path's only network call: an org-wide runner list can page for minutes, and
+# the pick step's own timeout would leave build-nightly-app with no owned label at all (Blacksmith macOS).
+BUILDER_READ_SECONDS = 30
+
+
+class ReadDeadline(Exception):
+    pass
+
+
+def within(seconds: float, read: Callable[[], Any]) -> Any:
+    """READ(), or ReadDeadline once SECONDS pass (SIGALRM; the picker runs single-threaded on Linux)."""
+    def expire(_signum, _frame):
+        raise ReadDeadline(f"the runner read took over {seconds:g} s")
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        return read()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def nightly_only_builder_route(builder: str, fallback: str,
                                runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
     """(the builder label while a runner carrying it is online and idle now, else `fallback`, why).
@@ -426,8 +449,9 @@ def main(env: Mapping[str, str] = os.environ,
             runners = None
             if env.get("ROUTE_TOKEN"):
                 try:
-                    runners = (read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(
-                        env["ROUTE_TOKEN"], repo)
+                    runners = within(BUILDER_READ_SECONDS, lambda: (
+                        read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(
+                        env["ROUTE_TOKEN"], repo))
                 except Exception as error:  # noqa: BLE001 - never fail the job; the plain label takes it
                     print(f"::warning title=nightly build runner::could not list the warm builder ({str(error)[:200]})")
             app, app_why = nightly_only_builder_route(builder, nightly_only, runners)
