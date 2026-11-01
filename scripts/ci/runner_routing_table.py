@@ -71,7 +71,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 MACOS_HINT = re.compile(
     r"macos|glaeda-|MACOS_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER"
     r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|NIGHTLY_[A-Z_]*(RUNNER|POOL)"
-    r"|pr_[a-z_]*runner|macos_runner|mini_runner",
+    r"|pr_[a-z_]*runner|macos_runner|mini_runner|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
 NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
@@ -82,7 +82,7 @@ PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$"
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
 # Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-NIGHTLY_MINI = re.compile(r"needs\.build-nightly-app\.outputs\.light_mini_runner$")
+NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner)$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
@@ -101,11 +101,32 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
     if len(expressions) != 1:
         return "its runs-on is not one expression"
     terms = [term.strip() for term in value_terms(expressions[0])]
+    # Early nightly admission owns fleet/mini/overflow selection and validates
+    # the per-job lease. Missing or stale outputs must retain the declared JIT
+    # pool, never select paid work without a no-start receipt.
+    if nightly and re.search(r"needs\.decide\.outputs\.early_(?!(?:linux|mini)_runner)[a-z_]+_runner", runs_on):
+        alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
+        if alternatives[0] == "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'":
+            alternatives = alternatives[1:]
+        gated = [part.strip() for part in _split_top(alternatives[0], "&&")]
+        if len(gated) != 2 or gated[0] != "needs.decide.outputs.track == 'nightly-next'":
+            return "early admission must be the first route for the NEXT track"
+        # Other tracks retain their prior route outside this guarded branch.
+        admitted = _unwrap(gated[1])
+        admitted_terms = value_terms(admitted)
+        if admitted_terms[-1] != "'cmux-fleet-linux-x64'" or any(BLACKSMITH_LINUX.match(t) for t in admitted_terms):
+            return "early admission must fall back to fleet Linux without a paid literal"
+        if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in admitted:
+            return "early admission must consume only its own attempt"
+        return ""
     if nightly:
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
         linux = -1
+        if "needs.decide.outputs.early_mini_runner" in runs_on:
+            linux = next((i for i, term in enumerate(terms)
+                          if term.endswith("needs.decide.outputs.early_linux_runner")), None)
     else:
         linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
         mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
