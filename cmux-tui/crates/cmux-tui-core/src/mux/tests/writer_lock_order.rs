@@ -155,3 +155,47 @@ fn a_request_waiting_behind_a_writer_commit_does_not_hold_state() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A late answer to an indeterminate registry commit is settled by the next
+/// request that pins state (cx-g1fa.3). Settling ran publish_resource_event
+/// under the registry and state, and that publication locks state again to
+/// publish pending terminal directories: a self-deadlock in release builds
+/// (std's mutex) and a lock-rank panic in debug. The pin must return.
+#[test]
+fn settling_a_late_registry_receipt_does_not_relock_state() {
+    let mux = test_mux();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    let settled = Arc::new(AtomicBool::new(false));
+    let settled_by = settled.clone();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
+        pending,
+        Some(Box::new(move |_state, _receipt| {
+            settled_by.store(true, Ordering::SeqCst);
+        })),
+    );
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: serde_json::json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+
+    let (done, finished) = std::sync::mpsc::channel();
+    let pinning = mux;
+    std::thread::spawn(move || {
+        let registry = pinning.workspace_registry.lock().unwrap();
+        let state = pinning.lock_state_pinned(&registry).unwrap();
+        drop(state);
+        drop(registry);
+        let _ = done.send(());
+    });
+    assert_eq!(
+        finished.recv_timeout(Duration::from_secs(5)),
+        Ok(()),
+        "pinning state to settle a late receipt deadlocked or panicked"
+    );
+    assert!(settled.load(Ordering::SeqCst), "the owed state update ran");
+}

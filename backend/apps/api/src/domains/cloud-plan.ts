@@ -203,8 +203,8 @@ export const planView = (plan: PlanLimits | null, usage: { active: number; saved
     locked_memory_options_mb: [...(plan?.locked_memory_options_mb ?? [])],
     vm_hours_included: plan?.vm_hours_included ?? null
   },
-  // VM-hours metering (UsageMeterDO) is not wired yet: 0 until it is.
-  usage: { active: usage.active, saved: usage.saved, vm_hours_used: 0, period_end: periodEnd(now) }
+  // VM-hours metering (UsageMeterDO) is not wired yet: null (unknown) until it is, so no page shows "0 of 40 h".
+  usage: { active: usage.active, saved: usage.saved, vm_hours_used: null, period_end: periodEnd(now) }
 })
 
 export type CloudMachineView = typeof CloudMachine.Type

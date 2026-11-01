@@ -305,3 +305,25 @@ test("the running turn's line counts the started chats that run", () => {
   );
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });
+
+test("workflow agent rows keep names and state without token counts", async () => {
+  const container = installDom();
+  await render(
+    container,
+    <WorkflowSummaryRow
+      workflow={{
+        id: "workflow",
+        title: "Review",
+        state: "completed",
+        phases: [],
+        agents: [{ id: "reviewer", name: "Reviewer", state: "completed", tokens: 107_500 }],
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!.click());
+  const row = container.querySelector(".acpmux-workflow__agent")!;
+  expect(row.textContent).toContain("Reviewer");
+  expect(row.textContent).toContain("Done");
+  expect(row.textContent).not.toContain("107500");
+  expect(row.querySelectorAll(".acpmux-summary-meta")).toHaveLength(1);
+});

@@ -65,6 +65,5 @@ struct SettingsButtonStyle: ButtonStyle {
             .background(configuration.isPressed ? SettingsStyle.selection : SettingsStyle.hover,
                         in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
             .contentShape(Rectangle())
-            .clickableCursor()
     }
 }

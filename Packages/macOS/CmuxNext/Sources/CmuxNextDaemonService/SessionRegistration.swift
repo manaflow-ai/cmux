@@ -20,6 +20,8 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     private let withdraw: @MainActor (_ session: String) -> Void
     /// Refusal notices not shown yet (no window), per session: shown at the next submit.
     private var pendingNotices: [String: String] = [:]
+    /// Sessions whose pending notice is a refusal (not a "no answer" notice).
+    private var pendingRefusals: Set<String> = []
     /// Sessions whose notice shows now (until closed): taken back when it stops being true.
     private var shownNotices: Set<String> = []
     private var stopped = false
@@ -53,7 +55,9 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         let token = ledger.begin(session: session, record: record, connection: link)
         // A new send replaces the older record's answer: its pending notice no longer holds. The
         // person never saw it, so the same refusal on this send is shown.
-        if token != nil, pendingNotices.removeValue(forKey: session) != nil { ledger.forgetShownRefusal(session: session) }
+        if token != nil, pendingNotices.removeValue(forKey: session) != nil, pendingRefusals.remove(session) != nil {
+            ledger.forgetShownRefusal(session: session)
+        }
         showPendingNotices()
         guard let token else { return nil }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
@@ -71,11 +75,12 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func retain(sessions: Set<String>) {
         // A gone session's notice is taken back or dropped, so it is owed again if the session
         // comes back (SSH forget and undo, server sign-out and sign-in) and is refused again.
-        for session in Set(pendingNotices.keys).union(shownNotices) where !sessions.contains(session) {
+        for session in pendingRefusals.union(shownNotices) where !sessions.contains(session) {
             ledger.forgetShownRefusal(session: session)
         }
         ledger.retain(sessions: sessions)
         pendingNotices = pendingNotices.filter { sessions.contains($0.key) }
+        pendingRefusals.formIntersection(sessions)
         for session in shownNotices where !sessions.contains(session) { takeBack(session) }
         for (session, timer) in retries where !sessions.contains(session) {
             timer.cancel()
@@ -95,6 +100,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
             ledger.succeeded(session: session, token: token)
             if ledger.isRecorded(session: session) {
                 pendingNotices[session] = nil
+                pendingRefusals.remove(session)
                 takeBack(session)
             }
             return
@@ -104,6 +110,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         // The person reads a localized reason; the daemon's raw text is in the log line above.
         if outcome.refusal != nil {
             pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: Self.refusedReason)
+            pendingRefusals.insert(session)
             showPendingNotices()
         }
         guard let delay = outcome.retryAfter else {
@@ -111,6 +118,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
             // record or a new connection epoch), so the person sees that it is not saved (R9 R-L5).
             if outcome.refusal == nil, ledger.isWaitingForEvent(session: session) {
                 pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: Self.noAnswerReason)
+                pendingRefusals.remove(session)
                 showPendingNotices()
             }
             return
@@ -128,6 +136,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func showPendingNotices() {
         for (session, message) in pendingNotices where notice(session, message) {
             pendingNotices[session] = nil
+            pendingRefusals.remove(session)
             shownNotices.insert(session)
         }
     }

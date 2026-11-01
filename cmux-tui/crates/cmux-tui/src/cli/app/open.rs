@@ -1,5 +1,7 @@
 //! `cmux open <path|url>...` and `cmux open -`: paths, folders and URLs the
 //! app opens (`file.open`, `action.run newTab`, `browser.open_split`).
+//! `cmux open --as-text <file>...` (alias `--source`) opens HTML, SVG and
+//! Markdown as their source in the code editor instead of rendered (u18462).
 //! `cmux open --link` opens URLs the way a terminal program's browser does
 //! (`browser.open_link`, the bundled `cmux-open-url`): where the app's
 //! `terminal.linkOpener` setting says (open_link.rs).
@@ -50,6 +52,7 @@ pub(super) fn parse_open_with(
     let mut explicit_focus = None;
     let mut workspace = None;
     let mut link = false;
+    let mut as_text = false;
     let mut callers: Vec<String> = Vec::new();
     let mut forced_target: Option<String> = None;
     let mut from_stdin = false;
@@ -109,6 +112,12 @@ pub(super) fn parse_open_with(
                 }
                 workspace = Some(value);
             }
+            "--as-text" | "--source" => {
+                if inline.is_some() {
+                    return Err(UsageError::new(format!("{name} does not take a value")));
+                }
+                as_text = true;
+            }
             "--link" => {
                 if inline.is_some() {
                     return Err(UsageError::new("--link does not take a value"));
@@ -159,6 +168,9 @@ pub(super) fn parse_open_with(
     }
     if targets.is_empty() {
         return Err(UsageError::new("open requires at least one path or URL"));
+    }
+    if as_text && (link || from_stdin) {
+        return Err(UsageError::new("--as-text opens files; drop --link and -"));
     }
     if !link && (!callers.is_empty() || forced_target.is_some()) {
         return Err(UsageError::new("--caller and --target apply only with --link"));
@@ -230,6 +242,9 @@ pub(super) fn parse_open_with(
         // The app serves `file.open` (cx-bmie): each file opens in the
         // caller's terminal pane through the `file.open` action.
         let mut params = json!({"paths": paths, "focus": focus, "origin": action_origin()});
+        if as_text {
+            params.set("as_text", json!(true));
+        }
         if let Some(terminal) = &terminal {
             params.set("terminal_id", json!(terminal));
         }

@@ -66,6 +66,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     harness: "claude",
     status: "idle",
     tags: { side: MAIN },
+    side: true,
     updatedAt: Date.now(),
   };
   const empty = {

@@ -13,16 +13,19 @@ extension AppActions {
         let registry = services.registry
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", invoke: { closeWorkspace(services, $0) })
-        registry.bind("renameWorkspace", invoke: { invocation in
-            guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
+        registry.bindEffect("renameWorkspace", effect: { invocation in
+            guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return .done }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                // The daemon that owns the workspace (a remote host's row too), not the active window's.
+                // The daemon that owns the workspace (a remote host's row too), not the active window's. The name
+                // shows in its store now; a failure takes it back and says why, as the inline rename does (#26382).
                 let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
-                daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
-                return
+                return daemon.intentEffect("rename-workspace", .renameWorkspace(key: key, name: name)) { _ = try await $0.renameWorkspace(key, to: name) }
             }
             guard let window = renameRowWindow(workspace, services) else {
-                if let reason = renameRowReason(workspace, services) { return services.registry.refuse(reason) }
+                if let reason = renameRowReason(workspace, services) {
+                    services.registry.refuse(reason)
+                    return .done
+                }
                 // No list row to edit (a pinned workspace draws as a tile or top row): a Cmd-Shift-P step,
                 // pinned to this workspace, as Rename Screen does off the screen bar.
                 var asking = invocation
@@ -30,11 +33,12 @@ extension AppActions {
                 if !services.registry.ask("renameWorkspace", asking, ActionArgumentAsk(argument: "name", initialText: workspace.displayName)) {
                     services.registry.refuse(RefusalStrings.workspaceNotInSidebar)
                 }
-                return
+                return .done
             }
             // The name field opens on the row in the window that lists it, which comes forward.
             if window !== services.windows.active { services.windows.bringToFront(window) }
             window.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
+            return .done
         })
         AppActionContext(services: services).setTargetReason("renameWorkspace") { [weak services] invocation in
             guard let services, invocation["name"]?.stringValue?.isEmpty ?? true, let workspace = scope(services, invocation).workspace else { return nil }
@@ -125,7 +129,6 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
-        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused

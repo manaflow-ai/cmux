@@ -73,7 +73,8 @@ The card opens on the way that fits, with the other two one click away:
 1. **On your network.** The computers your network already knows (Tailscale today, Weft later)
    that are not added yet, online first. One click runs the enroll (`acp host enroll`, path 1):
    reach, install, daemon, harness, peer, name. This is the default when the network has a
-   candidate.
+   candidate. A caption under the help says, before Add, that it needs ssh that signs in with a
+   key, not a password (enroll's reach runs ssh in batch mode).
 2. **It shows a code.** The new computer ran `cmux device join` (or the install line) and shows
    `XXXX-XXXX` and four words. Type the code (or scan the QR with the phone); the card shows the
    computer's name, OS and words under "Do these words match?"; Approve. This is path 5, unchanged
@@ -81,7 +82,10 @@ The card opens on the way that fits, with the other two one click away:
 3. **Set up a new device.** One line per OS to copy (`curl -fsSL https://cmux.com/install | sh -s -- join`,
    PowerShell for Windows), and for a phone the App Store QR. The new device then shows its code
    and the card moves to way 2. This is the Tailscale "Add device" page, with approval built in:
-   nothing joins until a person approves on a device that is already in.
+   nothing joins until a person approves on a device that is already in. For a computer (Mac,
+   Linux or Windows) a row under the line keeps Other Computer… (add by host name) at hand, since
+   the card opens here when the network lists nothing and a computer already reached with an ssh
+   key needs no line (HQ #4877 break 5).
 
 Approval always happens on a device that is already yours: the Mac card, or the phone's approval
 sheet, or `cmux device approve CODE` in a terminal that is yours (the card's same intents, refused
@@ -110,6 +114,14 @@ that holds it: the acpmux peer, the pairing credential (its open connections clo
 remote-hosting grant, the app's machine record, a phone pairing, a server's team record
 (`server.revoke`). A removed device cannot reconnect without a new add. The confirmation says what
 stops working, in plain words, before it runs.
+
+A computer added with Add Device is in two lists: the sidebar's SSH machine and the acpmux peer
+enroll added at the same `ssh://[user@]host`. Removing it from either removes both (HQ #4877
+break 8): Settings > Devices Remove of a peer also forgets the SSH machines at that exact route,
+and Forget Machine (`remote.forget`) also runs `acp host rm` for the peer at its route once its
+Undo toast ends (so Undo brings both back: the peer was never removed), unless another of the
+app's SSH sessions still uses that route. Routes match only exactly: the same host (any case),
+the same user, and no ssh port on the machine.
 
 ### 2.6 One audit
 
