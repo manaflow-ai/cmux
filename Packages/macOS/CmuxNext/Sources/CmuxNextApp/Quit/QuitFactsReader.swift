@@ -54,7 +54,7 @@ enum QuitFactsReader {
         await withTaskGroup(of: (SurfaceID, String?).self) { group in
             for surface in surfaces {
                 group.addTask {
-                    (surface, try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: deadline).runningProgram)
+                    (surface, await connection.readProcessInfo(surface, timeout: deadline)?.runningProgram)
                 }
             }
             var names: [SurfaceID: String] = [:]

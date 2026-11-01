@@ -143,7 +143,10 @@ SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 # The light minis' side label for the smallest side-lane jobs (attempt 1);
 # held to the same rule as CI_SIDE_LANE_RUNNER.
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
-SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE)
+# The owned-mini member the no-kernel Linux gates (ci.yml admission, preflight and status gates, ci-web.yml's webview jobs) take
+# ahead of Blacksmith when set: a side label too, for a Blacksmith backlog (2026-11-01).
+LINUX_GATE_OWNED_VARIABLE = "CI_LINUX_GATE_OWNED_RUNNER"
+SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE, LINUX_GATE_OWNED_VARIABLE)
 SIDE_LANE_PREFIX = "glaeda-side-"
 
 

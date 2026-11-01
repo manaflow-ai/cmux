@@ -139,7 +139,7 @@ class Writer(unittest.TestCase):
         xml = floor.enforce(xml, name, "14.0")
         xml = re.sub(r"<item>", "<item>\n            <sparkle:channel>cmux-next</sparkle:channel>", xml)
         published = """<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:cmux="https://cmux.com/xml-namespaces/cmux" version="2.0">
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>cmux NIGHTLY</title>
         <item>

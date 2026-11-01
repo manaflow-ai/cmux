@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextPagesTestSupport
 import Foundation
 import Testing
+import WebKit
 
 /// Leo's Mac, 2026-11-01: WebKit's GPU process stopped answering three times in 20 s, WebKit
 /// killed it each time and then ended every web content process, and 19 agent chats that showed
@@ -32,7 +33,22 @@ struct PageWebViewHiddenWebKitTests {
         view.applyUIScale()
         view.evaluate("document.title")
         #expect(view.webKitView.url == nil, "the hidden WebKit view loaded a document")
-        #expect(PageTermination.webContentPid(of: view.webKitView) == 0, "the hidden WebKit view of a Chromium page runs a web content process")
+        // WebKit reports a process it launched for a script only once the launch finished, so
+        // the check waits for one (the full wait when, as it should, none comes).
+        let launched = await Self.webContentPid(of: view.webKitView, within: .seconds(3))
+        #expect(launched == 0, "the hidden WebKit view of a Chromium page runs web content process \(launched)")
         view.close()
+    }
+
+    /// The view's web content pid as soon as WebKit reports one, or 0 after `wait`.
+    private static func webContentPid(of webView: WKWebView, within wait: Duration) async -> Int32 {
+        let clock = ContinuousClock()
+        let deadline = clock.now + wait
+        while clock.now < deadline {
+            let pid = PageTermination.webContentPid(of: webView)
+            if pid != 0 { return pid }
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return PageTermination.webContentPid(of: webView)
     }
 }

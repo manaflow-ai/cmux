@@ -161,6 +161,18 @@ pub(super) fn pull_back(
     }
 }
 
+/// A pull of `remote_root` into `local`, as `cmux link sync pull` does: for `cmux link agent move
+/// --sync pull`, which pulls the last changes of a chat it froze.
+pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back {
+    match pull::pull(socket, local, remote_root) {
+        Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
+        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Err(error) => {
+            Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
+        }
+    }
+}
+
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
