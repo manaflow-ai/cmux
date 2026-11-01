@@ -78,6 +78,17 @@ impl Env {
         }
     }
 
+    /// The cmux platform origin that keeps each person's harness logins
+    /// (`harness_login.rs`), with the machine's install token as bearer.
+    /// Development only until the platform serves the others: `None` keeps
+    /// the feature off.
+    pub fn platform_origin(self) -> Option<&'static str> {
+        match self {
+            Env::Dev => Some("https://cmux-platform-development.debussy.workers.dev"),
+            Env::Stg | Env::Prod => None,
+        }
+    }
+
     /// The Worker's ENVIRONMENT, named in the auth challenge prefix.
     pub fn auth_environment(self) -> &'static str {
         match self {
