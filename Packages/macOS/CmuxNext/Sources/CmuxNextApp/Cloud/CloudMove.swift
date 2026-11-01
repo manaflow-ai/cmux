@@ -335,7 +335,8 @@ struct CloudMove {
         case CloudMoveStrings.outdatedCode where answer.side != "source":
             Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
+        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
+        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
         }
     }
 
