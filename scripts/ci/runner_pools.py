@@ -35,8 +35,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. With every member marked, the pool takes
+  its smallest member (smallest()): Blacksmith's concurrency is a hard, small cap, and the smallest
+  size starts the most jobs under it;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -121,6 +122,36 @@ def parse_time(value: object) -> dt.datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
+# A Blacksmith size this large is routed to only with a measurement (runners.json `large_runners`): on
+# 2026-11-01 about 1,500 jobs sat queued on blacksmith-32vcpu-ubuntu-2404, a size no measured job here needs.
+LARGE_VCPUS = 32
+VCPUS = re.compile(r"^blacksmith-(\d+)vcpu-")
+
+
+def vcpus(label: str) -> int | None:
+    """A Blacksmith label's vCPU count; None for any other label."""
+    found = VCPUS.match(label)
+    return int(found.group(1)) if found else None
+
+
+def smallest(candidates: Sequence[str]) -> str:
+    """The member with the fewest vCPUs (the earliest on a tie, or with no size to compare)."""
+    sized = [(vcpus(label), index, label) for index, label in enumerate(candidates) if vcpus(label) is not None]
+    return min(sized)[2] if sized else candidates[0]
+
+
+def load_large(path: Path = RUNNERS) -> dict[str, str]:
+    """runners.json `large_runners`: each Blacksmith size of LARGE_VCPUS or more that may be routed to, and why."""
+    table = json.loads(path.read_text(encoding="utf-8")).get("large_runners") or {}
+    return {label: str(why) for label, why in table.items() if not label.startswith("$") and str(why).strip()}
+
+
+def unmeasured_large(label: str | None, large: Mapping[str, str]) -> bool:
+    """Whether `label` is a Blacksmith size of LARGE_VCPUS or more with no measurement entry."""
+    size = vcpus(str(label or ""))
+    return size is not None and size >= LARGE_VCPUS and str(label) not in large
+
+
 def load_pools(path: Path = RUNNERS) -> dict[str, dict[str, Any]]:
     pools = json.loads(path.read_text(encoding="utf-8"))["pools"]
     return {name: spec for name, spec in pools.items() if not name.startswith("$")}
@@ -130,8 +161,9 @@ def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
 
 
-def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+def spec_problems(pools: Mapping[str, Mapping[str, Any]], large: Mapping[str, str] | None = None) -> list[str]:
     """What is wrong with the declared pools (tests/test_ci_runner_pools.py)."""
+    large = load_large() if large is None else large
     found = []
     for name, spec in pools.items():
         where = f"pools.{name}"
@@ -150,6 +182,10 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
+        for member in listed:
+            if unmeasured_large(member, large):
+                found.append(f"{where}: {member} has {LARGE_VCPUS}+ vCPU and no measurement in runners.json "
+                             "large_runners")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
     return found
@@ -351,7 +387,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        # Every member stalled: Blacksmith is at its cap on every size, and the smallest starts the most jobs.
+        chosen = next((label for label in candidates if label not in marks), None) or smallest(candidates)
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
@@ -462,8 +499,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # The mirrored variables and the switch's record, read live: the switch step just before this one
     # may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)
+    large = load_large()
+    for name, label in [(VARIABLE, env.get(VARIABLE)), *live.items()]:
+        for found in sorted(set(re.findall(r"blacksmith-\d+vcpu-[a-z0-9.-]+", str(label or "")))):
+            if unmeasured_large(found, large):
+                # parse_value() already dropped it from RUNNER_POOLS; the mirror below moves LINUX_RUNNER off it.
+                print(f"::error title=Runner pools::{name} names {found}, {LARGE_VCPUS}+ vCPU with no measurement in "
+                      "runners.json large_runners; routing nothing to it")
     if readable:
-        writes += mirror_writes(value, live, record=record)
+        writes += [(name, label) for name, label in mirror_writes(value, live, record=record)
+                   if not unmeasured_large(label, large)]
     if not writes:
         return 0
     if args.dry_run:

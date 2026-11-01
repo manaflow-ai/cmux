@@ -230,8 +230,8 @@ class FailoverTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         # A Linux variable may name another Blacksmith Linux size; never GitHub-hosted Ubuntu.
         values, problems = switch.failover_values(PIN, json.dumps({
-            "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "CI_TRUSTED_RUNNER": "ubuntu-24.04"}))
-        self.assertEqual(values["LINUX_RUNNER"], "blacksmith-32vcpu-ubuntu-2404")
+            "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404", "CI_TRUSTED_RUNNER": "ubuntu-24.04"}))
+        self.assertEqual(values["LINUX_RUNNER"], "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         self.assertEqual(len(problems), 1)
         # CI_TRUSTED_RUNNER's readers accept only the 2 and 4 vCPU labels.
@@ -286,8 +286,71 @@ class SigningVariableTests(unittest.TestCase):
             self.assertEqual(len(problems), 1, value)
 
     def test_an_ephemeral_linux_override_is_kept(self) -> None:
+        values, problems = switch.failover_values(PIN, json.dumps({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}))
+        self.assertEqual((values["LINUX_RUNNER"], problems), ("blacksmith-4vcpu-ubuntu-2404", []))
+
+    def test_a_32_vcpu_override_with_no_measurement_is_refused(self) -> None:
+        # 2026-11-01: CI_CLOUD_FAILOVER held {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}, a hand pin to a
+        # size no measured job reading LINUX_RUNNER needs (runners.json large_runners is empty).
         values, problems = switch.failover_values(PIN, json.dumps({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}))
-        self.assertEqual((values["LINUX_RUNNER"], problems), ("blacksmith-32vcpu-ubuntu-2404", []))
+        self.assertEqual(values["LINUX_RUNNER"], switch.LINUX_FAILOVER)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no measurement in runners.json large_runners", problems[0])
+        # The switch's own failovers and probes are never an unmeasured 32+ vCPU size, and its Linux
+        # failover chain steps only onto linux pool members.
+        import runner_pools
+        large = runner_pools.load_large()
+        for label in (switch.LINUX_FAILOVER, switch.TRUSTED_FAILOVER, *switch.ALTERNATE_FAILOVERS.values(),
+                      *switch.PROBE_LABELS):
+            self.assertFalse(runner_pools.unmeasured_large(label, large), label)
+        members = runner_pools.members(runner_pools.load_pools()["linux"])
+        for label in switch.LINUX_FAILOVER_CHAIN[switch.LINUX_VARIABLE]:
+            self.assertIn(label, members)
+
+    def test_a_size_whose_probe_waits_3_minutes_is_stalled_for_routing(self) -> None:
+        # A size whose probe sits POOL_STALL_MINUTES with no runner is stalled in CI_CLOUD_LABEL_HEALTH, so the
+        # pool steps to its other member, even when a runner takes the probe before PROBE_MINUTES and the
+        # fleet-wide decision calls every size started.
+        self.assertEqual(switch.POOL_STALL_MINUTES, 3)
+        clock = Clock()
+        first, rest = switch.PROBE_LABELS[0], switch.PROBE_LABELS[1:]
+
+        class Slow(FakeActions):
+            def jobs(self, run_id, attempt=None):
+                waited = (clock.moment - NOW).total_seconds() / 60
+                queued = {"status": "queued", "created_at": switch.iso(NOW), "runner_name": None}
+                took = {"status": "in_progress", "created_at": switch.iso(NOW), "runner_name": "bs-1"}
+                # The first size takes its probe only after 4 minutes; the others at once.
+                return ([{**(took if waited >= 4 else queued), "name": switch.probe_job_name(first)}]
+                        + [{**took, "name": switch.probe_job_name(label)} for label in rest])
+
+        slow: set[str] = set()
+        outcome, stalled = switch.wait_for_probe(Slow(None), 1, 1, 5, switch.PROBE_LABELS, now=clock.now,
+                                                 sleep=clock.sleep, log=lambda line: None, slow=slow)
+        self.assertEqual((outcome, stalled), ("started", []))
+        self.assertEqual(slow, {first})
+        # Through main: overflow stays on (every probe started), and health marks the slow size stalled.
+        writer = FakeSwitch()
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"GH_REPO": "manaflow-ai/cmux", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_OUTPUT": f"{tmp}/out", "GITHUB_STEP_SUMMARY": f"{tmp}/summary", **BLACKSMITH_STEADY}
+            clock.moment = NOW
+            self.assertEqual(switch.main([], env, api=Slow(None), switch=writer, now=clock.now, sleep=clock.sleep), 0)
+            self.assertIn("outcome=started", Path(f"{tmp}/out").read_text())
+        self.assertEqual(writer.writes, [])
+        self.assertEqual(writer.health[-1]["labels"], {first: "stalled", **{label: "started" for label in rest}})
+        # A probe a runner took within the 3 minutes is not slow.
+        clock.moment = NOW
+        quick: set[str] = set()
+
+        class Quick(FakeActions):
+            def jobs(self, run_id, attempt=None):
+                return [{"status": "in_progress", "created_at": switch.iso(NOW), "runner_name": "bs-1",
+                         "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+
+        switch.wait_for_probe(Quick(None), 1, 1, 5, switch.PROBE_LABELS, now=clock.now, sleep=clock.sleep,
+                              log=lambda line: None, slow=quick)
+        self.assertEqual(quick, set())
 
     def test_plan_off_never_writes_a_reused_machine_to_a_signing_variable(self) -> None:
         # Even a failover map that carries one (an older caller) is filtered.

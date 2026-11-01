@@ -78,6 +78,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+import runner_pools  # noqa: E402  (the 32+ vCPU measurement table)
 from runner_label_policy import HOSTED_MACOS_LABEL  # noqa: E402
 import signing_runner_variables  # noqa: E402
 
@@ -95,6 +96,12 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+# Per-label routing health (CI_CLOUD_LABEL_HEALTH) calls a size stalled once its probe has waited this
+# long with no runner, even if a runner takes it before the switch's own PROBE_MINUTES: the pool steps
+# off a size that sits 3 minutes without starting a job (Leo's rulebook, "No pins": "a job queued more
+# than about 3 minutes on a label that has started nothing is cancelled and re-dispatched onto a live
+# member of the set"). The fleet-wide on/off decision keeps PROBE_MINUTES.
+POOL_STALL_MINUTES = 3
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
@@ -239,6 +246,11 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
                                     "Ubuntu; ignored")
+                elif runner_pools.unmeasured_large(value.strip(), runner_pools.load_large()):
+                    # On 2026-11-01 CI_CLOUD_FAILOVER pinned LINUX_RUNNER to 32 vCPU by hand.
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, "
+                                    f"{runner_pools.LARGE_VCPUS}+ vCPU with no measurement in runners.json "
+                                    "large_runners; ignored")
                 elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
                                     "not accept; ignored")
@@ -606,10 +618,20 @@ def probe_set_outcome(jobs: Iterable[Mapping[str, Any]], labels: Sequence[str], 
     return "partial", stalled
 
 
+def slow_probes(jobs: Iterable[Mapping[str, Any]], labels: Sequence[str], now: dt.datetime,
+                minutes: int) -> set[str]:
+    """The labels whose probe is still queued with no runner `minutes` after it was created."""
+    by_name = {str(job.get("name")): job for job in jobs}
+    return {label for label in labels if probe_outcome(by_name.get(probe_job_name(label)), now, minutes) == "stalled"}
+
+
 def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
                    now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                   log: Callable[[str], None]) -> tuple[str, list[str]]:
-    """Watch this run's probe jobs until every one has started or waited `minutes`."""
+                   log: Callable[[str], None], slow: set[str] | None = None) -> tuple[str, list[str]]:
+    """Watch this run's probe jobs until every one has started or waited `minutes`.
+
+    `slow`, when given, collects every label seen with its probe still queued POOL_STALL_MINUTES (or
+    `minutes`, if shorter) after creation, whether or not a runner took it later."""
     deadline = now() + dt.timedelta(minutes=minutes + 5)
     while True:
         try:
@@ -617,6 +639,8 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
         except RuntimeError as error:
             log(f"could not list this run's jobs ({error}); trying again")
             jobs = []
+        if slow is not None:
+            slow |= slow_probes(jobs, labels, now(), min(POOL_STALL_MINUTES, minutes))
         outcome, stalled = probe_set_outcome(jobs, labels, now(), minutes)
         if outcome != "waiting":
             return outcome, stalled
@@ -766,14 +790,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")
 
-    outcome, stalled = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log)
+    slow: set[str] = set()
+    outcome, stalled = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log,
+                                      slow=slow)
     stamp = iso(now())
     code = 0
     started = [item for item in labels if item not in stalled] if outcome != "unknown" else []
     failover = toward_started(failover, started)
     if outcome != "unknown" and not args.dry_run and switch is not None:
-        health = label_health(labels, stalled, checked=stamp, run=f"https://github.com/{repo}/actions/runs/{run_id}",
-                              minutes=minutes)
+        # A size that sat POOL_STALL_MINUTES before a runner took its probe is stalled for routing: the
+        # pool steps to its next member (runner_pools.py) though the fleet-wide decision called it started.
+        health = label_health(labels, set(stalled) | slow, checked=stamp,
+                              run=f"https://github.com/{repo}/actions/runs/{run_id}", minutes=minutes)
         try:
             switch.set_variable(HEALTH_VARIABLE, json.dumps(health, sort_keys=True))
         except RuntimeError as error:

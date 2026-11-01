@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import datetime as dt
 import json
 import re
@@ -198,9 +200,55 @@ class Reconcile(unittest.TestCase):
         probed, _ = self.run_once(first, served={"blacksmith-32vcpu-ubuntu-2404"}, now=NOW + dt.timedelta(minutes=5))
         self.assertEqual(probed["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
-    def test_every_member_dead_keeps_the_first(self) -> None:
-        value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
-        self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
+    def test_every_member_dead_takes_the_smallest(self) -> None:
+        # Blacksmith's concurrency is a hard, small cap: with every size stalled, the smallest starts the most
+        # jobs under it. Before this the pool kept its first member, whatever its size.
+        value, lines = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
+        # Order does not decide it: macos_26 lists 6 then 12 vCPU, macos_26_large 12 then 6.
+        value, _ = self.run_once({}, dead={"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
+        self.assertEqual((value["macos_26"], value["macos_26_large"]),
+                         ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"))
+        # The declared linux pool, every member stalled: its smallest member.
+        pools = runner_pools.load_pools()
+        sizes = runner_pools.members(pools["linux"])
+        value, _ = runner_pools.reconcile({}, pools, dead_now=set(sizes), served_now=(), now=NOW)
+        self.assertEqual(value["linux"], min(sizes, key=runner_pools.vcpus))
+
+    def test_smallest_reads_the_vcpu_count(self) -> None:
+        self.assertEqual(runner_pools.vcpus("blacksmith-16vcpu-ubuntu-2404"), 16)
+        self.assertIsNone(runner_pools.vcpus("ubuntu-24.04"))
+        self.assertEqual(runner_pools.smallest(["blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404",
+                                                "blacksmith-16vcpu-ubuntu-2404"]), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.smallest(["ubuntu-24.04"]), "ubuntu-24.04")
+
+    def test_a_32_vcpu_value_with_no_measurement_is_refused(self) -> None:
+        # 2026-11-01: LINUX_RUNNER, RUNNER_POOLS.linux and a CI_CLOUD_FAILOVER override all named
+        # blacksmith-32vcpu-ubuntu-2404, a size no measured job reading them needs, with ~1,500 jobs queued.
+        self.assertEqual(runner_pools.LARGE_VCPUS, 32)
+        large = runner_pools.load_large()
+        self.assertEqual(large, {})
+        self.assertTrue(runner_pools.unmeasured_large("blacksmith-32vcpu-ubuntu-2404", large))
+        self.assertTrue(runner_pools.unmeasured_large("blacksmith-64vcpu-ubuntu-2404", large))
+        self.assertFalse(runner_pools.unmeasured_large("blacksmith-16vcpu-ubuntu-2404", large))
+        self.assertFalse(runner_pools.unmeasured_large("blacksmith-32vcpu-ubuntu-2404",
+                                                       {"blacksmith-32vcpu-ubuntu-2404": "measured: x"}))
+        # A pool member: refused by the spec check unless measured; the declared pools pass.
+        pools = {"linux": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("no measurement" in problem for problem in runner_pools.spec_problems(pools, {})))
+        self.assertEqual(runner_pools.spec_problems(pools, {"blacksmith-32vcpu-ubuntu-2404": "measured: x"}), [])
+        self.assertEqual(runner_pools.spec_problems(runner_pools.load_pools()), [])
+        # Live values: RUNNER_POOLS.linux and LINUX_RUNNER on 32 vCPU are moved off it, with an error.
+        switch = Main.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+        env = {"RUNNER_POOLS": json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404"})}
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
+        self.assertIn("::error title=Runner pools::LINUX_RUNNER names blacksmith-32vcpu-ubuntu-2404", out.getvalue())
+        self.assertIn("::error title=Runner pools::RUNNER_POOLS names blacksmith-32vcpu-ubuntu-2404", out.getvalue())
+        first = runner_pools.members(runner_pools.load_pools()["linux"])[0]
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual(json.loads(raw)["linux"], first)
+        self.assertEqual(mirrored, ("LINUX_RUNNER", first))
 
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})

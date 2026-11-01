@@ -54,6 +54,15 @@
 
   "default_fleet": "hosted",
 
+  "large_runners": {
+    "$comment": [
+      "Blacksmith sizes of 32 vCPU or more that a routing value may name, each with the measurement that",
+      "justifies it (scripts/ci/runner_pools.py LARGE_VCPUS). A pool member, LINUX_RUNNER, RUNNER_POOLS, a",
+      "CI_CLOUD_FAILOVER override or a switch failover naming such a size with no entry here is refused.",
+      "Empty: no measured job reading a routing variable needs 32 vCPU (Leo, 2026-11-01: \"ok. we clearly are",
+      "not able to use them. so we should have resized a long-ass time ago.\")."
+    ]
+  },
   "pools": {
     "$comment": [
       "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",

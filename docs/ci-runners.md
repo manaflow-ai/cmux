@@ -992,7 +992,7 @@ nobody serves.
 
 | Pool | Members (first is preferred) |
 | --- | --- |
-| `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
+| `linux` | Blacksmith 4 vCPU, then 16 vCPU (smallest measured first). A size whose probe waits 3 minutes with no runner is stalled; with every member stalled the pool takes its smallest. No 32+ vCPU size without a measurement in `large_runners` |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
 | `windows` | Blacksmith 4 vCPU Windows |
 | `macos_15` | Blacksmith macOS 15 |
