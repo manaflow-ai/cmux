@@ -47,6 +47,11 @@ export const L = {
   envDefaultMissing: "environment.defaultMissing",
   envScriptReset: "environment.scriptReset",
   envSecretRequired: "environment.secretRequired",
+  envNameTaken: "environment.nameTaken",
+  envInvalidFields: "environment.invalidFields",
+  envNotFound: "environment.notFound",
+  envSecretsUnavailable: "environment.secretsUnavailable",
+  envUnsavedChanges: "environment.unsavedChanges",
 
   title: "page.title",
   disconnected: "page.disconnected",

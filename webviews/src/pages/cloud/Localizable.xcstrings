@@ -25608,6 +25608,666 @@
           }
         }
       }
+    },
+    "environment.nameTaken": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم البيئة مستخدم بالفعل. اختر اسمًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naziv okruženja već se koristi. Odaberite drugi naziv."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miljønavnet er allerede i brug. Vælg et andet navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Umgebungsname wird bereits verwendet. Wähle einen anderen Namen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That environment name is already in use. Choose another name."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese nombre de entorno ya está en uso. Elige otro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce nom d’environnement est déjà utilisé. Choisissez-en un autre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il nome dell’ambiente è già in uso. Scegline un altro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その環境名はすでに使用されています。別の名前を選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះបរិស្ថាននេះកំពុងប្រើរួចហើយ។ ជ្រើសរើសឈ្មោះផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 환경 이름은 이미 사용 중입니다. 다른 이름을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette miljønavnet er allerede i bruk. Velg et annet navn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta nazwa środowiska jest już używana. Wybierz innną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse nome de ambiente já está em uso. Escolha outro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это имя среды уже используется. Выберите другое."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อสภาพแวดล้อมนี้ถูกใช้แล้ว โปรดเลือกชื่ออื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ortam adı zaten kullanılıyor. Başka bir ad seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця назва середовища вже використовується. Виберіть іншу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên môi trường này đã được sử dụng. Hãy chọn tên khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此环境名称已在使用。请选择其他名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此環境名稱已在使用。請選擇其他名稱。"
+          }
+        }
+      }
+    },
+    "environment.invalidFields": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق من حقول البيئة وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerite polja okruženja i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollér miljøfelterne, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überprüfe die Umgebungsfelder und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the environment fields and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisa los campos del entorno y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez les champs de l’environnement et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla i campi dell’ambiente e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境の項目を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យវាលបរិស្ថាន ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경 필드를 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroller miljøfeltene og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź pola środowiska i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confira os campos do ambiente e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте поля среды и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบฟิลด์สภาพแวดล้อมแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortam alanlarını kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірте поля середовища й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy kiểm tra các trường môi trường rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请检查环境字段后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請檢查環境欄位後再試一次。"
+          }
+        }
+      }
+    },
+    "environment.notFound": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد هذه البيئة متاحة. أعد تحميل البيئة وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To okruženje više nije dostupno. Ponovo učitajte okruženje i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miljøet er ikke længere tilgængeligt. Indlæs miljøet igen, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Umgebung ist nicht mehr verfügbar. Lade sie neu und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That environment is no longer available. Reload the environment and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese entorno ya no está disponible. Vuelve a cargarlo e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet environnement n’est plus disponible. Rechargez-le et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo ambiente non è più disponibile. Ricaricalo e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その環境は利用できなくなりました。再読み込みしてもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរិស្ថាននេះលែងមានទៀតហើយ។ ផ្ទុកបរិស្ថានឡើងវិញ ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 환경을 더 이상 사용할 수 없습니다. 환경을 다시 불러온 후 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette miljøet er ikke lenger tilgjengelig. Last inn miljøet på nytt og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To środowisko nie jest już dostępne. Wczytaj je ponownie i spróbuj jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse ambiente não está mais disponível. Recarregue-o e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта среда больше недоступна. Перезагрузите её и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สภาพแวดล้อมนี้ไม่พร้อมใช้งานอีกต่อไป โหลดสภาพแวดล้อมใหม่แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ortam artık kullanılamıyor. Ortamı yeniden yükleyip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це середовище більше недоступне. Перезавантажте його й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Môi trường này không còn khả dụng. Hãy tải lại môi trường rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此环境已不可用。请重新加载环境后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此環境已無法使用。請重新載入環境後再試一次。"
+          }
+        }
+      }
+    },
+    "environment.secretsUnavailable": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخزين الأسرار غير متاح مؤقتًا. حاول الحفظ مرة أخرى لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pohrana tajni privremeno nije dostupna. Pokušajte ponovo sačuvati kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagring af hemmeligheder er midlertidigt utilgængelig. Prøv at gemme igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Geheimnisspeicher ist vorübergehend nicht verfügbar. Versuche später erneut zu speichern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secret storage is temporarily unavailable. Try saving again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacenamiento de secretos no está disponible temporalmente. Intenta guardar de nuevo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le stockage des secrets est temporairement indisponible. Réessayez d’enregistrer plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archiviazione dei segreti non è temporaneamente disponibile. Prova a salvare più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットストレージは一時的に利用できません。後でもう一度保存してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទុកសម្ងាត់មិនអាចប្រើបានបណ្តោះអាសន្ន។ ព្យាយាមរក្សាទុកម្តងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀 저장소를 일시적으로 사용할 수 없습니다. 나중에 다시 저장하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagring av hemmeligheter er midlertidig utilgjengelig. Prøv å lagre igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn sekretów jest tymczasowo niedostępny. Spróbuj zapisać ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento de segredos está temporariamente indisponível. Tente salvar novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище секретов временно недоступно. Попробуйте сохранить позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่จัดเก็บข้อมูลลับไม่พร้อมใช้งานชั่วคราว ลองบันทึกอีกครั้งในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli bilgi depolama geçici olarak kullanılamıyor. Daha sonra tekrar kaydetmeyi deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище секретів тимчасово недоступне. Спробуйте зберегти пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ lưu trữ bí mật tạm thời không khả dụng. Hãy thử lưu lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机密存储暂时不可用。请稍后重试保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密鑰儲存空間暫時無法使用。請稍後再試著儲存。"
+          }
+        }
+      }
+    },
+    "environment.unsavedChanges": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لديك تغييرات غير محفوظة. احفظها أو ألغها قبل تبديل البيئة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imate nesačuvane izmjene. Sačuvajte ih ili otkažite prije promjene okruženja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du har ændringer, der ikke er gemt. Gem eller annullér dem, før du skifter miljø."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast ungespeicherte Änderungen. Speichere sie oder brich sie ab, bevor du die Umgebung wechselst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have unsaved changes. Save or cancel them before switching environments."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tienes cambios sin guardar. Guárdalos o cancélalos antes de cambiar de entorno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez des modifications non enregistrées. Enregistrez-les ou annulez-les avant de changer d’environnement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai modifiche non salvate. Salvale o annullale prima di cambiare ambiente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されていない変更があります。環境を切り替える前に保存またはキャンセルしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកមានការផ្លាស់ប្តូរដែលមិនបានរក្សាទុក។ រក្សាទុក ឬបោះបង់វាមុនពេលប្តូរបរិស្ថាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장하지 않은 변경 사항이 있습니다. 환경을 전환하기 전에 저장하거나 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du har endringer som ikke er lagret. Lagre eller avbryt dem før du bytter miljø."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masz niezapisane zmiany. Zapisz je lub anuluj przed przełączeniem środowiska."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você tem alterações não salvas. Salve ou cancele-as antes de trocar de ambiente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вас есть несохранённые изменения. Сохраните или отмените их перед сменой среды."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณมีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก บันทึกหรือยกเลิกก่อนเปลี่ยนสภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydedilmemiş değişiklikleriniz var. Ortamları değiştirmeden önce kaydedin veya iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вас є незбережені зміни. Збережіть або скасуйте їх, перш ніж змінювати середовище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn có các thay đổi chưa lưu. Hãy lưu hoặc hủy trước khi chuyển môi trường."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你有未保存的更改。请先保存或取消，然后再切换环境。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您有未儲存的變更。請先儲存或取消，再切換環境。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

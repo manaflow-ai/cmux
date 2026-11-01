@@ -18,6 +18,17 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   file: L.envFileFailed,
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
+  switch: L.envUnsavedChanges,
+};
+// Native forwards only the typed platform code; never render its upstream message,
+// which could quote a write-only secret. Existing localized field guidance keeps
+// these failures actionable without exposing transport details.
+const typedErrorKeys: Record<string, string> = {
+  "cloud_environment.default_locked": L.envDefaultLocked,
+  "cloud_environment.name_taken": L.envNameTaken,
+  "cloud_environment.invalid": L.envInvalidFields,
+  "cloud_environment.not_found": L.envNotFound,
+  "cloud_environment.secrets_unavailable": L.envSecretsUnavailable,
 };
 const sections = {
   overview: L.envTitle,
@@ -141,7 +152,7 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
           )}
           {state.error && (
             <p role="alert" className="env-error">
-              {t(errorKeys[state.error])}
+              {t((state.errorCode && typedErrorKeys[state.errorCode]) || errorKeys[state.error])}
             </p>
           )}
           {!draft && !state.loading && (

@@ -1,7 +1,14 @@
 import { useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
-import type { EnvironmentDraft, EnvironmentVariable } from "./environmentModel";
+import {
+  draftRow,
+  draftRowKey,
+  draftRowWith,
+  type EnvironmentDraft,
+  type EnvironmentDraftVariable,
+  type EnvironmentVariable,
+} from "./environmentModel";
 import type { EnvironmentState, EnvironmentStore } from "./environmentStore";
 
 export function EnvironmentNetwork({
@@ -74,15 +81,22 @@ export function EnvironmentValues({
 }) {
   const { t } = strings;
   const rows = secrets ? draft.secrets : draft.variables;
-  const set = (next: EnvironmentVariable[]) => store.edit(secrets ? { secrets: next } : { variables: next });
+  const set = (next: EnvironmentDraftVariable[]) => store.edit(secrets ? { secrets: next } : { variables: next });
   const edit = (index: number, patch: Partial<EnvironmentVariable>) =>
-    set(rows.map((row, at) => (at === index ? { ...row, ...patch } : row)));
+    set(
+      rows.map((row, at) => {
+        if (at !== index) return row;
+        // Keep the row's identity when editing its name/value so React never reuses
+        // another row's focused input.
+        return draftRowWith(row, patch);
+      }),
+    );
   const existing = store.getSnapshot().original?.secrets ?? [];
   return (
     <div className="env-fields">
       {secrets && <p className="env-note">{t(L.envSecretNote)}</p>}
       {rows.map((row, index) => (
-        <div className="env-value-row" key={index}>
+        <div className="env-value-row" key={draftRowKey(row)}>
           <input
             aria-label={t(secrets ? L.envSecretName : L.envVariableName)}
             autoComplete="off"
@@ -109,7 +123,7 @@ export function EnvironmentValues({
           </button>
         </div>
       ))}
-      <button type="button" className="env-button env-add" onClick={() => set([...rows, { name: "", value: "" }])}>
+      <button type="button" className="env-button env-add" onClick={() => set([...rows, draftRow()])}>
         {t(L.envAdd)}
       </button>
     </div>

@@ -60,6 +60,57 @@ describe("cloud environment editing", () => {
     expect(store.getSnapshot().original?.id).toBe("env_personal");
   });
 
+  test("reopening the same environment keeps the unsaved draft and only changes section", async () => {
+    const { store } = fake();
+    await store.open({ section: "overview" });
+    store.edit({ script: "echo unsaved" });
+    await store.open({ section: "script" });
+    expect(store.getSnapshot().section).toBe("script");
+    expect(store.getSnapshot().draft?.script).toBe("echo unsaved");
+  });
+
+  test("implicit and explicit personal Default opens share the same draft", async () => {
+    const { store } = fake();
+    await store.open({ section: "overview" });
+    store.edit({ script: "echo implicit" });
+    await store.open({ environmentId: "env_personal", section: "script" });
+    expect(store.getSnapshot()).toMatchObject({ section: "script", error: undefined });
+    expect(store.getSnapshot().draft?.script).toBe("echo implicit");
+
+    store.edit({ script: "echo explicit" });
+    await store.open({ section: "variables" });
+    expect(store.getSnapshot()).toMatchObject({ section: "variables", error: undefined });
+    expect(store.getSnapshot().draft?.script).toBe("echo explicit");
+  });
+
+  test("changing repository context fences and refreshes a derived prefill", async () => {
+    const repositories: string[] = [];
+    const { store } = fake({
+      derive: async ({ repo }) => {
+        repositories.push(repo);
+        return { setup: { script: `echo ${repo}` } };
+      },
+    });
+    await store.open({ repo: "example/one", ref: "main" });
+    await settle();
+    expect(store.getSnapshot().derivedScript).toBe("echo example/one");
+    await store.open({ repo: "example/two", ref: "main", section: "script" });
+    await settle();
+    expect(repositories).toEqual(["example/one", "example/two"]);
+    expect(store.getSnapshot().derivedScript).toBe("echo example/two");
+    expect(store.getSnapshot().draft?.script).toBeNull();
+  });
+
+  test("switching targets with edits keeps the current draft and explains how to proceed", async () => {
+    const { store } = fake();
+    await store.open({ environmentId: "env_first" });
+    store.edit({ script: "echo unsaved" });
+    await store.open({ environmentId: "env_second" });
+    expect(store.getSnapshot()).toMatchObject({ error: "switch", open: true });
+    expect(store.getSnapshot().original?.id).toBe("env_first");
+    expect(store.getSnapshot().draft?.script).toBe("echo unsaved");
+  });
+
   test("a missing Default is recoverable without inventing an environment", async () => {
     let attempts = 0;
     const { store } = fake({ list: async () => (++attempts === 1 ? [] : [environment()]) });
@@ -149,6 +200,21 @@ describe("cloud environment editing", () => {
     expect(writes).toHaveLength(2);
     expect(writes[1]).toEqual(writes[0]);
     expect(store.getSnapshot().draft).toBeUndefined();
+  });
+
+  test("typed platform save errors keep the draft and expose only their code", async () => {
+    const { store } = fake({
+      update: async () => {
+        throw Object.assign(new Error("secret value must never render"), { code: "cloud_environment.name_taken" });
+      },
+    });
+    await store.open();
+    store.edit({ script: "echo retry" });
+    await store.save();
+    expect(store.getSnapshot()).toMatchObject({ error: "save", errorCode: "cloud_environment.name_taken", open: true });
+    expect(store.getSnapshot().draft?.script).toBe("echo retry");
+    store.error("copy");
+    expect(store.getSnapshot().errorCode).toBeUndefined();
   });
 
   test("duplicate save, edits and dismissal cannot race an in-flight write", async () => {

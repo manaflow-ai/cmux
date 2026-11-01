@@ -1,5 +1,36 @@
 /** The platform's cloud-environment schema; secret values appear only in PATCH drafts. */
 export type EnvironmentVariable = { name: string; value: string };
+// Draft-only identity. It is non-enumerable so the wire PATCH remains the platform shape.
+const draftRowIdentity = Symbol("cloudEnvironmentDraftRow");
+export type EnvironmentDraftVariable = EnvironmentVariable & { [draftRowIdentity]?: string };
+let nextDraftRowIdentity = 0;
+export function draftRowKey(row: EnvironmentDraftVariable): string {
+  if (!row[draftRowIdentity]) {
+    Object.defineProperty(row, draftRowIdentity, {
+      value: `environment-row-${++nextDraftRowIdentity}`,
+      enumerable: false,
+      configurable: false,
+    });
+  }
+  return row[draftRowIdentity]!;
+}
+export function draftRow(name = "", value = ""): EnvironmentDraftVariable {
+  const row: EnvironmentDraftVariable = { name, value };
+  draftRowKey(row);
+  return row;
+}
+export function draftRowWith(
+  row: EnvironmentDraftVariable,
+  patch: Partial<EnvironmentVariable>,
+): EnvironmentDraftVariable {
+  const next: EnvironmentDraftVariable = { ...row, ...patch };
+  Object.defineProperty(next, draftRowIdentity, {
+    value: draftRowKey(row),
+    enumerable: false,
+    configurable: false,
+  });
+  return next;
+}
 export type CloudEnvironment = {
   id: string;
   scope: "personal" | "team";
@@ -22,8 +53,8 @@ export type EnvironmentOpen = { environmentId?: string; repo?: string; ref?: str
 export type EnvironmentDraft = {
   name: string;
   script: string | null;
-  variables: EnvironmentVariable[];
-  secrets: EnvironmentVariable[];
+  variables: EnvironmentDraftVariable[];
+  secrets: EnvironmentDraftVariable[];
   network: CloudEnvironment["network"];
 };
 export const SETUP_SCRIPT_BYTES = 64 * 1024;
@@ -33,8 +64,8 @@ export function environmentDraft(environment: CloudEnvironment): EnvironmentDraf
   return {
     name: environment.name,
     script: environment.setup_script,
-    variables: environment.env_vars.map((row) => ({ ...row })),
-    secrets: environment.secrets.map(({ name }) => ({ name, value: "" })),
+    variables: environment.env_vars.map(({ name, value }) => draftRow(name, value)),
+    secrets: environment.secrets.map(({ name }) => draftRow(name)),
     network: { ...environment.network, domains: [...environment.network.domains] },
   };
 }
@@ -54,13 +85,14 @@ export function environmentPatch(original: CloudEnvironment, draft: EnvironmentD
   const patch: EnvironmentPatch = {};
   if (!original.is_default && draft.name.trim() !== original.name) patch.name = draft.name.trim();
   if (draft.script !== original.setup_script) patch.setup_script = draft.script;
-  if (JSON.stringify(draft.variables) !== JSON.stringify(original.env_vars)) patch.env_vars = draft.variables;
+  if (JSON.stringify(draft.variables) !== JSON.stringify(original.env_vars))
+    patch.env_vars = draft.variables.map(({ name, value }) => ({ name, value }));
   const network = {
     ...draft.network,
     domains: [...new Set(draft.network.domains.map((domain) => domain.trim()).filter(Boolean))],
   };
   if (JSON.stringify(network) !== JSON.stringify(original.network)) patch.network = network;
-  const set = draft.secrets.filter((row) => row.value !== "");
+  const set = draft.secrets.filter((row) => row.value !== "").map(({ name, value }) => ({ name, value }));
   const remove = original.secrets.filter((row) => !draft.secrets.some((secret) => secret.name === row.name));
   if (set.length) patch.set_secrets = set;
   if (remove.length) patch.remove_secrets = remove.map((row) => row.name);

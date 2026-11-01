@@ -142,3 +142,73 @@ test("the checklist entry displays the derived Bash script and backs into the co
     await mounted.dispose();
   }
 });
+
+test("Copy uses the displayed derived script and reports clipboard failures", async () => {
+  const writes: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        writes.push(value);
+      },
+    },
+  });
+  const mounted = await mount("script");
+  try {
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".env-editor-toolbar button")!.click();
+      await settle();
+    });
+    expect(writes).toEqual(["#!/bin/bash\nnpm ci\n"]);
+    await act(async () => {
+      mounted.store.edit({ script: "echo custom" });
+      await settle();
+      document.querySelector<HTMLButtonElement>(".env-editor-toolbar button")!.click();
+      await settle();
+    });
+    expect(writes).toEqual(["#!/bin/bash\nnpm ci\n", "echo custom"]);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("clipboard denied");
+        },
+      },
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".env-editor-toolbar button")!.click();
+      await settle();
+    });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Could not copy");
+    expect(mounted.store.getSnapshot().draft?.script).toBe("echo custom");
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("variable rows retain their DOM identity when an earlier row is removed", async () => {
+  const mounted = await mount();
+  try {
+    await act(async () => {
+      button("Environment variables")!.click();
+    });
+    const add = () => document.querySelector<HTMLButtonElement>(".env-add")!.click();
+    await act(async () => {
+      add();
+    });
+    await act(async () => {
+      add();
+    });
+    let inputs = () => Array.from(document.querySelectorAll<HTMLInputElement>(".env-value-row input"));
+    const secondValue = inputs()[3]!;
+    await act(async () => {
+      document.querySelectorAll<HTMLButtonElement>(".env-value-row .env-icon")[0]!.click();
+      await settle();
+    });
+    inputs = () => Array.from(document.querySelectorAll<HTMLInputElement>(".env-value-row input"));
+    expect(inputs()[1]).toBe(secondValue);
+  } finally {
+    await mounted.dispose();
+  }
+});
