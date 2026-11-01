@@ -296,6 +296,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         expect(painted).toHaveLength(1);
         expect(painted[0]).toContain("Fix the atlas build");
         expect(painted[0]).toContain("Older device chat");
+        // The bar names the folder and the machine; New Worktree is in the folder menu only.
         expect(painted[0]).toStartWith("atlas cosmic-gray ::");
       },
     );

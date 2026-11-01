@@ -58,6 +58,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         calls.append((method, params))
         defer { onCall?() }
         if let answered = answer?(method, params) { return answered }
+        if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
@@ -78,8 +79,10 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func reload() { reloads += 1 }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
-    /// Does nothing.
-    public func setFocused(_ focused: Bool) {}
+    /// Every focus ask, in order.
+    public private(set) var focusAsks: [Bool] = []
+    /// Records the ask in ``focusAsks``.
+    public func setFocused(_ focused: Bool) { focusAsks.append(focused) }
     /// Does nothing.
     public func setVisible(_ visible: Bool) { visibility.append(visible) }
 

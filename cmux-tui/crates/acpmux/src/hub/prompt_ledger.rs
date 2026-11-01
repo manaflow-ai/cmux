@@ -105,6 +105,19 @@ impl Hub {
                 }
             }
             match (rec.kind.as_str(), &turn_id) {
+                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
+                // waits again under its own turn id. Ahead of the arm below, which would take
+                // the record too and keep the refused digest this prompt's.
+                ("queued", Some(_))
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    started = false;
+                    ended = None;
+                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
+                    digest = None;
+                }
                 ("user_message" | "queued", _)
                     if !started
                         && ended.is_none()
@@ -129,18 +142,6 @@ impl Hub {
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     ended = Some(rec.msg);
-                }
-                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
-                // waits again under its own turn id.
-                ("queued", Some(_))
-                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
-                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
-                {
-                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                    started = false;
-                    ended = None;
-                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
-                    digest = None;
                 }
                 ("turn_stop_requested", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
@@ -420,6 +421,43 @@ mod tests {
                 assert_eq!(logged.unwrap()["_meta"]["acpmux"]["turnId"], "actual");
             }
         }
+    }
+
+    /// A message an inbox digest took, put back when the digest was refused before its turn,
+    /// then run on its own turn: a resend answers from that turn, not as withdrawn with the
+    /// digest whose removal is logged after the message went back (`inbox_digest.rs`).
+    #[tokio::test]
+    async fn a_message_a_refused_digest_put_back_answers_from_its_own_turn() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        store.save(&serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "ledger", "name": "ledger",
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
+        })).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        let session = hub.resolve("ledger").unwrap();
+        let digest = json!({"promptId": "d", "turnId": "td", "took": [{"promptId": "p"}],
+            "_meta": {"provenance": {"kind": crate::hub::digest::inbox_digest::KIND}}});
+        for (kind, msg) in [
+            ("queued", json!({"promptId": "p", "turnId": "t"})),
+            ("queued", digest),
+            ("dequeued", json!({"promptId": "p", "turnId": "t", "digestPromptId": "d"})),
+            ("prompt_refused", json!({"promptId": "d", "turnId": "td"})),
+            ("queued", json!({"promptId": "p", "turnId": "back", "requeued": true})),
+            ("queue_removed", json!({"promptId": "d", "turnId": "td"})),
+            ("turn_started", json!({"promptId": "p", "turnId": "back"})),
+            (
+                "turn_result",
+                json!({"turnId": "back", "status": "completed", "stopReason": "end_turn"}),
+            ),
+        ] {
+            hub.append(&session, "mux", kind, msg);
+        }
+        let logged = hub.logged_prompt(&session, "p").unwrap();
+        assert_eq!(logged["_meta"]["acpmux"]["status"], "completed", "{logged}");
+        assert_eq!(logged["_meta"]["acpmux"]["turnId"], "back", "{logged}");
+        assert_eq!(logged["stopReason"], "end_turn", "{logged}");
     }
 
     #[test]

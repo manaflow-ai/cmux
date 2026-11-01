@@ -28,6 +28,19 @@ import Testing
         #expect(pacer.failed() == nil, "a real failure still spends the budget")
     }
 
+    /// Past the budget, a busy refusal still keeps a timed retry: the reconnect is not spent, so a
+    /// remote machine's header does not read offline while its daemon is only busy (HQ #4877 G4).
+    @Test func aBusyRefusalPastTheBudgetIsNotEventOnly() {
+        var pacer = RetryPacer(RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 1))
+        _ = pacer.failed()
+        #expect(pacer.waitsForEventOnly)
+        pacer.refusedBusy()
+        #expect(pacer.isExhausted)
+        #expect(!pacer.waitsForEventOnly)
+        _ = pacer.failed()
+        #expect(pacer.waitsForEventOnly)
+    }
+
     /// A busy refusal noted by a reconnect loop that then stopped does not make the next drop's
     /// first real failure free.
     @Test func aResetForgetsAnUnspentBusyRefusal() {

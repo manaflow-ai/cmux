@@ -2,13 +2,15 @@
 //! thousands of sessions, most of them closed, which no agent can read whole: with no filter the
 //! text view is the compact one (`cli/ls_table.rs`), which counts what it hides and names the
 //! flag that shows it. `--json` with no flag is the full list, unchanged: scripts (lane-place,
-//! pr-owner and the reconcilers) read every row. A listing never starts a daemon
+//! pr-owner and the reconcilers) read every row. The list is read in pages however large it is
+//! (`ls_pages.rs`), and `--cursor` reads one. A listing never starts a daemon
 //! (`daemon/running.rs`).
 
 use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
+use super::ls_pages::{self, PAGE_ROWS, Plan, Step};
 use crate::cli::errors;
 use crate::cli::ls_table::{self, View};
 use crate::cli::output::print_json;
@@ -38,9 +40,17 @@ pub struct LsArgs {
     /// Only sessions carrying this tag (key or key=value).
     #[arg(long)]
     tag: Option<String>,
-    /// Return at most N sessions, newest first.
+    /// Return at most N sessions, newest first. With `--json`, `nextCursor` names where the
+    /// next ones start (`--cursor`); null when none is left.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     limit: Option<u64>,
+    /// Read one page: the sessions after the `nextCursor` a paged `--json` listing printed
+    /// (`--limit` of them, else 1000), and the page's own `nextCursor`. An empty one is the
+    /// first page. A page may repeat the row the last one ended on, never skip one: a chat and
+    /// its copy on a peer updated in the same millisecond share one cursor on older daemons, and
+    /// a page of one past it holds two rows, as one row would hand that cursor back.
+    #[arg(long, value_name = "CURSOR")]
+    cursor: Option<String>,
     /// Select comma-separated fields from each session record; a dotted path reads a nested
     /// one (`turn.activity`, `lane.state`, `tags.area`).
     #[arg(long, value_name = "FIELD[,FIELD…]")]
@@ -57,7 +67,8 @@ pub struct LsArgs {
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
     all: bool,
-    /// Text view: every column (AGENT, STATUS, STUCK and LAST, the last prompt).
+    /// Text view: every column (AGENT, STATUS, STUCK, the usage columns and LAST, the last
+    /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
 }
@@ -70,6 +81,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         pending,
         tag,
         limit,
+        cursor,
         fields,
         since,
         with_tools,
@@ -85,8 +97,13 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     let fields = fields.as_deref().map(parse_fields).transpose()?;
     let rows = RowFilter::new(live, host.as_deref(), crate::pairing::machine_name())?;
     // Any filter at all: the text view hides none of the rows it keeps (`ls_table.rs`).
-    let filtered =
-        rows.narrows() || status.is_some() || pending || tag.is_some() || selected || named;
+    let filtered = rows.narrows()
+        || status.is_some()
+        || pending
+        || tag.is_some()
+        || selected
+        || named
+        || cursor.is_some();
     // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
     // a host with no sessions).
     let client = connect_running().await?;
@@ -95,67 +112,104 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         let client = client.clone();
         tokio::spawn(async move { client.request(method::MUX_STATUS, json!({})).await })
     });
-    // The daemon already sorts pages newest first. Ask it to trim the response when
-    // possible; a `--since` filter must run before the limit, so that combination reads
-    // the complete list and applies both filters locally.
-    let daemon_limit = limit
-        .filter(|_| status.is_none() && !pending && tag.is_none() && !rows.narrows() && !named);
-    let mut params = if since_ms.is_none() {
-        daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
-    } else {
-        json!({})
-    };
+    // The daemon drops what it can before it pages (`hub/session_pages.rs`): closed rows for
+    // `--live`, other statuses for `--status`, peers' rows for `--host` this machine. One too
+    // old for a filter sends the rows anyway, and `keeps` drops them below. A peer's name is
+    // matched here only: `--host` takes it in any case, the daemon's `peer` in one.
+    let mut params = json!({});
     if with_tools {
         params.set("withTools", json!(true));
     }
-    // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
-    // carries none of them; `RowFilter` checks again below.
+    // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
+    // compact one shows the rows as they are. Every page asks; the daemon reads at most once
+    // in 5 s, so the pages after the first take the rows that read left.
+    let usage = wide
+        || json_out
+        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+    if usage {
+        params.set("usage", json!(true));
+    }
     if live {
         params.set("excludeStatus", json!(["closed"]));
     }
-    let mut v = client.whole_list(method::MUX_SESSIONS, params).await?;
-    if status.is_some() || pending || tag.is_some() || selected || rows.narrows() || named {
-        let mut sessions = match v.get_mut("sessions") {
-            Some(Value::Array(rows)) => std::mem::take(rows),
-            _ => Vec::new(),
+    let daemon_status = status.as_deref().filter(|s| !matches!(*s, "stuck" | "waiting"));
+    if let Some(status) = daemon_status {
+        params.set("status", json!(status));
+    }
+    if rows.local_only() {
+        params.set("localOnly", json!(true));
+    }
+    let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
+    let keeps = |s: &Value| {
+        let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
+        let st = s.get("status").and_then(Value::as_str).unwrap_or("");
+        let status_ok = match status.as_deref() {
+            None => true,
+            Some("stuck") => s["state"] == "stuck",
+            Some("waiting") => pend,
+            Some(want) => st == want,
         };
-        if selected {
-            sessions.sort_by(|a, b| {
-                b.get("updatedAt")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-                    .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
-                    .then_with(|| {
-                        a.get("sessionId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .cmp(b.get("sessionId").and_then(Value::as_str).unwrap_or(""))
-                    })
-            });
+        let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
+        let name_ok = !named || select::name_matches(s, &patterns);
+        status_ok && (!pending || pend) && tag_ok && name_ok && rows.keeps(s)
+    };
+    let step = |s: &Value| {
+        // Newest first: a row older than `--since` ends the read.
+        if cutoff.is_some_and(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) < at) {
+            Step::Stop
+        } else if keeps(s) {
+            Step::Keep
+        } else {
+            Step::Skip
         }
-        let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
-        sessions.retain(|s| {
-            let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
-            let st = s.get("status").and_then(Value::as_str).unwrap_or("");
-            let status_ok = match status.as_deref() {
-                None => true,
-                Some("stuck") => s["state"] == "stuck",
-                Some("waiting") => pend,
-                Some(want) => st == want,
-            };
-            let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
-            let name_ok = !named || select::name_matches(s, &patterns);
-            let since_ok = cutoff
-                .is_none_or(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at);
-            status_ok && (!pending || pend) && tag_ok && name_ok && since_ok && rows.keeps(s)
+    };
+    // `--cursor` reads one page (of `--limit` rows); `--limit` alone, the newest rows up to it;
+    // neither, every page.
+    let paged = cursor.is_some() || limit.is_some();
+    let plan = Plan {
+        size: cursor.is_some().then_some(limit).flatten().unwrap_or(PAGE_ROWS),
+        want: if cursor.is_some() {
+            None
+        } else {
+            limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
+        },
+        one: cursor.is_some(),
+        // A filter only this side applies thins the pages: asking for just the rows still
+        // wanted could then take a request per row.
+        exact: !named
+            && tag.is_none()
+            && !pending
+            && (status.is_none() || daemon_status.is_some())
+            && (host.is_none() || rows.local_only()),
+    };
+    let fetch = |page: Value| {
+        let client = client.clone();
+        async move { client.request(method::MUX_SESSIONS, page).await }
+    };
+    let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
+    let mut sessions = read.rows;
+    if selected {
+        sessions.sort_by(|a, b| {
+            b.get("updatedAt")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
+                .then_with(|| {
+                    a.get("sessionId")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .cmp(b.get("sessionId").and_then(Value::as_str).unwrap_or(""))
+                })
         });
-        if let Some(limit) = limit {
-            sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-        }
-        if let Some(fields) = fields.as_deref() {
-            sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
-        }
-        v.set("sessions", Value::Array(sessions));
+    }
+    if let Some(fields) = fields.as_deref() {
+        sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
+    }
+    let mut v = json!({"sessions": sessions});
+    // A paged read hands on where the next rows start (null: none is left; absent: the whole
+    // list of a daemon too old for pages, which takes no cursor).
+    if let Some(next) = read.next.filter(|_| paged) {
+        v.set("nextCursor", next);
     }
     if json_out {
         print_json(&v);
@@ -259,6 +313,11 @@ impl RowFilter {
     /// Whether either is set.
     pub(super) fn narrows(&self) -> bool {
         self.live || self.host.is_some()
+    }
+
+    /// `--host` names this machine: no peer's row is kept.
+    pub(super) fn local_only(&self) -> bool {
+        self.host.as_deref().is_some_and(|h| h == "local" || self.own.eq_ignore_ascii_case(h))
     }
 
     pub(super) fn keeps(&self, row: &Value) -> bool {

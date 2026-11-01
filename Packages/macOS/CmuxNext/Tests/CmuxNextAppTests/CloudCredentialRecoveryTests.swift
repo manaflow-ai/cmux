@@ -37,6 +37,8 @@ struct CloudCredentialRecoveryTests {
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
+        // cloud.startChat's first-login confirm caches and installs a year-long login: only the person says Set Up.
+        #expect(DebugDialog.userOnly.contains(CloudPresenter.firstLoginIdentifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {

@@ -208,6 +208,9 @@ export function useUiAnchor(
       if (heightOwner.current?.node !== overlayNode)
         heightOwner.current = { node: overlayNode, caller: overlayNode.style.maxHeight !== "" };
       const callerHeight = heightOwner.current.caller;
+      // Measuring takes the inline bound off, and an overlay that then grows past its rows clamps
+      // its scroll: keep where its rows were scrolled to and put it back once it is bounded again.
+      const scrolled = overlayNode.scrollTop;
       if (!callerHeight) {
         overlayNode.style.visibility = "hidden";
         overlayNode.style.maxHeight = "";
@@ -270,18 +273,24 @@ export function useUiAnchor(
           maxHeight: `${maxHeight}px`,
           visibility: "visible",
         });
+        if (overlayNode.scrollTop !== scrolled) overlayNode.scrollTop = scrolled;
       }
       setStyle(nextStyle);
     };
     update();
+    // A scroller around the anchor moves it; the overlay's own rows scrolling moves nothing.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && overlay.current?.contains(event.target)) return;
+      update();
+    };
     window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
+    window.addEventListener("scroll", onScroll, true);
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(anchor.current!);
     observer?.observe(overlay.current!);
     return () => {
       window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("scroll", onScroll, true);
       observer?.disconnect();
     };
   }, [align, anchor, boundary, gap, margin, minHeight, open, overlay, requestedDirection, side]);

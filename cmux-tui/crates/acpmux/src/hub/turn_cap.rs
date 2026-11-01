@@ -9,8 +9,8 @@
 //! person's own steers still go in, and so does the queue's Send now. The hub steers one notice
 //! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
 //! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
-//! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
-//! timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+//! first agent message past the cap, or at the cap when one waits already, queued or in the inbox
+//! with no notice carrying it ([`Hub::arm_turn_cap`]'s timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
 //! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
 //! the turn itself.
 //!
@@ -142,14 +142,23 @@ impl Hub {
             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             let Some((running, cap)) = capped_turn(&session, now_ms()) else { return };
-            // Another agent's message waits (`queue.rs` keeps its sender as `run.agent`).
-            let waiting = session
+            // Another agent's message waits: queued (`queue.rs` keeps its sender as `run.agent`),
+            // or in the inbox with no notice carrying it (`inbox.rs`), which steers none into a
+            // turn past its cap.
+            let queued = session
                 .queue
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .any(|q| q.run.agent.is_some());
-            if running == turn_id && waiting {
+            let held = session
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .items
+                .iter()
+                .any(|i| !i.noticed);
+            if running == turn_id && (queued || held) {
                 hub.turn_cap_notice(&session, &running, cap);
             }
         });

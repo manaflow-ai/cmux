@@ -175,6 +175,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
                     .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                    .keyboardShortcut(.defaultAction)
             } message: { _ in
                 Text("One emoji.")
             }
@@ -187,6 +188,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
     }
 
@@ -202,6 +204,7 @@ public struct WorkspacesList: View {
                 Button("Create") {
                     withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
@@ -212,6 +215,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
                     .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
             .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
                                 presenting: deletingGroup) { (target: GroupTarget) in
@@ -1012,7 +1016,7 @@ public struct WorkspacesList: View {
         } else if let target {
             EmptyState(
                 symbol: "macwindow",
-                title: "No workspaces yet",
+                title: "No workspaces",
                 message: "New workspaces open right away on \(displayName(target)).",
                 primaryTitle: "New Workspace",
                 primary: { create(.terminal, directory: nil, on: target.id) }
@@ -1054,7 +1058,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "link",
                 title: "\(displayName(mac)) isn't connected",
-                message: "This iPhone shows one Mac's workspaces at a time.",
+                message: "Connect to this Mac to view its workspaces.",
                 primaryTitle: reconnect == nil ? nil : "Connect",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -1063,7 +1067,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "person.crop.circle.badge.questionmark",
                 title: "\(displayName(mac)) belongs to a teammate",
-                message: "Only the iPhones of the person who signed in on \(displayName(mac)) can connect to it. Its workspaces show here, but this iPhone can't open them."
+                message: "Only the account that added \(displayName(mac)) can open its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
@@ -1080,7 +1084,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "macwindow",
                 title: "No workspaces on \(displayName(mac))",
-                message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone yet.",
+                message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone.",
                 primaryTitle: canCreate ? "New Workspace" : nil,
                 primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
             )
@@ -1574,7 +1578,7 @@ struct ConnectMacEmptyState: View {
                     .padding(.top, 16)
                     .padding(.bottom, 20)
                 if let teamName {
-                    Text("No Macs in \(teamName) yet.")
+                    Text("No Macs in \(teamName).")
                         .font(theme.type.rowSubtitle)
                         .foregroundStyle(theme.colors.label2)
                         .multilineTextAlignment(.center)
@@ -1642,8 +1646,9 @@ struct NewWorkspaceButton: View {
             Button("Cancel", role: .cancel) {}
             Button("Open") { openFolder() }
                 .disabled(WorkspaceFolderPath(folderText) == nil)
+                .keyboardShortcut(.defaultAction)
         } message: {
-            Text(target.map { "A folder on \(displayName($0)). The new workspace's terminal opens there." } ?? "")
+            Text(target.map { "The new workspace's terminal opens in this folder on \(displayName($0))." } ?? "")
         }
         .alert("Can't open this folder", isPresented: Binding(get: { folderRefusal != nil }, set: { if !$0 { folderRefusal = nil } })) {
             Button("OK", role: .cancel) {}

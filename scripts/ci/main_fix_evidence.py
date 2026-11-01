@@ -62,12 +62,12 @@ class GitHub:
                 raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
             return output.read().decode(errors="replace")
 
-    def json(self, route: str, *, paginate: bool = False):
+    def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):
         if not paginate:
             return json.loads(self.run(["api", route]))
         # The raw pages, as `--slurp` gave them, one bounded call each (scripts/ci/gh_pages.py).
         try:
-            return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route)
+            return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route, per_page=per_page)
         except gh_pages.PageCapError as error:
             raise Refused(str(error)) from None
 

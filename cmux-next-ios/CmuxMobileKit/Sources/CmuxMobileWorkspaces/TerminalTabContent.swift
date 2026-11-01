@@ -14,13 +14,17 @@ public struct TerminalTabContext {
     /// Finger travel on the page (positive = finger down); collapses and
     /// expands the tab toolbar.
     public var reportScroll: @MainActor (CGFloat) -> Void
+    /// A web link tapped in the terminal: a cmux browser tab beside it, in the same
+    /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
+    public var openLink: (@MainActor (URL) -> Void)?
 
     public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
         self.safeAreaInsets = safeAreaInsets
         self.isInteractive = isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
+        self.openLink = openLink
     }
 }
 
