@@ -4,7 +4,7 @@
 //! machine, which the app then names in the chat.
 //!
 //! What may go: a regular file (canonical, so a symlink is judged by where
-//! it leads) of at most 1 GiB, whose name is not a secret file's or a dot
+//! it leads), whose name is not a secret file's or a dot
 //! file's, and that is either one a file request could share (in the home
 //! folder, outside `~/Library`, dot folders and credential folders:
 //! [`grants::shareable_item`]) or in `cmux-pastes` of this Mac's temporary
@@ -28,14 +28,28 @@ use crate::link::sync_cli;
 
 /// Files one call takes.
 const MAX_FILES: usize = 64;
-/// The largest file uploaded.
-const MAX_FILE_BYTES: u64 = 1 << 30;
 /// The folder of the temporary folder the app writes pastes to.
 const PASTES: &str = "cmux-pastes";
 /// The longest file name the machine holds.
 const MAX_NAME_BYTES: usize = 255;
 
+#[cfg(test)]
 pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Value, Failure> {
+    upload_with_id(socket, root, files, None)
+}
+
+/// An app-owned id lets the app clean the exact transfer's directory after a killed CLI exits.
+pub(super) fn upload_with_id(
+    socket: &Path,
+    root: &str,
+    files: &[String],
+    id: Option<&str>,
+) -> Result<Value, Failure> {
+    use std::io::Write as _;
+
+    if id.is_some_and(|id| !valid_id(id) || files.len() != 1) {
+        return Err(Failure::new("upload_refused", "an upload id names exactly one file"));
+    }
     if files.is_empty() || files.len() > MAX_FILES {
         return Err(Failure::new("upload_refused", "upload 1 to 64 files at a time"));
     }
@@ -44,8 +58,15 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
     let mut uploads = Vec::new();
     let mut sent: Vec<String> = Vec::new();
     for (file, name) in &checked {
-        let at = format!("{root}/local/uploads/{}/{name}", random_id()?);
-        sync_cli::copy_file(socket, file, &at).map_err(|error| {
+        let at = format!(
+            "{root}/local/uploads/{}/{name}",
+            id.map(str::to_string).map(Ok).unwrap_or_else(random_id)?
+        );
+        let mut heartbeat = || {
+            println!(r#"{{"progress":"upload"}}"#);
+            let _ = std::io::stdout().flush();
+        };
+        sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map_err(|error| {
             let went = if sent.is_empty() {
                 String::new()
             } else {
@@ -59,6 +80,21 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
     Ok(json!({"uploads": uploads}))
 }
 
+/// Only the random transfer directory can be removed, never an arbitrary relative path.
+fn valid_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failure> {
+    if !valid_id(id) {
+        return Err(Failure::new("upload_refused", "invalid upload id"));
+    }
+    sync_cli::delete_remote(socket, &format!("{root}/local/uploads/{id}")).map_err(|error| {
+        Failure::new(&sync_cli::push_failure_code(&error), format!("{error:#}"))
+    })?;
+    Ok(json!({}))
+}
+
 /// The canonical file at `path` and its name, when it may be uploaded.
 fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     let refused = |why: &str| {
@@ -68,9 +104,6 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
     if !meta.is_file() {
         return Err(refused("only files can be uploaded"));
-    }
-    if meta.len() > MAX_FILE_BYTES {
-        return Err(refused("it is larger than 1 GiB"));
     }
     let name = canonical
         .file_name()
@@ -115,3 +148,7 @@ fn random_id() -> Result<String, Failure> {
         .map_err(|error| Failure::new("upload_failed", format!("no random id: {error}")))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
+
+#[cfg(test)]
+#[path = "uploads_tests.rs"]
+mod tests;

@@ -71,6 +71,13 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
 
+    /// A native tab-row control or one of its menu items was invoked.
+    public static func tabRowToolInvoked(id: String, menuItemId: String? = nil) -> AgentPageEvent {
+        var value: [String: Any] = ["id": id]
+        if let menuItemId { value["menuItemId"] = menuItemId }
+        return AgentPageEvent(kind: "tabRowToolInvoked", value: JSONValue(foundation: value) ?? .null)
+    }
+
     /// The palette's side-question command, carrying the session selected when it was invoked.
     public static func sideQuestion(_ sessionId: String) -> AgentPageEvent {
         AgentPageEvent(kind: "sideQuestion", value: .string(sessionId))

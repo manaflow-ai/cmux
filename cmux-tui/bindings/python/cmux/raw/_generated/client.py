@@ -162,8 +162,8 @@ class GeneratedClientMixin:
     def cloud_host_replica_status(self) -> JsonValue:
         return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())
 
-    def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
+    def cloud_inbox_list(self, *, cursor: Union[str, None, MissingType] = MISSING, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(cursor=cursor, include_archived=include_archived, limit=limit))
 
     def cloud_inbox_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None]) -> JsonValue:
         return self._invoke_command('cloud-inbox-op', CloudInboxOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op))

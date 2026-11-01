@@ -460,9 +460,9 @@ fi
 # they are never waived: --override is for base-red or flaky lanes. Any such
 # check reported on the exact head must complete green, with or without it.
 # So must `risk evidence` (risk-tier.yml on feat-cmux-next): it grades the PR's
-# own diff and description, so it is never base-red. A high-tier PR clears it
-# with an independent review SHIP receipt on the head, an approving review on
-# the head, or a maintainer's risk:human-ok label (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
+# own diff and description, so it is never base-red. It goes red only on a
+# takeback no `Takes back #N:` line owns; a missing sign-off or a BLOCK on a high
+# head only warns (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
 # so a change to it grades high.
 while IFS=$'\t' read -r name st co; do
   [ -n "$name" ] || continue

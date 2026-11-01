@@ -89,12 +89,14 @@ public final class AcpmuxHub {
     public init() {}
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
-    public func bind(_ channel: (any LinkChannel)?) async {
+    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
         pumpTask?.cancel()
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
+        lastError = nil
         fullAccess = false
+        lastError = nil
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)
@@ -103,20 +105,28 @@ public final class AcpmuxHub {
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
             for await notification in notifications {
+                guard self?.connection === connection else { return }
                 self?.handle(notification)
             }
+            guard !Task.isCancelled, let self, self.connection === connection else { return }
+            self.connection = nil
+            self.isReady = false
+            self.fullAccess = false
+            self.lastError = self.lastError ?? "acpmux channel closed"
+            for entry in self.sources.values { entry.source?.linkDown() }
         }
         do {
             let initialized = try await connection.request("initialize", .object([
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-            ]))
+            ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
-            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+            let watched = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: requestTimeout)
+            guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
-            for value in watched["sessions"]?.arrayValue ?? [] {
+            for value in watched {
                 if let session = AcpmuxSession(value) { next[session.id] = session }
             }
             sessions = next
@@ -128,9 +138,16 @@ public final class AcpmuxHub {
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
-            await seedPending(connection)
+            await seedPending(connection, requestTimeout: requestTimeout)
+            try Task.checkCancellation()
         } catch {
+            guard self.connection === connection else { return }
+            self.connection = nil
+            isReady = false
+            fullAccess = false
             lastError = LinkController.reason(error)
+            for entry in sources.values { entry.source?.linkDown() }
+            await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -138,14 +155,15 @@ public final class AcpmuxHub {
     /// Asks that were already open before this connection watched: acpmux
     /// notifies `permission_pending` only for new ones, so read each waiting
     /// session's permission records and report those with no decision.
-    private func seedPending(_ connection: AcpmuxConnection) async {
+    private func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration) async {
         for session in sessions.values where session.pendingPermissions > 0 {
+            guard !Task.isCancelled, self.connection === connection else { return }
             guard let page = try? await connection.request("_acpmux/events", .object([
                 "sessionId": .string(session.id),
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ])) else { continue }
+            ]), timeout: requestTimeout) else { continue }
             let records = page["events"]?.arrayValue ?? []
             let decided = Set(records.compactMap { record -> String? in
                 record["kind"]?.stringValue == "permission_decision" ? record["msg"]?["permissionId"]?.stringValue : nil
@@ -200,6 +218,12 @@ public final class AcpmuxHub {
     public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
         guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
         return try await connection.request(method, params, timeout: timeout)
+    }
+
+    /// ``AcpmuxConnection/wholeList(_:_:timeout:)`` on the current connection.
+    public func wholeList(_ method: String, _ params: [String: JSONValue], timeout: Duration) async throws -> [JSONValue] {
+        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        return try await connection.wholeList(method, params, timeout: timeout)
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {
@@ -435,12 +459,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
                     // The menu's check follows the pick (no record carries the model change).
                     if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
-                case .retryWithModel(let model, let text, let promptID):
+                case .retryWithModel(let model, let text, let attachments, let promptID):
                     // As the Mac's Retry with another model: the move first; a refusal (acpmux's
                     // own words, e.g. a Claude chat the Mac started) sends nothing.
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
                     if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: model)) }
-                    self.send(.prompt(text: text, attachments: [], steer: false, promptID: promptID, resend: false))
+                    self.send(.prompt(text: text, attachments: attachments, steer: false, promptID: promptID, resend: false))
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
                 case .setConfigOption(let id, let value):
@@ -547,7 +571,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     // MARK: Parity
 
     public func checkpoints() async throws -> [AgentCheckpoint] {
-        throw AgentFeatureUnavailable("Checkpoints are kept by the cmux app on \(summary.macName), and the phone link doesn't carry them yet. Open Changes on the Mac to restore one.")
+        throw AgentFeatureUnavailable("Checkpoints are kept by cmux on \(summary.macName). Open Changes on the Mac to restore one.")
     }
 
     public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
@@ -604,7 +628,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         switch error.reason {
         case "source_busy": "Wait for the agent to finish (no turn running, nothing queued or waiting) before continuing elsewhere."
         case "checkpoint_required": "Save a repository checkpoint first."
-        case "permission.person_required": "Confirm this on your Mac. The phone can't start a continuation by itself yet."
+        case "permission.person_required": "Confirm this on your Mac to continue."
         default: error.message
         }
     }
@@ -685,7 +709,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let error = error as? AcpmuxConnection.RPCError {
             switch error.reason {
             case "permission.person_required":
-                return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
+                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
             case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."

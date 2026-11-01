@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// cmux-next window, near the top center, on every Space and over full screen, that never takes
 /// the keys from what the user types unless the user asked for it (palette or Settings).
 /// A found server's card answers Approve (Return) or Deny (Escape).
-@MainActor @Suite(.serialized) struct AddServerCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AddServerCardTests {
     init() { _ = NSApplication.shared }
 
     private func model() -> (MockServerSource, ServerModel) {
@@ -20,6 +21,7 @@ import Testing
 
     @Test func theCardFloatsOnEverySpaceAndOverFullScreenWithoutActivating() {
         let card = AddServerCardPanel(model: model().1)
+        defer { card.closeAfterTest() }
         #expect(card.styleMask.contains(.nonactivatingPanel))
         #expect(card.styleMask.contains(.borderless))
         #expect(card.collectionBehavior.contains(.canJoinAllSpaces))

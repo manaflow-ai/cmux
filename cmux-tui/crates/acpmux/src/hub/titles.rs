@@ -5,9 +5,12 @@
 //! stream-json has no title event, so a Claude chat kept its first prompt's
 //! line ("Plan a three-dish picnic menu") and so did the workspace named
 //! after it. After such a chat's first turn the title command is asked for
-//! 3-6 words, on the title model (haiku), never for a chat the person named
+//! 3-6 words, on the title model (haiku), never for a chat the person renamed
 //! (`NAMED`); an empty answer is asked again after a later turn, from the
 //! latest prompt (`wants_title`). A harness title, then or later, always wins.
+//! A chat started under a name (`--name`, a lane) is `LAUNCHED`: its name is
+//! a handle, not a title, so it is titled like any chat (Leo, 2026-10-30, on a
+//! sidebar of lane names: "eg a lot of these subtitles are bad").
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -21,8 +24,12 @@ const ADOPTED: &str = "adopted";
 pub(super) const HARNESS: &str = "harness";
 const ASKED: &str = "asked";
 const GENERATED: &str = "generated";
-/// The person named the chat (at `session/new`, or a rename): no title is generated for it.
+/// The person renamed the chat before a title settled, or a sub-session's starter named it:
+/// no title is generated for it.
 pub(super) const NAMED: &str = "named";
+/// Started under a name (`session/new` with `name`: `--name`, a lane): the name stays its
+/// handle, and its first prompt and then a generated title title it, as for an unnamed chat.
+pub(super) const LAUNCHED: &str = "launched";
 
 /// The env that names a title command (one program), over `titles.command`.
 const COMMAND_ENV: &str = "ACPMUX_TITLE_COMMAND";
@@ -66,7 +73,8 @@ fn fallback_title_fields(
 }
 
 /// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
-/// empty and may ask again, `wants_title`) makes it `NAMED`: no title is generated after it.
+/// empty and may ask again, `wants_title`, or one started under a name and not yet prompted)
+/// makes it `NAMED`: no title is generated after it.
 pub(super) fn title_renamed(m: &mut SessionMeta) {
     if renamed_source(&mut m.title_source) {
         m.title_prompt = None;
@@ -74,7 +82,7 @@ pub(super) fn title_renamed(m: &mut SessionMeta) {
 }
 
 fn renamed_source(source: &mut Option<String>) -> bool {
-    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(ASKED)) {
+    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(ASKED) | Some(LAUNCHED)) {
         return false;
     }
     *source = Some(NAMED.to_owned());
@@ -84,8 +92,8 @@ fn renamed_source(source: &mut Option<String>) -> bool {
 /// A sub-session's title as it starts (2026-10-20: seven sub-sessions all read
 /// "Read /Users/…/COMMON.md fi…", their prompts' shared first line). Its
 /// session name (`parent/short`) is the mux's, not the person's, so it is not
-/// `NAMED` for that: a name the starter gave titles it, and without one the
-/// prompt and then a generated title do, as for any chat.
+/// `LAUNCHED` for that: a name the starter gave titles it (`NAMED`), and without
+/// one the prompt and then a generated title do, as for any chat.
 pub(super) fn title_subsession(m: &mut SessionMeta, requested: Option<&str>) {
     subsession_title_fields(&mut m.title, &mut m.title_source, requested);
 }
@@ -100,7 +108,7 @@ fn subsession_title_fields(
             *title = Some(short_text(name, 80));
             *source = Some(NAMED.to_owned());
         }
-        None if source.as_deref() == Some(NAMED) => *source = None,
+        None if matches!(source.as_deref(), Some(NAMED) | Some(LAUNCHED)) => *source = None,
         None => {}
     }
 }
@@ -170,13 +178,20 @@ fn header_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     (k.trim().eq_ignore_ascii_case(key) && !v.is_empty()).then_some(v)
 }
 
-/// An adopted chat keeps the title it came with: a prompt sent here is not
-/// its first, so nothing generates one from it.
+/// An adopted chat keeps the title it came with, also one adopted under a name:
+/// a prompt sent here is not its first, so nothing generates one from it.
 pub(super) fn keep_adopted_title(m: &mut SessionMeta) {
-    if matches!(m.title_source.as_deref(), None | Some(PROMPT)) {
-        m.title_source = Some(ADOPTED.to_owned());
+    if adopted_source(&mut m.title_source) {
         m.title_prompt = None;
     }
+}
+
+fn adopted_source(source: &mut Option<String>) -> bool {
+    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(LAUNCHED)) {
+        return false;
+    }
+    *source = Some(ADOPTED.to_owned());
+    true
 }
 
 impl Hub {
@@ -369,7 +384,7 @@ impl Hub {
                 event = "chat_title",
                 harness,
                 model = "custom",
-                ms = started.elapsed().as_millis() as u64,
+                ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 input_bytes = request.len(),
                 output_words = title.as_deref().map_or(0, |t| t.split_whitespace().count()),
                 estimated_input_tokens = request.len().div_ceil(4),
@@ -394,7 +409,7 @@ impl Hub {
             event = "chat_title",
             harness,
             model = result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default"),
-            ms = started.elapsed().as_millis() as u64,
+            ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             input_bytes = request.len(),
             output_words = title.as_deref().map_or(0, |t| t.split_whitespace().count()),
             estimated_input_tokens = request.len().div_ceil(4),
@@ -537,7 +552,7 @@ mod tests {
 
     #[test]
     fn a_rename_after_an_empty_title_request_stops_title_requests() {
-        for unsettled in [None, Some(PROMPT), Some(ASKED)] {
+        for unsettled in [None, Some(PROMPT), Some(ASKED), Some(LAUNCHED)] {
             let mut source = unsettled.map(str::to_owned);
             assert!(renamed_source(&mut source));
             assert_eq!(source.as_deref(), Some(NAMED), "{unsettled:?} renamed title is final");
@@ -573,9 +588,41 @@ mod tests {
     #[test]
     fn an_unnamed_subsession_gets_a_generated_title() {
         // Not NAMED: the first prompt's line is only the fallback, and a title is generated after it.
-        let (mut title, mut source) = (None, Some(NAMED.to_owned()));
-        subsession_title_fields(&mut title, &mut source, Some(" "));
-        assert_eq!((title, source), (None, None));
+        for started in [NAMED, LAUNCHED] {
+            let (mut title, mut source) = (None, Some(started.to_owned()));
+            subsession_title_fields(&mut title, &mut source, Some(" "));
+            assert_eq!((title, source), (None, None), "{started}");
+        }
+    }
+
+    #[test]
+    fn a_chat_started_under_a_name_is_titled_by_its_first_prompt_and_asks_for_a_title() {
+        // `--name` (a lane) is a handle: its first prompt titles it and is what the title
+        // request reads, as for an unnamed chat (`title_after_prompt` asks only from PROMPT).
+        let (mut title, mut source, mut prompt) = (None, Some(LAUNCHED.to_owned()), None);
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Reply with only: OK");
+        assert_eq!(source.as_deref(), Some(LAUNCHED), "a probe settles nothing");
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
+        assert_eq!(source.as_deref(), Some(PROMPT));
+        assert_eq!(prompt.as_deref(), Some("Fix the sidebar spinner"));
+        // A renamed chat keeps the line and asks for nothing.
+        let (mut title, mut source, mut prompt) = (None, Some(NAMED.to_owned()), None);
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(
+            (title.as_deref(), source.as_deref()),
+            (Some("Fix the sidebar spinner"), Some(NAMED))
+        );
+        assert_eq!(prompt, None);
+    }
+
+    #[test]
+    fn a_chat_adopted_under_a_name_keeps_the_title_it_came_with() {
+        let mut source = Some(LAUNCHED.to_owned());
+        assert!(adopted_source(&mut source));
+        assert_eq!(source.as_deref(), Some(ADOPTED));
+        let mut source = Some(NAMED.to_owned());
+        assert!(!adopted_source(&mut source), "a name given before adoption stays");
     }
 
     #[test]

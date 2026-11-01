@@ -8,6 +8,13 @@ test("composer spell checking is opt-in and off by default", () => {
   expect(readComposerSettings({ spellChecking: "true" }).spellChecking).toBe(false);
 });
 
+test("machine load warnings are on by default and accept an explicit off value", () => {
+  expect(DEFAULT_COMPOSER.showMachineLoadWarnings).toBe(true);
+  expect(readComposerSettings({}).showMachineLoadWarnings).toBe(true);
+  expect(readComposerSettings({ showMachineLoadWarnings: false }).showMachineLoadWarnings).toBe(false);
+  expect(readComposerSettings({ showMachineLoadWarnings: "false" }).showMachineLoadWarnings).toBe(true);
+});
+
 test("attachments show inline by default; strip is the other view", () => {
   expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
   expect(readComposerSettings({}).attachmentView).toBe("inline");
@@ -99,4 +106,12 @@ test("a host snapshot wins over a late success from an older send-to-bottom writ
     settings.registerComposerHost(undefined);
     settings.setComposerSettings(DEFAULT_COMPOSER);
   }
+});
+
+test("new chats start on this Mac by default; Cloud only when the setting says so", () => {
+  expect(DEFAULT_COMPOSER.newChatsIn).toBe("local");
+  expect(readComposerSettings({}).newChatsIn).toBe("local");
+  expect(readComposerSettings({ newChatsIn: "cloud" }).newChatsIn).toBe("cloud");
+  expect(readComposerSettings({ newChatsIn: "Cloud" }).newChatsIn).toBe("local");
+  expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("local");
 });

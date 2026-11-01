@@ -6,6 +6,10 @@
 // says what the card would. Behind the `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
+import { AgentMark } from "../../shared/AgentMark";
+import { agentTone } from "../subagents/agentTones";
+import { TonedIcon } from "../subagents/TonedIcon";
 import { type SessionMention, type StartedSession, hasStatusLine, sessionStatus } from "./startedSessions";
 import { SessionStatusLine } from "./SessionStatusLine";
 import { useSessionHover } from "./SessionHoverCard";
@@ -28,6 +32,9 @@ export function StartedSessionCards({
   );
 }
 
+/// A row's icon: Session Info's child chat rows' size (ChildSessionRows.tsx).
+const ROW_ICON = rowIconSize(12);
+
 export function StartedSessionCard({ child, onOpen }: { child: StartedSession; onOpen(sessionId: string): void }) {
   const status = sessionStatus(child.state, child.unread, child.pullRequests);
   return (
@@ -37,6 +44,19 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
       data-state={child.state}
       onClick={() => onOpen(child.sessionId)}
     >
+      {/* Its harness's mark, else the chat icon in its own stable tone, as Session Info's child chat
+          rows draw it (ChildSessionRows.tsx), so the rows tell apart which agent runs each. */}
+      <span className="acpmux-started-icon" aria-hidden>
+        {child.harness ? (
+          <AgentMark
+            agent={child.harness}
+            size={ROW_ICON}
+            fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />}
+          />
+        ) : (
+          <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />
+        )}
+      </span>
       <span className="acpmux-started-text">
         <span className="acpmux-started-title">{child.title}</span>
         {hasStatusLine(child) && (

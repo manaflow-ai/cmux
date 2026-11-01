@@ -95,8 +95,13 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch
-# and build nothing (#21049).
-exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# and build nothing (#21049). route-visual-gate-nightly checks out only the
+# runner-routing scripts at github.sha to pick a capture host, and
+# visual-gate-nightly-verdict only the mode script to read the gate's job; the
+# gate itself checks out the resolved build commit.
+# The advisory attester uses workflow controls and the already-built artifact;
+# its checkout contributes no shipped bytes.
+exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}

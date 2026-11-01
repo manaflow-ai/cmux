@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextRemoteView
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Theme sweep 3, batch C: the palette's loading spinner, a sidebar notice's spinner and a remote
@@ -11,7 +12,7 @@ import Testing
 /// gray whatever the room's theme, and the certificate viewer's General / Details control drew the
 /// system's selected segment. In a purple room the spinners are the app's status indicator in the
 /// scope's loading ink (`Palette.textSecondary`) and the selected segment is the theme's selection.
-@MainActor @Suite(.serialized) struct ThemedSpinnerAndSegmentsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedSpinnerAndSegmentsTests {
     @Test func thePaletteLoadingSpinnerDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let bar = PaletteSearchBar(frame: NSRect(x: 0, y: 0, width: 600, height: 44))
@@ -40,7 +41,7 @@ import Testing
     @Test func theCertificateViewersSelectedSegmentIsTheThemeSelection() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)
@@ -97,7 +98,7 @@ import Testing
                           animated: false)
         for scope in [light, try ThemedOverlayColorsTests.purpleRoom()] {
             let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                                 failure: nil)
+                                                 failure: nil, activeLook: nil)
             window.isReleasedWhenClosed = false
             defer { window.close() }
             scope.adopt(window)
@@ -117,7 +118,7 @@ import Testing
     @Test func theSelectedSegmentsLabelDrawsInItsInkAndDimsWhenDisabled() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
-                                             failure: nil)
+                                             failure: nil, activeLook: nil)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)

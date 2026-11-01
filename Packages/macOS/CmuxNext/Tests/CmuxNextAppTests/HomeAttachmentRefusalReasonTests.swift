@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import Foundation
 @testable import CmuxNextHome
 import Testing
 
@@ -10,6 +11,16 @@ import Testing
 /// resend is refused (`rejection`). The router names a Cloud owner's refusal
 /// (`cloud_attachments_unsupported`).
 struct HomeAttachmentRefusalReasonTests {
+    @Test func aLargeOriginalPassesComposerAdmission() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".bin")
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let file = try FileHandle(forWritingTo: url)
+        try file.truncate(atOffset: 100_000_001)
+        try file.close()
+        #expect(HomeComposerCheck.problem(for: .file(url)) == nil)
+    }
+
     private let generic = HomeStrings.rejection(.invalid("something else"))
 
     @Test(arguments: ["attachments unsupported", "attachments_unsupported", "cloud_attachments_unsupported"])

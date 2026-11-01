@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail only on the guard steps a change turns red; report the base's own reds as warnings.
 
-    guards_new_reds.py [--label NAME] HEAD_RESULTS BASE_RESULTS
+    guards_new_reds.py [--label NAME] [--flaky FILE] HEAD_RESULTS BASE_RESULTS
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
@@ -13,6 +13,11 @@ step reported its checks) counts as the change's, so a step-level red on the bas
 
 --label names what the annotations count (default: Guard); the webview tests use it with
 webviews_test_results.py's per-test results.
+
+--flaky names a file with one step a line (webviews_test_history.py flaky: the webview tests
+whose verdict flipped by itself on recent base pushes). A red the base replay passed that is in
+it is a warning, never the change's: one passing replay on the base proves nothing about a test
+that fails now and then there. A missing or unreadable file lists nothing.
 """
 from __future__ import annotations
 
@@ -29,10 +34,21 @@ def load(path: str) -> dict[str, bool] | None:
     return {str(k): bool(v) for k, v in found.items()} if isinstance(found, dict) else None
 
 
+def flaky_names(path: str) -> set[str]:
+    try:
+        return {line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()}
+    except OSError:
+        return set()
+
+
 def main(argv: list[str]) -> int:
-    label = "Guard"
-    if len(argv) == 4 and argv[0] == "--label":
-        label, argv = argv[1], argv[2:]
+    label, flaky = "Guard", set()
+    while len(argv) > 2 and argv[0] in ("--label", "--flaky"):
+        if argv[0] == "--label":
+            label = argv[1]
+        else:
+            flaky = flaky_names(argv[1])
+        argv = argv[2:]
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
@@ -43,16 +59,21 @@ def main(argv: list[str]) -> int:
     if base is None:
         print(f"no base results in {argv[1]}: every red step counts as this change's")
         base = {}
-    new = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
+    red = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
+    new = [step for step in red if step not in flaky]
+    flaked = [step for step in red if step in flaky]
     old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
+    for step in flaked:
+        print(f"::warning title={label} flaky on the base::{step}")
     for step in new:
         print(f"::error title={label} red on this change::{step}")
     if fixed:
         print("fixed by this change: " + "; ".join(fixed))
-    print(f"{len(new)} {label.lower()} steps red on this change, {len(old)} red on the base too, {len(fixed)} fixed")
+    print(f"{len(new)} {label.lower()} steps red on this change, {len(old)} red on the base too, "
+          f"{len(flaked)} flaky on the base, {len(fixed)} fixed")
     return 1 if new else 0
 
 

@@ -86,7 +86,7 @@ extension AppServices {
         }
         #if DEBUG
         // `debug.cloud_machine_fixture`: a capture's Cloud machine header, with no session or sign-in.
-        if DebugCloudMachineFixture.holdsCloudWorkspace(self) { context.insert(.cloudWorkspace) }
+        if debugFixtures.holdsCloudWorkspace { context.insert(.cloudWorkspace) }
         #endif
         if registry.context != context { registry.context = context }
     }
@@ -101,6 +101,7 @@ extension AppServices {
         cloud.start()
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
         CloudMachineUpdates.start(self)
+        iphone.pairedQuitRecord = agentPaneStateLoss
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },

@@ -399,8 +399,11 @@
   // ready; the session is created on the first message.
   let draft = null;
   // Files dropped onto the composer stay attached until the next prompt is
-  // sent. They are encoded once and sent as ACP image content blocks.
+  // sent. Original Files are uploaded in bounded chunks; `url` is a bounded
+  // display preview, independent of the bytes attached to the prompt.
   let promptImages = [];
+  let sendingPrompt = false;
+  const promptAccepts = new Map();
 
   function renderAttachments() {
     const el = $('#attachments'); if (!el) return;
@@ -415,19 +418,69 @@
     });
   }
 
-  function readImage(file) {
-    if (!file || !file.type || !file.type.startsWith('image/')) return Promise.resolve(null);
-    if (file.size > 8 * 1024 * 1024) { toast('Image is larger than 8 MB'); return Promise.resolve(null); }
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onerror = () => resolve(null);
-      reader.onload = () => {
-        const url = String(reader.result || '');
-        const comma = url.indexOf(',');
-        resolve(comma < 0 ? null : { name: file.name || 'image', mimeType: file.type, data: url.slice(comma + 1), url });
-      };
-      reader.readAsDataURL(file);
-    });
+  async function previewImage(file) {
+    let bitmap;
+    try {
+      // Read only a bounded header to preserve aspect ratio without decoding
+      // full-resolution pixels. Unknown or long headers get a placeholder.
+      const [width, height] = await previewDimensions(file);
+      const scale = Math.min(1, 1024 / Math.max(width, height));
+      const resizeWidth = Math.max(1, Math.round(width * scale));
+      const resizeHeight = Math.max(1, Math.round(height * scale));
+      bitmap = await createImageBitmap(file, { resizeWidth, resizeHeight, resizeQuality: 'high' });
+      const canvas = document.createElement('canvas');
+      canvas.width = resizeWidth; canvas.height = resizeHeight;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, resizeWidth, resizeHeight);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch (_) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 320; canvas.height = 96;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#25252b'; context.fillRect(0, 0, 320, 96);
+      context.fillStyle = '#b9b9c5'; context.font = '14px system-ui';
+      context.fillText('Preview unavailable', 18, 48);
+      return canvas.toDataURL('image/png');
+    } finally { if (bitmap) bitmap.close(); }
+  }
+
+  async function previewDimensions(file) {
+    const bytes = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+    const view = new DataView(bytes.buffer);
+    const text = (at, size) => String.fromCharCode(...bytes.subarray(at, at + size));
+    let width = 0, height = 0;
+    if (bytes.length >= 24 && text(0, 8) === '\x89PNG\r\n\x1a\n') {
+      width = view.getUint32(16); height = view.getUint32(20);
+    } else if (bytes.length >= 10 && ['GIF87a', 'GIF89a'].includes(text(0, 6))) {
+      width = view.getUint16(6, true); height = view.getUint16(8, true);
+    } else if (bytes.length >= 30 && text(0, 4) === 'RIFF' && text(8, 4) === 'WEBP') {
+      const u24 = at => bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16);
+      if (text(12, 4) === 'VP8X') { width = u24(24) + 1; height = u24(27) + 1; }
+      else if (text(12, 4) === 'VP8 ') { width = view.getUint16(26, true) & 16383; height = view.getUint16(28, true) & 16383; }
+      else if (text(12, 4) === 'VP8L' && bytes[20] === 47) {
+        width = 1 + (bytes[21] | ((bytes[22] & 63) << 8));
+        height = 1 + ((bytes[22] >> 6) | (bytes[23] << 2) | ((bytes[24] & 15) << 10));
+      }
+    } else if (bytes[0] === 255 && bytes[1] === 216) {
+      let at = 2;
+      while (at + 4 <= bytes.length && bytes[at] === 255) {
+        while (bytes[at] === 255) at++;
+        const marker = bytes[at++];
+        if (marker === 217 || marker === 218 || at + 2 > bytes.length) break;
+        const size = view.getUint16(at);
+        if (size < 2 || at + size > bytes.length) break;
+        if ([192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker) && size >= 7) {
+          height = view.getUint16(at + 3); width = view.getUint16(at + 5); break;
+        }
+        at += size;
+      }
+    }
+    if (!width || !height) throw new Error('Preview dimensions unavailable');
+    return [width, height];
+  }
+
+  async function readImage(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return null;
+    return { file, name: file.name || 'image', mimeType: file.type, url: await previewImage(file) };
   }
 
   async function addImageFiles(files) {
@@ -437,6 +490,47 @@
     }
     if (!images.length) return;
     promptImages.push(...images); renderAttachments(); autosize(); $('#input').focus();
+  }
+
+  function readUploadChunk(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read attachment'));
+      reader.onload = () => {
+        const url = String(reader.result || ''), comma = url.indexOf(',');
+        if (comma < 0) reject(new Error('Could not read attachment'));
+        else resolve(url.slice(comma + 1));
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function cancelPromptUploads(sessionId, uploads) {
+    await Promise.all(uploads.map(upload => call('_acpmux/file_put_cancel', {
+      sessionId, uploadId: upload.uploadId, ownerToken: upload.owned
+    }).catch(() => {})));
+  }
+
+  async function promptBlocks(sessionId, text, images, uploads) {
+    const blocks = text ? [{ type: 'text', text }] : [];
+    for (let index = 0; index < images.length; index++) {
+      const image = images[index];
+      // The original display name is independent of the portable storage name.
+      const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' })[image.mimeType] || 'bin';
+      const fileName = 'attachment-' + index + '.' + ext;
+      const begin = await call('_acpmux/file_put_begin', { sessionId, fileName, size: image.file.size, forPrompt: true });
+      if (!begin.uploadId || !begin.ownerToken) throw new Error('Attachment upload is unavailable');
+      const upload = { uploadId: begin.uploadId, fileName, owned: begin.ownerToken };
+      uploads.push(upload);
+      const bytes = 512 * 1024;
+      for (let offset = 0; offset < image.file.size; offset += bytes) {
+        const data = await readUploadChunk(image.file.slice(offset, offset + bytes));
+        await call('_acpmux/file_put_chunk', { sessionId, uploadId: upload.uploadId, ownerToken: upload.owned, offset, data });
+      }
+      await call('_acpmux/file_put_finish', { sessionId, uploadId: upload.uploadId, ownerToken: upload.owned, fileName, size: image.file.size });
+      blocks.push({ type: 'image', mimeType: image.mimeType, name: image.name, _meta: { acpmux: { upload } } });
+    }
+    return blocks;
   }
   function startDraft(preferredCwd) {
     const cur = state.sessions.find((x) => x.sessionId === selected && !x.peer);
@@ -537,13 +631,22 @@
     t.pendingUserChunk = false;
     const push = (x) => t.items.push(x);
     switch (kind) {
-      case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
+      case 'queued': {
+        // The prompt id ties this row to the sender's optimistic row, whichever arrives first. Text
+        // matches only where one side has no id (an older server): two known ids never merge.
+        const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId) : -1;
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && x.local && !(msg.promptId && x.promptId) && x.text === (msg.text || ''));
+        if (local >= 0) { t.items[local].queued = true; if (msg.promptId) t.items[local].promptId = msg.promptId; touch(t, local); }
+        else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: false, queued: true });
+        break;
+      }
       case 'user_message': {
         const incomingText = msg.text || '';
-        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
-        if (local >= 0 && t.items[local].queued) { t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); t.reorder = true; }
+        const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId && (x.local || x.queued)) : -1;
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && !(msg.promptId && x.promptId) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
+        if (local >= 0 && t.items[local].queued) { const [was] = t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', promptId: msg.promptId || was.promptId, images: was.images, steer: !!msg.steer, at: ev.at }); t.reorder = true; }
         else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
-        else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at });
+        else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: !!msg.steer, at: ev.at });
         break;
       }
       case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
@@ -570,6 +673,7 @@
 
   // ---------- notifications
   function onNotification(method, p) {
+    if (method === '_acpmux/prompt_accepted') { promptAccepts.get(p.promptId)?.(); return; }
     const sid = p.sessionId;
     if (method === 'session/update' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p._meta && p._meta.acpmux && p._meta.acpmux.seq)) return; applyUpdate(t, p.update || {}); if (sid === selected) scheduleRender(); }
     else if (method === '_acpmux/event' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p.seq)) return; applyEvent(t, p); if (sid === selected) scheduleRender(true); }
@@ -591,34 +695,80 @@
   }
   function select(id) { selected = id; draft = null; promptImages = []; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderAttachments(); renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
   async function send(steer) {
-    const text = $('#input').value.trim(); const images = promptImages.slice(); if (!text && !images.length) return;
+    if (sendingPrompt) return;
+    const rawText = $('#input').value, text = rawText.trim(), images = promptImages.slice();
+    if (!text && !images.length) return;
     if (!steer && (text === 'cd' || /^cd\s+[^\n\r;|&`]*$/.test(text) && !text.includes('$('))) {
       openDirectory(text === 'cd' ? '' : text.slice(2).trim()); return;
     }
-    if (draft && !selected) {
-      const meta = draftMeta(draft);
-      const params = { mcpServers: [], _meta: { acpmux: meta } };
-      if (draft.cwd) params.cwd = draft.cwd;
-      $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
-      try {
+    if (!selected && !draft) return;
+    // Made before the composer locks, so a failure here never leaves it locked.
+    const promptId = newPromptId();
+    sendingPrompt = true;
+    const fromDraft = draft;
+    let sessionId = selected, accepted = false;
+    const uploads = [];
+    // finished: called from the final session/prompt response, after the turn ran. The turn's own
+    // status events are then authoritative, so acceptance must not mark it running or queued again.
+    const accept = (finished) => {
+      if (accepted) return;
+      accepted = true; sendingPrompt = false; promptAccepts.delete(promptId);
+      // A session switch or a new edit during the upload belongs to the person.
+      if (selected === sessionId) {
+        if ($('#input').value === rawText) $('#input').value = '';
+        promptImages = promptImages.filter(image => !images.includes(image));
+        renderAttachments(); autosize();
+      }
+      const t = state.transcripts.get(sessionId) || newTranscript(); state.transcripts.set(sessionId, t);
+      const busy = !finished && (t.status === 'running' || t.status === 'waiting');
+      // user_message or queued may already have arrived: give that row the previews instead of adding a second.
+      const known = t.items.findIndex(item => item.type === 'user' && item.promptId === promptId);
+      if (known >= 0) {
+        if (images.length && !(t.items[known].images && t.items[known].images.length)) t.items[known].images = images;
+        touch(t, known);
+      } else {
+        t.items.push({ type: 'user', text, images, promptId, steer, local: true, queued: busy && !steer, at: Date.now() });
+        touch(t, t.items.length - 1);
+      }
+      if (!steer && !busy && !finished) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
+      scheduleRender(true);
+    };
+    try {
+      if (!sessionId) {
+        const params = { mcpServers: [], _meta: { acpmux: draftMeta(fromDraft) } };
+        if (fromDraft.cwd) params.cwd = fromDraft.cwd;
         const r = await call('session/new', params);
+        sessionId = r.sessionId;
         const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns);
-        select(r.sessionId);
-        const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
-        t.items.push({ type: 'user', text, images, steer: false, local: true, at: Date.now() }); touch(t, t.items.length - 1);
-        t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); scheduleRender(true);
-        call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))) }).catch((e) => toast('error: ' + e.message));
-      } catch (err) { toast('error: ' + err.message); $('#input').value = text; promptImages = images; renderAttachments(); autosize(); }
-      return;
+        if (draft === fromDraft && !selected) {
+          const currentText = $('#input').value, currentImages = promptImages;
+          select(sessionId);
+          $('#input').value = currentText; promptImages = currentImages; renderAttachments(); autosize();
+        }
+      }
+      const blocks = await promptBlocks(sessionId, text, images, uploads);
+      promptAccepts.set(promptId, () => accept(false));
+      await call('session/prompt', { sessionId, prompt: blocks, _meta: { acpmux: { steer, promptId } } });
+      accept(true); // Older servers, or a dropped acceptance notice, leave only the final response.
+    } catch (error) {
+      if (!accepted) {
+        await cancelPromptUploads(sessionId, uploads);
+        // The composer has not been cleared; the original File remains retryable.
+        toast('Not sent: ' + error.message);
+      } else { toast('Turn failed: ' + error.message); }
+    } finally {
+      promptAccepts.delete(promptId);
+      if (!accepted) sendingPrompt = false;
     }
-    if (!selected) return;
-    $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
-    const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
-    const busy = t.status === 'running' || t.status === 'waiting';
-    t.items.push({ type: 'user', text, images, steer, local: true, queued: busy && !steer, at: Date.now() }); touch(t, t.items.length - 1);
-    if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
-    scheduleRender(true);
-    call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))), _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
+  }
+  // crypto.randomUUID exists only in secure contexts; a dashboard opened over plain HTTP from
+  // another machine still has getRandomValues, so build the same v4 shape from it.
+  function newPromptId() {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
   let toastEl = null;
   const toast = (msg) => { if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'toast'; document.body.appendChild(toastEl); } toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastEl._t); toastEl._t = setTimeout(() => { toastEl.hidden = true; }, 4000); };

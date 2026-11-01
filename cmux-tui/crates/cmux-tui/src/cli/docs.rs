@@ -126,7 +126,10 @@ pub(super) const GUIDES: &[Guide] = &[
         wiring, Computer Use, browser import, key bindings, notifications, team invites) with \
         the read-only \
         commands that check it, the commands that do it, and what only the person can do. \
-        `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
+        `cmux setup local` is one safe first-chat pass: it trusts the current folder, checks \
+        harnesses, and wires the cmux MCP server only when the existing setting allows it; its \
+        report contains all three task results and their undo commands. `cmux setup status` \
+        checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
         trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
         prints the plan, and every result names its undo command. `cmux setup machine \
         SSH_TARGET [--name NAME]` adds an ssh machine as an acpmux peer (`cmux acp host \
@@ -185,8 +188,9 @@ pub(super) const GUIDES: &[Guide] = &[
         ],
         text: "Every task `cmux setup list` names has a `prompt`: one paragraph a person pastes \
         into Chief, or any agent chat in cmux, that names the exact command to run, what to hand \
-        the person and what to reply; its `status_prompt` sets up this Mac (`cmux setup status` \
-        and the fix of each check). docs/chief-setup-prompts.md has them as copyable blocks \
+        the person and what to reply; its `status_prompt` sets up this Mac in one local pass \
+        (`cmux setup local`) and leaves Cloud, tailnet and other machines for explicit approval. \
+        docs/chief-setup-prompts.md has them as copyable blocks \
         (`cmux setup list --prompts-md` writes it). A pasted prompt is the person's request for \
         that task: run its command. Words left in capitals (HOST, FOLDER, BROWSER, EMAIL) are \
         the person's to fill in, so ask for them. Remote machines: `cmux setup machine HOST` adds \

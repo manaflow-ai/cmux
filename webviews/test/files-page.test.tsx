@@ -143,6 +143,14 @@ test("the Files tree keeps up with its folder", async () => {
   await press("ArrowDown");
   expect(host.querySelector(".files-notice")).toBeNull();
 
+  // Once the listing is complete again, a deleted selection falls back to its folder.
+  provider.truncated.delete("src");
+  await act(async () => store.select("src/main.ts"));
+  delete files.src!["main.ts"];
+  await act(() => store.refresh());
+  expect(store.getSnapshot().selected).toBe("src");
+
+  files.src!["main.ts"] = null;
   delete files.src;
   await act(() => store.refresh());
   expect(lines()).not.toContain("components");
@@ -155,4 +163,108 @@ test("the Files tree keeps up with its folder", async () => {
   act(() => root!.render(<FilesPage key="no-host" store={hostless} strings={strings} />));
   await act(() => hostless.start());
   expect(host.textContent).toBe(strings.t("files.page.unavailable"));
+});
+
+test("keeps selection when a truncated listing omits an entry", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const files = structuredClone(sampleTree);
+  const provider = new MockFilesProvider(files);
+  const store = new FilesStore(provider);
+
+  await store.start();
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  provider.truncated.add("src");
+  delete files.src!["main.ts"];
+
+  await store.refresh();
+
+  expect(store.getSnapshot().selected).toBe("src/main.ts");
+});
+
+test("keeps a folder's state when a complete listing still holds a file of that name", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const files = structuredClone(sampleTree);
+  const store = new FilesStore(new MockFilesProvider(files));
+
+  await store.start();
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  files.src!["components"] = null;
+
+  await store.refresh();
+
+  const snapshot = store.getSnapshot();
+  expect(snapshot.selected).toBe("src/main.ts");
+  expect(snapshot.rows.find((row) => row.path === "src/components")?.kind).toBe("file");
+});
+
+test("ignores stale open failures across navigation, collapse, and retry", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { FilesOps } = await import("../src/pages/files/types");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const { pageError } = await import("../src/pages/shared/pageClient");
+  const files = structuredClone(sampleTree);
+  const provider = new MockFilesProvider(files);
+  const baseCall = provider.call.bind(provider);
+  const pending: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+  provider.call = (async (op: string, params: unknown) => {
+    if (op === FilesOps.open) {
+      return new Promise<undefined>((resolve, reject) => pending.push({ resolve: () => resolve(undefined), reject }));
+    }
+    return baseCall(op, params);
+  }) as typeof provider.call;
+  const settle = (reject: boolean, message = "gone") => {
+    const attempt = pending.shift()!;
+    if (reject) attempt.reject(pageError("test.open_failed", message));
+    else attempt.resolve();
+  };
+  const store = new FilesStore(provider);
+
+  await store.start();
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  const a1 = store.open("src/main.ts");
+  store.select("src/store.ts");
+  const b = store.open("src/store.ts");
+  store.select("src/main.ts");
+  const a2 = store.open("src/main.ts");
+  settle(true, "old A");
+  settle(false);
+  settle(false);
+  await Promise.all([a1, b, a2]);
+  expect(store.getSnapshot().notice).toBeUndefined();
+
+  const current = store.open("src/main.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+  settle(true, "current A");
+  await current;
+  expect(store.getSnapshot().notice).toBe("current A");
+  const retry = store.open("src/main.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+  settle(false);
+  await retry;
+
+  store.select("src/main.ts");
+  const collapsed = store.open("src/main.ts");
+  store.collapse("src");
+  settle(true, "collapsed");
+  await collapsed;
+  expect(store.getSnapshot().notice).toBeUndefined();
+
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  const forgotten = store.open("src/main.ts");
+  delete files.src;
+  await store.refresh();
+  settle(true, "forgotten");
+  await forgotten;
+  expect(store.getSnapshot().selected).toBeUndefined();
+  expect(store.getSnapshot().notice).toBeUndefined();
 });

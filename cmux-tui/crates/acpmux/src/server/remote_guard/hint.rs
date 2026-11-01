@@ -29,7 +29,8 @@ pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
 
 /// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
 /// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
-/// daemon's hint.
+/// daemon's hint. `policy_proved`: the request is a policy raise the person proved
+/// (`hub/person/policy_grant.rs`).
 pub(in crate::server) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: crate::server::Origin,
@@ -37,9 +38,10 @@ pub(in crate::server) async fn check(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
-    let mut result = super::check_inner(hub, origin, auth, device, m, params).await;
+    let mut result = super::check_inner(hub, origin, auth, device, m, params, policy_proved).await;
     if m == crate::rpc::method::SESSION_NEW
         && origin.web_class()
         && let Err(e) = &mut result
@@ -259,6 +261,15 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
     // whole CLI grammar inside the request handler exhausts a debug worker's 2 MiB stack.
     let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
     let args: Vec<_> = new.get_arguments().collect();
+    // A long flag by its name or a hidden alias (`--host` is `--machine`'s), so either spelling
+    // is read with its value and counts as the same option.
+    let arg_of = |name: &str| {
+        args.iter().copied().find(|a| {
+            a.get_long() == Some(name) || a.get_all_aliases().is_some_and(|all| all.contains(&name))
+        })
+    };
+    let wanted = option.trim_start_matches('-');
+    let wanted_id = arg_of(wanted).map(|a| a.get_id().clone());
     let mut i = 0;
     while let Some(word) = words.get(i) {
         if word == "--" {
@@ -266,10 +277,12 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
         }
         if let Some(long) = word.strip_prefix("--") {
             let (name, inline) = long.split_once('=').map_or((long, false), |(k, _)| (k, true));
-            let takes =
-                args.iter().any(|a| a.get_long() == Some(name) && a.get_action().takes_values());
+            let arg = arg_of(name);
+            let takes = arg.is_some_and(|a| a.get_action().takes_values());
             let end = (i + if takes && !inline { 2 } else { 1 }).min(words.len());
-            if name == option.trim_start_matches('-') {
+            if name == wanted
+                || (wanted_id.is_some() && arg.map(|a| a.get_id()) == wanted_id.as_ref())
+            {
                 let replacement = value.map(|v| format!("{option}={v}"));
                 words.splice(i..end, replacement);
                 return true;
@@ -546,6 +559,23 @@ newlines')"#
                 "--cwd=/bad"
             ]
         );
+    }
+
+    /// `--machine` and its old spelling `--host` are one option: either is replaced, value and all.
+    #[test]
+    fn option_rewrites_take_machine_and_its_host_alias_as_one() {
+        for given in [["--machine", "auto"], ["--host", "auto"]] {
+            let mut words: Vec<String> = ["new", given[0], given[1], "-m", "codex", "hi"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            assert!(change_option(&mut words, "--host", Some("b")), "{given:?}");
+            assert_eq!(words, ["new", "--host=b", "-m", "codex", "hi"], "{given:?}");
+        }
+        let mut words: Vec<String> =
+            ["new", "--machine=x", "hi"].into_iter().map(str::to_owned).collect();
+        assert!(change_option(&mut words, "--host", None));
+        assert_eq!(words, ["new", "hi"]);
     }
 
     #[test]

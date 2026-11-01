@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextFiles
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -9,8 +10,8 @@ import typealias CmuxNextDaemon.SurfaceID
 /// in a markdown file) comes here. Markdown files open the markdown page, other files the code
 /// editor page (read only when binary or not UTF-8), in a pane tab; images, PDFs and media keep
 /// the browser tab's preview, which shows them and runs nothing. A web page (HTML, SVG) opens
-/// rendered in a browser tab only on the person's own open (`userChose`); an agent's or a
-/// script's open shows its source in the editor (``FileOpenKind``, the one rule).
+/// rendered in a browser tab on every open, the person's, an agent's or a script's (u18051);
+/// Open as Text (`asText`) and a tab's Edit Source show its source in the editor.
 final class FilePageOpener: FileOpening {
     // crash-allow: AppServices owns ViewerService, which owns this opener, for the app's whole life.
     private unowned let services: AppServices
@@ -19,18 +20,10 @@ final class FilePageOpener: FileOpening {
         self.services = services
     }
 
-    /// Files the browser tab previews (images, PDFs, media). An explicit list, because the system
-    /// types `.ts` (TypeScript) as an MPEG transport stream.
-    nonisolated static let previewExtensions: Set<String> = Set([
-        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-    ]).union(AgentPaneFileOpen.mediaExtensions)
-
     /// Raster and document previews use WebKit's scoped `loadFileURL` path. Chromium can decode a
     /// local PNG (its tab title proves the dimensions), but its sandboxed ImageDocument paints
     /// some large RGBA/color-profile files black; WebKit grants the containing folder explicitly.
-    nonisolated static let webKitPreviewExtensions: Set<String> = [
-        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
-    ]
+    nonisolated static let webKitPreviewExtensions = FileOpenKind.previewExtensions.subtracting(AgentPaneFileOpen.mediaExtensions)
 
     /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
     /// cannot decode (``LocalFileHandoff``), and for local image/PDF previews whose scoped file
@@ -45,37 +38,19 @@ final class FilePageOpener: FileOpening {
     /// The page that opens `url`, nil for a file the browser tab previews.
     nonisolated static func kind(for url: URL) -> FilePageKind? {
         if FilePageKind.isMarkdown(url) { return .markdown }
-        return previewExtensions.contains(url.pathExtension.lowercased()) ? nil : .editor
+        // Files the browser tab previews (images, PDFs, media), an explicit list (``FileOpenKind``).
+        return FileOpenKind.previewExtensions.contains(url.pathExtension.lowercased()) ? nil : .editor
     }
 
     func open(_ file: URL, in pane: PaneController?) -> String? {
         open(file, in: pane, userChose: true)
     }
 
-    /// Where an open of a file shows it (``route(for:userChose:asText:)``).
-    enum Route: Equatable {
-        /// A browser tab renders the page (a person's own open of HTML or SVG).
-        case renderedPage
-        /// The markdown page.
-        case markdown
-        /// The code editor page (Monaco): the file's text.
-        case editor
-        /// The browser tab's preview (an image, a PDF, media).
-        case preview
-    }
+    typealias Route = FileOpenKind.PageRoute
 
-    /// The one rule for where `url` opens. `asText` (Open as Text, u9489): a page cmux renders
-    /// (``FileOpenKind/opensAsText``) opens as its source in the code editor; other files open as
-    /// they always do.
+    /// The shared file-domain route; `userChose` decides writability, not rendering.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
-        let name = url.lastPathComponent
-        if asText, FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText { return .editor }
-        if userChose, FileOpenKind(fileName: name, isDirectory: false, isPackage: false) == .web { return .renderedPage }
-        switch kind(for: url) {
-        case .markdown?: return .markdown
-        case .editor?: return .editor
-        case nil: return .preview
-        }
+        Route(fileName: url.lastPathComponent, asText: asText)
     }
 
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
@@ -85,19 +60,45 @@ final class FilePageOpener: FileOpening {
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
     /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
     func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .renderedPage:
-            pane.newBrowserTab(url: url, background: placed != nil, then: placed)
+            pane.newBrowserTab(url: url, background: placed != nil, placementOwner: placed != nil, then: placed)
         case .markdown:
-            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed, shownInPlace: shownInPlace)
         case .editor:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
-            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)
+            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)
+        }
+        return nil
+    }
+
+    /// A file of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in its
+    /// page: the markdown page for Markdown, else the code editor, both reading, saving and
+    /// watching the file on that machine through its daemon. This Mac never renders, previews or
+    /// reads another machine's file, so a web page shows its source and an image or PDF does not
+    /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
+    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
+        guard !machine.isLocal else {
+            return open(file, in: pane, userChose: userChose, asText: asText, at: position, placed: placed, shownInPlace: shownInPlace)
+        }
+        guard file.path.hasPrefix("/"), !file.path.contains("\u{0}") else { return FilePageStrings.notAFile }
+        guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
+        let url = file.standardizedFileURL
+        switch Self.route(for: url, userChose: userChose, asText: asText) {
+        case .markdown:
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, placed: placed,
+                                                shownInPlace: shownInPlace)
+        case .editor, .renderedPage:
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
+                                              placed: placed, shownInPlace: shownInPlace)
+        case .preview:
+            return RemoteFilePageFiles.remotePreview(url.lastPathComponent)
         }
         return nil
     }

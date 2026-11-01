@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// compose button over its top-left at every list width, as in Messages (hidden only while the
 /// New Message page is on screen). The button is the content's
 /// sibling, so a conversation or the New Message page the page adds to `content` never covers it.
-final class HomeChatColumnView: NSView {
+final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     let content: NSView
     let compose: HomeChatComposeButton
     /// The compose button's left inset and its centre's distance from the top: the list header's
@@ -48,6 +48,18 @@ final class HomeChatColumnView: NSView {
         guard homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        WindowControlsAvoiders.join(self)
+        updateWindowControlsAvoidance()
+    }
+
+    /// A hidden workspace skipped window updates; re-read its position when shown.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateWindowControlsAvoidance()
     }
 
     override func layout() {

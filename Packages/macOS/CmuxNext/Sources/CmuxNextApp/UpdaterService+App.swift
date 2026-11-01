@@ -17,7 +17,6 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         relaunchBehind = { [weak services] willQuit, declined, inFront in
             let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
@@ -25,10 +24,11 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The click: the windows leave the screen at once (S1); a failed
-        // install brings them back.
+        // The windows leave the screen when Sparkle commits to the relaunch,
+        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willInstallStaged = { _ = handoff.hide() }
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        hidesForRelaunch = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
@@ -108,6 +108,7 @@ extension UpdaterService {
                 self?.apply(updates)
                 let whatsNewEnabled = updates.showWhatsNew
                 if self?.whatsNew.isItemEnabled != whatsNewEnabled { self?.whatsNew.isItemEnabled = whatsNewEnabled }
+                if self?.whatsNew.isItemEnabledKnown == false { self?.whatsNew.isItemEnabledKnown = true }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }

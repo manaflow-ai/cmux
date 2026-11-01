@@ -130,6 +130,13 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `file open --as-text`: a page cmux renders (HTML, SVG, Markdown) opens as its source in the
+    /// code editor (Open as Text); other files open as they always do.
+    static var asTextBool: ActionArgument {
+        ActionArgument(name: "asText", title: String(localized: "argument.asText", defaultValue: "As Text", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
     /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
     /// resolves this Mac's workspaces, not a Cloud machine's.
@@ -162,8 +169,25 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
     }
 
+    /// `cloud provision-api --name <name>`: what the new API key is called; "API key" without one.
+    static var apiKeyNameString: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// `cloud api-key-revoke --key <id>`: the API key id `cloud api-key-list` answers.
+    static var apiKeyString: ActionArgument {
+        ActionArgument(name: "key", title: String(localized: "argument.apiKey", defaultValue: "API Key", bundle: .module), kind: .string)
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// `cloud resize-machine --disk GIB`: the disk's new size in whole GiB (4 GiB steps up to 256, grow-only).
+    static var diskGiBInt: ActionArgument {
+        ActionArgument(name: "disk", title: String(localized: "argument.diskGiB", defaultValue: "Disk (GiB)", bundle: .module),
+                       kind: .int(4...256), isRequired: false)
     }
 
     /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
@@ -259,6 +283,18 @@ nonisolated enum CatalogArgument {
     static var pinnedBool: ActionArgument {
         ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
                        isRequired: false)
+    }
+
+    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
+    static var teammateString: ActionArgument {
+        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
+    static var revokeBool: ActionArgument {
+        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
+                       kind: .bool, isRequired: false)
     }
 
     static var onBool: ActionArgument {

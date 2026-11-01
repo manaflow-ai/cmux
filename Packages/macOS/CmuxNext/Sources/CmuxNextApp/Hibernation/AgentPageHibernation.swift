@@ -73,7 +73,7 @@ final class AgentPageHibernation {
     /// presentation changes, and lets the pane holding a released page go.
     convenience init(services: AppServices) {
         self.init(tabs: { [weak services] in services?.madeAgentTabs })
-        isPinned = { [weak services] key in services?.locateTab(key)?.0.pinned ?? false }
+        isPinned = { [weak services] key in services?.locateTabOnAnyMachine(key)?.0.pinned ?? false }
         turnState = { [weak services] key in
             guard let tabs = services?.madeAgentTabs, var (record, _) = tabs.lookup(tabs.resolve(key)) else { return nil }
             // The session the page runs, as its rebuild uses it: a refused bind leaves the record on the old one.
