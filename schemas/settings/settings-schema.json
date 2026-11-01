@@ -11939,7 +11939,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 50,
+      "default" : 1000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
@@ -12080,7 +12080,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 16,
+      "default" : 1000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
