@@ -10,7 +10,7 @@
 //! as the room (an install token with a `kid`): the room verifies it against that API's keys.
 
 use cmux_agent_pane_policy::build_identity::BuildKind;
-use cmux_tui_cloud_conversations::platform::{DEVELOPMENT, PRODUCTION, STAGING};
+use cmux_tui_core::cloud_conversations::platform::{DEVELOPMENT, PRODUCTION, STAGING};
 
 pub(crate) const ENV: &str = "CMUX_SHARE_ROOM_URL";
 
