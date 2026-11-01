@@ -207,7 +207,7 @@ mod tests {
         assert!(read_reply(&mut client, TIMEOUT).is_err());
         let (mut client, mut server) = UnixStream::pair().unwrap();
         let sender = std::thread::spawn(move || {
-            for _ in 0..20 {
+            for _ in 0..100 {
                 if server.write_all(b"x").is_err() {
                     break;
                 }
