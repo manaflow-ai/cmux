@@ -2649,7 +2649,7 @@ use bounded_outbound::{
 #[cfg(test)]
 use bounded_outbound::{
     ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
-    websocket_server_frame_header,
+    claim_terminal_connection_from, websocket_server_frame_header,
 };
 
 mod client_registry;
@@ -2956,3 +2956,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

@@ -378,6 +378,58 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Жоден порт цієї машини не переадресовано на цей Mac."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không có cổng nào của máy này được chuyển tiếp tới Mac này."}}
       }
+    },
+    "cloud.ports.openPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open in Browser"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فتح في المتصفح"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Otvori u pregledniku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Åbn i browser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Im Browser öffnen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Abrir en el navegador"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ouvrir dans le navigateur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Apri nel browser"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブラウザで開く"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បើកក្នុងកម្មវិធីរុករក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "브라우저에서 열기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Åpne i nettleser"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Otwórz w przeglądarce"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Abrir no navegador"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Открыть в браузере"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เปิดในเบราว์เซอร์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tarayıcıda Aç"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Відкрити в браузері"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mở trong trình duyệt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在浏览器中打开"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在瀏覽器中開啟"}}
+      }
+    },
+    "cloud.ports.noPreviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No live previews are available yet. Try again when the machine's web server is ready."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا تتوفر معاينات مباشرة بعد. حاول مرة أخرى عندما يصبح خادم الويب على الجهاز جاهزًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pregledi uživo još nisu dostupni. Pokušajte ponovo kada web server mašine bude spreman."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Der er endnu ingen liveforhåndsvisninger. Prøv igen, når maskinens webserver er klar."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Es sind noch keine Live-Vorschauen verfügbar. Versuche es erneut, wenn der Webserver der Maschine bereit ist."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aún no hay vistas previas en vivo. Inténtalo de nuevo cuando el servidor web de la máquina esté listo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucun aperçu en direct n’est encore disponible. Réessayez lorsque le serveur web de la machine sera prêt."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non sono ancora disponibili anteprime dal vivo. Riprova quando il server web della macchina sarà pronto."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブプレビューはまだ利用できません。マシンのWebサーバーの準備ができたら、もう一度お試しください。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនទាន់មានការមើលជាមុនផ្ទាល់ទេ។ សូមព្យាយាមម្ដងទៀត នៅពេលម៉ាស៊ីនបម្រើគេហទំព័ររបស់ម៉ាស៊ីនរួចរាល់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "아직 실시간 미리보기를 사용할 수 없습니다. 머신의 웹 서버가 준비되면 다시 시도하세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ingen direkteforhåndsvisninger er tilgjengelige ennå. Prøv igjen når maskinens webserver er klar."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Podglądy na żywo nie są jeszcze dostępne. Spróbuj ponownie, gdy serwer WWW maszyny będzie gotowy."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ainda não há prévias ao vivo disponíveis. Tente novamente quando o servidor web da máquina estiver pronto."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Предпросмотр в реальном времени пока недоступен. Повторите попытку, когда веб-сервер машины будет готов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ยังไม่มีตัวอย่างแบบสด ลองอีกครั้งเมื่อเว็บเซิร์ฟเวอร์ของเครื่องพร้อมใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Henüz canlı önizleme yok. Makinenin web sunucusu hazır olduğunda tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Попередній перегляд наживо ще недоступний. Спробуйте знову, коли вебсервер машини буде готовий."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chưa có bản xem trước trực tiếp. Hãy thử lại khi máy chủ web trên máy đã sẵn sàng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "暂时没有可用的实时预览。请在机器的 Web 服务器准备就绪后重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "目前尚無可用的即時預覽。請在機器的 Web 伺服器準備就緒後再試。"}}
+      }
     }
   },
   "version": "1.0"
