@@ -6,8 +6,8 @@ import Testing
 
 /// Lawrence msg 19245, a shot of the "Chief TUI + fast iteration" hover card: "alignment here looks bad.
 /// design not very good either, not showing enough details per each". The workspace hover card is one
-/// grid: the header's icon and every tab row's icon center on one x, the header's name, every tab's title
-/// and detail line, "Show N more" and "Show details" start on one text x, the tab rows keep one pitch,
+/// grid: the header's icon, every tab row's icon and the Show details chevron center on one x, the header's
+/// name, every tab's title and detail line and "Show details" start on one text x, the tab rows keep one pitch,
 /// and every tab row shows its detail line (its place, state and time; its kind when it has none).
 @MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceHoverCardGridTests {
     private struct Mounted {
@@ -19,7 +19,7 @@ import Testing
         _ = NSApplication.shared
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardFixture.content, now: WorkspaceHoverCardFixture.now)
-        card.tabList.configure(title: WorkspaceHoverCardFixture.title, tabs: WorkspaceHoverCardFixture.tabs)
+        card.configureTabs(title: WorkspaceHoverCardFixture.title, tabs: WorkspaceHoverCardFixture.tabs, now: WorkspaceHoverCardFixture.now)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -42,12 +42,6 @@ import Testing
     private static func textX(_ label: ChromeLabel, in card: NSView) -> CGFloat {
         let rect = label.alignmentRect(forFrame: label.frame)
         return card.convert(NSPoint(x: rect.minX, y: rect.minY), from: label.superview).x
-    }
-
-    /// Where a text button's title starts, in the card: its cell's title rect.
-    private static func textX(_ button: NSButton, in card: NSView) throws -> CGFloat {
-        let cell = try #require(button.cell)
-        return card.convert(cell.titleRect(forBounds: button.bounds).origin, from: button).x
     }
 
     /// `view`'s frame in the card, top down (y grows downward whether or not the card is flipped).
@@ -98,13 +92,15 @@ import Testing
                 #expect(abs(detailX - textX) <= 0.5, "\"\(row.title.stringValue)\": its detail starts at x \(detailX), the name at \(textX)")
             }
         }
-        let more = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }.first(where: Self.shown),
-                                "13 tabs show no Show more")
-        let moreX = try Self.textX(more, in: card)
-        #expect(abs(moreX - textX) <= 0.5, "\"\(more.title)\" starts at x \(moreX), the name at \(textX)")
+        // Show details (Leo 2026-11-01's row-styled disclosure): its words on the text column, its chevron
+        // on the icon column. Every tab is listed (no Show N more since Leo's change).
         try #require(Self.shown(card.detailsToggle), "the card has details but no Show details")
-        let toggleX = try Self.textX(card.detailsToggle, in: card)
-        #expect(abs(toggleX - textX) <= 0.5, "\"\(card.detailsToggle.title)\" starts at x \(toggleX), the name at \(textX)")
+        let words = try #require(Self.descendants(of: card.detailsToggle).compactMap { $0 as? ChromeLabel }.first)
+        let toggleX = Self.textX(words, in: card)
+        #expect(abs(toggleX - textX) <= 0.5, "\"\(words.stringValue)\" starts at x \(toggleX), the name at \(textX)")
+        let chevron = try #require(Self.descendants(of: card.detailsToggle).compactMap { $0 as? NSImageView }.first)
+        let chevronX = Self.frame(chevron, in: card).midX
+        #expect(abs(chevronX - iconX) <= 0.5, "the Show details chevron centers at x \(chevronX), the header icon at \(iconX)")
     }
 
     @Test func tabRowsKeepOnePitchAndEachShowsItsDetailLine() throws {
@@ -128,5 +124,58 @@ import Testing
             let iconMiddle = Self.frame(row.icon, in: card).midY
             #expect(abs(iconMiddle - capMiddle) <= 1, "\"\(row.title.stringValue)\": its icon's middle is \(iconMiddle - capMiddle) pt off its title's capitals")
         }
+    }
+
+    /// The owner, on msg 19245's gallery: "every detail line truncates to noise". With all 13 tabs listed,
+    /// each tab row's detail line shows its whole state word and time, keeps its place's last path component
+    /// (or its host), and draws unclipped; the card stays within its widest.
+    @Test func everyTabsDetailKeepsItsStateTimeAndPlace() throws {
+        let mounted = Self.mount()
+        defer { mounted.window.closeAfterTest() }
+        let card = mounted.card
+        card.frame.size = card.fittingSize
+        card.layoutSubtreeIfNeeded()
+        for view in Self.descendants(of: card) { view.layoutSubtreeIfNeeded() }
+        #expect(card.frame.width <= WorkspaceHoverCardView.maxCardWidth + 0.5, "the card is \(card.frame.width) pt wide")
+        let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.filter { !$0.isHidden }
+            .sorted { Self.frame($0, in: card).minY < Self.frame($1, in: card).minY }
+        let tabs = WorkspaceHoverCardFixture.tabs
+        try #require(rows.count == tabs.count, "\(rows.count) rows for \(tabs.count) tabs")
+        for (row, tab) in zip(rows, tabs) {
+            let labels = Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.filter { Self.shown($0) && !$0.stringValue.isEmpty }
+                .sorted { $0.frame.minY < $1.frame.minY }
+            let detail = try #require(labels.dropFirst().first, "\(tab.title) shows no detail line")
+            let text = detail.stringValue
+            let now = WorkspaceHoverCardFixture.now
+            for field in [WorkspaceTabHoverCardStyle.Field.state, .time] {
+                if let word = WorkspaceTabHoverCardLine.text(field, of: tab, now: now) {
+                    #expect(text.contains(word), "\(tab.title): \"\(text)\" lost \"\(word)\"")
+                }
+            }
+            if let place = tab.kind == .browser ? tab.host : tab.folder, let last = place.split(separator: "/").last {
+                #expect(text.contains(last), "\(tab.title): \"\(text)\" lost its place's end \"\(last)\"")
+            }
+            // Frame terms (`naturalSize` includes the label's padding): a frame short of it clips the text.
+            for label in [labels[0], detail] {
+                #expect(label.naturalSize.width <= label.frame.width + 0.5,
+                        "\(tab.title): \"\(label.stringValue)\" is clipped (\(label.naturalSize.width) in \(label.frame.width))")
+            }
+        }
+    }
+
+    /// A blank page reads "New Tab", with no "about:blank" or "Blank page".
+    @Test func aBlankPageReadsNewTab() {
+        let line = WorkspaceTabHoverCardLine(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser), style: .standard,
+                                             now: WorkspaceHoverCardFixture.now)
+        #expect(WorkspaceTabHoverCardLine.title(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser)) == Strings.hoverCardNewTab)
+        #expect(line.detail == Strings.hoverCardKindBrowser)
+    }
+
+    /// The place shortens from its middle and keeps its last path component.
+    @Test func aLongPlaceKeepsItsLastComponent() {
+        let font = Typography.caption
+        let fitted = WorkspaceTabHoverCardLine.fit(place: "~/fun/cmux/Packages/macOS/CmuxNext/Sources", width: 90, font: font)
+        #expect(fitted.hasSuffix("/Sources") && fitted.contains("…"), "\(fitted)")
+        #expect(WorkspaceTabHoverCardLine.fit(place: "~/fun", width: 200, font: font) == "~/fun")
     }
 }

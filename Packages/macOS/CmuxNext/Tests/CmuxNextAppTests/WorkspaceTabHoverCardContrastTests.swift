@@ -100,7 +100,8 @@ import Testing
             let color = try #require(Self.rgb(label.textColor), "\(name) has no color")
             #expect(Self.same(color, primary), "\(name) draws in \(color), not the primary text \(primary)")
         }
-        for path in ["~/Projects/cmux", "~"] {
+        // Each tab's detail line: its folder and its status (Lawrence msg 19245).
+        for path in ["~/Projects/cmux · Working", "~ · Done"] {
             let label = try #require(byText[path], "no label \(path)")
             let color = try #require(Self.rgb(label.textColor), "\(path) has no color")
             #expect(Self.same(color, secondary), "\(path) draws in \(color), not the secondary text \(secondary)")
@@ -151,7 +152,7 @@ import Testing
             let ink = try #require(inks[name], "no \(name) label")
             #expect(ink >= richTitle * 0.9, "\(name) ink \(ink) is dimmer than the card title \(richTitle)")
         }
-        let path = try #require(inks["~/Projects/cmux"])
+        let path = try #require(inks["~/Projects/cmux · Working"])
         #expect(path >= richTitle * 0.45, "the path ink \(path) is washed out next to the title \(richTitle)")
     }
 }
