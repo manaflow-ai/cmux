@@ -341,3 +341,36 @@ async fn pending_retry_stopped_after_recovery_stays_stopped_across_restart() {
         )
     );
 }
+
+/// A turn still running in its agent host when the daemon restarts is `running` from its
+/// adoption on. The log has no `ready` between `host_adopted` and that turn's end: the adoption
+/// logged `ready` before it recovered the turn, so a client that attached between the two saw an
+/// idle chat (`adopted_running_prompt_resend_joins_its_live_outcome` read `ready` on a loaded
+/// fleet Mac).
+#[tokio::test]
+async fn an_adopted_running_turn_is_never_logged_ready() {
+    let mut daemon = Daemon::new("adopt-ready", "approve-all");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let params = json!({"sessionId": session,
+        "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]});
+    let mut rpc = daemon.rpc().await;
+    rpc.send("session/prompt", params).await;
+    daemon.wait_event(&session, "running hosted turn", |e| chunk(e, "before-gate"));
+    daemon.sigkill();
+    drop(rpc);
+    daemon.start();
+    daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the adopted turn's end", |e| e["kind"] == "turn_result");
+    let events = daemon.events(&session);
+    let adopted = events.iter().position(|e| e["kind"] == "host_adopted").unwrap();
+    let ended = events.iter().position(|e| e["kind"] == "turn_result").unwrap();
+    let statuses: Vec<&Value> = events[adopted..ended]
+        .iter()
+        .filter(|e| e["kind"] == "status")
+        .map(|e| &e["msg"]["status"])
+        .collect();
+    assert!(!statuses.iter().any(|s| *s == "ready"), "statuses after adoption: {statuses:?}");
+}
