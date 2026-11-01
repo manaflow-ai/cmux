@@ -6,6 +6,8 @@ import { EDITOR_CONFIG_OP, EDITOR_SAVE_OP } from "../src/pages/editor/host";
 import { EditorStore, type CodeView } from "../src/pages/editor/store";
 import type { PageClient } from "../src/pages/shared/pageClient";
 
+const tick = () => new Promise<void>((done) => setTimeout(done, 0));
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => (resolve = done));
@@ -57,11 +59,10 @@ test("a second save that finished formatting while the first writes does not wri
   const first = store.save({ format: true });
   const second = store.save({ format: true });
   prepares[0].resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await tick();
+  expect(saves).toHaveLength(1);
   prepares[1].resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await tick();
   write.resolve();
   await Promise.all([first, second]);
 
