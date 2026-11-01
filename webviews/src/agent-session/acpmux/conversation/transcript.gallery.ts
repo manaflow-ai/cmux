@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -460,7 +461,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
   await ctx.click(more);
   const clicked = performance.now();
-  // The hold lasts at most FOLD_HOLD_MAX_MS from the click; the view is the reader's after it.
+  // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
     () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
     { capMs: 5000 },
@@ -472,8 +473,8 @@ const showLessAtEnd = async (ctx: PlayContext) => {
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
 /// commands, short narration, a compaction and a subagent ending, two answers to the person, a
-/// command after the second and a closing line. Only the work folds, each stretch under its own
-/// line between the answers (turns.ts `foldSegments`).
+/// command after the second and a closing line. Once complete, everything before the closing
+/// answer folds under the turn's one Worked-for line.
 const takeawayTurnRows = [
   user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
   activity(
@@ -1084,6 +1085,34 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
     { isWorking: true },
   );
 
+/// A running turn whose first run did one kind of work, two web fetches, between two messages: its
+/// collapsed line keeps that kind's glyph, the globe.
+const oneKindRunChat = () =>
+  chat(
+    [
+      user("Check what the two retry guides say, then run the tests.", 3),
+      assistant("I'll read both guides first.", 2.9),
+      activity(
+        [
+          tool("Fetch https://example.com/retries", "fetch", "completed"),
+          tool("Fetch https://example.com/backoff", "fetch", "completed"),
+        ],
+        2.8,
+      ),
+      assistant("Both guides cap retries at three with jittered backoff. Next I run the tests.", 2.5),
+      activity(
+        [
+          tool("bun test src/net", "execute", "in_progress", {
+            command: "bun test src/net",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -1195,6 +1224,33 @@ function renderTool(page: string, update?: string) {
 /// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
 const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
 
+/// A person's turn, then two turns the agent ran on its own (backgroundTurns.ts): a quiet one, one
+/// muted line that opens to its rows, and one with something to say, whose rows draw as they came.
+const backgroundTurnRows = [
+  user("Run the migration tests in the background and tell me if anything breaks", 9),
+  assistant("Started the migration tests in the background.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-quiet"),
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+  }),
+  activity(
+    [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
+    6.9,
+    { inBackground: "gallery-bg-quiet" },
+  ),
+  assistant("Nothing new for you yet.", 6.8, { inBackground: "gallery-bg-quiet" }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-loud"),
+    background: { id: "gallery-bg-loud", trigger: "task_notification", running: false, quiet: false },
+  }),
+  assistant(
+    "The migration tests finished: 2 of 14 failed in `orders_backfill`. Want me to look at the failures?",
+    4.9,
+    { inBackground: "gallery-bg-loud" },
+  ),
+];
+
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
 /// task's notification, a system reminder alone (no row) and another agent's message.
 const foldNoBlankRows = [
@@ -1283,6 +1339,64 @@ const BASH_PERMISSION = chat(
   },
 );
 
+const gridRhythmSnapshot = chat(
+  [
+    // Prior history exercises the followed composer boundary, including narrow panes.
+    assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+      id: "grid-history",
+    }),
+    user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
+    user("Review the current verification results", 3, {
+      id: "grid-header",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-agent",
+          text: "Review the current verification results",
+          raw: "Review the current verification results",
+        },
+      },
+      untyped: true,
+    }),
+    assistant(
+      "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
+      2.8,
+      { id: "grid-message" },
+    ),
+    activity(
+      [
+        tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
+        tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
+        tool("Run focused checks", "execute", "in_progress", {
+          command: "bun test transcript",
+          startedAt: minutesAgo(0.5),
+        }),
+      ],
+      2.7,
+      { id: "grid-tools" },
+    ),
+  ],
+  { isWorking: true },
+);
+
+const gridHistory = assistant(
+  Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"),
+  5,
+  { id: "grid-history" },
+);
+// A sent prompt with no output yet: the working indicator alone between it and the composer.
+const gridWaitingSnapshot = chat(
+  [gridHistory, user("Check the verification and report the result.", 0.2, { id: "grid-prompt" })],
+  { isWorking: true },
+);
+// A settled reply as the last element: the composer gap after a message keeps room for its actions.
+const gridSettledSnapshot = chat([
+  gridHistory,
+  user("Check the verification and report the result.", 1, { id: "grid-prompt" }),
+  assistant("The verification passed on every check.", 0.5, { id: "grid-message" }),
+  summary(0.4, { id: "grid-summary", status: "completed", durationMs: 9_000 }),
+]);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1338,10 +1452,38 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#MultiTool",
     "agent-session/acpmux/PermissionCard.tsx",
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "grid-rhythm": {
+      height: 900,
+      note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
+      snapshot: gridRhythmSnapshot,
+    },
+    "grid-waiting": {
+      height: 900,
+      note: "A prompt waiting for its first output: the working indicator sits centred, the block gap above and below it.",
+      snapshot: gridWaitingSnapshot,
+    },
+    "grid-settled": {
+      height: 900,
+      note: "A settled reply above the composer: the composer gap after a message is the block gap, so its hover row fits.",
+      snapshot: gridSettledSnapshot,
+    },
+    "grid-rhythm-hover": {
+      height: 900,
+      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      snapshot: gridRhythmSnapshot,
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
+        await ctx.waitFor(() => {
+          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
+          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
+        });
+      },
+    },
     "activity-tone-secondary": {
       note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
       snapshot: messageSurfaceChat,
@@ -1797,11 +1939,11 @@ export default agentPaneEntry({
       },
     },
     "takeaways-stay-open": {
-      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      note: 'A long finished turn (synthetic text): the closing "Pushed." stays in sight, and the earlier dialogue folds into one Worked-for line.',
       snapshot: chat(takeawayTurnRows),
     },
     "takeaways-fold-open": {
-      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      note: "The same turn with Worked for opened: every command, intermediate answer, short note, and compaction remains in order.",
       snapshot: chat(takeawayTurnRows),
       play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
@@ -1890,9 +2032,9 @@ export default agentPaneEntry({
       ),
     },
     "steer-ended": {
-      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      note: "A turn Leo steered, once it ended: the whole connected turn folds under one Worked for keyed by its prompt, with the answer below it. Play: that fold opens on the call before the steer, the reply, the steer, then the call after it, in the order they ran.",
       snapshot: chat([
-        user("Fix the flaky login test", 3),
+        user("Fix the flaky login test", 3, { id: "steer-ended-prompt" }),
         activity(
           [
             thought("The login test fails one run in five; check how the retry waits for the session."),
@@ -1910,9 +2052,11 @@ export default agentPaneEntry({
         summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
       ]),
       play: async (ctx: PlayContext) => {
-        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        // A finished turn draws one fold, the prompt's; the steer and the work after it open inside it.
+        const fold = '[data-row-id="worked-steer-ended-prompt"] .cv-worked';
         await ctx.click({ selector: fold });
         await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="steer-ended-steer"]'));
       },
     },
     "working-tokens": {
@@ -2100,8 +2244,12 @@ export default agentPaneEntry({
       ),
     },
     "collapsed-run": {
-      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the several-tools glyph (four rings joined by a diagonal). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
       snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-one-kind": {
+      note: "A collapsed run of one kind of work (two web fetches) keeps that kind's glyph, the globe.",
+      snapshot: oneKindRunChat(),
     },
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
@@ -2473,7 +2621,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {
@@ -3119,6 +3273,31 @@ export default agentPaneEntry({
         );
       },
     },
+    "markdown-fence-pipes": {
+      note: "A reply that quotes Markdown in a four-backtick fence (its inner three-backtick fence stays text) and a table whose cell holds an escaped pipe (a literal pipe, not a column break).",
+      snapshot: chat(
+        [
+          user("Show me the fence and the table", 2),
+          assistant(
+            [
+              "Quoting a reply keeps its own fence:",
+              "",
+              "````md",
+              "```js",
+              "console.log(1);",
+              "```",
+              "````",
+              "",
+              "| command | note |",
+              "| --- | --- |",
+              "| `ls \\| head` | the pipe stays in its cell |",
+            ].join("\n"),
+            1,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
     queued: {
       note: "Prompts queued behind a running turn.",
       snapshot: chat([user(prompt, 2), assistant("Working on the policy type…", 1, { streaming: true })], {
@@ -3448,6 +3627,21 @@ export default agentPaneEntry({
         shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
       ),
       play: showLessAtEnd,
+    },
+    "background-turns": {
+      note: "A person's turn, then a turn the agent ran on its own after a background task finished with nothing new to tell: one muted line, Background task finished, closed. Then one that has something to say (a failure and a question), drawn as its rows came. No Worked for or footer for either. Play: open the quiet line.",
+      snapshot: chat(backgroundTurnRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the quiet line intentionally reveals its rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
+        await ctx.click(line);
+        await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
     },
     "fold-no-blank-collapsed": {
       note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",

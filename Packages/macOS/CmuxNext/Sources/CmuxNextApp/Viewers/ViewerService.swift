@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
@@ -50,6 +51,14 @@ final class ViewerService {
         return fileOpener.open(file, in: pane)
     }
 
+    /// An explicit file action in a machine's pane. Returns its refusal to the action caller;
+    /// the remote path is never resolved or opened on this Mac.
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false) -> String? {
+        guard !machine.isLocal else { return openFile(file, in: pane, userChose: userChose, asText: asText) }
+        guard let opener = fileOpener as? FilePageOpener else { return FilePageStrings.notAFile }
+        return opener.open(file, on: machine, in: pane, userChose: userChose, asText: asText)
+    }
+
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
     /// (``LocalFileHandoff``). Returns whether it did.
     func openMarkdownHandoff(_ url: URL, in pane: PaneController, focus: Bool) -> Bool {
@@ -75,23 +84,32 @@ final class ViewerService {
 
     /// A diff tab for `directory` in `pane`; the diff host records the
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
+    /// `onPaneMachine`: `directory` is a folder of `pane`'s machine (``DiffViewerOpening``).
     func openDiff(_ directory: String, turn: DiffTurn? = nil, showTurn: Bool = false, in pane: PaneController, focus: Bool,
-                  created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
-        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
+                  onPaneMachine: Bool = false, created: (@MainActor (SurfaceID) -> Void)? = nil,
+                  failed: (@MainActor ((any Error)?) -> Void)? = nil) async throws {
+        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus,
+                                      onPaneMachine: onPaneMachine, created: created, failed: failed)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside
     /// a chat (the header's Changes), made when the folder is picked; else the diff opens focused in `pane`.
     func diffPickerPage(for pane: PaneController,
-                        beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil) -> PalettePageSpec {
+                        beside: (@MainActor () -> AgentBesidePlacement.Opening)? = nil) -> PalettePageSpec {
         picker.openPage(.init(choose: .folders, startDirectory: Self.start(for: pane), recents: [.diff])) { [weak self, weak pane] urls in
             guard let self, let pane, let folder = urls?.first else { return }
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
-            let created = beside?()
+            let opening = beside?()
             self.diffOpen = Task { @MainActor [weak self, weak pane] in
                 guard let self, let pane else { return }
-                do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {
+                do {
+                    try await self.openDiff(folder.path, in: pane, focus: opening == nil, created: opening?.created, failed: { [weak self] error in
+                        opening?.failed(nil)
+                        if let error { self?.showRefusal(Self.reason(error)) }
+                    })
+                } catch {
+                    opening?.failed(nil)
                     if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
                 }
                 // A cancelled open leaves the handle to the one that replaced it.
@@ -132,6 +150,22 @@ final class ViewerService {
         }
         let kind: ViewerRecents.Kind = !asText && (markdown || PickerFilter.markdown.accepts(file.lastPathComponent)) ? .markdown : .file
         recents.record(file, as: kind)
+        return true
+    }
+
+    /// Opens `file` of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in
+    /// its page, read from that machine (``FilePageOpener/open(_:on:in:userChose:asText:at:placed:)``),
+    /// placed as ``openFile(_:in:markdown:asText:at:placed:)`` places it. False when it did not
+    /// open (the refusal shows). The recents are this Mac's files, so it records none.
+    @discardableResult
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, asText: Bool = false, at position: FilePosition? = nil,
+                  placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> Bool {
+        guard let opener = fileOpener as? FilePageOpener else { return false }
+        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, placed: placed,
+                                    shownInPlace: shownInPlace) {
+            showRefusal(reason)
+            return false
+        }
         return true
     }
 

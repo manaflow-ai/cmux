@@ -519,7 +519,10 @@ impl Hub {
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        let old_lane = summary
+            .get("lane")
+            .and_then(Value::as_object)
+            .is_some_and(|lane| !lane.contains_key("title") || !lane.contains_key("requiresOpen"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
@@ -1171,11 +1174,51 @@ impl Hub {
         );
     }
 
+    /// The live-only projection used by census requests that explicitly exclude closed rows.
+    pub(super) fn visit_live_session_summaries(
+        &self,
+        with_tools: bool,
+        mut visit: impl FnMut(Value),
+    ) {
+        for session in self.indexed_live_sessions() {
+            visit(if with_tools {
+                self.session_summary(&session)
+            } else {
+                self.session_list_summary(&session)
+            });
+        }
+        self.visit_remote_rows(
+            |row| row.get("status").and_then(Value::as_str) != Some("closed"),
+            |row| {
+                visit(if with_tools { row } else { super::views::without_summary_tools(row) });
+            },
+        );
+    }
+
     /// Every session, local and remote, newest first.
     pub fn all_session_summaries(&self) -> Vec<Value> {
         let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
         v.extend(self.remote_sessions());
         // Newest first, ties by sessionId: the order session list pages keep.
+        super::session_pages::sort_session_summaries(&mut v);
+        v
+    }
+
+    /// The index-backed projection for lookups that usually target an active chat. A miss falls
+    /// back to [`Self::all_session_summaries_including_closed`] in `locate` so closed history is
+    /// still discoverable by an explicit request.
+    pub(crate) fn live_session_summaries(&self) -> Vec<Value> {
+        let mut v = Vec::new();
+        self.visit_live_session_summaries(true, |row| v.push(row));
+        super::session_pages::sort_session_summaries(&mut v);
+        v
+    }
+
+    /// The complete list used only after an explicit lookup misses the live index. It preserves
+    /// history access without making closed records part of repeated list/locate scans.
+    pub(super) fn all_session_summaries_including_closed(&self) -> Vec<Value> {
+        let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
+        v.extend(self.remote_sessions());
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
@@ -1436,6 +1479,18 @@ mod tests {
             }),
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
+    }
+
+    #[test]
+    fn an_older_peers_agent_lane_requires_open_even_with_a_title() {
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "child", "status": "running", "parent": "coordinator",
+                "indicator": "working", "lane": {"state": "working", "title": "Review"}
+            }),
+        );
+        assert_eq!(summary["lane"]["requiresOpen"], true);
     }
 
     #[test]

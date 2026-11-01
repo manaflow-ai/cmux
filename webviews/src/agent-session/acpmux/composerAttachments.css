@@ -99,6 +99,20 @@
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
+/* Select All in the prompt selects the strip's attachments too (Leo, 2026-11-01): each wears the
+   selection's tint, as the chips placed in the text do (markdownField.css). */
+.acpmux-attachments[data-selected] .acpmux-attachment::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
 /* As tall as a few lines of text and as wide as the image's own shape (within bounds), so a wide
    screenshot shows as itself, not a sliver of its text (Leo, 2026-10-14). */
 .acpmux-attachment-image {
@@ -197,9 +211,6 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
-.acpmux-attachment-image-failed .acpmux-attachment-retry {
-  line-height: 16px;
-}
 .acpmux-attachment-failed-icon {
   flex: none;
   opacity: 0.8;
@@ -229,67 +240,84 @@
 .acpmux-attachment-spinner {
   flex: none;
 }
-/* A file that could not be attached: why, cut to the tile (its tooltip has all of it), Retry, and
-   its × (composer/attachmentIntake.tsx PendingChip). */
+/* A file that could not be attached (composer/attachmentIntake.tsx PendingChip): its shape kept,
+   its kind's glyph (and a file's name), one small retry button and its ×; why is in its tooltip.
+   Never an empty tile with an underlined "Retry" (Leo, 2026-10-31: "video attachments (big
+   attachments?) still sucks"). */
 .acpmux-attachment-failed {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: 8px;
   color: var(--agent-muted);
-  text-align: center;
 }
 .acpmux-attachment-image.acpmux-attachment-failed {
+  flex-direction: column;
   width: 104px;
 }
 .acpmux-attachment-file.acpmux-attachment-failed {
-  flex-direction: row;
   max-width: min(260px, 70vw);
   /* Room for its x on the right, as a file chip has. */
   padding: 0 32px 0 8px;
 }
-.acpmux-attachment-failed .acpmux-attachment-failed-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.acpmux-attachment-failed-name {
   overflow: hidden;
-}
-.acpmux-attachment-retry {
-  flex: none;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-text);
-  font: inherit;
-  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
+   button on the composer's own surface, like the tile's × beside it. */
+.acpmux-attachment-retry,
+.acpmux-attachment-original-retry {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  text-decoration: none;
   cursor: default;
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-retry:hover {
-  background: color-mix(in srgb, var(--agent-text) 20%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 .acpmux-attachment-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
+/* A file streaming to the chat's machine: a ring that fills on its tile (PendingChip UploadProgress). */
+.acpmux-attachment-progress {
+  flex: none;
+  fill: none;
+  stroke-width: 2;
+}
+.acpmux-attachment-progress-track {
+  stroke: color-mix(in srgb, currentColor 25%, transparent);
+}
+.acpmux-attachment-progress-arc {
+  stroke: var(--agent-text);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 120ms linear;
+}
 /* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
    corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
+/* In the thumbnail's corner, the size of its × in the other corner: the middle stays the image's
+   (a click there opens it). */
 .acpmux-attachment-original-retry {
   position: absolute;
   bottom: 4px;
   left: 4px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 4px;
+  width: 16px;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 8px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.6);
-  font: inherit;
-  font-size: var(--text-detail);
-  line-height: 1.4;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-attachment-original-retry:hover {
   background: rgb(0 0 0 / 0.75);
@@ -529,21 +557,23 @@
 .acpmux-composer-field-menu {
   display: contents;
 }
-/* A huge paste kept as a chip (pastedText.ts): its first words over "Pasted text · N lines", as in
-   Claude. The chip is a button that puts the text back in the prompt; × removes it. */
+/* A text attachment (a huge paste, pastedText.ts, or a text file) as a small page of its text, as
+   Claude and ChatGPT draw a long paste (composer/TextAttachmentCard.tsx): its first lines in 11 px
+   monospace, left-aligned from the top, fading out over the bottom, with one quiet label under them
+   ("Pasted text · 25 lines"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
+   one (markdownField.css) is 48. A pasted card is a button that puts the text back in the prompt;
+   × removes it. Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for
+   these text type attachments' previews". Gallery: agent-pane.text-attachment-card. */
 .acpmux-attachment-pasted {
   display: flex;
-  width: min(240px, 70vw);
-  height: 44px;
+  width: 180px;
+  max-width: 70vw;
+  height: var(--acpmux-attach-height);
   overflow: hidden;
 }
 .acpmux-attachment-pasted-open {
   flex: 1;
   min-width: 0;
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  padding: 0 28px 0 10px;
   border: 0;
   border-radius: inherit;
   background: transparent;
@@ -558,19 +588,49 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
-.acpmux-attachment-pasted-name,
-.acpmux-attachment-pasted-lines {
+/* The card's body, in either host: lines from the top, the label pinned to the bottom. */
+.acpmux-text-card .acpmux-attachment-pasted-open,
+.acpmux-text-card .acpmux-text-card__open {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  height: 100%;
+  padding: 8px 12px 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.acpmux-attachment-pasted-lines {
+.acpmux-text-card__lines {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--agent-text) 82%, transparent);
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, ui-monospace, monospace));
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: 13px;
+  white-space: pre;
+  tab-size: 2;
+  text-align: start;
+  text-decoration: none;
+  /* The last line that fits fades out instead of ending on a cut. An alpha mask, never a painted
+     overlay, so the chip's own fill and hover show through. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+}
+.acpmux-text-card__label {
+  flex: none;
+  overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: 14px;
   letter-spacing: var(--text-caption--letter-spacing);
-}
-.acpmux-attachment-pasted .acpmux-attachment-remove {
-  top: 14px;
+  text-align: start;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
    nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */
@@ -627,4 +687,64 @@ button.acpmux-attachment-pasted-open:hover {
   border-radius: var(--acpmux-file-chip-radius);
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+}
+/* The app an attachment came from, at its tile's top-right corner (composer/SourceBadge.tsx; Leo,
+   2026-10-29, after Spotlight's: "just at the top right, there's a little icon"). The app's own
+   16px icon with a faint edge and shadow, so it reads on a light or dark screenshot. It sits in the
+   ×'s corner: while the pointer is on the tile the × takes the corner and the icon fades, so the two
+   never overlap, and the tile's tooltip names the source. Clicks go through it to the tile. */
+.acpmux-source-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  aspect-ratio: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent))
+    drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.22));
+  transition: opacity 120ms ease-out;
+}
+.acpmux-source-badge > img,
+.acpmux-attachment-image .acpmux-source-badge > img {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  border-radius: 0;
+  outline: none;
+  background: none;
+  object-fit: contain;
+}
+.acpmux-attachment:is(:hover, :focus-within) > .acpmux-source-badge {
+  opacity: 0;
+}
+.acpmux-attachment-document > .acpmux-source-badge { top: 20px; }
+/* A file chip's rides its file glyph's top-right corner, clear of the chip's ×. */
+.acpmux-file-chip > .acpmux-source-badge {
+  top: 4px;
+  right: auto;
+  left: 17px;
+  width: 12px;
+}
+/* A sent image's, at its thumbnail's top-right corner, above the prompt or inline in its text
+   (conversation/UserBubble.tsx SentImage). Its icon keeps its own shape, not the thumbnail's. */
+.cv-user__sourced {
+  position: relative;
+  /* Flex, so the thumbnail's button is no inline box: no line box under it, and the tile is as
+     tall as an unsourced one. */
+  display: flex;
+  flex: none;
+}
+.cv-user__sourced > .acpmux-source-badge {
+  top: 6px;
+  right: 6px;
+}
+:is(.cv-user__images, .cv-user__inline-image) .cv-user__sourced > .acpmux-source-badge > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  outline: none;
+  background: none;
+  object-fit: contain;
 }

@@ -13,8 +13,8 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -111,7 +111,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # state and control pipe (where the app's admission values arrive), host check and the two
     # socket servers that call them, the app's check of the helper on that socket, the requirement
     # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
-    # for acpmux bridges, the requirement of the helper the app or acpmux may
+    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
     # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
@@ -124,6 +125,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
         "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
         "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
@@ -569,10 +572,11 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -580,13 +584,17 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     elif tier == "high" and blocked and not human_ok:
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
-    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
-    for number in sorted(set(taken_back or [])):
-        if number not in acknowledged:
-            missing.append(
-                f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-                f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+    for number in unowned_takebacks(body, taken_back):
+        missing.append(
+            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
+            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
     return missing
+
+
+def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
+    """The pull requests this one takes back without a `Takes back #N: <why>` line owning it."""
+    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
+    return [number for number in sorted(set(taken_back or [])) if number not in acknowledged]
 
 
 def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> str:
@@ -833,7 +841,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)
@@ -848,6 +856,10 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
+            # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
+            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
+            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
     return 0
 
 

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextFiles
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -45,30 +46,11 @@ final class FilePageOpener: FileOpening {
         open(file, in: pane, userChose: true)
     }
 
-    /// Where an open of a file shows it (``route(for:userChose:asText:)``).
-    enum Route: Equatable {
-        /// A browser tab renders the page (HTML or SVG).
-        case renderedPage
-        /// The markdown page.
-        case markdown
-        /// The code editor page (Monaco): the file's text.
-        case editor
-        /// The browser tab's preview (an image, a PDF, media).
-        case preview
-    }
+    typealias Route = FileOpenKind.PageRoute
 
-    /// The one rule for where `url` opens. `asText` (Open as Text, u9489): a page cmux renders
-    /// (``FileOpenKind/opensAsText``) opens as its source in the code editor; other files open as
-    /// they always do. A web page renders whoever opens it (u18051: an agent's `file.open` of an
-    /// HTML report showed its source); `userChose` only decides what is writable.
+    /// The shared file-domain route; `userChose` decides writability, not rendering.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
-        let file = FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false)
-        if file.opensAsText, asText || file == .web { return asText ? .editor : .renderedPage }
-        switch kind(for: url) {
-        case .markdown?: return .markdown
-        case .editor?: return .editor
-        case nil: return .preview
-        }
+        Route(fileName: url.lastPathComponent, asText: asText)
     }
 
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
@@ -91,6 +73,32 @@ final class FilePageOpener: FileOpening {
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)
+        }
+        return nil
+    }
+
+    /// A file of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in its
+    /// page: the markdown page for Markdown, else the code editor, both reading, saving and
+    /// watching the file on that machine through its daemon. This Mac never renders, previews or
+    /// reads another machine's file, so a web page shows its source and an image or PDF does not
+    /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
+    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
+        guard !machine.isLocal else {
+            return open(file, in: pane, userChose: userChose, asText: asText, at: position, placed: placed, shownInPlace: shownInPlace)
+        }
+        guard file.path.hasPrefix("/"), !file.path.contains("\u{0}") else { return FilePageStrings.notAFile }
+        guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
+        let url = file.standardizedFileURL
+        switch Self.route(for: url, userChose: userChose, asText: asText) {
+        case .markdown:
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, placed: placed,
+                                                shownInPlace: shownInPlace)
+        case .editor, .renderedPage:
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
+                                              placed: placed, shownInPlace: shownInPlace)
+        case .preview:
+            return RemoteFilePageFiles.remotePreview(url.lastPathComponent)
         }
         return nil
     }

@@ -21,7 +21,9 @@ import os
 /// crashed daemon). Attempts are spaced by one capped backoff across
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
-/// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// the loop waits for the daemon socket to change or `retryWake` to fire,
+/// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
+/// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
@@ -74,6 +76,8 @@ public actor DaemonConnection {
     var handoffHoldTimer: DemandTimer?
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
     private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
+    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
+    private var retriesSpentObserver: (@Sendable () -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -237,6 +241,13 @@ public actor DaemonConnection {
         paneNotReadyObserver = observer
     }
 
+    /// Sets what is told when the reconnect loop's timed retries are spent and it waits for an
+    /// event only (a remote machine's header then reads offline, not connecting, HQ #4877 G4).
+    /// Runs on this connection's executor, after each failed attempt past the budget.
+    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
+        retriesSpentObserver = observer
+    }
+
     /// The event sequence this connection has routed so far, or nil when
     /// not connected. Taken after a command's reply, it is a write barrier:
     /// once `DaemonStore.appliedSequence` reaches it, the store reflects
@@ -379,7 +390,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
@@ -417,6 +428,8 @@ public actor DaemonConnection {
             }
             if pacer.isExhausted {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
+                // A busy daemon keeps its timed retry: still reconnecting, not offline.
+                if pacer.waitsForEventOnly, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             }
         }
         reconnectTask = nil

@@ -1,0 +1,69 @@
+{
+  "$comment": "The overlay surface roles of cmux NEXT: every popover, menu, card, toast, sheet and tooltip, native and web, is one of these. Glass, never opaque (Leo: \"I don't like the non-glassness\"): each role is glass, and its text reads through the blur, tint and contrast inside the glass, never an opaque fill. Reduce Transparency is the one opaque fallback. Two copies follow it, the Swift (CmuxNextDesign/FloatingGlass/SurfaceRole.swift: SurfaceRole and the neutral FloatingGlassStyle looks) and the CSS (the surface-roles block of webviews/src/ui/glass/glass.css: --surface-<role>-*); scripts/cmux-next/check-surface-roles.py fails when either differs from this file (--print shows what they should say). check-overlay-glass.py and check-glass-never-opaque.ts fail a fill that covers nearOpaque or more on an overlay. A null radius is the shared one: natively the panel radius tunable (Metrics.panelCornerRadius), on the web the design scale's --ds-radius-popup (--ui-popup-radius).",
+  "nearOpaque": 0.9,
+  "roles": [
+    {
+      "name": "popover",
+      "for": "popovers, pickers, hover cards, find and prompt bars, page info and the palette",
+      "tone": "theme",
+      "radius": null,
+      "webRadius": null,
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline"
+    },
+    {
+      "name": "menu",
+      "for": "menus, context menus and dropdowns",
+      "tone": "theme",
+      "radius": null,
+      "webRadius": null,
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline"
+    },
+    {
+      "name": "card",
+      "for": "the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass",
+      "tone": "neutral",
+      "style": "card",
+      "radius": 10,
+      "webRadius": 10,
+      "veil": { "dark": 0.42, "light": 0.45 },
+      "rim": { "dark": [0.22, 0.04], "light": [0.8, 0.08] },
+      "castsShadow": false,
+      "reduceTransparency": "the opaque elevated fill (Palette.elevatedBackground) with a hairline"
+    },
+    {
+      "name": "toast",
+      "for": "toasts: a rounded rect, never a capsule, even on one line",
+      "tone": "neutral",
+      "style": "toast",
+      "radius": 9,
+      "webRadius": 9,
+      "veil": { "dark": 0.42, "light": 0.55 },
+      "rim": { "dark": [0.3, 0.06], "light": [0.85, 0.1] },
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface, no rim"
+    },
+    {
+      "name": "sheet",
+      "for": "dialogs, confirms, prompt bars and sheets: a little denser veil for longer text",
+      "tone": "neutral",
+      "style": "dialog",
+      "radius": 14,
+      "webRadius": 14,
+      "veil": { "dark": 0.48, "light": 0.62 },
+      "rim": { "dark": [0.28, 0.05], "light": [0.85, 0.1] },
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface, no rim"
+    },
+    {
+      "name": "tooltip",
+      "for": "tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur",
+      "tone": "theme",
+      "radius": 5,
+      "webRadius": null,
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface (--tooltip-tint becomes --surface-popup)"
+    }
+  ]
+}

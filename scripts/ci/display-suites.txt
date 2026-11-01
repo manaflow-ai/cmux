@@ -3,6 +3,7 @@
 # keeps this list equal to those traits, and --fix rewrites it.
 Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTests
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
+Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
@@ -12,6 +13,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.NewColumnKeepsWidthJourneyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertBurstTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertWhileDisplayAsleepTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewHomeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewWindowTests
@@ -23,6 +25,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TitlebarDoubleClickTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TooltipSurfaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WindowZoomTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests
@@ -33,6 +36,8 @@ Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.CaptureBackdropSnapshotTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupCompletionTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupReplacementTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PopupGrowMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.TabHoverCardAttachTests

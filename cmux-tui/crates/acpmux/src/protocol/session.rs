@@ -438,6 +438,14 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
+    /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+    #[serde(default)]
+    pub awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
+    #[serde(default)]
+    pub revision: u64,
     /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
     /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
     /// on an older acpmux.
@@ -503,7 +511,7 @@ pub struct QueuedAuthor {
 /// An image a queued prompt sends.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
+#[schemars(transform = require_all_but_source)]
 pub struct QueuedImage {
     /// The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
     /// reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
@@ -511,6 +519,21 @@ pub struct QueuedImage {
     pub mime_type: String,
     /// Its file name, when the client gave one.
     pub name: Option<String>,
+    /// The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub source: Option<Value>,
+}
+
+/// ``require_all`` for ``QueuedImage``, except `source`: it is left off the wire when the prompt
+/// named none, as for every image queued before acpmux kept it.
+fn require_all_but_source(schema: &mut schemars::Schema) {
+    require_all(schema);
+    if let Some(Value::Array(required)) =
+        schema.as_object_mut().and_then(|object| object.get_mut("required"))
+    {
+        required.retain(|name| name != "source");
+    }
 }
 
 /// What limits the session's agent as far as acpmux can tell.
@@ -716,6 +739,16 @@ pub struct SessionsResult {
     /// done. Absent without `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<Option<String>>,
+    /// A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
+    /// changed since, and the rest of the known rows stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<bool>,
+    /// With `delta`: the known sessions no longer listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<String>>,
+    /// With `delta`: how many listed rows were left out as unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<u64>,
 }
 
 /// A purged session: only its id is left.

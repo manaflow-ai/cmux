@@ -48,14 +48,17 @@ import Testing
     }
 
     /// Quote in Reply on a whole message (not only on selected text): the message goes into the
-    /// composer as a quote.
+    /// composer as a quote, appended to the draft (`chat.quoteReply`), never through Edit and Resend's
+    /// `chat.editPrompt`, which would replace what the person typed.
     @Test func aMessageOffersQuoteInReplyWithoutASelection() throws {
         var edited: [String] = []
+        var quoted: [String] = []
         let menu = NSMenu()
         AgentPaneContextMenu.rebuild(menu, target: .init(text: "Two\nlines", forkSeq: 3), devTools: false,
-            actions: .init(copy: { _ in }, fork: { _ in }, edit: { edited.append($0) }, page: { _, _ in }))
+            actions: .init(copy: { _ in }, fork: { _ in }, edit: { edited.append($0) }, quoteReply: { quoted.append($0) }, page: { _, _ in }))
         let quote = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.quoteInReply })
         _ = (quote.target as? NSObject)?.perform(quote.action)
-        #expect(edited == [AgentPaneContextMenu.quote("Two\nlines")])
+        #expect(quoted == [AgentPaneContextMenu.quote("Two\nlines")])
+        #expect(edited.isEmpty)
     }
 }

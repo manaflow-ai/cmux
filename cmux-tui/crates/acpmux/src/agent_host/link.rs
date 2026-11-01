@@ -18,10 +18,22 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
         Ok(Self { exe: this.exe, prefix: this.prefix })
+    }
+
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
+    /// every new chat failed with "start PATH (deleted): No such file or
+    /// directory" (the app's `agent_session.refused`).
+    fn program(&self) -> PathBuf {
+        crate::self_command::program(&self.exe)
     }
 }
 
@@ -37,8 +49,9 @@ impl HostLauncher {
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let mut cmd = tokio::process::Command::new(&launcher.exe);
-    cmd.args(&launcher.prefix)
+    let mut cmd = tokio::process::Command::new(launcher.program());
+    cmd.arg0(&launcher.exe)
+        .args(&launcher.prefix)
         .arg(HOST_ARG)
         // The host itself is inspectable by its same-uid harness child on
         // some platforms. It needs only OS identity/locale; the complete
@@ -402,6 +415,16 @@ pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -
 
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // Debug builds only: `ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX` makes this daemon speak at most that
+    // protocol, so a host it finds can refuse it (`0`: every host does), as a host of a build it
+    // cannot speak to does. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(max) = std::env::var("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+    {
+        return connect_inner_max(record, resume_after, max).await;
+    }
     connect_inner_max(record, resume_after, PROTOCOL_MAX).await
 }
 
@@ -422,7 +445,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::hub::build().to_owned(),
         },
     )
     .await?;
@@ -698,5 +721,29 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::HostLauncher;
+    use std::path::PathBuf;
+
+    /// A daemon whose binary an update replaced still starts agent hosts: on
+    /// Linux its own binary is exec'd from the open inode, never `PATH
+    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
+    /// acpmux by it). Another binary is exec'd as given.
+    #[test]
+    fn the_host_starts_from_the_open_inode_on_linux() {
+        let launcher = HostLauncher::current().expect("launcher");
+        let exe = std::env::current_exe().expect("current exe");
+        assert_eq!(launcher.exe, exe);
+        if cfg!(target_os = "linux") {
+            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
+        } else {
+            assert_eq!(launcher.program(), exe);
+        }
+        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
+        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
     }
 }

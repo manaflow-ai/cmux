@@ -519,7 +519,7 @@ for (const [harness, family] of [
 // still carries the setup value for the context summary, but it is intentionally not guessed into
 // the small Codex-style hover surface.
 const compactCard = (usage: { used: number; size: number; setup?: number }) =>
-  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-line");
+  renderToStaticMarkup(<ContextCardBody {...usage} />).includes("acpmux-context-card-line");
 
 test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
   const withSetup: Step = [

@@ -1,5 +1,5 @@
 //! A failover never moves a chat onto a fallback profile that cannot start, and never leaves it
-//! on one (`hub/fallback_start.rs`). A Claude chat's limit error moved it onto the automatic
+//! on one (`hub/fallback_start.rs`). A Claude chat's authentication error moved it onto the automatic
 //! `cmux` fallback, whose local CodeRouter was not running there; from then on every turn failed
 //! in its first second with "the local CodeRouter is not running", for good, while the chat
 //! looked idle.
@@ -49,7 +49,10 @@ async fn setup(
         },
     };
     let agents = BTreeMap::from([
-        ("primary".to_owned(), profile(vec![die], Some("direct"))),
+        (
+            "primary".to_owned(),
+            profile(vec![die, ("FAKE_CLAUDE_AUTH_FAIL", "1".to_owned())], Some("direct")),
+        ),
         ("direct".to_owned(), direct),
     ]);
     let mut cfg =
@@ -122,12 +125,13 @@ async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     assert_eq!(hub.session_summary(&session)["harness"], "primary", "{err}");
     assert!(records(&hub, &id, "failover").is_empty(), "{:?}", records(&hub, &id, "failover"));
     // The turn's error is its own, and says the fallback could not take it, and why.
-    assert!(err.starts_with("agent process closed"), "{err}");
+    // A sign-in failure reads as one (`auth.signed_out`), naming the dead process after it.
+    assert!(err.contains("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
     assert!(err.contains("CodeRouter is not running"), "{err}");
     // The dead primary's own last stderr line still comes first: the note is added after the
     // turn's end reads the error as a dead process's.
-    let reason = err.find("proxy down").expect(&err);
+    let reason = err.find("Not logged in").expect(&err);
     assert!(reason < err.find("the fallback profile").unwrap(), "{err}");
     let skipped = records(&hub, &id, "failover_skipped");
     assert_eq!(skipped.len(), 1, "{skipped:?}");
@@ -191,7 +195,8 @@ async fn a_failover_whose_fallback_fails_to_start_moves_the_chat_back_with_its_c
     let conversation = hub.session_summary(&session)["agentSessionId"].clone();
     assert!(conversation.is_string(), "{conversation}");
     let err = prompt(&mut c, &id, "hello").await.expect_err("neither profile answers");
-    assert!(err.starts_with("agent process closed"), "{err}");
+    // A sign-in failure reads as one (`auth.signed_out`), naming the dead process after it.
+    assert!(err.contains("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
     // Back on its own profile, with the conversation it had: the fallback's start dropped the
     // id of a conversation its store does not hold before its program failed to start.

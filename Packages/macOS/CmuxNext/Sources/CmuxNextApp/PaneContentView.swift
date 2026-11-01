@@ -85,7 +85,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
-    var launchImageSize: CGSize?
+    var launchImageSizes: [CGSize] = [] // its pixels fit: the host's size when shown, and the image's own
     /// Move covers clear without invoking their one-frame reveal callback on resize.
     var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
@@ -175,9 +175,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
-            // A move cover owns the clear callback that reveals the page on its next frame. A
-            // resize must discard old-size pixels without consuming that hand-off early.
+        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+            // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
+            // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }

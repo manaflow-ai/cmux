@@ -14,10 +14,15 @@ raw URL and will not render an mp4 from one: a reviewer scrolling a PR sees the
 gif move without clicking, and the mp4 stays linked next to it at full quality.
 `cmux record --gif` output needs no conversion and is uploaded as it is.
 
-A gif or screenshot has to stay under 5 MiB, the limit of the proxy GitHub
-renders an inline image through; past it a reader sees a broken image, so the
-upload is refused instead. Lower `--gif-fps` or `--gif-width`, or record less.
-An mp4 is only linked, so it is allowed to be larger.
+The gif is smooth by default: 30 fps, or 50 when the clip itself runs that fast
+(a gif cannot play faster: its frame delays are hundredths of a second and
+browsers play a 1/100 s delay as 1/10 s, so a "60 fps" gif shows about 10).
+It never goes above the clip's own rate, so no frame is repeated. A gif or
+screenshot has to stay under 5 MiB, the limit of the proxy GitHub renders an
+inline image through, so a gif past it is made again narrower and then at a
+lower frame rate until it fits (gif_attempts). Only a gif that still does not
+fit at the smallest step, or a screenshot past it, is refused. An mp4 is only
+linked, so it is allowed to be larger.
 
 Nothing already on the branch is replaced without `--force`, and the run names
 the blob it replaced. Every file is converted and measured before the upload,
@@ -53,6 +58,7 @@ import contextlib
 import fcntl
 import importlib.util
 import json
+import math
 import os
 import random
 import re
@@ -74,7 +80,13 @@ IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 GIF_SUFFIXES = (".gif",)
 MEDIA_SUFFIXES = VIDEO_SUFFIXES + IMAGE_SUFFIXES + GIF_SUFFIXES
 
-DEFAULT_GIF_FPS = 10
+# Leo, 2026-10-31, on 4 and then 10-15 fps previews: "WHY ... IS IT NOT 30/60/120". A gif's frame delays are
+# hundredths of a second, and browsers play a delay of 1/100 s or less as 1/10 s, so 50 fps (2/100 s) is the
+# fastest a gif really plays; a "60 fps" gif would show about 10. So a clip recorded at 50 fps or more makes a
+# 50 fps gif when it fits, anything else 30, and a gif over the inline limit steps down this ladder.
+DEFAULT_GIF_FPS = 30
+GIF_MAX_FPS = 50
+GIF_FPS_LADDER = (50, 30, 24, 20, 15, 12, 10)
 DEFAULT_GIF_WIDTH = 900
 # An image in a PR body is proxied by Camo, which refuses anything past 5 MiB
 # and leaves the reader a broken image. So an inline gif or screenshot stops
@@ -297,6 +309,66 @@ def gif_argv(source: Path, destination: Path, fps: int, width: int) -> list[str]
         "-loop", "0",
         str(destination),
     ]
+
+
+def gif_widths(width: int) -> tuple[int, ...]:
+    """The width and two narrower steps, even (a palette gif needs no even width, but the scale stays tidy)."""
+    steps = (width, round(width * 0.8) // 2 * 2, round(width * 0.62) // 2 * 2)
+    return tuple(dict.fromkeys(step for step in steps if step > 0))
+
+
+def gif_attempts(widths: tuple[int, ...], fps: int | None = None,
+                 source_rate: float | None = None) -> list[tuple[int, int]]:
+    """(fps, width) pairs to encode in order until one fits under the inline limit.
+
+    With no `fps`, a clip at 50 fps or more starts at GIF_MAX_FPS and anything else at DEFAULT_GIF_FPS. A rate
+    above the default is tried only at full width (a bonus when it fits); the first rate at or under it is tried
+    at every width, so the gif gets narrower before it gets choppier; lower rates use the narrowest width. No
+    rate goes above the clip's own (`source_rate`), so a slow clip's frames are never repeated.
+    """
+    if fps is None:
+        fps = GIF_MAX_FPS if source_rate and source_rate >= GIF_MAX_FPS else DEFAULT_GIF_FPS
+    fps = max(1, min(fps, GIF_MAX_FPS))
+    ceiling = max(1, math.ceil(source_rate)) if source_rate else None
+    attempts: list[tuple[int, int]] = []
+    widened = False
+    for rate in (fps, *(step for step in GIF_FPS_LADDER if step < fps)):
+        if ceiling:
+            rate = min(rate, ceiling)
+        if rate > DEFAULT_GIF_FPS:
+            these = widths[:1]
+        elif not widened:
+            these, widened = widths, True
+        else:
+            these = widths[-1:]
+        attempts.extend(pair for width in these if (pair := (rate, width)) not in attempts)
+    return attempts
+
+
+def source_fps(path: Path, runner=None, env: dict[str, str] | None = None) -> float | None:
+    """The clip's frame rate from ffprobe, or None when it cannot be read (then the gif starts at the default)."""
+    if shutil.which("ffprobe") is None:
+        return None
+    try:
+        done = (runner or subprocess.run)(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "json", str(path)],
+            capture_output=True, text=True, env=env if env is not None else tool_env())
+        stream = json.loads(done.stdout or "{}").get("streams", [{}])[0]
+    except (OSError, ValueError, IndexError, AttributeError):
+        return None
+    for key in ("r_frame_rate", "avg_frame_rate"):
+        numerator, _, denominator = str(stream.get(key, "")).partition("/")
+        try:
+            rate = float(numerator) / float(denominator or 1)
+        except (ValueError, ZeroDivisionError):
+            continue
+        # A variable-rate clip can report its timebase (90000/1) as r_frame_rate; that is not a frame rate.
+        if 0 < rate <= 240:
+            # The average undercounts a variable-rate screen capture (no frame while nothing moves), so it
+            # never caps the gif below the default.
+            return rate if key == "r_frame_rate" else max(rate, float(DEFAULT_GIF_FPS))
+    return None
 
 
 def remote_path(pr: int, name: str) -> str:
@@ -934,16 +1006,27 @@ def tool_env() -> dict[str, str]:
     return {key: os.environ[key] for key in TOOL_ENV_KEYS if key in os.environ}
 
 
-def convert(upload: Upload, into: Path, fps: int, width: int, runner=None) -> Path:
+def convert(upload: Upload, into: Path, fps: int | None, width: int, runner=None,
+            limit: int = INLINE_MAX_BYTES) -> Path:
+    """The gif for an mp4, at the smoothest step of gif_attempts that fits under `limit`.
+
+    `fps` None picks the rate from the clip. When even the last step is too big, that smallest gif is returned
+    and check_size refuses it with its message.
+    """
     if shutil.which("ffmpeg") is None:
         raise MediaError("ffmpeg is needed to turn an mp4 into a gif; pass --no-gif to skip it")
+    run = runner or subprocess.run
     destination = into / upload.name
-    done = (runner or subprocess.run)(gif_argv(upload.local, destination, fps, width),
-                                      capture_output=True, text=True, env=tool_env())
-    if done.returncode != 0:
-        raise MediaError(f"ffmpeg failed on {upload.local.name}: {(done.stderr or done.stdout).strip()}")
-    if not destination.exists() or destination.stat().st_size == 0:
-        raise MediaError(f"ffmpeg wrote no gif for {upload.local.name}")
+    rate = source_fps(upload.local, run) if fps is None else None
+    for attempt_fps, attempt_width in gif_attempts(gif_widths(width), fps, rate):
+        done = run(gif_argv(upload.local, destination, attempt_fps, attempt_width),
+                   capture_output=True, text=True, env=tool_env())
+        if done.returncode != 0:
+            raise MediaError(f"ffmpeg failed on {upload.local.name}: {(done.stderr or done.stdout).strip()}")
+        if not destination.exists() or destination.stat().st_size == 0:
+            raise MediaError(f"ffmpeg wrote no gif for {upload.local.name}")
+        if destination.stat().st_size <= limit:
+            break
     return destination
 
 
@@ -965,14 +1048,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--label", help="caption for a single file (otherwise taken from the name)")
     parser.add_argument("--no-gif", dest="gif", action="store_false",
                         help="upload an mp4 without also making a gif")
-    parser.add_argument("--gif-fps", type=int, default=DEFAULT_GIF_FPS)
-    parser.add_argument("--gif-width", type=int, default=DEFAULT_GIF_WIDTH)
+    parser.add_argument("--gif-fps", type=int, default=None,
+                        help=f"starting gif frame rate (default: {GIF_MAX_FPS} for a clip that fast, else "
+                             f"{DEFAULT_GIF_FPS}; at most {GIF_MAX_FPS}); a gif over the inline limit steps down")
+    parser.add_argument("--gif-width", type=int, default=DEFAULT_GIF_WIDTH,
+                        help="starting gif width; a gif over the inline limit is made narrower first")
     parser.add_argument("--comment", action="store_true", help="post the Markdown to the PR as a comment")
     parser.add_argument("--force", action="store_true",
                         help="replace a file already on the branch at the same path")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and the Markdown; upload nothing")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.gif_width < 1:
+        parser.error("--gif-width must be at least 1")
+    if args.gif_fps is not None and args.gif_fps < 1:
+        parser.error("--gif-fps must be at least 1")
+    return args
 
 
 def main(argv: list[str] | None = None, runner=None) -> int:

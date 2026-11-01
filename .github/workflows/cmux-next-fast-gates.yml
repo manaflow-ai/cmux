@@ -41,6 +41,11 @@ on:
         description: Pull request number into feat-cmux-next, merged with the current tip and gated
         required: true
         type: string
+      runner:
+        description: Fleet or bounded Blacksmith Linux label for a rerun after a stalled fleet start
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -56,7 +61,11 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The reconciled pool admits fleet first, records a three-minute no-start
+    # before overflow, and emits move receipts for queued-only rescue. Never
+    # default directly to a fleet label that may have no registered workers.
+    # An explicit rerun replaces the queued run in this PR-only concurrency group.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -93,17 +102,50 @@ jobs:
               echo "::error::pr must be a pull request number (digits only)"
               exit 1
             fi
+            errors="$(mktemp)"
             gh_read() {
               local response status
-              if response="$(gh api "$@")"; then
+              if response="$(gh api "$@" 2>"$errors")"; then
                 printf '%s' "$response"
               else
                 status=$?
+                cat "$errors" >&2
                 return "$status"
               fi
             }
-            pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
-              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')" || exit $?
+            # One REST read of the pull request. When the repository's GITHUB_TOKEN REST budget is spent
+            # ("API rate limit exceeded for installation"), one GraphQL read, which has its own budget,
+            # answers the same fields plus the branch tip. Not a retry: no loop and no sleep, and any other
+            # failure (a 5xx, a permission refusal, a GraphQL error) still fails closed. Without it a
+            # dispatched run died here with no status, and next-autoland waited 45 minutes before asking
+            # again (2026-10-31: 13 of 34 dispatches between 22:16Z and 22:19Z, #29724's among them).
+            base=""
+            if pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')"; then
+              :
+            else
+              status=$?
+              grep -qiE 'rate limit exceeded' "$errors" || exit "$status"
+              echo "::warning title=GitHub API budget::the REST budget is spent; reading #$PR and $BRANCH over GraphQL"
+              # shellcheck disable=SC2016 # the GraphQL query's own $variables, not the shell's
+              fields="$(gh_read graphql -F owner="${GITHUB_REPOSITORY%%/*}" -F name="${GITHUB_REPOSITORY#*/}" \
+                -F number="$PR" -F branch="refs/heads/$BRANCH" -f query='
+                  query($owner: String!, $name: String!, $number: Int!, $branch: String!) {
+                    repository(owner: $owner, name: $name) {
+                      pullRequest(number: $number) {
+                        state headRefOid baseRefName headRepository { nameWithOwner }
+                      }
+                      ref(qualifiedName: $branch) { target { oid } }
+                    }
+                  }' \
+                --jq '.data.repository | [(.pullRequest.state // "" | ascii_downcase),
+                  (.pullRequest.headRepository.nameWithOwner // ""), (.pullRequest.baseRefName // ""),
+                  (.pullRequest.headRefOid // ""), (.ref.target.oid // "")] | @tsv')" || exit $?
+              IFS=$'\t' read -r state head_repo base_ref head base extra <<<"$fields"
+              # The PR's merged/closed states read as merged/closed; only open goes on, as with REST.
+              pr_fields="$(printf '%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head")"
+              [[ -n "$base" && -z "$extra" ]] || { echo "::error::#$PR returned incomplete branch metadata from GitHub"; exit 1; }
+            fi
             IFS=$'\t' read -r state head_repo base_ref head extra <<<"$pr_fields"
             if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" ]]; then
               echo "::error::#$PR returned incomplete pull request metadata from GitHub"
@@ -117,7 +159,9 @@ jobs:
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
             fi
-            base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
+            if [[ -z "$base" ]]; then
+              base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
+            fi
             post=true
           else
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
@@ -136,7 +180,7 @@ jobs:
     needs: resolve
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 10
     # The pull request's code runs here: no write permission of any kind.
     permissions:
@@ -229,7 +273,7 @@ jobs:
     name: panic ratchet (lowered baseline)
     needs: [resolve, fast-gates]
     if: ${{ !cancelled() && needs.fast-gates.outputs.ratchet == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -284,7 +328,7 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       statuses: write

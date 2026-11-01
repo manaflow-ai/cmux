@@ -30,7 +30,7 @@ nonisolated extension ActionSurfaceCatalog {
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
-            "closeAllWindows", "window.closeOthers", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
+            "closeAllWindows", "window.closeOthers", "window.mergeAll", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
@@ -81,7 +81,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
             "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop",
-            "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
+            "toggleFileEditorWordWrap", "toggleFileEditorMinimap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
             "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction",
@@ -102,6 +102,7 @@ nonisolated extension ActionSurfaceCatalog {
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "browser.focusSearch", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
+            "agent.jumpToNextNeedingInput",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
             "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],
@@ -135,6 +136,8 @@ nonisolated extension ActionSurfaceCatalog {
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
             "space.moveToStart", "space.moveToEnd",
+            // A row drag drops next to any row; the row menu offers Move to Top, Up, Down and Bottom (cmux#29907).
+            "workspace.moveAbove", "workspace.moveBelow",
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
@@ -144,12 +147,25 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
         .pointerMenuTrim: [
+            // Specialist tab controls stay canonical palette/CLI commands, outside the
+            // compact pointer menu. Shared commands keep their other menu placements.
+            "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
+            "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute",
+            "hibernateTab", "wakeTab", "neverHibernateSite", "browser.resetPinnedTab",
+            // Pane geometry, providers and diagnostics stay searchable; the menu keeps
+            // its common actions, including target-dependent reconnect, remote and chat tools.
+            "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
+            "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
+            "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",
+            "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
             "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
-            "workspace.setRemoteLocalhost"],
+            "workspace.setRemoteLocalhost",
+            // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.
+            "tab.moveToSpace"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

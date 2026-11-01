@@ -75,15 +75,14 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
-    @Test func aRetryOfTheSameSendOpensTheSameTabOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // The tab's creation key is the send's: the daemon answers a retry with the tab it made.
-        #expect(first.tabKey == retry.tabKey)
-        #expect(first.tabKey.hasSuffix(key.lowercased()))
-        #expect(first.tabKey != other.tabKey)
+    @Test func aChatWithNoProjectStartsInTheMachinesOwnFolder() throws {
+        let home = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true]))
+        #expect(home.home && home.cwd == nil)
+        #expect(home.seed(cwd: nil).cwd == nil)
+        // Home names no folder: with a folder, or not a flag, it is refused.
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true, "cwd": "/w"]) == nil)
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": "yes"]) == nil)
+        #expect(try #require(AgentPaneCloudStart(params: Self.good)).home == false)
     }
 
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
@@ -232,28 +231,7 @@ struct AgentPaneCloudStartTests {
         #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
     }
 
-    /// The create's key is the send's: a retry after a lost create answer gets the same machine.
-    @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        #expect(first.createKey == retry.createKey)
-        #expect(first.createKey != other.createKey)
-        #expect(first.createKey.count <= 128)
-    }
-
-    @Test func eachSendCopiesTheFolderToItsOwnPlaceOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // A second Cloud chat from the same folder never syncs over the first one's copy; a retry
-        // of the same send lands in the same copy.
-        #expect(first.remotePlace == retry.remotePlace)
-        #expect(first.remotePlace != other.remotePlace)
-        #expect(first.remotePlace == "chats/" + key.lowercased())
-    }
+    // The send's create, tab and copy keys are cmux-tui's (`link/start_chat_cli/tests.rs`).
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {
         let model = AgentPaneModel(host: NoHost())
@@ -263,5 +241,37 @@ struct AgentPaneCloudStartTests {
         #expect(AgentPaneCloudStart(params: ["task": "t", "cwd": "/a", "key": UUID().uuidString])?.harness == nil)
         // No folder from the page: the tab's own folder, on the App side.
         #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString])?.cwd == nil)
+    }
+
+    /// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+    /// sr2-tunnel-probe". `cloud.repickChat` names the picked machine; only a chat on another machine,
+    /// with the pick's gesture, reaches the App.
+    @Test func aRepickNamesTheMachineAndReachesTheAppOnlyForAChatElsewhereWithAGesture() async {
+        #expect(AgentPaneRequest(body: ["method": "cloud.repickChat", "params": ["machine": "m_zesty"]])
+            == .cloudRepickChat(AgentPaneCloudRepick(machine: "m_zesty", name: nil)))
+        #expect(AgentPaneRequest(body: ["method": "cloud.repickChat", "params": ["name": "zesty-indigo-lemur"]])
+            == .cloudRepickChat(AgentPaneCloudRepick(machine: nil, name: "zesty-indigo-lemur")))
+        for bad: [String: Any] in [[:], ["machine": ""], ["name": 3], ["machine": "a", "other": "b"], ["name": "a\nb"]] {
+            #expect(AgentPaneCloudRepick(params: bad) == nil, "\(bad)")
+        }
+        var seen: [AgentPaneCloudRepick] = []
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s1")
+        model.onCloudRepickChat = { repick in
+            seen.append(repick)
+            return AgentPaneReply.success(["machine": "zesty-indigo-lemur"])
+        }
+        let request = AgentPaneRequest.cloudRepickChat(AgentPaneCloudRepick(machine: "m_zesty", name: nil))
+        // A chat on this Mac: refused.
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool != true)
+        model.remoteChat = true
+        // No gesture: refused.
+        model.transport.gestures.clearTickets()
+        _ = model.transport.gestures.consume()
+        #expect(await model.respond(to: request)["ok"] as? Bool != true)
+        #expect(seen.isEmpty)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(seen == [AgentPaneCloudRepick(machine: "m_zesty", name: nil)])
     }
 }

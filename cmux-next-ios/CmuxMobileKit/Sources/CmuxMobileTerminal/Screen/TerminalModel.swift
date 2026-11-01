@@ -503,6 +503,15 @@ public final class TerminalModel {
 
     // MARK: Key bar
 
+    #if DEBUG
+    /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
+    public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
+        guard let surface = controller?.surface else { return }
+        surface.tapSticky(modifier)
+        sticky = surface.input.sticky
+    }
+    #endif
+
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)

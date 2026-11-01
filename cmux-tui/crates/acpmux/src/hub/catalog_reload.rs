@@ -77,6 +77,9 @@ impl Hub {
             current.agent_start_timeout_ms = next.agent_start_timeout_ms;
             current.uploads_max_age_days = next.uploads_max_age_days;
             current.silent_turn_ms = next.silent_turn_ms;
+            // The next prompt that would wait is held to the new queue limits.
+            current.queue_max_prompts = next.queue_max_prompts;
+            current.queue_max_bytes = next.queue_max_bytes;
             current.stalled_turn_ms = next.stalled_turn_ms;
             current.stalled_turn_end_ms = next.stalled_turn_end_ms;
             // The next summary read warns by the new thresholds (`usage_warnings.rs`).
@@ -99,6 +102,9 @@ impl Hub {
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
+        // Nor do live agents keep running a profile's old launch: each restarts on the new
+        // one between turns (`profile_respawn.rs`).
+        self.spawn_profile_respawns();
         self.probe_models_with(true, false, None).await;
         Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
             "retainedProfiles": retained, "modelProbePending": true}))

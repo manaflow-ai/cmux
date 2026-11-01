@@ -45,6 +45,9 @@ pub const INDEXED_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "queue_order",
+    // The owner's answer to a prompt that waits for them (`hub/queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_result",
     "prompt_refused",
     "agent_pair_held",
@@ -116,7 +119,7 @@ fn file_id(meta: &std::fs::Metadata) -> (u64, u64, u64) {
         .created()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_nanos() as u64);
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -261,7 +264,7 @@ impl LocalStore {
                 }
             }
             if !torn {
-                covered += line.len() as u64;
+                covered = covered.saturating_add(line.len() as u64);
                 if stamp.is_some() && indexed(&line) {
                     lines.extend_from_slice(&line);
                 }
@@ -275,7 +278,14 @@ impl LocalStore {
         }
         if let Some(stamp) = stamp
             && (!had_copy || covered >= COPY_AFTER)
-            && let Err(e) = self.write_kind_index(id, index, &stamp, from + covered, parsed, lines)
+            && let Err(e) = self.write_kind_index(
+                id,
+                index,
+                &stamp,
+                from.saturating_add(covered),
+                parsed,
+                lines,
+            )
         {
             tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
         }
@@ -298,7 +308,7 @@ impl LocalStore {
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
         let id = file_id(segment);
-        let lines = bytes.split_off(end + 1);
+        let lines = bytes.split_off(end.saturating_add(1));
         let file = (header.dev, header.ino, header.born_ns);
         let whole = lines.len() as u64 == header.lines_len
             && seal(file, header.len, header.kinds, header.parsed, &lines) == header.lines_hash

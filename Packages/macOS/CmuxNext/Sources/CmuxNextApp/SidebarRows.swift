@@ -1,7 +1,9 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 
 /// The one writer of a window's sidebar rows (cx-odqn): the live rows (the
@@ -18,22 +20,8 @@ final class SidebarRows {
     /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
     /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
     private var liveShownAt: UInt64?
-    private var pending = SidebarPendingEdits()
-    /// A group's fold the user asked for that the home store has not shown
-    /// yet (cx-qno.17): the newest click wins over a live recompute, so a
-    /// fast run of clicks toggles once per click.
-    private var folds: [GroupID: Fold] = [:]
-    private var foldSerial = 0
-    /// A fold the sidebar shows before its owner holds it. A personal-state fold leaves when its
-    /// command settles; a sidebar-document fold (`untilShown`) leaves once the live rows show it
-    /// (its echo rebuilds no rows), or when it is refused.
-    private struct Fold {
-        var collapsed: Bool
-        var serial: Int
-        var untilShown = false
-    }
-    /// Follows the sidebar document's fold-only batches (another client's fold).
-    private var foldFollow: Task<Void, Never>?
+    lazy var edits = SidebarRowEdits(model: model, redraw: { [weak self] in self?.show() },
+                                             confirmedFold: { [weak self] in self?.setLive($0, collapsed: $1) })
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
@@ -70,16 +58,15 @@ final class SidebarRows {
         return visible
     }
 
-    /// The layout window `windowID` draws: `visibleLayout` without the band's
-    /// workspaces another window owns, so a new window starts clean. Only on
-    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
-    /// older owner's index ops count the stored layout; the bridge translates
-    /// visible item indexes back to stored indexes before sending edits.
-    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
-                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
-        guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
-        return visibleLayout(document, showAppStore: showAppStore)
-            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App
+    /// Store only under Preview Features) without the band's workspaces another window owns or its space hides,
+    /// so a new window starts clean. Only on the sidebar document, whose band moves anchor on a drawn neighbour;
+    /// the older owner's index ops count the stored layout; the bridge translates visible item indexes back.
+    static func visibleLayout(_ services: AppServices, window: WindowState) -> SidebarLayoutDocument {
+        let visible = visibleLayout(services.sidebarLayout.document, showAppStore: services.settings?.snapshot.previewFeatures == true)
+        guard SidebarDocWiring.isActive else { return visible }
+        return visible.scopedToWindow(ownedElsewhere: bandHides(window: window.id, profile: window.profileID, machines: services.machines,
+                                                                 registry: services.windows.registry.value))
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
@@ -117,17 +104,9 @@ final class SidebarRows {
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home,
+        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
-        for (group, fold) in folds {
-            guard let (s, n) = SidebarEdits.locateGroup(group, in: sections), case var .group(shown) = sections[s].nodes[n] else { continue }
-            guard shown.isCollapsed != fold.collapsed else {
-                if fold.untilShown { folds[group] = nil } // the live rows hold it now
-                continue
-            }
-            shown.isCollapsed = fold.collapsed
-            sections[s].nodes[n] = .group(shown)
-        }
+        edits.applyFolds(to: &sections)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
         model.hiddenItemRefs = self.showAppStore ? [] : [.app("cmux/app-store"), .builtIn(.appStore)]
         model.setSections(sections)
@@ -146,70 +125,18 @@ final class SidebarRows {
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`
-    /// replied and the home store holds it, or failed (then `resync`).
-    func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, resync: @escaping @MainActor () -> Void,
+    /// replied and the home store holds it, or failed (then `failed`).
+    func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, failed: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
-        foldSerial += 1
-        let serial = foldSerial
-        folds[group] = Fold(collapsed: collapsed, serial: serial)
-        // The fold shows now, on this group's rows only (no rebuild of every row: state-ownership-DESIGN.md).
-        model.setGroupCollapsed(group, collapsed)
-        // Settled: the home store holds the fold, and the live rows it maps show it; a failure resyncs.
-        let settle: @MainActor () -> Void = { [weak self] in
-            guard let self, folds[group]?.serial == serial else { return }
-            folds[group] = nil
-        }
+        let settle = edits.fold(group, collapsed: collapsed)
         let transaction = ClientTransactionID.generate()
         // task-owner: one personal fold command; settles its fold
         Task {
-            guard await home.request("update-personal-group", transaction: transaction, { connection, _ in try await body(connection) }) != nil else {
+            if let failure = await home.failure("update-personal-group", body) {
                 settle()
-                return resync()
+                return failed(failure)
             }
             home.whenApplied(transaction, settle)
-        }
-    }
-
-    /// Folds or opens `group` at once (the sidebar document path) and keeps that look until the
-    /// live rows show it, or `refuse` drops it. Costs the group's rows: no row is rebuilt.
-    func foldShown(_ group: GroupID, collapsed: Bool) {
-        foldSerial += 1
-        folds[group] = Fold(collapsed: collapsed, serial: foldSerial, untilShown: true)
-        model.setGroupCollapsed(group, collapsed)
-    }
-
-    /// The fold of `group` was refused: the live rows show again.
-    func dropFold(_ group: GroupID) {
-        guard folds.removeValue(forKey: group) != nil else { return }
-        show()
-    }
-
-    /// Applies the sidebar document's fold-only batches (another client folded a group) to this
-    /// window's rows, one group each: `SidebarDocStore.foldRevision`.
-    func followFolds(of store: SidebarDocStore) {
-        foldFollow?.cancel()
-        // task-owner: this window's rows (ends at the first change after they are gone; a second call replaces it);
-        // event-driven (Observation)
-        foldFollow = Task { [weak self, weak store] in
-            for await _ in ObservationStream({ store?.foldRevision }) {
-                guard let self, let store else { return }
-                for (id, collapsed) in store.lastFolds {
-                    let group = GroupID(id)
-                    if let held = folds[group] {
-                        // This window's own fold came back: the store holds it. Another value is an earlier click's
-                        // echo (a later click's comes after it), so the newer look stays.
-                        if held.untilShown, held.collapsed == collapsed {
-                            folds[group] = nil
-                            setLive(group, collapsed: collapsed)
-                        }
-                        continue
-                    }
-                    // The store holds it already (the next live rows map it from `groupFolds`): the rows kept
-                    // here take it too, so a redraw before them does not show the old fold.
-                    setLive(group, collapsed: collapsed)
-                    model.setGroupCollapsed(group, collapsed)
-                }
-            }
         }
     }
 
@@ -221,40 +148,30 @@ final class SidebarRows {
         live[s].nodes[n] = .group(shown)
     }
 
-    /// Shows `intent` at once, until `settle`.
-    func add(_ intent: SidebarIntent) -> SidebarPendingEdits.Token {
-        let edit = pending.add(intent)
-        show()
-        return edit
-    }
-
-    func settle(_ edit: SidebarPendingEdits.Token?) {
-        guard let edit else { return }
-        pending.settle(edit)
-        show()
-    }
-
-    /// A command's outcome for `edit`: `failed` settles it and runs `resync`;
-    /// `applied` settles it (run once the home store holds the command's result).
-    func outcome(_ edit: SidebarPendingEdits.Token?, resync: @escaping @MainActor () -> Void)
-        -> (failed: @MainActor () -> Void, applied: (@MainActor () -> Void)?) {
-        let failed: @MainActor () -> Void = { [weak self] in
-            self?.settle(edit)
-            resync()
+    /// Sends `commands` for `edit`, each to its own daemon and each on its own (a slow or failed one never holds
+    /// back the others, which were already told their workspaces close): the edit settles once every one replied and
+    /// its daemon's store holds the result (read-your-writes), or at the first failure, which runs `failed` once.
+    func send(_ edit: SidebarPendingEdits.Token?, _ commands: [(label: String, daemon: DaemonService, body: DaemonCommandBody)],
+              failed onFailure: @escaping @MainActor (ActionWorkFailure) -> Void) {
+        let (failed, applied) = edits.outcome(edit, failed: onFailure)
+        guard !commands.isEmpty else {
+            applied?()
+            return
         }
-        guard let edit else { return (failed, nil) }
-        return (failed, { [weak self] in self?.settle(edit) })
+        let replies = SidebarReplies(commands.count, failed: failed, applied: applied)
+        for command in commands {
+            // task-owner: one sidebar command; reports to the change's `Replies`
+            Task {
+                if let failure = await command.daemon.failure(command.label, command.body) { return replies.failed(failure) }
+                // Its daemon's store holds it once that daemon's events up to the reply are applied.
+                command.daemon.whenApplied(.generate(), replies.applied)
+            }
+        }
     }
 
     /// Sends one personal-state command to `home` for `edit`.
-    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, resync: @escaping @MainActor () -> Void,
-              _ body: @escaping DaemonCommandBody) {
-        let (failed, applied) = outcome(edit, resync: resync)
-        let transaction = ClientTransactionID.generate()
-        // task-owner: one personal command; settles its edit
-        Task {
-            guard await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) != nil else { return failed() }
-            if let applied { home.whenApplied(transaction, applied) }
-        }
+    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService,
+              failed: @escaping @MainActor (ActionWorkFailure) -> Void, _ body: @escaping DaemonCommandBody) {
+        send(edit, [(label, home, body)], failed: failed)
     }
 }

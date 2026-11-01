@@ -28,6 +28,10 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
     /// `sidebar.showNewWorkspaceChooser`: the chevron beside the titlebar's + (off by default).
     public static let showNewWorkspaceChooserPath = ["sidebar", "showNewWorkspaceChooser"]
+    /// The sidebar prototypes Leo asked for as toggles (2026-10-21), App Store cards (`SidebarFeatures`).
+    public static let workspacesAsTabsPath = ["sidebar", "workspacesAsTabs"]
+    public static let chromeGroupsPath = ["sidebar", "chromeGroups"]
+    public static let sideBySidePath = ["sidebar", "sideBySide"]
     public static let noFadePath = ["sidebar", "noFade"]
     public static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
@@ -214,6 +218,25 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showNewWorkspaceChooser),
                               keywords: ["sidebar", "new workspace", "chevron", "dropdown", "menu", "titlebar", "hide", "show"]),
+            // Leo's sidebar prototypes as toggles (2026-10-21: "They're just toggles in the app store area").
+            SettingDescriptor(workspacesAsTabsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.workspacesAsTabs", "Workspaces as Tabs"),
+                              help: SettingsText.keyed("settings.sidebar.workspacesAsTabs.help",
+                                                       "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.workspacesAsTabs),
+                              keywords: ["sidebar", "compact", "tabs", "one line", "claude", "workspaces", "switch"]),
+            SettingDescriptor(chromeGroupsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.chromeGroups", "Chrome-Style Groups"),
+                              help: SettingsText.keyed("settings.sidebar.chromeGroups.help",
+                                                       "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.chromeGroups),
+                              keywords: ["sidebar", "chrome", "groups", "chip", "rail", "shape", "clip"]),
+            SettingDescriptor(sideBySidePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.sideBySide", "Workspaces Side by Side"),
+                              help: SettingsText.keyed("settings.sidebar.sideBySide.help",
+                                                       "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.sideBySide),
+                              keywords: ["sidebar", "split", "side by side", "drag", "release", "multi view", "claude code"]),
             // Show Whole Sidebar (No Fade): the list shows with no edge fade and the profile and search bar hides.
             SettingDescriptor(noFadePath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.noFade", "Show Whole Sidebar Without Fade"),
@@ -304,12 +327,16 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: result.showNewWorkspaceChooser, &diagnostics)
+        result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: result.workspacesAsTabs, &diagnostics)
+        result.chromeGroups = flag(root, chromeGroupsPath, fallback: result.chromeGroups, &diagnostics)
+        result.sideBySide = flag(root, sideBySidePath, fallback: result.sideBySide, &diagnostics)
         result.noFade = flag(root, noFadePath, fallback: result.noFade, &diagnostics)
         result.controlsOnHover = flag(root, controlsOnHoverPath, fallback: result.controlsOnHover, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
+        result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: result.workspaceColorIndicator, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)

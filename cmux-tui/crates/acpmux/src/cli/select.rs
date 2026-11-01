@@ -31,7 +31,7 @@ pub(crate) fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
     }
     let cuts = path.match_indices('.').map(|(i, _)| i).rev();
     cuts.filter_map(|i| {
-        let (head, rest) = (path.get(..i)?, path.get(i + 1..)?);
+        let (head, rest) = (path.get(..i)?, path.get(i..)?.strip_prefix('.')?);
         let next = match record {
             Value::Object(map) => map.get(head),
             Value::Array(rows) => head.parse::<usize>().ok().and_then(|n| rows.get(n)),

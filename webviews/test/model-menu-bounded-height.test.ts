@@ -166,7 +166,9 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             searchPresent: search !== null,
             footerPresent: footer !== null,
           },
-          profiles: lists(menu) ? Math.max(0, menu.querySelectorAll('[role^="menuitem"]').length - 1) : 0,
+          profiles: lists(menu)
+            ? Math.max(0, menu.querySelectorAll('[role="menuitemradio"]:not(.acpmux-quick-route)').length - 1)
+            : 0,
         };
       });
       return menus.map((menu, index) => {
@@ -184,7 +186,11 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             const rows = [...scroller.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
               (row) => own(menu, row) && !row.closest("[inert]") && box(row).height > 0,
             );
-            const profileRows = lists(menu) ? rows.slice(1) : [];
+            // Family routes share Account with profiles. Exclude those routes and the first
+            // account radio (the harness login), keeping all installed profiles.
+            const profileRows = lists(menu)
+              ? rows.filter((row) => row.matches('[role="menuitemradio"]:not(.acpmux-quick-route)')).slice(1)
+              : [];
             const area = box(scroller);
             const shown = box(rows.at(-1)!);
             const lastProfile = profileRows.at(-1);

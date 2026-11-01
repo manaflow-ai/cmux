@@ -1,4 +1,3 @@
-import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -18,6 +17,7 @@ import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
 export const ROW_ICON = 16;
@@ -85,6 +85,7 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
+  const readOnly = useTranscriptReadOnly();
   const label =
     state === "pending"
       ? `${t("turn.fork")}…`
@@ -121,6 +122,7 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
       },
     );
   };
+  if (readOnly) return null;
   return (
     <button
       type="button"
@@ -154,7 +156,8 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
 export function PinButton({ rowId }: { rowId: string }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
-  if (!mark.can) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!mark.can || readOnly) return null;
   const label = t(mark.marked ? "message.unpin" : "message.pin");
   return (
     <button
@@ -176,7 +179,8 @@ export function PinButton({ rowId }: { rowId: string }) {
 /// right-click's report (messageMenu.ts); nothing where no host shows that menu.
 export function MessageMore({ rowId }: { rowId: string }) {
   const t = useT();
-  if (!hasMessageMenuHost()) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!hasMessageMenuHost() || readOnly) return null;
   const label = t("message.moreMenu");
   return (
     <button
@@ -253,7 +257,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
-  if (!retry || !prompt) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!retry || !prompt || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button
@@ -321,7 +326,6 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
           {more}
         </MessageFooterRow>
       </span>
-      <PullRequestDock />
     </>
   );
 }
@@ -332,9 +336,11 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 /// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
-  const prDock = useHasPullRequestDock();
   return (
-    <div className="cv-turn-actions cv-reply-actions" data-pr-dock={prDock ? "" : undefined}>
+    // Over a status row this line is the reply's whole bottom room (conversation.css
+    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
+    // can start from (gutterSelect.ts).
+    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
       <span className="cv-turn-action-group">
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
@@ -342,7 +348,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
-      <PullRequestDock />
     </div>
   );
 }

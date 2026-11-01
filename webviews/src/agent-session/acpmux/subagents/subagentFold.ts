@@ -1,3 +1,4 @@
+import { AgentProgressStore } from "./agentProgressSource";
 import type { AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
@@ -76,8 +77,8 @@ export type Subagent = {
   agentId?: string;
   /// Where the harness says it works, from the call that started it: Claude's Agent call asked for
   /// a worktree of its own (`isolation: "worktree"`), the folder that call named (`cwd`), and the
-  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). The Inspector's
-  /// Environment for the subagent reads them (inspector/subagentScope.ts).
+  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). Session Info's
+  /// Environment for the subagent reads them (session-info/subagentScope.ts).
   isolated?: boolean;
   cwd?: string;
   worktree?: { path: string; branch?: string };
@@ -137,6 +138,7 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// between two pieces of its own text draw as one group row where the first one started; their
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
+  readonly progressSource = new AgentProgressStore();
   private readonly agents = new Map<string, Subagent>();
   /// The event that first introduced each agent, retained for a late top-level promotion.
   private readonly startedSeq = new Map<string, number>();
@@ -177,6 +179,10 @@ export class SubagentFold {
   /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
   /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
   chat: string | undefined;
+  /// The acpmux session whose updates this folds (direct.ts sets the selected one). A Claude
+  /// subagent's lines stream under `<session>/<its Agent call>` (acpmux
+  /// claude_stdio/subagent_route.rs), which is also the id acpmux tags them with (``ownerOf``).
+  session: string | undefined;
   /// Every id a record named as a subagent, a parent or an owner (``names``).
   private readonly named = new Set<string>();
   /// The chat's harness (`claude`, `codex`, a profile such as `claude-sr2`), when the pane knows
@@ -227,6 +233,7 @@ export class SubagentFold {
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
+    this.progressSource.remove(id);
     this.startedSeq.delete(id);
     const phantomGroup = this.groupOf.get(id);
     this.groupOf.delete(id);
@@ -284,7 +291,7 @@ export class SubagentFold {
     // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
     // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
     const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
-    const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    const tag = typeof mux?.subagent === "string" ? mux.subagent : this.ownerOf(event.msg?.params?.sessionId);
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
@@ -314,6 +321,15 @@ export class SubagentFold {
     // A subagent's own `acpmux run --parent` never becomes one of the chat's calls, but its child
     // comes to the chat's log too: it competes for the parent's child records, as a start_session does.
     if (tag !== undefined && !this.isChat(tag) && call) this.reduceNestedRun(`${tag}\u0000${call}`, update);
+    // A tail page can start after the child's spawn. Its ownership tag still keeps its work
+    // out of the parent transcript; retain that work for its own view without inventing a
+    // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
+    if (tag !== undefined && !this.isChat(tag) && !owner) {
+      const spawnCall = call !== undefined && this.spawnCalls.has(call);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(tag, { event, update });
+      return true;
+    }
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -952,8 +968,24 @@ export class SubagentFold {
   /// under its own session, and acpmux used to record that as a spawn: the chat became its
   /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
   /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
+  /// The subagent an untagged update streams under, from its own `sessionId`: a known subagent's
+  /// id, or the chat's session with a subagent part (`<session>/<Agent call>`). acpmux tags a
+  /// subagent's lines with that id, but a hub that just adopted its host lost its subagent tree
+  /// until the subagent's next progress event, and the lines between came untagged. Folded as the
+  /// chat's own, a background subagent's call drew as a "Running grep …" row under the finished
+  /// turn and never ended there, since its end came tagged (Leo, 2026-11-01: "why does it say
+  /// you're still running grep"). Its own view and the running tray show it instead.
+  private ownerOf(sessionId: unknown): string | undefined {
+    if (typeof sessionId !== "string" || sessionId.length === 0 || this.isChat(sessionId)) return undefined;
+    if (this.agents.has(sessionId)) return sessionId;
+    const session = this.session;
+    return session && sessionId.length > session.length + 1 && sessionId.startsWith(`${session}/`)
+      ? sessionId
+      : undefined;
+  }
+
   private isChat(id: string): boolean {
-    return id === this.chat;
+    return id === this.chat || this.rootThreads.has(id);
   }
 
   /// Whether a folded record named `id` as a subagent, a subagent's parent or an update's owner.
@@ -1114,6 +1146,7 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
+    this.progressSource.updateAgent(agent);
     const summaryChanged = this.settleView(agent);
     if (agent.parent !== null) {
       if (summaryChanged) this.bumpParentViews(agent.parent);
@@ -1161,7 +1194,7 @@ export type SubagentsLeft = { state: "completed" | "cancelled" | "disconnected";
 /// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
 /// foreground subagents (`cancelled`; the harness keeps background ones running), a completed
 /// turn's foreground ones whose end the harness never sent (`completed`: the turn waited on them;
-/// they read running for good, Leo's Inspector counted 5 running with about 3 live), a turn the
+/// they read running for good, Leo's Session Info counted 5 running with about 3 live), a turn the
 /// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
 /// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
 /// acpmux's own process table reads those records (hub/processes.rs).

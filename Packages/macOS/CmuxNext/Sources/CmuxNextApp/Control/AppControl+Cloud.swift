@@ -41,6 +41,17 @@ extension AppControl {
         ])
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
+        // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
+        let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
+        service?.router.register([.authToken(
+            disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
+            mint: { asked in
+                do {
+                    let token = try await identity.accessToken(team: try await auth.accessTokenTeam(requested: asked))
+                    return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
+                } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
+            }),
+        ])
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -121,6 +132,7 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
+            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
         ]
     }
@@ -129,8 +141,8 @@ extension AppControl {
 // `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
 // (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
 // app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
-// which hold no secrets or provider handles) passes through as JSON. Behind Labs >
-// Show Preview Features while sandboxes are being shaped.
+// which hold no secrets or provider handles) passes through as JSON. Not behind Labs
+// (Leo, 2026-10-30): signed in and Cloud allowed by policy.
 extension AppControl {
     private func registerRunMethods(_ services: AppServices) {
         service?.router.register([
@@ -167,15 +179,15 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client. The Cloud policy and Labs gate only a new sandboxed run
-    /// (`newRun`): waiting on or cancelling one that exists stays open, so turning either off
-    /// mid-run never strands a billable VM without its receipt or its cancel.
+    /// The signed-in Cloud client. The Cloud policy gates only a new sandboxed run (`newRun`):
+    /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
+    /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
+    /// `cmux run --sandboxed` is the person's explicit ask for the run.
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard !newRun || services.settings?.snapshot.previewFeatures == true else {
-                throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
-            }
+            // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
+            guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }
             return services.cloud.api
         }
