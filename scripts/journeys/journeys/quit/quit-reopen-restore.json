@@ -1,0 +1,49 @@
+{
+ "id": "quit-reopen-restore",
+ "priority": "P0",
+ "title": "A REAL Cmd-Q asks how to quit (Keep Sessions is the default); the reopen brings back every workspace, pane, tab and terminal, with its scrollback, from the same daemon",
+ "why": "Lawrence 2026-11-01 on v2.2.12-opt-e2: 'after quitting and reopening, i lose all the workspaces and terminals ... cmd q needs to prompt for what type of quit'. His Cmd-Q showed no dialog and the app's daemon ended. The driver's own relaunch presses Cmd-Q with debug.key in a slot whose window is never key; this journey sends the real key (CuaDriver) to the key window of a whole-host lease (run.py --whole-host).",
+ "source": "QUIT P0 (STATUS 2680, owner a8c03bd88d9f5386c)",
+ "budget_seconds": 260,
+ "steps": [
+  {"do": "wait", "seconds": 8, "title": "set-up: Home finishes its first load"},
+  {"do": "new_terminal", "via": "key", "as": "main"},
+  {"do": "neutral_prompt"},
+  {"do": "type", "text": "seq -f 'jq-${nonce}-%g' 1 400", "enter": true, "mark": "lines"},
+  {"do": "expect", "title": "400 numbered lines, the last on screen", "since": "lines", "timeout": 15,
+   "all": [{"daemon_line": "jq-${nonce}-400"}, {"app_text_line": "jq-${nonce}-400"}]},
+
+  {"do": "key", "key": "d", "modifiers": ["cmd"]},
+  {"do": "focused_terminal", "as": "right"},
+  {"do": "neutral_prompt"},
+  {"do": "type", "text": "echo right-${nonce}-$((6*7))", "enter": true, "mark": "right"},
+  {"do": "expect", "title": "the split's shell answers", "since": "right", "timeout": 10,
+   "all": [{"daemon_line": "right-${nonce}-42"}, {"app_text_line": "right-${nonce}-42"}]},
+
+  {"do": "seed_workspaces", "count": 3, "prefix": "jq-${nonce}-ws", "title": "set-up: three more workspaces, a terminal each"},
+  {"do": "use", "name": "main"},
+  {"do": "quit_state", "as": "before", "title": "what must come back: daemon pid, holder and hosts, workspaces, terminals, panes"},
+
+  {"do": "real_quit", "mark": "reopened", "title": "a REAL Cmd-Q (window server key to the key window); the dialog's default is pressed; reopen"},
+
+  {"do": "expect", "title": "the same daemon, holder and hosts run; every workspace and terminal is back and live", "since": "reopened", "timeout": 45,
+   "all": [{"daemon_kept": {"before": "before"}}, {"workspaces_back": {"before": "before"}}]},
+  {"do": "use", "name": "main"},
+  {"do": "expect", "title": "the scrollback came back whole: rows 1..400 in order, the last one shown", "since": "reopened", "timeout": 45,
+   "all": [
+    {"daemon_history": {"rows": "newest", "count": 600, "pattern": "jq-${nonce}-(\\d+)", "contiguous": true, "last": 400}},
+    {"app_text_line": "jq-${nonce}-400"},
+    {"app_pane": {"link": "connected"}},
+    {"frame_text": "jq-${nonce}-400"}
+   ]},
+  {"do": "type", "text": "echo back-${nonce}-$((6*7))", "enter": true, "mark": "back"},
+  {"do": "expect", "title": "the restored shell takes input", "since": "back", "within": 3, "timeout": 10,
+   "all": [{"daemon_line": "back-${nonce}-42"}, {"app_text_line": "back-${nonce}-42"}, {"frame_text": "back-${nonce}-42"}]},
+  {"do": "use", "name": "right"},
+  {"do": "expect", "title": "the split came back with its text", "timeout": 20,
+   "all": [{"daemon_line": "right-${nonce}-42"}, {"app_text_line": "right-${nonce}-42"}]},
+
+  {"do": "expect", "title": "the real Cmd-Q asked how to quit: Keep Sessions (default), End Sessions, End Everything, Cancel", "timeout": 1,
+   "all": [{"quit_asked": {"default": "keep", "buttons": ["keep", "end-keep-layout", "end-everything", "cancel"]}}]}
+ ]
+}
