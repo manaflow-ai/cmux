@@ -6,6 +6,12 @@
   kind of delineation between cloud/remote (local has no distinguishing) seem alright for cloud
   related stuff"; "it's just on the hover preview". Regression: WorkspaceHoverHostIdentityTests.
 
+- 2026-11-01: Leo: "did we get the “bigger blue dot” thing in? i also think we ought to have a bigger red warn symbol".
+  #29633 made legacy unread badges, tiles and priority dots 8 pt, but the default workspace badge still
+  painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
+  `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
+  keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
+
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
   of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
