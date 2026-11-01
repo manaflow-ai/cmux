@@ -115,6 +115,50 @@ PLAYED = []
 
 # ---- the app: control socket, daemon CLI, process table, frames -----------------------------
 
+def unix_request(path, message, timeout=5.0):
+    """One newline-delimited JSON request on the Unix socket PATH: the first JSON line answering it, or {}."""
+    import socket as socket_mod
+    try:
+        with socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(path)
+            conn.sendall((json.dumps(message) + "\n").encode())
+            buf, end = b"", now() + timeout
+            while now() < end:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        reply = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(reply, dict) and reply.get("id") == message.get("id"):
+                        return reply
+    except OSError:
+        return {}
+    return {}
+
+
+def process_exe(pid):
+    """The executable path of PID (ps comm, the full path on macOS), or ""."""
+    try:
+        return subprocess.run(["ps", "-o", "comm=", "-p", str(int(pid))], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def process_args(pid):
+    try:
+        return subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        return ""
+
+
 class App:
     def __init__(self, sock, bundle, home, ocr):
         self.sock, self.home, self.ocr = sock, home, ocr
@@ -226,6 +270,45 @@ class App:
         if isinstance(answer, dict) and answer.get("error"):
             raise StepError(f"cmux {' '.join(args)[:80]}: {answer['error']}")
         return answer.get("value", answer) if isinstance(answer, dict) and "text" not in answer else answer
+
+    def daemon_facts(self):
+        """The build under test (the bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the
+        app is connected to and the acpmux daemon it runs, each one's pid, executable and build id. Reads only."""
+        facts = {"expected_build": None, "cmux_tui": None, "acpmux": None, "errors": []}
+        try:
+            done = subprocess.run([self.cli, "--version", "--json"], capture_output=True, text=True, timeout=30,
+                                  env={"HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+            facts["expected_build"] = (json.loads(done.stdout) or {}).get("build_identity")
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            facts["errors"].append(f"cmux --version: {error}"[:200])
+        sock = self.daemon_socket()
+        if sock:
+            answer = unix_request(sock, {"id": "journeys-skew", "cmd": "identify"})
+            body = answer.get("result", answer) if isinstance(answer, dict) else {}
+            if isinstance(body, dict) and body.get("pid"):
+                facts["cmux_tui"] = {"pid": body.get("pid"), "build_id": body.get("build_id"),
+                                     "exe": body.get("cli_path") or process_exe(body.get("pid")),
+                                     "socket": sock}
+            else:
+                facts["errors"].append(f"cmux-tui identify: {json.dumps(answer, default=str)[:200]}")
+        try:
+            acp = self.rpc("agent.acpmux", timeout=5) or {}
+        except (StepError, OSError, ValueError) as error:
+            acp = {}
+            facts["errors"].append(f"agent.acpmux: {error}"[:200])
+        path = acp.get("socket_path") if isinstance(acp, dict) else None
+        if path and os.path.exists(path):
+            pids = [int(p) for p in subprocess.run(["/usr/sbin/lsof", "-t", path], capture_output=True, text=True,
+                                                   timeout=20).stdout.split() if p.isdigit()]
+            server = next((p for p in pids if p != os.getpid() and "acpmux" in process_exe(p) + process_args(p)), None)
+            if server:
+                hello = unix_request(path, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                    "protocolVersion": 1, "clientCapabilities": {},
+                    "clientInfo": {"name": "journeys-skew", "version": "0"}}})
+                meta = (((hello or {}).get("result") or {}).get("_meta") or {}).get("acpmux") or {}
+                facts["acpmux"] = {"pid": server, "exe": process_exe(server), "build": meta.get("build"),
+                                   "socket": path}
+        return facts
 
     def screen(self, term):
         answer = self.cmux("terminal", term, "screen", "read")
@@ -346,6 +429,45 @@ def last_line(text):
 # Letters text recognition confuses in a monospace terminal font, folded to one form.
 OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
                           "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
+
+
+# -- measurement validity: the daemons must be the build under test (lead 01:2xZ, cmux-ad 01:25Z) --
+#
+# The cmux-tui owner and the acpmux daemon outlive the app, so a new app can attach to an older daemon (#27829).
+# Each journey records both daemons' pid, executable and build id next to the app's own build (its bundle's bin/cmux;
+# bin/acpmux is an alias of that multi-call binary), and a pass or a fail whose daemons are another build, or whose
+# cmux-tui owner cannot be verified, is "not run".
+
+
+def daemon_skew(facts, bundle):
+    """Why the round's daemons are not the build under BUNDLE (a reason), or None when they are."""
+    own = os.path.realpath(os.path.join(bundle, "Contents", "Resources", "bin", "cmux"))
+    expected = (facts or {}).get("expected_build")
+    tui = (facts or {}).get("cmux_tui")
+    if not expected or not tui or not tui.get("exe") or not tui.get("build_id"):
+        return (f"cmux-tui owner not verified (expected build {expected!r}, owner "
+                f"{json.dumps(tui, default=str)[:200]})")
+    problems = []
+    if os.path.realpath(tui["exe"]) != own or tui["build_id"] != expected:
+        problems.append(f"cmux-tui owner pid {tui.get('pid')} runs {tui['exe']} build {tui['build_id']}")
+    acp = facts.get("acpmux")
+    if acp:
+        commit = str(expected).split("-dirty")[0]
+        token = str(acp.get("build") or "").split()[0] if acp.get("build") else ""
+        if os.path.realpath(str(acp.get("exe") or "")) != own:
+            problems.append(f"acpmux pid {acp.get('pid')} runs {acp.get('exe')}")
+        elif token and not (commit.startswith(token.split("-")[0].rstrip("+")) or token.startswith(commit[:7])):
+            problems.append(f"acpmux pid {acp.get('pid')} reports build {acp.get('build')}")
+    if problems:
+        return "; ".join(problems) + f" (the app's build is {expected} at {own})"
+    return None
+
+
+def apply_daemon_skew(status, reason, skew):
+    """(status, reason) of a journey after the daemon check: a pass or a fail with SKEW is not run."""
+    if not skew or status not in ("pass", "fail"):
+        return status, reason
+    return "not run", f"daemon build is not the build under test: {skew}; was {status}: {reason}"[:600]
 
 
 def ocr_contains(lines, wanted):
@@ -1566,12 +1688,21 @@ class Journey:
                 status, reason = "fail", "not enough evidence: no passing " + ", ".join(missing) + " check"
             elif not all(e["pass"] for e in self.evidence):
                 status, reason = "fail", "a check failed"
+        # The daemons this journey ran against (lead 01:2xZ): another build, or an unverified owner, is not run.
+        try:
+            facts_of = getattr(self.app, "daemon_facts", None)
+            daemons = facts_of() if facts_of else {"errors": ["the app object reads no daemons"]}
+        except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            daemons = {"errors": [str(error)[:200]]}
+        skew = daemon_skew(daemons, self.app.bundle)
+        status, reason = apply_daemon_skew(status, reason, skew)
         clip = self.clip_frames()
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
                   # run.py's run (--run-id, --run-started-at): run.py takes no result.json without its own (STATUS 1362).
                   "run_id": RUN["run_id"], "run_started_at": RUN["run_started_at"],
+                  "daemons": dict(daemons, app_build=daemons.get("expected_build"), skew=skew),
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result

@@ -421,6 +421,16 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### The daemons must be the build under test
+
+The cmux-tui owner and the acpmux daemon outlive the app, so a round can run a new app against an older daemon
+(#27829). At the end of each journey the driver records, in result.json's `daemons`, the build under test (the
+bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the app is connected to (`identify`:
+pid, build_id, cli_path) and the acpmux daemon it runs (`agent.acpmux` socket, the server's `initialize` `_meta.acpmux.build`
+and its executable), each one's pid, executable and build. A pass or a fail whose daemons run another binary or
+another build, or whose cmux-tui owner cannot be verified, is "not run" with the reason (no acpmux running is
+fine). Tests: `test_daemon_skew.py`.
+
 ### Real HID keys in the gate (`key_path=real`)
 
 `debug.key` enters the app's key router directly: it skips the window server, AppKit, the menu's key equivalents

@@ -17,6 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "cmux-next"))  # build_names.py
 
 
 class DaemonSkew(unittest.TestCase):

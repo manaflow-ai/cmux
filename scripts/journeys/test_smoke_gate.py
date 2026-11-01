@@ -1448,12 +1448,17 @@ class SettleThroughTheDriver(unittest.TestCase):
 
         class App:
             snapshot_window = None
+            bundle = "/stand-in/cmux DEV t.app"
 
             def rpc(self_, method, params=None):
                 return {}
 
             def snapshot(self_, path):
                 raise driver.StepError("no frames here")
+
+            def daemon_facts(self_):  # the daemons are the build under test (test_daemon_skew covers skew)
+                own = self_.bundle + "/Contents/Resources/bin/cmux"
+                return {"expected_build": "abc", "cmux_tui": {"pid": 1, "exe": own, "build_id": "abc"}, "acpmux": None}
 
         calls = []
         driver.Journey.step_t_mark = lambda self, step: calls.append(step["n"]) or {}
