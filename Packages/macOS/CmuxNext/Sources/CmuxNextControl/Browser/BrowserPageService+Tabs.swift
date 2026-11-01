@@ -61,10 +61,10 @@ extension BrowserPageService {
     /// The caller of a call that names no tab, when no browser is near it (``BrowserCallerTarget``).
     static func callerWithNoBrowserNear(_ call: ControlCall) throws -> (caller: ControlCaller, location: ControlCallerLocation)? {
         let params = call.request.params
-        guard params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty ?? true, let caller = try ControlCaller(params),
-              let location = ControlCallerLocation.resolve(caller, in: call.snapshot.topology),
+        guard params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty ?? true,
+              let location = try BrowserCallerTarget.callerLocation(params: params, in: call.snapshot.topology),
               BrowserCallerTarget.resolve(near: location, in: call.snapshot.topology) == nil else { return nil }
-        return (caller, location)
+        return (location.caller, location)
     }
 
     /// The app browser tabs of one workspace: the named browser tab's, else
@@ -75,13 +75,13 @@ extension BrowserPageService {
         let params = call.request.params
         let all = params["all"]?.boolValue == true
         var workspaceID = topology.focus.workspaceID
-        if let caller = try ControlCaller(params), let location = ControlCallerLocation.resolve(caller, in: topology) {
-            // The workspace of the browser `page` drives for this caller, else its own.
-            workspaceID = (BrowserCallerTarget.resolve(near: location, in: topology)?.workspace ?? location.workspace).id
-        }
         if !all, let requested = params["tab"]?.stringValue, !requested.isEmpty {
+            // An explicit tab wins over caller context, including one that has since closed.
             let anchor = try tab(call).id
             workspaceID = topology.workspaces.first { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.id == anchor } } } }?.id
+        } else if !all, let location = try BrowserCallerTarget.callerLocation(params: params, in: topology) {
+            // A stale caller cannot make a tab list jump to the person's current workspace.
+            workspaceID = (BrowserCallerTarget.resolve(near: location, in: topology)?.workspace ?? location.workspace).id
         }
         var tabs: [JSONValue] = []
         for workspace in topology.workspaces where all || workspace.id == workspaceID {
