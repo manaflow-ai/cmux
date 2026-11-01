@@ -31,7 +31,7 @@ type Part = { element: Element; delay: number; duration: number; from: Keyframe;
 function motionMode(doc: Document): "full" | "reduced" | "none" {
   const root = doc.documentElement;
   const view = doc.defaultView;
-  if (!view || !entranceAllowed()) return "none";
+  if (!view || !entranceAllowed(doc)) return "none";
   if (root.dataset.cmuxMotion === "off") return "none";
   const token = view.getComputedStyle(root).getPropertyValue("--agent-motion-in").trim();
   if (token && !(Number.parseFloat(token) > 0)) return "none";
