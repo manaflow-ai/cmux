@@ -1404,8 +1404,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
                                                  "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
                          "blacksmith-4vcpu-ubuntu-2404")
+        # Each is a declared Blacksmith Linux label: a linux pool member, or a literal listed for
+        # actionlint (32 vCPU left the pool on 2026-11-01 but stays a size jobs may name).
+        declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \
+            (ROOT / ".github/actionlint.yaml").read_text(encoding="utf-8")
         for label in BOUNDED_LINUX_LABELS:
-            self.assertIn(label, (ROOT / ".github/runners.json").read_text(encoding="utf-8"))
+            self.assertIn(label, declared)
 
     def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
