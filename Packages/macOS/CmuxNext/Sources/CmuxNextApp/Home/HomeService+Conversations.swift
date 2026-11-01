@@ -274,8 +274,8 @@ extension HomeService {
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
-    /// text, else its own worn upload or picked character (`AppServices.chosenPicture(of:)`), so one
-    /// Chief's upload or character never shows on another; a Chief with none is left out and draws its name's monogram.
+    /// text, else its own upload or picked character (`AppServices.chosenPicture(of:)`), so one Chief's
+    /// never shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG

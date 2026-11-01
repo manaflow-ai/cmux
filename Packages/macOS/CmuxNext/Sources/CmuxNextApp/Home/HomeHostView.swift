@@ -44,7 +44,7 @@ final class HomeHostView: NSView {
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: `picture` (`AppServices.chosenPicture(of:)`, its
-    /// worn upload or the character it picked), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
+    /// upload or picked character), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
@@ -468,8 +468,7 @@ final class HomeHostView: NSView {
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
-    /// The picture the Chief shown here wears where its profile sets none: its worn upload, else the
-    /// character it picked, else nil.
+    /// The picture the Chief shown here wears where its profile sets none: its upload, else its pick, else nil.
     private var fallbackPicture: URL? {
         control.services.chosenPicture(of: petRows.chief)
     }
