@@ -13,9 +13,10 @@ enum StandInOrigin: Hashable {
 
 extension DaemonStore {
     /// Waits until the daemon's pane takes stand-in `handle` over (``StandInWait``), off the caller's turn. A cancelled
-    /// caller is resumed with the rest, when the stand-in's own create ends (that bounds the wait), and then stops.
+    /// caller ends at once with `CancellationError`; its entry stays until the stand-in's own create ends (that bounds
+    /// it), and the resume then is a no-op of the ended OnceContinuation.
     func waitForDaemonPane(of handle: PaneID, origin: StandInOrigin?) async throws -> PaneID {
-        let pane = try await withOnceThrowingContinuation { (continuation: OnceContinuation<PaneID, any Error>) in
+        let pane = try await withOnceThrowingContinuation(cancellation: .cancellable) { (continuation: OnceContinuation<PaneID, any Error>) in
             standInWaits.append(StandInWait(handle: handle, origin: origin, continuation: continuation))
         }
         try Task.checkCancellation()
