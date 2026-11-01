@@ -99,4 +99,22 @@ struct CreationInputEarlyReplayTests {
         #expect(host.replayed == ["a"])
         #expect(!coordinator.isHolding(in: window))
     }
+
+    /// A settle still ends a resolved hold as before, whatever view has the keyboard: the composer check applies only
+    /// to a key ending the hold, so a settle into another view never waits for the hold's 2 s bound (review of #30094).
+    @Test func aSettleStillEndsAResolvedHoldAtOnce() async throws {
+        let window = Self.window()
+        let host = Host(focus: CreationInputFocus(shell: window, inContent: true, terminalTab: "new", takesKeys: true,
+                                                  terminalHasKeyboard: false, terminalShown: true))
+        let coordinator = CreationInputCoordinator()
+        coordinator.host = host
+        coordinator.holdLimit = .seconds(600)
+        let ticket = coordinator.begin(in: window, generation: 1)
+        #expect(coordinator.capture(Self.key("a", code: 0, in: window), in: window))
+        coordinator.resolve(ticket, landed: false, in: window) // its flush, as a settle's, runs in a later turn
+        let deadline = ContinuousClock.now + .seconds(5)
+        while coordinator.isHolding(in: window), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!coordinator.isHolding(in: window), "the settle's flush waited for the hold's bound")
+        #expect(host.replayed == ["a"])
+    }
 }
