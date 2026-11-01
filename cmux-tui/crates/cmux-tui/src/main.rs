@@ -47,6 +47,8 @@ mod share_room;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[cfg(unix)]
+mod distribution;
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -1708,9 +1710,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // Before any mode can serve `identify` or `ping`.
+    // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
+    acpmux::hub::install_build(acpmux_build_id::BUILD);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -2260,6 +2263,8 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    #[cfg(unix)]
+    let mut link_startup = link::DaemonEntryStartup::capture();
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
@@ -2525,7 +2530,8 @@ fn run_server(
     mux.record_startup_timings(&startup_timings);
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
-    let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
+    let _link_entry = link_startup
+        .start_entry(args.link_entry, &mux, &socket_path)
         .inspect_err(|_| mux.shutdown())?;
 
     #[cfg(unix)]

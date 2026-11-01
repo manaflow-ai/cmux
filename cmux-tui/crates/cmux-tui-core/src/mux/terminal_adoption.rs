@@ -713,6 +713,9 @@ impl Mux {
 
         let before = state.clone();
         let restored_public_id = surface.terminal_public_id().cloned();
+        // Kept to publish the replayed reports once the terminal is live;
+        // `surface` itself moves into state below.
+        let adopted = surface.clone();
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
@@ -772,6 +775,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // The host's replay carries the shell's last directory and progress
+        // reports, pending until the terminal is live: publish them now, as
+        // a reconnect does. An idle shell prints nothing that would.
+        adopted.publish_pending_directory();
+        adopted.publish_pending_progress();
         self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {

@@ -36,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
@@ -1701,6 +1702,9 @@
   border: 1px solid var(--lg-line);
   border-radius: 8px;
   background: var(--lg-fill);
+}
+.hc-att-meta.is-failed {
+  color: var(--lg-warn);
 }
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
