@@ -82,9 +82,15 @@ await requireBrowserLane("gallery-background-browser.test.ts", async () => {
     }
   }
 
+  // A computed color's alpha: `rgb(r, g, b)`, `rgba(r, g, b, a)`, or the CSS Color 4 form a
+  // color-mix() computes to (`color(srgb r g b / a)`, `oklab(l a b / a)`), whose alpha follows a slash.
   const alpha = (color: string) => {
-    const parts = /rgba?\(([^)]+)\)/.exec(color)?.[1]?.split(",") ?? [];
-    return parts.length === 4 ? Number(parts[3]) : parts.length === 3 ? 1 : Number.NaN;
+    const body = /^[a-z-]+\((.*)\)$/.exec(color.trim())?.[1];
+    if (!body) return Number.NaN;
+    if (body.includes("/")) return Number(body.split("/")[1]!.trim());
+    const parts = body.split(",");
+    if (parts.length === 4) return Number(parts[3]);
+    return parts.length === 3 || body.trim().split(/\s+/).length >= 3 ? 1 : Number.NaN;
   };
 
   describe("gallery background axis", () => {
