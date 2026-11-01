@@ -133,7 +133,7 @@ import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -5268,12 +5268,13 @@ export function VirtualTranscript({
         {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+        // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+        // 2026-10-23: "that little bit above composer can flicker").
         data-seeking={seeking || undefined}
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-        data-fade-bottom={
-          (!renderFollowing && layout.totalHeight - (renderScroll.top - origin) - height > 0.5) || undefined
-        }
+        data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
         // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
         // out of sight behind it instead of reading through its glass.
         data-jump-shown={(jumpButton && behind) || undefined}
