@@ -46,12 +46,12 @@ impl Hub {
     pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
         let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
         if self.any_mode_for_web(meta) {
-            return mode == "ask";
+            return crate::web_modes::family_of(meta) == "codex" && mode == "ask";
         }
         if crate::web_modes::family_of(meta) != "claude" {
             return false;
         }
-        self.web_modes().session_asks(meta) && PHONE_MODES.contains(&mode.as_str())
+        self.web_modes().session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
     }
 
     /// The merged asking-mode table the remote guard and Web control use.
