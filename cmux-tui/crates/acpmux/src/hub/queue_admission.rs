@@ -111,8 +111,10 @@ pub(super) fn content_bytes(blocks: &[Value], display_parts: Option<&Value>) -> 
 }
 
 fn full(reason: &str, message: String, mut data: Value) -> RpcError {
-    data["reason"] = json!(reason);
-    data["retryable"] = json!(true);
+    if let Some(fields) = data.as_object_mut() {
+        fields.insert("reason".into(), json!(reason));
+        fields.insert("retryable".into(), json!(true));
+    }
     RpcError::new(-32000, message).with_data(data)
 }
 
