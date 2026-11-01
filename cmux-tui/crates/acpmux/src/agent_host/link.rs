@@ -19,24 +19,36 @@ pub struct HostLauncher {
 
 impl HostLauncher {
     /// This process's own binary, with the prefix it starts its daemon with.
-    ///
-    /// On Linux the exe is the open inode, `/proc/self/exe`: once an update
-    /// replaces the file a long-lived daemon runs from (a Cloud VM's
-    /// `~/.cmux/bin/cmux-tui`), `current_exe` reads `PATH (deleted)`, which no
-    /// longer exists, and every new chat failed with "start PATH (deleted): No
-    /// such file or directory" (shown in the app as `agent_session.refused`).
-    /// The host also runs the daemon's own build, never a newer file at the
-    /// path. cmux-tui's terminal hosts do the same (`self_exe_for_spawn`).
+    /// On Linux `exe` is the path without the ` (deleted)` that `current_exe`
+    /// adds once an update replaced the file ([`Self::program`] still starts
+    /// this build).
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
-        Ok(Self { exe: spawn_exe(this.exe), prefix: this.prefix })
+        Ok(Self { exe: undeleted(this.exe), prefix: this.prefix })
+    }
+
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. On Linux,
+    /// for this process's own binary, the open inode `/proc/self/exe`: once an
+    /// update replaces the file a long-lived daemon runs from (a Cloud VM's
+    /// `~/.cmux/bin/cmux-tui`), the path is gone or holds another build, and
+    /// every new chat failed with "start PATH (deleted): No such file or
+    /// directory" (the app's `agent_session.refused`). The host then runs the
+    /// daemon's own build, as cmux-tui's terminal hosts do
+    /// (`self_exe_for_spawn`). argv0 stays the path: a cmux-tui copy named
+    /// `acpmux` (a peer's `~/.local/bin/acpmux`) runs as acpmux by that name.
+    fn program(&self) -> PathBuf {
+        let own = cfg!(target_os = "linux")
+            && std::env::current_exe().is_ok_and(|exe| undeleted(exe) == self.exe);
+        if own { PathBuf::from("/proc/self/exe") } else { self.exe.clone() }
     }
 }
 
-/// The program that starts this binary again: the open inode on Linux
-/// ([`HostLauncher::current`]), the resolved path elsewhere.
-fn spawn_exe(resolved: PathBuf) -> PathBuf {
-    if cfg!(target_os = "linux") { PathBuf::from("/proc/self/exe") } else { resolved }
+/// `path` without the ` (deleted)` Linux appends to a replaced executable.
+fn undeleted(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
+        Some(p) => PathBuf::from(p),
+        None => path,
+    }
 }
 
 /// Start a host for `spec` and return its record once the harness runs.
@@ -51,8 +63,9 @@ fn spawn_exe(resolved: PathBuf) -> PathBuf {
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let mut cmd = tokio::process::Command::new(&launcher.exe);
-    cmd.args(&launcher.prefix)
+    let mut cmd = tokio::process::Command::new(launcher.program());
+    cmd.arg0(&launcher.exe)
+        .args(&launcher.prefix)
         .arg(HOST_ARG)
         // The host itself is inspectable by its same-uid harness child on
         // some platforms. It needs only OS identity/locale; the complete
@@ -727,19 +740,31 @@ impl Link {
 
 #[cfg(test)]
 mod launcher_tests {
-    use super::HostLauncher;
+    use super::{HostLauncher, undeleted};
     use std::path::PathBuf;
 
     /// A daemon whose binary an update replaced still starts agent hosts: on
-    /// Linux the launcher execs the open inode, never `PATH (deleted)`.
+    /// Linux its own binary is exec'd from the open inode, never `PATH
+    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
+    /// acpmux by it). Another binary is exec'd as given.
     #[test]
     fn the_host_starts_from_the_open_inode_on_linux() {
         let launcher = HostLauncher::current().expect("launcher");
+        let exe = std::env::current_exe().expect("current exe");
+        assert_eq!(launcher.exe, exe);
         if cfg!(target_os = "linux") {
-            assert_eq!(launcher.exe, PathBuf::from("/proc/self/exe"));
-            assert!(launcher.exe.exists(), "the open inode is always there");
+            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
         } else {
-            assert_eq!(launcher.exe, std::env::current_exe().expect("current exe"));
+            assert_eq!(launcher.program(), exe);
         }
+        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
+        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
+    }
+
+    #[test]
+    fn a_replaced_file_reads_as_its_path() {
+        let path = "/home/cmux/.cmux/bin/cmux-tui";
+        assert_eq!(undeleted(format!("{path} (deleted)").into()), PathBuf::from(path));
+        assert_eq!(undeleted(path.into()), PathBuf::from(path));
     }
 }
