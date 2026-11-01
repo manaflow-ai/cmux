@@ -34,7 +34,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -84,7 +84,7 @@ def code_lines(path: Path):
 
 
 class NightlyPooledRoutingTests(unittest.TestCase):
-    def test_resolver_and_recovery_default_to_fleet_without_current_placement(self) -> None:
+    def test_resolver_and_recovery_use_overflow_without_current_placement(self) -> None:
         import yaml
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
@@ -97,18 +97,17 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": placement_attempt,
                                "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
                     with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
-                        self.assertEqual(evaluate(expression, context), "cmux-fleet-linux-x64")
+                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
                         context["needs.decide.outputs.track"] = "nightly"
-                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
+                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
                         context["github.repository_owner"] = "fork-owner"
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
-            for kind, runner in (("linux", "cmux-fleet-linux-x64"),
-                                 ("mini", "glaeda-side-std-xcode-26.6")):
+            for runner in ("cmux-nightly-reservation-control", "glaeda-side-std-xcode-26.6"):
+                output = name.replace("cmux-", "").replace("-", "_")
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "1",
-                           f"needs.decide.outputs.early_{kind}_jobs": f" {name} ",
-                           f"needs.decide.outputs.early_{kind}_runner": runner}
+                           f"needs.decide.outputs.early_{output}_runner": runner}
                 self.assertEqual(evaluate(expression, context), runner)
 
     def test_fleet_linux_fallback_jobs_install_gh_before_their_gh_calls(self) -> None:
@@ -283,9 +282,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
-                    fleet_fallback = (name in {"resolve-nightly-cmux-tui-client", "find-nightly-next-recovery"}
-                                      and label == "cmux-fleet-linux-x64")
-                    self.assertTrue(label in linux or LINUX_LABEL.fullmatch(label) or fleet_fallback,
+                    self.assertTrue(label in linux or LINUX_LABEL.fullmatch(label),
                                     f"{name} can take {label!r}")
                 self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
@@ -296,6 +293,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
 
+    def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
+        """Fleet admission supplies unique reservations, never an unserved pool label."""
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        for name, job in jobs.items():
+            with self.subTest(job=name):
+                self.assertNotIn("cmux-fleet-linux-x64", str((job or {}).get("runs-on", "")))
+
     def test_no_new_nightly_job_rides_blacksmith_linux_alone(self) -> None:
         """No pins: a nightly job needs a fleet route ahead of its Blacksmith Linux label.
 
@@ -303,9 +308,13 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         blacksmith-32vcpu-ubuntu-2404 pin passed it. This ratchets BLACKSMITH_LINUX_ONLY_DEBT down."""
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        import json
+        light = json.loads((ROOT / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
         alone = {name for name, job in jobs.items()
                  if re.search(r"blacksmith-\d+vcpu-ubuntu", str((job or {}).get("runs-on") or ""))
-                 and not FLEET_ROUTE.search(str(job.get("runs-on")))}
+                 and not FLEET_ROUTE.search(str(job.get("runs-on")))
+                 and not (f"nightly.yml#{name}" in light
+                          and "github.run_attempt == 1 && 'ubuntu-24.04'" in str(job.get("runs-on")))}
         self.assertEqual(sorted(alone - BLACKSMITH_LINUX_ONLY_DEBT), [],
                          "these nightly jobs can only take Blacksmith Linux: give them a fleet route first")
         self.assertEqual(sorted(BLACKSMITH_LINUX_ONLY_DEBT - alone), [],
