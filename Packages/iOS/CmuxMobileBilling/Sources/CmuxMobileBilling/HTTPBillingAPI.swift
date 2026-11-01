@@ -64,6 +64,29 @@ public struct HTTPBillingAPI: BillingAPI {
         return try await send(request, decoding: BillingTransactionReceipt.self)
     }
 
+    public func trialChallenge() async throws -> String {
+        let request = try await makeRequest(path: "/api/billing/apple/trial/challenge", body: Data("{}".utf8))
+        return try await send(request, decoding: ChallengeBody.self).challenge
+    }
+
+    public func verifyTrial(_ body: BillingTrialVerifyRequest) async throws -> BillingTrialVerification {
+        let request = try await makeRequest(path: "/api/billing/apple/trial/verify", body: try JSONEncoder().encode(body))
+        return try await send(request, decoding: BillingTrialVerification.self)
+    }
+
+    public func paywallVariants() async throws -> [BillingPaywallVariant] {
+        var request = try await makeRequest(path: "/api/billing/paywall/variants", body: Data())
+        request.httpMethod = "GET"
+        request.httpBody = nil
+        request.setValue(nil, forHTTPHeaderField: "Content-Type")
+        let list = try await send(request, decoding: VariantsBody.self)
+        // A variant whose config fails the schema is skipped, not fatal.
+        return list.variants.compactMap { entry in
+            guard let config = entry.paywall else { return nil }
+            return BillingPaywallVariant(status: entry.status ?? "live", config: config)
+        }
+    }
+
     /// Builds a `POST` request; exposed to tests to pin the header contract.
     /// - Parameters:
     ///   - path: The route path, starting with `/`.
@@ -90,6 +113,12 @@ public struct HTTPBillingAPI: BillingAPI {
         // This client offers a Monthly/Yearly choice, so the server may list
         // yearly products; older clients do not send it and get monthly only.
         request.setValue("monthly,yearly", forHTTPHeaderField: "x-cmux-billing-periods")
+        // The paywall layouts this build draws; the server serves another
+        // variant's fallback layout (or cards) for any other.
+        request.setValue(
+            BillingPaywallLayout.allCases.map(\.rawValue).joined(separator: ","),
+            forHTTPHeaderField: "x-cmux-paywall-layouts"
+        )
         if let environment = await storeKitEnvironment() {
             request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
         }
@@ -109,8 +138,12 @@ public struct HTTPBillingAPI: BillingAPI {
         }
         guard let http = response as? HTTPURLResponse else { throw BillingAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 403, (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error == "account_mismatch" {
+            let code = (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error
+            if http.statusCode == 403, code == "account_mismatch" {
                 throw BillingAPIError.accountMismatch
+            }
+            if http.statusCode == 409, code == "attest_key_unknown" {
+                throw BillingAPIError.attestKeyUnknown
             }
             throw BillingAPIError.rejected(statusCode: http.statusCode)
         }
@@ -123,6 +156,27 @@ public struct HTTPBillingAPI: BillingAPI {
 
     private struct TransactionBody: Encodable {
         let signedTransactionInfo: String
+    }
+
+    private struct ChallengeBody: Decodable {
+        let challenge: String
+    }
+
+    private struct VariantsBody: Decodable {
+        let variants: [VariantEntry]
+    }
+
+    private struct VariantEntry: Decodable {
+        let status: String?
+        let paywall: BillingPaywallConfig?
+
+        enum CodingKeys: String, CodingKey { case status, paywall }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            status = try container.decodeIfPresent(String.self, forKey: .status)
+            paywall = try? container.decodeIfPresent(BillingPaywallConfig.self, forKey: .paywall)
+        }
     }
 
     private struct ErrorBody: Decodable {

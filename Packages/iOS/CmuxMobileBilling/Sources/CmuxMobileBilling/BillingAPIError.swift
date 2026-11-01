@@ -13,6 +13,9 @@ public enum BillingAPIError: Error, Sendable, Equatable {
     /// `403 account_mismatch`: the transaction's subscription belongs to
     /// another cmux account.
     case accountMismatch
+    /// `409 attest_key_unknown`: the server has no record of the App Attest
+    /// key; the app attests a new key.
+    case attestKeyUnknown
     /// The server's 2xx body did not match the contract.
     case invalidResponse
 }

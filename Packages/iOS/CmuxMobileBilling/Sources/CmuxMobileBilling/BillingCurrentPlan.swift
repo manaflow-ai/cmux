@@ -9,18 +9,29 @@ public struct BillingCurrentPlan: Sendable, Equatable, Codable {
     public let planID: BillingPlanID
     /// The billing system that grants ``planID``.
     public let source: BillingPlanSource
+    /// The free trial the account is in now; nil when it is in none.
+    public let trial: BillingActiveTrial?
 
     /// Creates a current-plan value.
     /// - Parameters:
     ///   - planID: The granted plan.
     ///   - source: The billing system that grants it.
-    public init(planID: BillingPlanID, source: BillingPlanSource) {
+    public init(planID: BillingPlanID, source: BillingPlanSource, trial: BillingActiveTrial? = nil) {
         self.planID = planID
         self.source = source
+        self.trial = trial
     }
 
     enum CodingKeys: String, CodingKey {
         case planID = "planId"
         case source
+        case trial
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        planID = try container.decode(BillingPlanID.self, forKey: .planID)
+        source = try container.decode(BillingPlanSource.self, forKey: .source)
+        trial = try? container.decodeIfPresent(BillingActiveTrial.self, forKey: .trial)
     }
 }

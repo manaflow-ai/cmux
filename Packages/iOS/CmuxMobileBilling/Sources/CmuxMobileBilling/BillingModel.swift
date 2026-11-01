@@ -44,11 +44,21 @@ public final class BillingModel {
     public private(set) var purchase: BillingPurchasePhase = .idle
     /// The current restore attempt.
     public private(set) var restore: BillingRestorePhase = .idle
+    /// Whether the paywall may show a free trial. Trial text shows only in
+    /// ``BillingTrialState/available(_:)``.
+    public private(set) var trial: BillingTrialState = .none
+    /// The products the server lists, with StoreKit prices, loaded for the
+    /// staff Paywall Lab even when this account cannot buy.
+    public private(set) var previewOffers: [BillingOffer] = []
 
     private let api: any BillingAPI
     private let store: any StoreKitClient
     private let deliverer: BillingTransactionDeliverer
     private let analytics: (any AnalyticsEmitting)?
+    private let trialProver: (any BillingTrialDeviceProving)?
+    /// The offer of the running purchase, for a success the listener
+    /// reports later (the trial product is not among ``offers``).
+    private var purchaseOffer: BillingOffer?
     private var listenerTask: Task<Void, Never>?
     /// Bumped on sign-out so a load that started for the previous account
     /// cannot publish its result.
@@ -59,17 +69,30 @@ public final class BillingModel {
     /// The last product-load outcome sent to analytics, so a reload with the
     /// same result (after a purchase, restore or renewal) is not counted again.
     private var lastProductsEvent: String?
+    /// The paywall session of the running purchase, so a success reported
+    /// later by the transaction listener (Ask to Buy) carries its variant.
+    private var purchaseContext: BillingPaywallContext?
+    /// The account load in flight, joined by ``loadIfNeeded()``.
+    private var inFlightLoad: Task<Void, Never>?
 
     /// Creates the model.
     /// - Parameters:
     ///   - api: The billing routes.
     ///   - store: The StoreKit seam.
     ///   - analytics: The product analytics emitter; nil sends nothing.
-    public init(api: any BillingAPI, store: any StoreKitClient, analytics: (any AnalyticsEmitting)?) {
+    ///   - trialProver: Makes the App Attest and DeviceCheck proof a free
+    ///     trial needs; nil offers no trial.
+    public init(
+        api: any BillingAPI,
+        store: any StoreKitClient,
+        analytics: (any AnalyticsEmitting)?,
+        trialProver: (any BillingTrialDeviceProving)? = nil
+    ) {
         self.api = api
         self.store = store
         self.deliverer = BillingTransactionDeliverer(api: api, store: store)
         self.analytics = analytics
+        self.trialProver = trialProver
     }
 
     /// Starts the `Transaction.updates` listener and retries unfinished
@@ -99,10 +122,254 @@ public final class BillingModel {
         await loadAccount()
     }
 
+    /// Loads the account once: does nothing when it is loaded, and joins a
+    /// load already running instead of starting a second one. Upgrade
+    /// entry points call this, so several on one screen cost one request.
+    public func loadIfNeeded() async {
+        if account.account != nil { return }
+        let generation = accountGeneration
+        if let inFlightLoad {
+            await inFlightLoad.value
+            // A load joined across a sign-out published nothing; load again.
+            if generation == accountGeneration || account.account != nil { return }
+        }
+        let load = Task { await self.refresh() }
+        inFlightLoad = load
+        await load.value
+        if inFlightLoad == load { inFlightLoad = nil }
+    }
+
+    /// The paywall configuration to show: the server's, or
+    /// ``BillingPaywallConfig/control`` when it sent none or an invalid one.
+    public var paywallConfig: BillingPaywallConfig {
+        account.account?.paywall ?? .control
+    }
+
+    /// Where ``paywallConfig`` came from.
+    public var paywallConfigSource: BillingPaywallConfigSource {
+        account.account?.paywall == nil ? .builtIn : .server
+    }
+
+    /// A paywall session for `entryPoint` over the current configuration.
+    /// - Parameter entryPoint: Where the paywall opens from.
+    public func paywallContext(entryPoint: BillingEntryPoint) -> BillingPaywallContext {
+        BillingPaywallContext(entryPoint: entryPoint, config: paywallConfig, configSource: paywallConfigSource)
+    }
+
+    /// True when the app may offer an upgrade: a loaded account on the Free
+    /// plan that may buy in the App Store. False for web subscribers, team
+    /// billing, builds that sell nothing, and paid plans, so no upgrade
+    /// entry point shows for them.
+    public var canOfferUpgrade: Bool {
+        guard let account = account.account else { return false }
+        return account.eligible && account.currentPlan.planID == .free
+    }
+
+    /// True when the app may offer a bigger plan: a loaded account that may
+    /// buy in the App Store and is not on the largest plan. Used where a
+    /// plan limit stops an action (a locked machine size, a 402 refusal).
+    public var canOfferPlanChange: Bool {
+        guard let account = account.account else { return false }
+        return account.eligible && account.currentPlan.planID != .max
+    }
+
+    /// A plan's compute facts: the server's, else the published built-in
+    /// ones.
+    public func planFacts(_ plan: BillingPlanID) -> BillingPlanFacts? {
+        account.account?.planFacts[plan.rawValue] ?? BillingPlanFacts.builtIn[plan]
+    }
+
     /// Records that the plans screen appeared.
     /// - Parameter entryPoint: Where the screen was opened from.
     public func paywallViewed(entryPoint: BillingEntryPoint) {
         capture(.paywallViewed, ["entry_point": .string(entryPoint.rawValue)])
+    }
+
+    /// Records that the paywall appeared with its experiment properties.
+    /// - Parameter context: The paywall session.
+    public func paywallViewed(context: BillingPaywallContext) {
+        capture(.paywallViewed, context.analyticsProperties)
+    }
+
+    /// Records a tap on the paywall's purchase button.
+    /// - Parameters:
+    ///   - offer: The offer the button buys.
+    ///   - context: The paywall session.
+    public func paywallCTATapped(_ offer: BillingOffer, context: BillingPaywallContext) {
+        var properties = context.analyticsProperties
+        properties["plan_id"] = .string(offer.planID.rawValue)
+        properties["billing_period"] = .string(offer.billingPeriod.rawValue)
+        capture(.paywallCTATapped, properties)
+    }
+
+    /// Records that the paywall closed.
+    /// - Parameters:
+    ///   - context: The paywall session.
+    ///   - secondsVisible: How long it was on screen.
+    ///   - reachedPurchase: Whether the user started a purchase from it.
+    public func paywallDismissed(context: BillingPaywallContext, secondsVisible: Double, reachedPurchase: Bool) {
+        var properties = context.analyticsProperties
+        properties["seconds_visible"] = .double((secondsVisible * 10).rounded() / 10)
+        properties["reached_purchase"] = .bool(reachedPurchase)
+        capture(.paywallDismissed, properties)
+    }
+
+    /// Records that an upgrade card or banner appeared.
+    /// - Parameter entryPoint: Which entry point.
+    public func upgradeEntryViewed(_ entryPoint: BillingEntryPoint) {
+        capture(.upgradeEntryViewed, ["entry_point": .string(entryPoint.rawValue)])
+    }
+
+    /// Records that the paywall showed a free trial offer.
+    /// - Parameters:
+    ///   - grant: The trial shown.
+    ///   - context: The paywall session.
+    public func trialOfferShown(_ grant: BillingTrialGrant, context: BillingPaywallContext) {
+        var properties = context.analyticsProperties
+        properties["plan_id"] = .string(grant.planID.rawValue)
+        properties["billing_period"] = .string(grant.billingOffer.billingPeriod.rawValue)
+        capture(.trialOfferShown, properties)
+    }
+
+    /// Checks whether the paywall may show a free trial: the server must
+    /// offer one, StoreKit must have a free-trial introductory offer on the
+    /// trial product, the device must pass App Attest and DeviceCheck, and
+    /// the server must grant it. Anything else leaves no trial to show.
+    /// Runs once per account; later calls return at once.
+    public func prepareTrial() async {
+        switch trial {
+        case .checking, .available: return
+        // A network failure is retried the next time the paywall opens;
+        // a refusal or an unsupported device is final for this account.
+        case .unavailable(let reason) where !reason.hasSuffix("network"): return
+        case .none, .unavailable: break
+        }
+        guard let account = account.account, let offer = account.trial, offer.offered,
+              account.eligible, account.currentPlan.planID == .free
+        else { return }
+        let generation = accountGeneration
+        trial = .checking
+        let result = await checkTrial(offer, account: account)
+        guard generation == accountGeneration else { return }
+        trial = result
+    }
+
+    private func checkTrial(_ offer: BillingTrialOffer, account: BillingAccount) async -> BillingTrialState {
+        // The trial lives only on its own product, so a refused account can
+        // never get it from a normal product's introductory offer.
+        guard let productID = offer.productID else {
+            return .unavailable(reason: "no_product")
+        }
+        let product: StoreProduct
+        do {
+            guard let found = try await store.products(for: [productID]).first else {
+                return .unavailable(reason: "no_product")
+            }
+            product = found
+        } catch {
+            return .unavailable(reason: "products_" + BillingFailure(error).analyticsReason)
+        }
+        guard let introductory = product.introductoryOffer, introductory.isFreeTrial else {
+            return .unavailable(reason: "no_intro_offer")
+        }
+        guard let trialProver, await trialProver.isSupported else {
+            return attestFailed("unsupported")
+        }
+        let appTransactionID = await store.appTransactionID()
+        var verification: BillingTrialVerification?
+        for attempt in 0..<2 {
+            do {
+                let challenge = try await api.trialChallenge()
+                let proof = try await trialProver.proof(clientData: Data((challenge + productID).utf8))
+                verification = try await api.verifyTrial(BillingTrialVerifyRequest(
+                    challenge: challenge,
+                    proof: proof,
+                    productID: productID,
+                    appTransactionID: appTransactionID
+                ))
+                break
+            } catch BillingAPIError.attestKeyUnknown where attempt == 0 {
+                await trialProver.resetKey()
+            } catch let error as BillingTrialProofError {
+                switch error {
+                case .unsupported: return attestFailed("unsupported")
+                case .attest: return attestFailed("attest")
+                case .deviceCheck: return attestFailed("device_check")
+                }
+            } catch {
+                return attestFailed("verify_" + BillingFailure(error).analyticsReason)
+            }
+        }
+        guard let verification else { return attestFailed("attest_key_unknown") }
+        guard verification.eligible else {
+            return .unavailable(reason: verification.reason ?? "not_eligible")
+        }
+        // iOS 18.4 and later pass the signed eligibility to StoreKit. Earlier
+        // systems cannot, so StoreKit decides by the Apple Account's own
+        // eligibility, and the trial shows only when both agree.
+        let jws = verification.introductoryOfferJWS
+        let canSign: Bool
+        if #available(iOS 18.4, macOS 15.4, *) { canSign = jws != nil } else { canSign = false }
+        if !canSign {
+            guard verification.legacyTrialAllowed, introductory.isEligibleOnDevice else {
+                return .unavailable(reason: "legacy_not_allowed")
+            }
+        }
+        return .available(BillingTrialGrant(
+            planID: offer.planID,
+            product: product,
+            introductoryOfferJWS: canSign ? jws : nil,
+            offer: introductory,
+            limits: offer.limits
+        ))
+    }
+
+    private func attestFailed(_ reason: String) -> BillingTrialState {
+        capture(.trialAttestFailed, ["reason": .string(reason)])
+        return .unavailable(reason: reason)
+    }
+
+    /// The staff Paywall Lab list: every live and retired variant.
+    /// - Returns: The variants.
+    /// - Throws: ``BillingAPIError``.
+    public func paywallVariants() async throws -> [BillingPaywallVariant] {
+        try await api.paywallVariants()
+    }
+
+    /// Loads ``previewOffers`` for the Paywall Lab: the account's offers when
+    /// it may buy, else StoreKit prices for the products the server lists.
+    public func loadPreviewOffers() async {
+        guard let account = account.account else { return }
+        if account.eligible, !offers.isEmpty {
+            previewOffers = offers
+            return
+        }
+        guard !account.products.isEmpty,
+              let products = try? await store.products(for: account.products.map(\.productID))
+        else { return }
+        let byID = Dictionary(products.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        previewOffers = account.products
+            .compactMap { reference in
+                byID[reference.productID].map {
+                    BillingOffer(planID: reference.planID, product: $0, billingPeriod: reference.billingPeriod)
+                }
+            }
+            .sorted { ($0.planID, $0.billingPeriod) < ($1.planID, $1.billingPeriod) }
+    }
+
+    /// Loads the StoreKit product of the account's trial offer, for the
+    /// Paywall Lab's trial preview. Nil when there is no offer or product.
+    public func trialPreviewProduct() async -> StoreProduct? {
+        guard let account = account.account else { return nil }
+        let productID = account.trial?.productID ?? "\(Self.productPrefix(account)).pro.trial.monthly"
+        return try? await store.products(for: [productID]).first
+    }
+
+    private static func productPrefix(_ account: BillingAccount) -> String {
+        guard let id = account.products.first?.productID, let dot = id.range(of: ".", options: .backwards) else { return "" }
+        let withoutPeriod = id[..<dot.lowerBound]
+        guard let planDot = withoutPeriod.range(of: ".", options: .backwards) else { return "" }
+        return String(withoutPeriod[..<planDot.lowerBound])
     }
 
     /// Buys an offer with the account's `appAccountToken`, sends the
@@ -111,13 +378,39 @@ public final class BillingModel {
     ///   - offer: The offer to buy.
     ///   - entryPoint: Where the plans screen was opened from.
     public func buy(_ offer: BillingOffer, entryPoint: BillingEntryPoint) async {
+        await buy(offer, context: paywallContext(entryPoint: entryPoint))
+    }
+
+    /// The product of the last purchase the App Store charged in this
+    /// session; kept when the result banner is dismissed.
+    private var lastChargedProductID: String?
+
+    /// Buys an offer from a paywall session; the purchase events carry the
+    /// session's experiment properties.
+    /// - Parameters:
+    ///   - offer: The offer to buy.
+    ///   - context: The paywall session.
+    ///   - trial: The granted free trial, when `offer` is its product; its
+    ///     signed eligibility goes to StoreKit.
+    /// - Returns: True when the App Store charged for `offer` (the server
+    ///   applied it or will), independent of the result banner's state.
+    @discardableResult
+    public func buy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant? = nil) async -> Bool {
+        lastChargedProductID = nil
+        await performBuy(offer, context: context, trial: trial)
+        return lastChargedProductID == offer.product.id
+    }
+
+    private func performBuy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant?) async {
+        let trial = trial?.productID == offer.product.id ? trial : nil
         guard !purchase.isPurchasing else { return }
-        let properties: [String: AnalyticsValue] = [
-            "entry_point": .string(entryPoint.rawValue),
-            "product_id": .string(offer.product.id),
-            "plan_id": .string(offer.planID.rawValue),
-            "billing_period": .string(offer.billingPeriod.rawValue),
-        ]
+        var properties = context.analyticsProperties
+        properties["product_id"] = .string(offer.product.id)
+        properties["plan_id"] = .string(offer.planID.rawValue)
+        properties["billing_period"] = .string(offer.billingPeriod.rawValue)
+        properties["trial"] = .bool(trial != nil)
+        purchaseContext = context
+        purchaseOffer = offer
         capture(.purchaseStarted, properties)
         guard let account = account.account else {
             fail(.invalidResponse, properties: properties)
@@ -130,7 +423,11 @@ public final class BillingModel {
         purchase = .purchasing(productID: offer.product.id)
         let result: StorePurchaseResult
         do {
-            result = try await store.purchase(productID: offer.product.id, appAccountToken: account.appAccountToken)
+            result = try await store.purchase(
+                productID: offer.product.id,
+                appAccountToken: account.appAccountToken,
+                introductoryOfferJWS: trial?.introductoryOfferJWS
+            )
         } catch StoreKitClientError.userCancelled {
             purchase = .idle
             capture(.purchaseCancelled, properties)
@@ -152,6 +449,7 @@ public final class BillingModel {
             switch await deliver(transaction) {
             case .accepted(let receipt):
                 purchase = .completed(receipt.planID)
+                lastChargedProductID = offer.product.id
                 capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
                 await loadAccount()
             case .rejected(let failure):
@@ -162,6 +460,7 @@ public final class BillingModel {
                 // server also learns of it from App Store Server
                 // Notifications, so this is not a failed purchase.
                 purchase = .awaitingServer(productID: offer.product.id)
+                lastChargedProductID = offer.product.id
                 capturePurchaseSucceeded(offer, transaction, delivery: "deferred")
             }
         }
@@ -234,8 +533,13 @@ public final class BillingModel {
     }
 
     /// Clears the result banner of the last purchase or restore.
+    /// A purchase waiting for Ask to Buy approval or for the server keeps
+    /// its phase, so its later success is still matched and reported.
     public func dismissResult() {
-        if !purchase.isPurchasing { purchase = .idle }
+        switch purchase {
+        case .completed, .failed: purchase = .idle
+        case .idle, .purchasing, .pending, .awaitingServer: break
+        }
         if restore != .restoring { restore = .idle }
     }
 
@@ -249,6 +553,11 @@ public final class BillingModel {
         lastProductsEvent = nil
         currentAppleProductID = nil
         currentAppleTransactionID = nil
+        purchaseContext = nil
+        purchaseOffer = nil
+        inFlightLoad = nil
+        trial = .none
+        previewOffers = []
         account = .idle
         offers = []
         offersFailure = nil
@@ -270,7 +579,8 @@ public final class BillingModel {
             return
         }
         if case .pending(let productID) = purchase, productID == transaction.productID,
-           let offer = offers.first(where: { $0.product.id == productID }) {
+           let offer = offers.first(where: { $0.product.id == productID })
+            ?? purchaseOffer.flatMap({ $0.product.id == productID ? $0 : nil }) {
             // An approved Ask to Buy purchase: the App Store charged now.
             // An awaitingServer purchase already reported its success.
             capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
@@ -311,6 +621,10 @@ public final class BillingModel {
             return
         }
         guard generation == accountGeneration else { return }
+        if loaded.trial?.offered != true || loaded.currentPlan.planID != .free {
+            // The offer ended or the account subscribed: no trial to show.
+            trial = .none
+        }
         account = .loaded(loaded)
         await loadOffers(for: loaded, generation: generation)
         await loadCurrentAppleProduct(for: loaded, generation: generation)
@@ -348,7 +662,10 @@ public final class BillingModel {
         }
         guard generation == accountGeneration else { return }
         let byID = Dictionary(products.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // The trial product is offered only through a granted trial.
+        let trialProductID = account.trial?.productID
         offers = account.products
+            .filter { $0.productID != trialProductID }
             .compactMap { reference in
                 byID[reference.productID].map {
                     BillingOffer(planID: reference.planID, product: $0, billingPeriod: reference.billingPeriod)
@@ -411,13 +728,14 @@ public final class BillingModel {
     }
 
     private func capturePurchaseSucceeded(_ offer: BillingOffer, _ transaction: StoreTransaction, delivery: String) {
-        var properties: [String: AnalyticsValue] = [
+        var properties = purchaseContext?.analyticsProperties ?? [:]
+        properties.merge([
             "product_id": .string(transaction.productID),
             "plan_id": .string(offer.planID.rawValue),
             "billing_period": .string(offer.billingPeriod.rawValue),
             "environment": .string(transaction.environment ?? "unknown"),
             "delivery": .string(delivery),
-        ]
+        ]) { _, new in new }
         if let price = offer.product.price {
             properties["price"] = .double(NSDecimalNumber(decimal: price).doubleValue)
         }
