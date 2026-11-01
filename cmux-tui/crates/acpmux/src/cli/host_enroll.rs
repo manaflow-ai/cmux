@@ -121,7 +121,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
             None => match step {
                 Step::Peer => host_peering::peer(&client, &t, fix, plan.lends_github).await,
                 Step::PeerBack if !plan.reverse => peer_back_off(),
-                Step::PeerBack => host_peering::peer_back(&t, fix).await,
+                Step::PeerBack => optional(host_peering::peer_back(&t, fix).await),
                 Step::Approvals => {
                     let io = host_peering::Live(Some(&*client));
                     crate::cli::host_approvals::approvals_with(&io, &t, fix).await
@@ -153,6 +153,15 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         return Err(error.into());
     }
     Ok(())
+}
+
+/// A step the machine works without (`peer-back`: only the host's way back
+/// to this machine): a failure is a warning, so it never fails the add.
+fn optional(mut result: StepResult) -> StepResult {
+    if result.state == StepState::Fail {
+        result.state = StepState::Warn;
+    }
+    result
 }
 
 /// `peer-back` without `--reverse`: two daemons that list each other relay
