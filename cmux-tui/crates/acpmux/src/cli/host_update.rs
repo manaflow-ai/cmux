@@ -306,7 +306,7 @@ fn local_target() -> Option<&'static str> {
     target_triple(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::BUILD`):
+/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::build()`):
 /// two builds of one commit on different days, or with local edits, are the
 /// same code to an update. `nogit` names no commit.
 fn build_commit(build: &str) -> Option<&str> {
@@ -661,7 +661,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             return up.end(Outcome::NeedsBinary, "wrongPlatform", why);
         }
         None => match crate::self_command::SelfCommand::current() {
-            Ok(own) => (own.exe, Some(crate::hub::BUILD.to_owned())),
+            Ok(own) => (own.exe, Some(crate::hub::build().to_owned())),
             Err(e) => return up.end(Outcome::Failed, "noBinary", e.to_string()),
         },
     };

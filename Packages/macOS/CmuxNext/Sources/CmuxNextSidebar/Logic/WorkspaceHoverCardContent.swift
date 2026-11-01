@@ -119,8 +119,11 @@ struct WorkspaceHoverCardContent: Equatable {
             card.activitySince = nil
             for index in card.facts.indices { card.facts[index].since = nil }
         }
+        // The History lists what was asked and what happened, never acpmux's inbox notices
+        // ("[inbox] New messages from other agents…"); the stats still count their work.
         let shown = timeline.filter { entry in
-            switch entry.kind {
+            if entry.isNotice { return false }
+            return switch entry.kind {
             case .prompt, .started: options.showsPrompts
             case .waiting, .finished, .failed: options.showsWaiting
             }
@@ -217,6 +220,9 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
         }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
+        // What its agents run below their turns now: how many subagents and commands, and which
+        // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
+        facts += WorkspaceHoverCardWork.facts(detail)
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }

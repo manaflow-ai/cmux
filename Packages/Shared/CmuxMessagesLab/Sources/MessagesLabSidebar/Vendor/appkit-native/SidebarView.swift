@@ -112,12 +112,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
     private let cache = SidebarBitmapCache()
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
+    var avatarMotion = SidebarAvatarMotion() // cmux: a Chief's avatar loop (the host's gate and style)
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
     private var windowActive = true
     private var pending: Set<SidebarBitmapKey> = []
-    private var rowLayers: [Int: SidebarRowLayer] = [:]
+    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (Cmux/SidebarAvatarMotion.swift)
     private var pool: [SidebarRowLayer] = []
     // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
     private(set) var tileLayers: [SidebarRowLayer] = []
@@ -973,6 +974,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.conversationID = nil
         l.setAffineTransform(.identity)
         l.removeAnimation(forKey: "move"); l.removeAnimation(forKey: "appear")
+        SidebarAvatarMotion.stop(l) // cmux: a pooled avatar never loops
         l.shownKey = nil
         l.shownLayout = nil
         l.shownText = nil
@@ -1014,6 +1016,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: ah, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
         let d = SidebarMetrics.dotDiameter
         l.dot.isHidden = !c.unread
         l.dot.frame = CGRect(x: metrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
@@ -1186,6 +1189,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
         configureSenders(l, c, avatar: ar)
         l.dot.isHidden = !c.unread
         l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
@@ -1629,6 +1633,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func scaleChanged() { avatars.removeAll(); invalidateAll() }
     func setWindowActive(_ active: Bool) {
         requestedWindowActive = active // cmux
+        if avatarMotion.windowKey != active { avatarMotion.windowKey = active; refreshAvatarMotion() } // cmux: avatars move only in the key window
         let active = active || neutralSelection // cmux: neutral selection looks the same in every window state
         guard active != windowActive else { return }
         windowActive = active
@@ -1742,6 +1747,8 @@ final class SidebarRowLayer: CALayer {
     var senders: [CALayer] = []
     /// The conversation this layer shows (nil: in the pool).
     var conversationID: ConversationID?
+    /// cmux: what the avatar was asked to show and the loop on it (``SidebarAvatarMotion``).
+    var avatarMotion: SidebarAvatarMotion.Shown?
     var shownKey: SidebarBitmapKey?
     /// The line breaks and truncation of the text bitmap on screen (nil: not known, e.g. from the cache).
     var shownLayout: SidebarDraw.RowTextLayout?

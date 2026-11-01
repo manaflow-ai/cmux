@@ -254,6 +254,8 @@ final class AgentTabStore {
     /// Session `session` on chat tab `chat`'s right as a link opens (``LinkOpener``, `layout.linkPlacement`):
     /// a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String) -> Bool)?
+    /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
+    var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
     /// Cloud destinations exposed to a started chat's title menu. The page receives only the
     /// current live list; it never invents or persists machine ids.
@@ -427,15 +429,9 @@ final class AgentTabStore {
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
         model.onCloudRepositoryLocal = cloudRepositoryLocal
-        // A tab listed by a Cloud peer can still attach its ACP page through this Mac's local
-        // transport (the record names this Mac), while repository actions belong to that peer's
-        // daemon. Reuse the authenticated attach host for those actions instead of treating the
-        // local page transport as the repository principal.
-        let repositoryHost = (paneHost as? AgentTabRemoteHost)
-            ?? (daemonForTab(key)?.isLocal == false ? remoteHost(key) as? AgentTabRemoteHost : nil)
-        if let repositoryHost {
+        if let remoteHost = paneHost as? AgentTabRemoteHost {
             model.onCloudRepositoryRemote = { method, params, timeout in
-                try await repositoryHost.cloudRepository(method: method, params: params, timeout: timeout)
+                try await remoteHost.cloudRepository(method: method, params: params, timeout: timeout)
             }
         }
         wire(model, key: key)

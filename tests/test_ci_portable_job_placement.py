@@ -68,16 +68,23 @@ class Decide(unittest.TestCase):
         self.assertEqual(result.linux_jobs, ("control", "signer-build"))
         self.assertEqual(result.mini_jobs, ())
 
-    def test_early_nightly_unread_capacity_keeps_portable_controls_on_fleet(self):
+    def test_early_nightly_unknown_capacity_uses_blacksmith_overflow(self):
         config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
-                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
         for runners, snap in ((None, None), (idle(2), None),
                               (idle(2), snapshot(age_minutes=120))):
             with self.subTest(runners=runners, snapshot=snap):
                 placed = placement.decide(config, runners, snap, NOW)
-                self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("control",)))
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
                 self.assertEqual(placed.linux_jobs, ())
-                self.assertIn("capacity unknown", placed.why)
+                self.assertIn("Blacksmith", placed.why)
+
+    def test_offline_runner_without_snapshot_does_not_queue_all_owned_jobs(self):
+        config = env(JOBS="prepare-one prepare-two prepare-three prepare-four", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, idle(4), None, NOW)
+        self.assertEqual(placed.mini_jobs, ())
+        self.assertEqual(placed.mini_runner, "")
+        self.assertIn("Blacksmith", placed.why)
 
     def test_live_only_nightly_picker_waits_without_emitting_an_unverified_pool(self):
         config = env(JOBS="pick-nightly-build-runner", NIGHTLY="1",

@@ -479,7 +479,7 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
   expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
 });
 
-test("the + menu lists no skill: its one Skills… row opens the slash list with the draft", async () => {
+test("the + menu lists no skill: its one Commands and skills… row opens the slash list with the draft", async () => {
   const commands = Array.from({ length: 30 }, (_, index) => ({
     name: `skill${index}`,
     description: `Skill ${index}`,
@@ -492,8 +492,43 @@ test("the + menu lists no skill: its one Skills… row opens the slash list with
   expect(rows.some((row) => row.dataset.value?.startsWith("add.skill."))).toBe(false);
   expect(rows.some((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toBe(false);
   const skills = rows.filter((row) => row.dataset.value === "add.commands");
-  expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Skills…"]);
+  expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Commands and skills…"]);
   await act(async () => skills[0]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   expect(field().textContent).toBe("/");
   expect(host.querySelector("#acpmux-slash-menu, .acpmux-slash-menu")).toBeTruthy();
+});
+
+test("the + menu lists at most three recent commands, then Commands and skills…; a recent row writes its command", async () => {
+  // Leo, 2026-11-01: "our + button results are still really bad" (every skill was a + row).
+  const commands = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  localStorage.setItem(
+    "cmux.acpmux.recentSlashCommands",
+    JSON.stringify(["skill3", "not-advertised", "skill1", "skill9", "skill4"]),
+  );
+  try {
+    await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    const group = [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
+      section.querySelector('[data-value="add.commands"]'),
+    )!;
+    const labels = [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+    );
+    expect(labels).toEqual(["/skill3", "/skill1", "/skill9", "Commands and skills…"]);
+    const every = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+    expect(every.filter((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toHaveLength(
+      3,
+    );
+    const recent = group.querySelector<HTMLElement>('[data-value="commands.recent.skill9"]')!;
+    await act(async () => recent.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    expect(field().textContent?.trim()).toBe("/skill9");
+    expect(JSON.parse(localStorage.getItem("cmux.acpmux.recentSlashCommands")!)[0]).toBe("skill9");
+  } finally {
+    localStorage.removeItem("cmux.acpmux.recentSlashCommands");
+  }
 });

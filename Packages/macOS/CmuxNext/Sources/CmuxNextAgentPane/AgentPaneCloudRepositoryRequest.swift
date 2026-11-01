@@ -30,7 +30,7 @@ public struct AgentPaneCloudRepositoryLocalRequest: DaemonRequest {
 }
 
 /// The Cloud repository actions are daemon-owned. The page host only validates the action shape
-/// and forwards it to the pane's authenticated acpmux socket; it never handles repository data.
+/// and forwards it over the pane's authenticated cmux-tui daemon frame; it never handles repository data.
 public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
     public static let methods: Set<String> = [
         "cloud.repo.local", "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
