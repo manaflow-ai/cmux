@@ -310,6 +310,10 @@ struct WorkspaceCloseSlowDaemonTests {
             let controller = try #require(services.windows.active)
             let ids = try await Self.make(5, prefix: "hung-others", services, in: controller)
             let kept = try #require(ids.first), others = Array(ids.dropFirst())
+            // Each with its tab in the store, so the plan sends them all in one bulk request (a workspace with no tab yet
+            // closes alone, BulkClosePlan): one request, one failure at the bound.
+            @MainActor func hasTab(_ id: String) -> Bool { services.workspace(id: id)?.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } } == true }
+            try await PinnedPageTests.until({ others.allSatisfy(hasTab) }, within: .seconds(30), report: { "a workspace has no tab yet" })
             let ended = Ended()
             var listed: [String] = []
             var waiter: Task<Void, Never>?
