@@ -3,8 +3,6 @@ public import Foundation
 /// Fixed owner reads and rewind requests for a workspace's new-platform machine.
 /// The native app supplies the token; it never becomes part of a control-socket response.
 public struct CloudTurnRewindClient: Sendable {
-    /// Development serves the new workspace-machine API; the origin is never guest supplied.
-    public static let developmentOrigin = CloudConfiguration.turnAPIBaseURL
     private let origin: URL
     private let token: @Sendable () async throws -> String
     private let transport: URLSession

@@ -573,8 +573,8 @@ extension AgentTabStore {
     /// Resolves the pane's current machine and workspace on every send. Neither value is supplied
     /// by the webview or the guest's prepared-turn reply; the platform verifies their binding.
     static func turnForwarder(tab key: String, services: AppServices) -> RemoteAcpmuxWire.CloudTurn {
-        let identity = services.cloud.installIdentity, auth = services.cloud.auth
-        let owner = CloudTurnOwnerClient(baseURL: CloudConfiguration.turnAPIBaseURL) {
+        let identity = services.cloud.installIdentity, auth = services.cloud.auth, origin = services.cloud.configuration.turnAPIBaseURL()
+        let owner = CloudTurnOwnerClient(baseURL: origin) {
             try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
         }
         return .init(state: { [weak services] session, prompt in
@@ -592,7 +592,7 @@ extension AgentTabStore {
             guard let account = await services?.cloud.workspaceBindingScope else { throw CloudTurnOwnerClient.Failure.scope }
             let state = try await owner.authorizePreparation(workspace: workspace, machine: machine, session: session, prompt: prompt)
             let generation = try JSONDecoder().decode(CloudTurnOwnerClient.Scope.self, from: state).generation
-            let connection = CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) {
+            let connection = CloudTurnRewindClient(origin: origin) {
                 try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
             }
             let target = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: await connection.connection(workspace: workspace)).checked(machine: machine)

@@ -128,9 +128,22 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
-    /// The new platform deployment serving the workspace-machine and turn execution APIs.
-    /// A guest cannot replace this origin or direct the owner's bearer to its own URL.
-    public static let turnAPIBaseURL = URL(string: "https://cmux-platform-development.debussy.workers.dev") ?? inertURL
+    /// Keep turn ownership in the same Cloud environment as this app's install identity.
+    /// Only known owner deployments map to a platform; an unknown debug endpoint never gets a bearer.
+    public func turnAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        guard linkSource == .appServer else { return Self.inertURL }
+        if isProductionAuth {
+            return URL(string: "https://cmux-platform-production.debussy.workers.dev") ?? Self.inertURL
+        }
+        switch ownerAPIBaseURL(environment: environment).absoluteString {
+        case "https://cmux-api-development.debussy.workers.dev", "https://cmux-api-development.debussy.workers.dev/":
+            return URL(string: "https://cmux-platform-development.debussy.workers.dev") ?? Self.inertURL
+        case "https://cloud-api-staging.cmux.dev", "https://cloud-api-staging.cmux.dev/",
+             "https://cmux-api-staging.debussy.workers.dev", "https://cmux-api-staging.debussy.workers.dev/":
+            return URL(string: "https://cmux-platform-staging.debussy.workers.dev") ?? Self.inertURL
+        default: return Self.inertURL
+        }
+    }
 
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]

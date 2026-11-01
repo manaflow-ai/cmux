@@ -526,11 +526,11 @@ final class CloudService {
 
     var workspaceBindingScope: CloudWorkspaceBindings.Scope? {
         guard configuration.linkSource == .appServer, isSignedIn, let user = auth.user?.id else { return nil }
-        return .init(user: user, team: auth.teamID, origin: CloudConfiguration.turnAPIBaseURL.absoluteString)
+        return .init(user: user, team: auth.teamID, origin: configuration.turnAPIBaseURL().absoluteString)
     }
 
     private var workspaceOwner: CloudTurnRewindClient {
-        CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) { [installIdentity, auth] in
+        CloudTurnRewindClient(origin: configuration.turnAPIBaseURL()) { [installIdentity, auth] in
             try await installIdentity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
         }
     }
