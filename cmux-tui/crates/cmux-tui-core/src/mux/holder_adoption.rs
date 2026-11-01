@@ -6,6 +6,14 @@
 //! holder is asked first: if it still runs the terminal id, the row moves to
 //! adopting, a surface re-attaches from the holder's ring and the usual
 //! adoption commit places it; otherwise the terminal ended as before.
+//!
+//! A new owner never ends a shell the holder still runs (QUIT P0, 2026-11-01:
+//! a version handoff at the app's reopen lost the person's terminals). A row
+//! a previous owner left `adopting` (it stopped mid-adoption) re-attaches like
+//! a running one. A re-attach that fails keeps the row and the holder keeps
+//! the shell: the next start tries again. After the pass the holder ends only
+//! terminals whose row ended (exited or tombstoned: the shell exited, or the
+//! person closed the tab); a terminal the registry has no row for stays held.
 
 use super::*;
 
@@ -18,6 +26,8 @@ impl Mux {
         terminal: &RegistryTerminal,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
+        // Asked before the re-attach, which takes the holder's entry.
+        let held = self.holder_lists(terminal, options);
         match self.adopt_from_holder(terminal, options) {
             Ok(true) => return Ok(()),
             Ok(false) => {}
@@ -26,6 +36,15 @@ impl Mux {
                     "cmux-tui: re-attach terminal {} from the holder: {error:#}",
                     terminal.terminal_id
                 );
+                // The holder still runs this shell: keep the row and the shell
+                // for the next start, never end it here.
+                if held {
+                    eprintln!(
+                        "cmux-tui: keep holder terminal {} for the next start",
+                        terminal.terminal_id
+                    );
+                    return Ok(());
+                }
             }
         }
         self.mark_terminal_ended(
@@ -41,17 +60,47 @@ impl Mux {
         Ok(false)
     }
 
+    #[cfg(not(unix))]
+    fn holder_lists(&self, _: &RegistryTerminal, _: &SurfaceOptions) -> bool {
+        false
+    }
+
+    /// Whether the holder still runs `terminal` (it listed it when this owner
+    /// first reached it). An unreachable holder lists nothing.
+    #[cfg(unix)]
+    fn holder_lists(&self, terminal: &RegistryTerminal, options: &SurfaceOptions) -> bool {
+        let (Some(host_root), Some(id)) =
+            (options.terminal_host_root.as_deref(), TerminalId::from_hex(&terminal.terminal_id))
+        else {
+            return false;
+        };
+        crate::holder_runtime::HolderService::may_run(host_root)
+            && crate::holder_runtime::HolderService::for_root(host_root)
+                .is_ok_and(|service| service.lists(id.as_bytes()))
+    }
+
     /// After the startup pass re-attached every terminal it could: end the
-    /// holder's other terminals, which no surface will ever claim. Starts
-    /// no holder.
+    /// holder's terminals whose row ended (the shell exited, or the person
+    /// closed the tab: exited or tombstoned), which no surface will ever
+    /// claim. Every other unclaimed terminal stays held: a running or
+    /// adopting row the pass could not re-attach, or a terminal the
+    /// registry has no row for, is never ended by a start. Starts no holder.
     #[cfg(unix)]
     pub(in crate::mux) fn release_unclaimed_holder_terminals(&self, options: &SurfaceOptions) {
         let Some(host_root) = options.terminal_host_root.as_deref() else { return };
         if !crate::holder_runtime::HolderService::may_run(host_root) {
             return;
         }
+        let ended = |id: &[u8; 16]| -> bool {
+            let terminal_id = TerminalId::from_bytes(*id).to_hex();
+            // No row, or an unreadable one, keeps the shell (the safe side).
+            let row = self.workspace_registry.lock().unwrap().terminal_record(&terminal_id);
+            row.ok().flatten().is_some_and(|row| {
+                matches!(row.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
+            })
+        };
         match crate::holder_runtime::HolderService::for_root(host_root) {
-            Ok(service) => service.release_unclaimed(),
+            Ok(service) => service.release_unclaimed(ended),
             Err(error) => eprintln!("cmux-tui: reach the terminal holder: {error}"),
         }
     }
@@ -73,7 +122,9 @@ impl Mux {
         let Some(id) = TerminalId::from_hex(&terminal.terminal_id) else {
             return Ok(false);
         };
-        if terminal.lifecycle != TerminalLifecycle::Running
+        // A row a previous owner left adopting (it stopped mid-adoption)
+        // re-attaches like a running one.
+        if !matches!(terminal.lifecycle, TerminalLifecycle::Running | TerminalLifecycle::Adopting)
             || !crate::holder_runtime::HolderService::may_run(&host_root)
             || !crate::holder_runtime::HolderService::for_root(&host_root)?.lists(id.as_bytes())
         {
