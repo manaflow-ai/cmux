@@ -48,6 +48,11 @@ fn create(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), n
     if ephemeral {
         params["ephemeral"] = json!(true);
     }
+    create_with(mux, client, params)
+}
+
+fn create_with(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), params: Value) -> String {
+    let name = params["name"].as_str().unwrap_or("workspace").to_string();
     let response = send(mux, client, &format!("create-{name}"), "workspace.create", params);
     response["result"]["value"]["workspace_id"]
         .as_str()
@@ -117,6 +122,61 @@ fn incognito_workspaces_stay_while_their_app_lives_or_reconnects() {
     assert!(disconnect_client(&mux, first.0, false));
     let again = app(&mux, "token:4201.1");
     assert!(listed(&mux, &again, "same-process").contains(&private));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A tab moved out of an incognito workspace makes another incognito
+/// workspace (`state::ephemeral_moves`); a crash closes it too.
+#[test]
+fn a_workspace_a_crashed_app_moved_incognito_tabs_into_closes_too() {
+    let (mux, root) = persistent("moved");
+    let crashed = app(&mux, "token:4301.1");
+    let mut params = json!({"name": "private", "initial_content": "terminal", "ephemeral": true});
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let private = create_with(&mux, &crashed, params);
+    let first = mux
+        .with_state(|state| {
+            state.surfaces.keys().copied().find(|surface| {
+                state.pane_of(*surface).and_then(|pane| state.screen_of(pane)).is_some_and(
+                    |(index, _)| state.workspaces[index].public_id.to_string() == private,
+                )
+            })
+        })
+        .expect("the private workspace has a tab");
+    let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+    mux.new_tab(Some(pane), None, None).unwrap();
+    let moved = handle_command(
+        &mux,
+        crashed.0,
+        Command::MoveTabToNewWorkspace {
+            surface: first,
+            group: None,
+            index: None,
+            name: None,
+            transaction: None,
+        },
+        &crashed.1,
+    )
+    .unwrap();
+    let moved_to = mux.with_state(|state| {
+        let pane = state.pane_of(first).unwrap();
+        let (workspace, _) = state.screen_of(pane).unwrap();
+        state.workspaces[workspace].public_id.to_string()
+    });
+    assert_ne!(moved_to, private, "{moved}");
+    assert!(listed(&mux, &crashed, "before-crash").contains(&moved_to));
+    assert!(disconnect_client(&mux, crashed.0, false));
+    let relaunched = app(&mux, "token:4302.1");
+    let after = listed(&mux, &relaunched, "after-crash");
+    for workspace in [&private, &moved_to] {
+        assert!(
+            !after.contains(workspace),
+            "every incognito workspace of a crashed app must close: {workspace} in {after:?}"
+        );
+    }
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
