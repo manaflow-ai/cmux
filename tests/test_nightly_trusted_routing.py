@@ -587,6 +587,14 @@ class PickerReRun(unittest.TestCase):
         for step in uploads:
             self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
 
+    def test_the_daemon_s_upload_overwrites(self):
+        # It builds beside the app, so a picker re-run that rescues a stuck app build re-runs it after it succeeded.
+        steps = DOC['jobs']['build-nightly-remote-daemon']['steps']
+        uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
+        self.assertTrue(uploads)
+        for step in uploads:
+            self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
     def test_the_picker_s_own_marker_upload_overwrites(self):
         steps = DOC['jobs']['pick-nightly-build-runner']['steps']
         for step in steps:

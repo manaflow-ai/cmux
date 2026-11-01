@@ -3089,6 +3089,8 @@ jobs:
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 14
+          # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
+          overwrite: true
 
   attest-nightly-remote-daemon:
     # Provenance is advisory, as it was inside the app job. No publishing job
