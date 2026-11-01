@@ -451,7 +451,8 @@ class RealKeySteps(unittest.TestCase):
 
     def test_real_click_is_a_foreground_modified_click_at_the_panes_center_with_host_times(self):
         j = self.journey("real")
-        j.app.rpc = lambda method, params=None: {"windows": [{"panes": [
+        layers = {"windows": [{"frame": [100, 50, 940, 720], "screen_frame": [0, 0, 1920, 1080]}]}
+        j.app.rpc = lambda method, params=None: layers if method == "debug.layers" else {"windows": [{"panes": [
             {"pane": "P1", "focused": False, "grid": {"frame_x": 0, "frame_y": 0, "frame_width": 100, "frame_height": 100}},
             {"pane": "P2", "focused": True, "grid": {"frame_x": 200, "frame_y": 40, "frame_width": 300, "frame_height": 200}}]}]}
         calls = []
@@ -465,8 +466,8 @@ class RealKeySteps(unittest.TestCase):
         self.session.call = call
         done = self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"], "mark": "click"})
         clicks = [a for t, a in calls if t == "click"]
-        self.assertEqual(clicks, [{"pid": 7, "window_id": 9, "x": 700, "y": 280, "delivery_mode": "foreground",
-                                   "modifier": ["cmd"]}])
+        # window top = 1080 - (50 + 720) = 310; screen point (100 + 350, 310 + 140) points, 2x pixels
+        self.assertEqual(clicks, [{"scope": "desktop", "x": 900, "y": 900, "modifier": ["cmd"]}])
         self.assertEqual((done["pane"], done["point"]), ("P2", [350.0, 140.0]))
         self.assertLessEqual(done["clicked_at"], done["returned_at"])
         self.assertIn("click", j.marks)

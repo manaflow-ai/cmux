@@ -308,18 +308,30 @@ def _pane_center(j, pane):
     grid frame, the frame the journeys' window snapshots use)."""
     rows = [p for w in (j.app.rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
             if isinstance(p, dict)]
-    row = next((p for p in rows if (p.get("focused") if pane == "focused" else p.get("pane") == pane)), None)
+    pick = {"focused": lambda p: p.get("focused"), "unfocused": lambda p: not p.get("focused")}.get(
+        pane, lambda p: p.get("pane") == pane)
+    row = next((p for p in rows if pick(p) and (p.get("grid") or {}).get("frame_width")), None)
     grid = (row or {}).get("grid") or {}
     if not all(k in grid for k in ("frame_x", "frame_y", "frame_width", "frame_height")):
         raise D.StepError(f"real_click: no frame for pane {pane!r} in debug.surfaces")
     return (grid["frame_x"] + grid["frame_width"] / 2, grid["frame_y"] + grid["frame_height"] / 2), row.get("pane")
 
 
+def _layers_window(j):
+    """{frame, screen} of the app's first main window (debug.layers; bottom-left screen points), or None."""
+    report = j.app.rpc("debug.layers") or {}
+    for w in report.get("windows") or []:
+        if isinstance(w, dict) and w.get("frame") and w.get("screen_frame"):
+            return {"frame": w["frame"], "screen": w["screen_frame"]}
+    return None
+
+
 def step_real_click(j, step):
-    """A REAL click through CuaDriver (`click`, delivery_mode foreground: the window is fronted so macOS sees the
-    modifier keys as physically held, then the prior front app is restored) with MODIFIERS held (e.g. ["cmd"]: a
-    plain Cmd-click, Cmd pressed only around the click). Where: `window_point` [x, y] in the app's main window points
-    from its top-left, or `pane` ("focused" or a pane id): that pane's center. Records the host time just before and
+    """A REAL click through CuaDriver (`click` at desktop scope: true screen pixels to the frontmost app, as a mouse;
+    the app must be in front) with MODIFIERS (e.g. ["cmd"]: a plain Cmd-click, Cmd only around the click). Where: `window_point` [x, y] in the app's main window points
+    from its top-left, or `pane` ("focused", "unfocused" = the first pane that is not focused, or a pane id): that
+    pane's center. Records the focused pane SETTLE s (default 0.5) after the click (a plain click moves the focus:
+    the proof the click arrived). Records the host time just before and
     just after the click (D.now()), the point, the pixels sent and CuaDriver's answer. Needs a whole-host lease.
     Not a hold: CuaDriver has no separate key-down/key-up call (STATUS 3105)."""
     require_front(j)
@@ -329,10 +341,20 @@ def step_real_click(j, step):
         point, pane = _pane_center(j, step.get("pane", "focused"))
     bad, size, raw = _session(j).call("get_screen_size", {})
     scale = float((size or {}).get("scale_factor") or 1.0)
-    wid = _main_window(j)
+    # A window-targeted click needs a window capture (Screen Recording for CuaDriver's window path, which the minis
+    # refuse: cmux17 2026-11-01). The desktop scope clicks at true screen pixels, as a mouse does, to the frontmost
+    # app (require_front above): the window point is placed by the window's frame (debug.layers, bottom-left).
+    win = _layers_window(j)
+    if not win:
+        raise D.NotRun("real_click: debug.layers has no main window frame")
+    wx, wy, ww, wh = win["frame"]
+    sx, sy, sw, sh = win["screen"]
+    top = (sy + sh) - (wy + wh)
+    screen_point = (wx + point[0], top + point[1])
     mods = [MODIFIERS.get(m, m) for m in step.get("modifiers", [])]
-    args = {"pid": j.app.pid, "window_id": wid, "x": round(point[0] * scale), "y": round(point[1] * scale),
-            "delivery_mode": "foreground", **({"modifier": mods} if mods else {})}
+    wid = None
+    args = {"scope": "desktop", "x": round(screen_point[0] * scale), "y": round(screen_point[1] * scale),
+            **({"modifier": mods} if mods else {})}
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
     before = D.now()
@@ -340,8 +362,11 @@ def step_real_click(j, step):
     after = D.now()
     if bad or data.get("effect") in ("refused", "failed", "error"):
         raise D.NotRun(f"real_click: CuaDriver did not click: {json.dumps(raw)[:400]}")
-    return {"key_path": "real_hid", "point": list(point), "pane": pane, "pixels": [args["x"], args["y"]],
-            "scale": scale, "modifiers": mods, "window_id": wid, "clicked_at": round(before, 4),
+    time.sleep(float(step.get("settle", 0.5)))
+    focused_after = next((p.get("pane") for w in (j.app.rpc("debug.surfaces") or {}).get("windows", [])
+                          for p in w.get("panes", []) if isinstance(p, dict) and p.get("focused")), None)
+    return {"focused_pane_after": focused_after, "key_path": "real_hid", "point": list(point), "screen_point": list(screen_point), "pane": pane,
+            "pixels": [args["x"], args["y"]], "scale": scale, "modifiers": mods, "scope": "desktop", "clicked_at": round(before, 4),
             "returned_at": round(after, 4), "click_s": round(after - before, 4), "cua_effect": data.get("effect"),
             "front_pid_after": front_pid()}
 

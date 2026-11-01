@@ -137,8 +137,8 @@
     },
     {
       "do": "real_click",
-      "pane": "focused",
-      "title": "a real plain click in the focused pane"
+      "pane": "unfocused",
+      "title": "a real plain click in the pane that is not focused (the focus must move there: the click arrived)"
     }
   ],
   "finally": [
