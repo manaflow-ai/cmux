@@ -165,6 +165,15 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
   else button.removeAttribute("title");
 }
 
+/// Bridge failures whose request may already have reached acpmux (it answered late, or the socket
+/// closed after sending); every other rejection (`native.not_connected`, a typed refusal) means
+/// the edit was not applied.
+const UNCERTAIN_CODES = new Set(["native.timed_out", "transport.closed", "transport.stale_connection"]);
+const mayHaveReachedAcpmux = (error: unknown) => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCERTAIN_CODES.has(code);
+};
+
 export function ComposerQueue({
   queue,
   chat,
@@ -211,6 +220,15 @@ export function ComposerQueue({
   const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
+  // The open edit as the latest render saw it, for a call that settles later.
+  const editingNow = useRef<string | undefined>(undefined);
+  editingNow.current = editing;
+  // Each row's latest Save: an older one that settles after a newer one began must not reopen its
+  // superseded text (the newer save's editor, or its result, is the one that counts).
+  const saveGeneration = useRef(new Map<string, number>());
+  // Typed text of Saves that failed before acpmux had them while another editor was open (or a
+  // sibling's recovery was just claimed): each waits, per row, for the editor to be free again.
+  const recovered = useRef(new Map<string, { text: string; original: string; generation: number }>());
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -387,6 +405,24 @@ export function ComposerQueue({
   };
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
+  // Reopens the next waiting recovery once the editor is free; a row that is gone by then hands its
+  // text back to the composer, and one saved again since is dropped (its newer save counts).
+  const reopenRecovered = () => {
+    for (const [id, waiting] of recovered.current) {
+      recovered.current.delete(id);
+      const row = drawnRows.current.find((entry) => entry.id === id && entry.author === undefined);
+      if (!row) onLost?.(waiting.text, id);
+      else if (saveGeneration.current.get(id) === waiting.generation) {
+        editingNow.current = id;
+        draft.current = { id, original: waiting.original, text: waiting.text };
+        setEditing(id);
+        return;
+      }
+    }
+  };
+  // The layout effect below runs on queue changes only, and calls the latest closure.
+  const reopenRecoveredRef = useRef(reopenRecovered);
+  reopenRecoveredRef.current = reopenRecovered;
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
@@ -425,6 +461,8 @@ export function ComposerQueue({
       draft.current = undefined;
       setDropped(new Set());
       setEditingId(undefined);
+      editingNow.current = undefined;
+      reopenRecoveredRef.current();
     }
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
@@ -628,16 +666,20 @@ export function ComposerQueue({
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
-      void onChange(entry.id, { op: "move", index: to }).finally(() =>
-        setTimeout(() => {
-          if (refocus.current === entry.id) refocus.current = undefined;
-        }, 500),
-      );
+      void onChange(entry.id, { op: "move", index: to })
+        .finally(() =>
+          setTimeout(() => {
+            if (refocus.current === entry.id) refocus.current = undefined;
+          }, 500),
+        )
+        .catch(() => undefined);
     });
   // The open edit ends unsaved, its images all kept; focus goes back to its row.
   const cancel = (index: number) => {
     draft.current = undefined;
     setEditing(undefined);
+    editingNow.current = undefined;
+    reopenRecovered();
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
@@ -646,6 +688,10 @@ export function ComposerQueue({
     const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
     setEditing(undefined);
+    editingNow.current = undefined;
+    // A save of this row supersedes any text of its own that waited; the others get the editor next.
+    recovered.current.delete(entry.id);
+    reopenRecovered();
     focusRow(shown.indexOf(entry));
     const next = text.trim();
     // Text alone keeps every image; an image removed sends the ones left.
@@ -654,9 +700,32 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    void onChange(entry.id, edit).then((ok) => {
-      if (!ok) onLost?.(next, entry.id);
-    });
+    const generation = (saveGeneration.current.get(entry.id) ?? 0) + 1;
+    saveGeneration.current.set(entry.id, generation);
+    const latest = () => saveGeneration.current.get(entry.id) === generation;
+    // A refused edit (acpmux answered no: the prompt already started) hands the typed text back to
+    // the composer. A call that failed before acpmux could have it (not connected, a typed
+    // refusal) leaves the row queued, so the text goes back into the row's editor: restoring it to
+    // the composer too would show the prompt twice. If the row is gone by the time the queue next
+    // draws, the open editor hands the text back then. A timeout or a closed bridge may have
+    // reached acpmux already: the next snapshot says, and restoring could duplicate it.
+    void onChange(entry.id, edit).then(
+      (ok) => {
+        if (!ok) onLost?.(next, entry.id);
+      },
+      (error: unknown) => {
+        if (mayHaveReachedAcpmux(error) || !latest()) return;
+        // Another edit is open (or a sibling's recovery just claimed the editor in this batch): its
+        // draft is not ours to drop, so this text waits its turn and the row stays queued meanwhile.
+        if (editingNow.current !== undefined) {
+          recovered.current.set(entry.id, { text: next, original: entry.prompt, generation });
+          return;
+        }
+        editingNow.current = entry.id;
+        draft.current = { id: entry.id, original: entry.prompt, text: next };
+        setEditing(entry.id);
+      },
+    );
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
@@ -835,6 +904,7 @@ export function ComposerQueue({
         <QueuedEdit
           entry={entry}
           label={t("composer.queueEdit")}
+          initial={draft.current?.id === entry.id ? draft.current.text : undefined}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
@@ -948,7 +1018,7 @@ export function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                onClick={() => void onChange(queue[0].id, { op: "resume" })}
+                onClick={() => void onChange(queue[0].id, { op: "resume" }).catch(() => undefined)}
               >
                 {t("composer.queueResume")}
               </button>
@@ -999,11 +1069,14 @@ export function ComposerQueue({
 function QueuedEdit({
   entry,
   label,
+  initial,
   onInput,
   onDone,
 }: {
   entry: QueuedEntry;
   label: string;
+  /// The text the editor opens with when it comes back after a failed save; the row's own otherwise.
+  initial?: string;
   onInput(text: string): void;
   /// The new text, or undefined when cancelled.
   onDone(text: string | undefined): void;
@@ -1033,7 +1106,7 @@ function QueuedEdit({
       className="acpmux-queued-edit"
       aria-label={label}
       rows={1}
-      defaultValue={entry.prompt}
+      defaultValue={initial ?? entry.prompt}
       onInput={(event) => {
         fit();
         onInput(event.currentTarget.value);

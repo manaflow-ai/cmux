@@ -14,8 +14,10 @@ import CmuxNextWakeups
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
     /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
-    /// ``PageOpenPanel``), which only fills a source record (``stashSource(_:items:claimed:kind:)``):
-    /// the page already has those files' bytes, so `chat.attach.dropped` never asks for it.
+    /// ``PageOpenPanel``): a chat on this Mac links the picked files where they are, as it does a
+    /// Finder drop, instead of streaming a copy of each (a several-GB video took minutes and failed
+    /// once the pick outlived the gesture's lifetime; Leo, 2026-10-31: "video attachments (big
+    /// attachments?) still sucks").
     public nonisolated enum Kind: String, Sendable {
         case drop, paste, choose
     }
@@ -62,14 +64,10 @@ public final class AgentPaneDroppedPaths {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
-        var budget = AgentPaneUpload.maximumTotalBytes
+        // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
-            var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil
-            if let pinned = snapshot {
-                if pinned.size > budget { snapshot = nil } else { budget -= pinned.size }
-            }
-            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: snapshot)
+            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil)
         }
         let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
         held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)

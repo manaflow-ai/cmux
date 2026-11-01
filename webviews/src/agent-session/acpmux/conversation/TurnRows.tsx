@@ -21,6 +21,7 @@ import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
@@ -315,6 +316,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
+  // a turn of tool calls alone draws no Copy and no Read aloud.
+  const turnCopy = row.turnCopy;
+  const copy = useMemo(() => (turnCopy ? turnCopyText(t, turnCopy) : text), [t, turnCopy, text]);
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
@@ -426,7 +431,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           <span className="cv-turn-action-group">
-            {text && <MessageCopy text={text} />}
+            {copy && <MessageCopy text={copy} />}
             {failedRetry && (
               <button
                 type="button"
