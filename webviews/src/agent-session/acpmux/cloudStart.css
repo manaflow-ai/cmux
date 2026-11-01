@@ -40,9 +40,9 @@
 .acpmux-cloud-start__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 20px; color: var(--agent-accent, #4ade80); }
 .acpmux-cloud-start__row[data-status="pending"] .acpmux-cloud-start__mark, .acpmux-cloud-start__row[data-status="skipped"] .acpmux-cloud-start__mark { color: var(--agent-muted); }
 .acpmux-cloud-start__row[data-status="error"] .acpmux-cloud-start__mark { color: inherit; }
-.acpmux-cloud-start__skip-mark { display: block; width: 14px; height: 14px; margin: 2px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .55; position: relative; }
+.acpmux-cloud-start__skip-mark { display: block; width: 14px; height: calc(var(--ds-space-3) + 2px); margin: 2px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .55; position: relative; }
 .acpmux-cloud-start__skip-mark::after { content: ""; position: absolute; left: 1px; top: 6px; width: 11px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
-.acpmux-cloud-start__pending-mark { display: block; width: 6px; height: 6px; margin: 6px; border-radius: 50%; background: currentColor; opacity: .25; }
+.acpmux-cloud-start__pending-mark { display: block; width: 6px; height: calc(var(--ds-space-1) + 2px); margin: 6px; border-radius: 50%; background: currentColor; opacity: .25; }
 .acpmux-cloud-start__time { margin-left: 4px; color: var(--agent-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acpmux-cloud-start__detail { grid-column: 2 / -1; margin: -3px 0 5px; color: var(--agent-muted); line-height: 1.35; }
 .acpmux-cloud-start__log-tail { white-space: pre-wrap; font-family: var(--font-mono, ui-monospace); font-size: .9em; }
