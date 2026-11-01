@@ -207,7 +207,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let session = state.withLock { $0.resolved ?? $0.session } ?? ""
             run(id) { [weak self, cloudTurn] client in
                 let accepted: Data
-                if let cloudTurn, try await client.supportsCloudTurns() {
+                if let cloudTurn {
+                    guard try await client.supportsCloudTurns() else {
+                        throw AgentSessionRemoteError(code: "cloud.turn.unsupported", message: "This Cloud machine needs an update before it can capture turns.")
+                    }
                     let ownerState = try await cloudTurn.state(session, prompt)
                     var submitting = false
                     do {

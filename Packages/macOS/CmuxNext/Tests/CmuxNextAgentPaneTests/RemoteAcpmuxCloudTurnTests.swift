@@ -46,12 +46,23 @@ import Testing
         func close() async {}
     }
 
-    @Test func olderAcpmuxKeepsOrdinaryPromptWithoutOwnerCapture() async throws {
+    @Test func enrolledCloudMachineCannotSendWithoutTurnSupport() async throws {
         let client = Client(turnsSupported: false), frames = RemoteAcpmuxObserverTests.Frames()
         let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in
-            Issue.record("An older acpmux must not start the capture handshake")
+            Issue.record("An unsupported acpmux must not start the capture handshake")
             throw CancellationError()
         }, capture: { _, _, _, _ in throw CancellationError() }))
+        try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+        wire.send(#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"session_1","prompt":[{"type":"text","text":"hello"}],"_meta":{"acpmux":{"promptId":"prompt_1"}}}}"#) { _ in }
+        try await waitForReply(frames)
+        #expect(client.calls.withLock { $0 }.isEmpty)
+        #expect(frames.reply(7)?["error"] != nil)
+        wire.cancel(code: 1000, reason: "test complete")
+    }
+
+    @Test func ordinaryRemoteMachineKeepsItsPromptPath() async throws {
+        let client = Client(turnsSupported: false), frames = RemoteAcpmuxObserverTests.Frames()
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1")
         try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
         wire.send(#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"session_1","prompt":[{"type":"text","text":"hello"}],"_meta":{"acpmux":{"promptId":"prompt_1"}}}}"#) { _ in }
         try await waitForReply(frames)
