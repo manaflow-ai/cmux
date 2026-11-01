@@ -288,6 +288,7 @@ if "--suite=cef-api30" in sys.argv:
         "ab": ["cef-layer-ab.py"],
         "resize": ["cef-resize-sync-bench.py", "--label", "api30"],
         "split": ["split-resize-bench.py", "--variants=live,hold,synced,resizeSync,live-hosted,resizeSync-hosted"],
+        **{f"split{i}": ["split-resize-bench.py", "--variants=live,resizeSync,live-hosted,resizeSync-hosted"] for i in range(2, 9)},
     }
     results = {}
     for name in want.split(","):
