@@ -249,6 +249,12 @@ fn trigger_delivery_queue_edit_cannot_inherit_trigger_ownership() {
 #[test]
 fn trigger_delivery_survives_restart_with_digest_and_exact_reply() {
     let dir = cmux_unix_socket::short_test_dir("trigger-readback");
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        dir.path(),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
     let first = hub(Some(dir.path()));
     let s = chat(&first);
     admit(&first, &s, "queued", "t");
