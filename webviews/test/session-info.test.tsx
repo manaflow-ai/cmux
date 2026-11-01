@@ -49,7 +49,7 @@ import { openSourceFile } from "../src/agent-session/acpmux/session-info/Sources
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
-import { withCloudMachineSummary } from "../src/agent-session/acpmux/App";
+import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -418,7 +418,7 @@ test("Session Info keeps a summary without a Cloud machine id local", async () =
     root.render(<Pane snapshot={localShape} onOpenOutput={noop} cloudRepositoryAvailable />);
   });
   const environment = section(container, "environment")!;
-  expect(environment.querySelector("li[data-machine]")?.dataset.machine).toBe("local");
+  expect(environment.querySelector<HTMLElement>("li[data-machine]")?.dataset.machine).toBe("local");
   expect(environment.querySelector("li[data-machine]")?.textContent).toContain("Studio");
   expect(environment.textContent).not.toContain("Add repository…");
   expect(environment.textContent).not.toContain("Default");

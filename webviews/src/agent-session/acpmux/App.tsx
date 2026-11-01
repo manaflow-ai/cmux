@@ -680,6 +680,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import { withCloudMachineSummary } from "./cloudSummary";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -802,16 +803,6 @@ function emptySnapshot(): AcpmuxSnapshot {
   };
 }
 
-/// The remote Cloud handshake identifies the machine even when its acpmux summary predates the
-/// host-kind field. Keep the daemon's host/name fields intact and add only the missing kind so every
-/// Session Info consumer treats the chat as Cloud.
-export function withCloudMachineSummary(
-  summary: AcpmuxSnapshot["summary"],
-  cloudMachineID?: string,
-): AcpmuxSnapshot["summary"] {
-  if (!summary || !cloudMachineID || summary.hostKind === "cloud") return summary;
-  return { ...summary, hostKind: "cloud" };
-}
 
 /// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
 /// one a display frame, and serializing the whole transcript each frame took main-thread time that
@@ -7574,6 +7565,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
+      snapshot.summary,
       cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
