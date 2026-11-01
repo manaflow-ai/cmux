@@ -26,34 +26,33 @@ extension CMUXCLI {
             if argument.hasPrefix("--ask-for-approval=") || argument.hasPrefix("--sandbox=") {
                 return true
             }
-            if argument == "-c" || argument == "--config",
-               index + 1 < arguments.count,
-               codexConfigOverridesPermissions(arguments[index + 1]) {
+            if (argument.hasPrefix("-s") || argument.hasPrefix("-a")), argument.count > 2 {
                 return true
             }
-            if argument.hasPrefix("-c"), argument.count > 2,
-               codexConfigOverridesPermissions(String(argument.dropFirst(2))) {
+            if let config = codexConfigOverride(in: arguments, at: index),
+               codexConfigOverridesPermissions(config) {
                 return true
-            }
-            if argument.hasPrefix("-c=") || argument.hasPrefix("--config=") {
-                let components = argument.split(
-                    separator: "=",
-                    maxSplits: 1,
-                    omittingEmptySubsequences: false
-                )
-                if components.count == 2,
-                   codexConfigOverridesPermissions(String(components[1])) {
-                    return true
-                }
             }
         }
         return false
+    }
+
+    private func codexConfigOverride(in arguments: [String], at index: Int) -> String? {
+        let argument = arguments[index]
+        if argument == "-c" || argument == "--config" {
+            return index + 1 < arguments.count ? arguments[index + 1] : nil
+        }
+        for prefix in ["--config=", "-c=", "-c"] where argument.hasPrefix(prefix) {
+            return String(argument.dropFirst(prefix.count))
+        }
+        return nil
     }
 
     private func codexConfigOverridesPermissions(_ value: String) -> Bool {
         let key = value.split(separator: "=", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
+            || key == "sandbox_workspace_write"
             || key == "sandbox_workspace_write.network_access"
     }
 
@@ -146,7 +145,9 @@ extension CMUXCLI {
         if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
-                    ? repairedCodexLaunchCommand(preserved, transcriptPath: transcriptPath)
+                    ? repairedCodexLaunchCommand(
+                        preserved, transcriptPath: transcriptPath, observedAt: current?.capturedAt
+                    )
                     : preserved
             }
             return current
@@ -156,7 +157,9 @@ extension CMUXCLI {
            currentPID == mapped?.pid,
            !codexLaunchHasExplicitPermissions(current),
            codexLaunchHasExplicitPermissions(mapped?.launchCommand) {
-            return mapped?.launchCommand
+            return repairedCodexLaunchCommand(
+                mapped?.launchCommand, transcriptPath: transcriptPath, observedAt: current?.capturedAt
+            )
         }
         let selected: AgentHookLaunchCommandRecord? = {
             let currentSource = normalizedHookValue(current?.source)?.lowercased()
@@ -189,7 +192,8 @@ extension CMUXCLI {
         guard kind == "codex" else { return selected }
         return repairedCodexLaunchCommand(
             selected,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            observedAt: current?.capturedAt
         )
     }
 
@@ -312,12 +316,12 @@ extension CMUXCLI {
 
     private func repairedCodexLaunchCommand(
         _ launchCommand: AgentHookLaunchCommandRecord?,
-        transcriptPath: String?
+        transcriptPath: String?,
+        observedAt: TimeInterval? = nil
     ) -> AgentHookLaunchCommandRecord? {
         guard var launchCommand else { return nil }
         guard !launchCommand.arguments.isEmpty else { return launchCommand }
-        guard !codexLaunchHasExplicitPermissions(launchCommand),
-              let capturedAt = launchCommand.capturedAt,
+        guard let capturedAt = observedAt ?? launchCommand.capturedAt,
               let transcriptPath = normalizedHookValue(transcriptPath) else {
             return launchCommand
         }
@@ -328,8 +332,56 @@ extension CMUXCLI {
         guard !permissionArguments.isEmpty else {
             return launchCommand
         }
-        launchCommand.arguments.append(contentsOf: permissionArguments)
+        if codexLaunchHasExplicitPermissions(launchCommand) {
+            // An explicit sandbox or approval policy does not specify workspace
+            // networking. Fill only that missing field from observed turn policy.
+            guard let network = missingCodexWorkspaceNetworkArgument(
+                launchCommand: launchCommand, permissionArguments: permissionArguments
+            ) else { return launchCommand }
+            launchCommand.arguments.append(contentsOf: ["-c", network])
+        } else {
+            launchCommand.arguments.append(contentsOf: permissionArguments)
+        }
         return launchCommand
+    }
+
+    private func missingCodexWorkspaceNetworkArgument(
+        launchCommand: AgentHookLaunchCommandRecord,
+        permissionArguments: [String]
+    ) -> String? {
+        let arguments = launchCommand.arguments
+        var sandboxMode: String?
+        var configuredSandboxMode: String?
+        var fullAuto = false
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--" { break }
+            if ["--yolo", "--dangerously-bypass-approvals-and-sandbox"].contains(argument) {
+                return nil
+            }
+            if argument == "--full-auto" { fullAuto = true }
+            if argument == "-s" || argument == "--sandbox", index + 1 < arguments.count {
+                sandboxMode = arguments[index + 1]
+            } else if argument.hasPrefix("--sandbox=") {
+                sandboxMode = String(argument.dropFirst("--sandbox=".count))
+            } else if argument.hasPrefix("-s"), argument.count > 2 {
+                sandboxMode = String(argument.dropFirst(argument.hasPrefix("-s=") ? 3 : 2))
+            }
+            if let config = codexConfigOverride(in: arguments, at: index) {
+                let parts = config.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                if key == "sandbox_workspace_write.network_access" || key == "sandbox_workspace_write" {
+                    return nil
+                }
+                if key == "sandbox_mode", parts.count == 2 {
+                    configuredSandboxMode = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                }
+            }
+        }
+        // Codex gives sandbox flags priority over config regardless of argv order.
+        let effectiveSandboxMode = sandboxMode ?? (fullAuto ? "workspace-write" : configuredSandboxMode)
+        guard effectiveSandboxMode == "workspace-write" else { return nil }
+        return permissionArguments.first { $0.hasPrefix("sandbox_workspace_write.network_access=") }
     }
 
     private func codexPermissionArguments(
