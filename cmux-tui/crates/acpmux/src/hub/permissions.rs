@@ -45,6 +45,8 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+mod pending;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -320,18 +322,20 @@ impl Hub {
                     .and_then(|c| c.get("text"))
                     .and_then(Value::as_str)
                     .filter(|_| !replayed)
+                    // A turn the person did not start leaves the preview as it was
+                    // (`background_turn.rs`).
+                    .filter(|_| !self.background_message(session, update))
                 {
-                    let mut preview = m.preview.clone().unwrap_or_default();
+                    // In place: the preview was copied whole on every streamed chunk.
+                    let preview = m.preview.get_or_insert_with(String::new);
                     preview.push_str(text);
                     if preview.len() > 2000 {
-                        let cut = preview.len() - 2000;
-                        let mut idx = cut;
+                        let mut idx = preview.len() - 2000;
                         while !preview.is_char_boundary(idx) {
                             idx += 1;
                         }
-                        preview = preview[idx..].to_owned();
+                        preview.drain(..idx);
                     }
-                    m.preview = Some(preview);
                 }
             }
             "tool_call" | "tool_call_update" => {
@@ -812,8 +816,10 @@ impl Hub {
                 }
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
-        let full_access_on =
-            full_access_mode(&session.meta()).is_some() && off.allows_full_access();
+        // Do not cache whether the mode is bypass here: a successful mode switch can drain
+        // pending asks before this request takes the lock and inserts itself. Judge its mode
+        // only under the permission lock below, so that request cannot miss the switch.
+        let full_access_on = off.allows_full_access();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());

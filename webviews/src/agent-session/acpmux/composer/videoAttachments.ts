@@ -143,15 +143,24 @@ export function useVideoInfo(
       setReading(chip.id, token, true);
       // The send waits no longer than this; a late answer still draws the poster.
       reads.set(token, { chip, deadline: setTimeout(() => settle(reads, token), VIDEO_INFO_DEADLINE_MS) });
-      void callChipHost("video.info", { src: chip.path }).then((answer) => {
-        if (!reads.has(token)) return;
-        drop(reads, token);
-        const video = parseVideoInfo(answer);
-        if (!video) return;
-        setAttachments((current) =>
-          current.includes(chip) ? current.map((staged) => (staged === chip ? { ...staged, video } : staged)) : current,
-        );
-      });
+      void callChipHost("video.info", { src: chip.path }).then(
+        (answer) => {
+          if (!reads.has(token)) return;
+          drop(reads, token);
+          const video = parseVideoInfo(answer);
+          if (!video) return;
+          setAttachments((current) =>
+            current.includes(chip)
+              ? current.map((staged) => (staged === chip ? { ...staged, video } : staged))
+              : current,
+          );
+        },
+        () => {
+          // A host refusal leaves the video as a file chip. Finish its read immediately so Stop/Send
+          // and the spinner do not wait for the deadline, and handle the rejected native request.
+          drop(reads, token);
+        },
+      );
     }
   }, [attachments, setAttachments, enabled]);
   // Include reads that the effect is about to start. On Activity reveal, a parent's setup

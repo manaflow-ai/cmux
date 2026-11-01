@@ -160,6 +160,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
     }
+    /// Called with their file URLs when the person picks files in the page's file input
+    /// (``PageOpenPanel``), before the page gets them: a pick page script can't make.
+    public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
+        get { fileChooser?.onChosen }
+        set { fileChooser?.onChosen = newValue }
+    }
     /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
     public var onPaste: (@MainActor () -> Void)? {
         get { (webView as? PageWKWebView)?.onPaste }

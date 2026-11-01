@@ -45,7 +45,7 @@ struct SubagentMainPaneRoutingTests {
         #expect(header.openSubagent(session, "reviewer", false))
         #expect(asked.mainPane.map(\.chat) == ["chat-tab"], "the width check kept main pane layout from placing it in the column on its right")
         #expect(asked.mainPane.map(\.focus) == [false])
-        #expect(AgentSubagentPanes.session(session).tab(for: "reviewer", isOpen: { _ in true }) == "subagent-tab")
+        #expect(AgentSubagentPanes.session("\(session):chat-tab").tab(for: "reviewer", isOpen: { _ in true }) == "subagent-tab")
         withExtendedLifetime(tabs) {}
     }
 

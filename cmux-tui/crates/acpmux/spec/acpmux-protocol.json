@@ -1110,6 +1110,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -1276,6 +1282,30 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/api_key",
       "params": true,
       "result": true
     },
@@ -2197,6 +2227,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "promptIndex": {
+          "description": "Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,\nin one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -3447,6 +3484,9 @@
             "string",
             "null"
           ]
+        },
+        "source": {
+          "description": "The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise."
         }
       },
       "required": [
@@ -5048,10 +5088,27 @@
     },
     "SessionsResult": {
       "properties": {
+        "delta": {
+          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "nextCursor": {
           "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "removed": {
+          "description": "With `delta`: the known sessions no longer listed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
             "null"
           ]
         },
@@ -5061,6 +5118,15 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
+        },
+        "unchanged": {
+          "description": "With `delta`: how many listed rows were left out as unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5360,6 +5426,16 @@
           "description": "Default true: every session's changes arrive as\n`_acpmux/session_changed`.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "known": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
+          "type": [
+            "object",
             "null"
           ]
         },

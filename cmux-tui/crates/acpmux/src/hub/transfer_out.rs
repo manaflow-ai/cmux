@@ -5,8 +5,11 @@
 //!
 //! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?}}`: the chat stops
 //!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
-//!    `interrupt`), and its bundle (`transfer.rs` export) is made. Answers `{schema, transferId,
-//!    sessionId, files: [{path, size}], session}`: the manifest the target takes. `to` names the
+//!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
+//!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
+//!    the chat lands, or here when the move is aborted. Answers `{schema, transferId,
+//!    sessionId, files: [{path, size}], session, continues?}` (`continues`: that continuation's
+//!    prompt id): the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
 //!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
 //!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
@@ -214,25 +217,61 @@ impl Hub {
             }
             *moving = Some(transfer_id.clone());
         }
-        let unfreeze = |e: RpcError| {
+        // The continuation of a turn the move stops (`restart_resume.rs`, `Cut::Move`): logged
+        // before the Stop, which would leave the turn none, so the bundle's queue carries it and
+        // the turn goes on where the chat lands. A move that does not happen queues it here.
+        let mut carried: Option<String> = None;
+        let unfreeze = |e: RpcError, carried: Option<&str>| {
             self.end_move(session);
+            if let Some(id) = carried {
+                self.queue_carried(session, id);
+            }
             e
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             if !interrupt {
-                return Err(unfreeze(transfer_error("busy", "a turn is running")));
+                return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
             }
-            self.cancel_turn(session, &running).await;
+            // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
+            // the move waits for the compaction instead of losing them.
+            let child = session.child.lock().await.clone();
+            let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
+                || child.is_some_and(|c| c.translator.as_ref().is_some_and(|t| t.is_compacting()));
+            if compacting {
+                let e = transfer_error("busy", "the chat is compacting; move it once that ends");
+                return Err(unfreeze(e, None));
+            }
+            carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
+            // Its place at the head, as a record of its own: a guarded target drops the
+            // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
+            if let Some(id) = &carried {
+                let order: Vec<String> = std::iter::once(id.clone())
+                    .chain(
+                        session
+                            .queue
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .iter()
+                            .map(|q| q.prompt_id.clone()),
+                    )
+                    .collect();
+                self.append(session, "mux", "queue_order", json!({"promptId": id, "order": order}));
+            }
+            match &carried {
+                Some(id) => self.cancel_turn_for_replacement(session, &running, id).await,
+                None => self.cancel_turn(session, &running).await,
+            }
         }
+        let carried = carried.as_deref();
         let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
         let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
-            return Err(unfreeze(transfer_error("busy", "the running turn did not stop")));
+            return Err(unfreeze(transfer_error("busy", "the running turn did not stop"), carried));
         };
         // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
         if session.turn().is_some() {
             drop(guard);
-            return Err(unfreeze(transfer_error("busy", "a recovered turn is running")));
+            return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
         // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
         // one that never reached the log does not begin.
@@ -240,13 +279,16 @@ impl Hub {
             session,
             "mux",
             "transfer_out",
-            json!({"transferId": transfer_id}),
+            json!({"transferId": transfer_id, "continues": carried}),
             None,
             None,
         );
         if !logged {
             drop(guard);
-            return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
+            return Err(unfreeze(
+                transfer_error("store", "could not durably record transfer_out"),
+                carried,
+            ));
         }
         let dir = transfers_dir().join(&transfer_id);
         let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
@@ -260,7 +302,7 @@ impl Hub {
                 // Its `transfer_out` is logged: it stays frozen unless its end is too.
                 let (_, logged) =
                     self.append_at(session, "mux", "transfer_aborted", record, None, None);
-                return Err(if logged { unfreeze(error) } else { error });
+                return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
         if let Some(socket) = to {
@@ -271,6 +313,9 @@ impl Hub {
         }
         if let Some(host) = to_host {
             let _ = std::fs::write(dir.join("to-host"), host);
+        }
+        if let Some(id) = carried {
+            let _ = std::fs::write(dir.join("continues"), id);
         }
         super::transfer_watch::note_activity(&dir, None);
         self.watch_transfer(session, &transfer_id);
@@ -288,6 +333,9 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
         });
+        if let Some(id) = carried {
+            answer.set("continues", json!(id));
+        }
         if let Some(manifest) = std::fs::read_to_string(dir.join(&session.id).join("manifest.json"))
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
@@ -389,8 +437,9 @@ impl Hub {
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
-        // mark must outlive a restart or the source could reopen and run it.
-        self.save_meta(session);
+        // mark must outlive a restart or the source could reopen and run it: `committed` is
+        // answered only once it is on disk.
+        self.save_meta_answered(session)?;
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
@@ -406,8 +455,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        self.set_policy(session, policy).await;
-        Ok(())
+        self.set_policy_answered(session, policy).await
     }
 
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
@@ -437,9 +485,26 @@ impl Hub {
         if !logged {
             return Err(transfer_error("store", "could not durably record transfer_aborted"));
         }
+        let dir = transfers_dir().join(transfer_id);
+        let carried = std::fs::read_to_string(dir.join("continues")).ok();
         self.end_move(session);
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        if let Some(id) = carried.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            self.queue_carried(session, id);
+        }
+        let _ = std::fs::remove_dir_all(dir);
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
+    }
+
+    /// A move that stopped a turn and then did not happen: the continuation it logged
+    /// (`transfer_begin`) joins the queue here, at its head, and runs, as it would have where
+    /// the chat was going. Only that prompt is taken from the log, once: the rest of the live
+    /// queue (an inbox digest's messages included) stays as it is.
+    fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
+        self.restore_queue_only(session, Some(prompt_id));
+        let _ = self.move_queued(session, prompt_id, 0, None);
+        if !self.hold_in_protected_folder(session) {
+            self.start_restored(session);
+        }
     }
 
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy

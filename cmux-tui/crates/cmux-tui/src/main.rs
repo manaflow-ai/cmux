@@ -47,6 +47,8 @@ mod share_room;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[cfg(unix)]
+mod distribution;
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -1708,8 +1710,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // Before any mode can serve `identify` or `ping`.
+    // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
+    cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
+    acpmux::hub::install_build(acpmux_build_id::BUILD);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()

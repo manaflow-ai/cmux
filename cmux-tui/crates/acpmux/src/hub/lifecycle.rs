@@ -9,6 +9,9 @@ use super::new_request::{claude_resume_refusal, unique_name_among};
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
 
+/// How often the person's agent start that is still under way says so (`person_start`).
+const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Owns a session while a creation future is still configuring it. If that future is cancelled
 /// after publication, the guard purges the exact session rather than guessing from its name.
 pub(super) struct CreationGuard {
@@ -73,6 +76,7 @@ impl Hub {
             lineage,
             disallowed_tools,
             checked_cwd,
+            person,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -210,9 +214,11 @@ impl Hub {
         // A pooled session of exactly this shape (`pool/`) gives the session its id; `ensure_child`
         // then takes it instead of starting cold. Never with this session's own env, route or
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
-        // wherever the path led.
+        // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
+        // for the person's next chat, which never waits behind a lane's start.
         let pooled = match &adopt {
-            None if meta.session_env.is_empty()
+            None if starter.is_none()
+                && meta.session_env.is_empty()
                 && route.is_none()
                 && meta.tools.off.is_empty()
                 && checked_cwd.is_none() =>
@@ -271,6 +277,7 @@ impl Hub {
                 },
             };
             let session = self.make_session(meta);
+            session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -281,7 +288,7 @@ impl Hub {
         };
         let (session, created_stops) = session;
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
-        if let Err(e) = self.store.save(&session.meta()) {
+        if let Err(e) = self.write_meta(&session) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
             // A list built meanwhile showed it (`list_guard.rs`).
@@ -426,7 +433,8 @@ impl Hub {
             self.discard_failed_creation(&session, created_stops).await;
             return Err(e);
         }
-        if adopt.is_none() {
+        // An agent's create warms nothing: the pool is the person's (`pool/`).
+        if adopt.is_none() && starter.is_none() {
             self.pool_note_used(&session);
         }
         creation_guard.disarm();
@@ -697,12 +705,17 @@ impl Hub {
         // disk before the agent starts: a daemon that dies while it starts leaves a host the next
         // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which
         // a slow git read skips.
+        // So is the digest of the profile it starts from (`profile_respawn.rs`): an agent host
+        // the next daemon adopts is judged by it, and this start settles a respawn that waited.
         let argv_changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = m.spawn_argv.as_ref() != Some(&profile.argv);
+            let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
+                || m.launch_digest.as_ref() != Some(&profile.launch_digest);
             m.spawn_argv = Some(profile.argv.clone());
+            m.launch_digest = Some(profile.launch_digest.clone());
             changed
         };
+        self.settle_profile_respawn(session);
         if argv_changed {
             self.save_meta(session);
         }
@@ -774,7 +787,13 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            let failed = match tokio::time::timeout(budget, started).await {
+            // The person's start has no deadline (`person_start`); an agent's or a lane's has.
+            let started = if session.person.load(Ordering::SeqCst) {
+                Ok(self.person_start(session, budget, started).await)
+            } else {
+                tokio::time::timeout(budget, started).await
+            };
+            let failed = match started {
                 Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
                 Ok(Err(e)) => Some(e),
                 Err(_) => None,
@@ -830,6 +849,45 @@ impl Hub {
         session.loading.store(false, Ordering::SeqCst);
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
+        }
+    }
+
+    /// The person's agent start (`Session::person`) has no deadline: a loaded host may take
+    /// minutes, and Leo: "I TSHOULDN'T FUCKING MATTER IF MY COMPUTER IS LOADED" / "I SHOULD BE
+    /// ALWAYS ABLE TO SATRT NEW FUCKGN CHATS". It ends only as the start does: answered, or failed
+    /// because its harness exited, its spawn failed or a stop ended it. Every `START_PROGRESS`
+    /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
+    /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
+    /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).
+    async fn person_start<T>(
+        &self,
+        session: &Arc<Session>,
+        budget: std::time::Duration,
+        start: impl std::future::Future<Output = T>,
+    ) -> T {
+        let every = START_PROGRESS.min(budget).max(std::time::Duration::from_millis(100));
+        let began = tokio::time::Instant::now();
+        let mut tick = tokio::time::interval_at(began + every, every);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tokio::pin!(start);
+        let mut said = false;
+        loop {
+            tokio::select! {
+                done = &mut start => return done,
+                _ = tick.tick() => {
+                    let waited = began.elapsed();
+                    if !said && waited >= budget {
+                        said = true;
+                        tracing::warn!(
+                            session = %session.id,
+                            "the person's agent start is past {budget:?}; it keeps waiting"
+                        );
+                    }
+                    let waited_ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
+                    let waiting = json!({"waitedMs": waited_ms});
+                    self.append(session, "mux", "agent_start_waiting", waiting);
+                }
+            }
         }
     }
 
@@ -1318,14 +1376,13 @@ impl Hub {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
             }
-            match child
-                .request(
-                    method::SESSION_SET_CONFIG_OPTION,
-                    json!({"sessionId": sid, "configId": id, "value": value}),
-                )
-                .await
-            {
+            let params = json!({"sessionId": sid, "configId": id, "value": value});
+            let asked = super::full_access_bound::asked_option(&params);
+            match child.request(method::SESSION_SET_CONFIG_OPTION, params).await {
                 Ok(res) => {
+                    // A bare answer took the value asked, as a client's does: under an MDM off
+                    // pushed while it was asked, `cap_full_access` then counts it (#26340).
+                    super::full_access_bound::record_option_answer(session, &res, asked);
                     if let Some(o) = res.get("configOptions") {
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }

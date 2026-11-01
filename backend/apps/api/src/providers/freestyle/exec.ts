@@ -21,15 +21,27 @@ import { DriverError, type GuestExecResult } from "../contract.ts"
  */
 export const execStatusFinal = (status: number): boolean => status !== 409 && status !== 429 && status < 500
 
-/** Bound the serialized provider answer before JSON parsing, including small-chunk overhead. */
-export const EXEC_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
-export const EXEC_RESPONSE_MAX_CHUNKS = 4096
+/**
+ * Bound the serialized provider answer before JSON parsing. The bound is the provider's JSON, not the
+ * output: the provider escapes each byte a command writes as up to 6 bytes (`\u0000` for a NUL or
+ * other control byte, `\ufffd` for an invalid UTF-8 byte), and the file routes' content arrives as
+ * base64 inside that JSON. So it must hold the largest answer a supported call gives
+ * (cloud-machine-guest.ts): an exec's two output streams of OUTPUT_MAX_BYTES each at 6x (12 MiB), a
+ * FILE_MAX_BYTES read as base64 (about 10.7 MiB), or a directory listing of at most DIR_MAX_BYTES at 6x
+ * (12 MiB). freestyle-exec-errors.test.ts checks all three.
+ */
+export const EXEC_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
+/** Read events per answer, so a provider streaming empty or tiny chunks cannot loop until the HTTP timeout. */
+export const EXEC_RESPONSE_MAX_CHUNKS = 65_536
 
 const readExecAnswer = async (res: Response): Promise<unknown> => {
   if (!res.body) throw new Error("missing exec body")
   const reader = res.body.getReader()
-  const chunks: Array<Uint8Array> = []
+  // Decoded as it arrives (a character split across chunks stays whole), so no chunk is kept.
+  const decoder = new TextDecoder()
+  const parts: Array<string> = []
   let bytes = 0
+  let reads = 0
   let finished = false
   try {
     for (;;) {
@@ -39,17 +51,13 @@ const readExecAnswer = async (res: Response): Promise<unknown> => {
         break
       }
       bytes += next.value.byteLength
-      if (bytes > EXEC_RESPONSE_MAX_BYTES || chunks.length >= EXEC_RESPONSE_MAX_CHUNKS)
+      reads++
+      if (bytes > EXEC_RESPONSE_MAX_BYTES || reads > EXEC_RESPONSE_MAX_CHUNKS)
         throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true)
-      chunks.push(next.value)
+      parts.push(decoder.decode(next.value, { stream: true }))
     }
-    const body = new Uint8Array(bytes)
-    let offset = 0
-    for (const chunk of chunks) {
-      body.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return JSON.parse(new TextDecoder().decode(body)) as unknown
+    parts.push(decoder.decode())
+    return JSON.parse(parts.join("")) as unknown
   } finally {
     // Over-limit or broken streams stop downloading immediately; the provider's guest timeout remains.
     if (!finished) await reader.cancel().catch(() => undefined)

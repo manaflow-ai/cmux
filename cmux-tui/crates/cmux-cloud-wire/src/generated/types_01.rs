@@ -350,6 +350,10 @@ pub struct CloudMachine {
     pub error: Option<CloudMachineError>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub pause_reason: Option<Option<CloudMachinePauseReason>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub hourly_rate_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub running_since: Option<Option<i64>>,
     pub revision: Revision,
 }
 
@@ -424,7 +428,7 @@ pub struct CloudPlanLimits {
 pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
-    pub vm_hours_used: WireNumber,
+    pub vm_hours_used: Option<WireNumber>,
     pub period_end: i64,
 }
 

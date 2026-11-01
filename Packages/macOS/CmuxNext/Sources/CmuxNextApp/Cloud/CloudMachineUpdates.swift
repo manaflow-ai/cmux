@@ -25,7 +25,7 @@ final class CloudMachineUpdates {
     private weak var services: AppServices?
     /// Which handshakes are still to offer (``HandshakeFollower``).
     private var follower = HandshakeFollower()
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
 
     private init(services: AppServices) {
         self.services = services
@@ -80,15 +80,33 @@ final class CloudMachineUpdates {
     /// no `cmux` client; false when it made no offer. The policy keeps one entry per machine, so an
     /// offer per handshake is safe.
     private func offer(_ machineID: String) -> Bool {
-        guard CloudTunables.updatesCloudMachines, let services,
-              let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
-                                                                  logger: logger))
+        guard let services, let target = Self.target(machineID, services: services) else { return false }
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
         Task { [policy = services.daemonUpdates.policy] in await policy.offer(target) }
         return true
+    }
+
+    /// A chat start on machine `machineID` that its older daemon refused (``AgentTabRemoteHost/updateMachine``):
+    /// the machine is updated to the app's build now, at the front of the shared policy's queue (joining
+    /// an update of it that already runs), and this returns once that turn ended. False when no turn ran:
+    /// the toggles are off, the app has no `cmux` client, or the machine is gone. Same guarantees as the
+    /// automatic update: `--to-bundled --if-older`, never a move back, terminals and chats keep running.
+    static func updateNow(_ machineID: String, services: AppServices) async -> Bool {
+        guard let target = target(machineID, services: services) else { return false }
+        logger.info("cloud machine \(machineID, privacy: .public): a start was refused by its daemon; updating it before starting again")
+        await services.daemonUpdates.policy.updateNow(target)
+        return true
+    }
+
+    /// Machine `machineID` as the shared policy's target; nil while the toggles are off, the app has no
+    /// `cmux` client, or the machine is gone.
+    private static func target(_ machineID: String, services: AppServices) -> CloudMachineUpdateTarget? {
+        guard CloudTunables.updatesCloudMachines, let session = services.machines.session(machineID),
+              let binary = services.cloud.move.cli else { return nil }
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
+                                        source: source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
+                                                       logger: logger))
     }
 
     // MARK: The machine's side

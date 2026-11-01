@@ -3,7 +3,14 @@
 // step-by-step rows so the reader can follow work as it arrives.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { toggleTurnFold, turnFoldFor, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  openViewTurnFold,
+  toggleTurnFold,
+  toggleViewTurnFold,
+  turnFoldFor,
+  turnView,
+  WORKED,
+} from "../src/agent-session/acpmux/conversation/turns";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -241,4 +248,17 @@ test("a completed turn of only replies and the person's own steer has no work to
       .filter((entry) => entry.kind !== "date")
       .map((entry) => entry.id),
   ).toEqual(["prompt", "reply", "steer", "done", "summary"]);
+});
+
+test("Find in Thinking or Verbose opens a turn closed by hand, steer keys included", () => {
+  // toggleViewTurnFold marks the prompt's key and each steer's; a reveal must forget them all, or
+  // the steer's key keeps the turn closed (cmux#28782 review at 7e02fd5c).
+  const full = completedTurn();
+  const closed = toggleViewTurnFold(full, new Set(), `${WORKED}-prompt`);
+  expect([...closed].sort()).toEqual([`${WORKED}-prompt`, `${WORKED}-report`]);
+  expect([...openViewTurnFold(full, closed, `${WORKED}-prompt`)]).toEqual([]);
+  expect([...openViewTurnFold(full, closed, `${WORKED}-report`)]).toEqual([]);
+  // Nothing closed: the same set back, so the view's state does not change.
+  const none = new Set<string>();
+  expect(openViewTurnFold(full, none, `${WORKED}-prompt`)).toBe(none);
 });

@@ -30,7 +30,10 @@
   height: var(--cv-message-line);
   box-sizing: border-box;
   gap: var(--ds-space-2);
-  padding: 0 var(--ds-space-1);
+  /* The trailing room keeps the count clear of the plate's edge; none before the chevron, which
+     sits in the tool rows' glyph slot at the row's left edge (design/chat-transcript.md "One icon
+     column"). */
+  padding: 0 var(--ds-space-1) 0 0;
   border-radius: 6px;
   cursor: default;
 }
@@ -43,7 +46,7 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: var(--cv-glyph-slot);
   color: var(--cv-text-muted);
 }
 .cv-pending__count {

@@ -4,6 +4,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var app: String
     public var version: String
     public var buildCommit: String?
+    /// The exact build of the binary that serves the socket (`build_id`, `daemon-build-v1`): the
+    /// stamped commit, or for an unstamped build the commit plus `-dirty.<hash>`; nil on older daemons.
+    public var buildID: String?
     public var ghosttyCommit: String?
     public var protocolVersion: Int
     public var capabilities: [String] { didSet { capabilitySet = Self.lookup(capabilities) } }
@@ -31,6 +34,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The daemon's launch snapshot file (`launch-snapshot-v1`), read by the
     /// next launch before it connects (`LaunchSnapshot`).
     public var launchSnapshotPath: String?
+    /// The absolute path of the binary that serves the socket (`daemon-build-v1`, cmux-tui
+    /// `server/daemon_build.rs`); nil on older daemons.
+    public var cliPath: String?
 
     public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
 
@@ -49,6 +55,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         app: String = "cmux-tui",
         version: String = "0",
         buildCommit: String? = nil,
+        buildID: String? = nil,
         ghosttyCommit: String? = nil,
         protocolVersion: Int = 12,
         capabilities: [String] = [],
@@ -62,11 +69,13 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         machineName: String? = nil,
         generation: DaemonGeneration,
         workspaceRevision: UInt64 = 0,
-        lifecycleReady: Bool = true
+        lifecycleReady: Bool = true,
+        cliPath: String? = nil
     ) {
         self.app = app
         self.version = version
         self.buildCommit = buildCommit
+        self.buildID = buildID
         self.ghosttyCommit = ghosttyCommit
         self.protocolVersion = protocolVersion
         self.capabilities = capabilities
@@ -82,11 +91,13 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.generation = generation
         self.workspaceRevision = workspaceRevision
         self.lifecycleReady = lifecycleReady
+        self.cliPath = cliPath
     }
 
     enum CodingKeys: String, CodingKey {
         case app, version, capabilities, session, pid, generation
         case buildCommit = "build_commit"
+        case buildID = "build_id"
         case ghosttyCommit = "ghostty_commit"
         case protocolVersion = "protocol"
         case registryID = "registry_id"
@@ -98,6 +109,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case workspaceRevision = "workspace_revision"
         case lifecycleReady = "lifecycle_ready"
         case launchSnapshotPath = "launch_snapshot_path"
+        case cliPath = "cli_path"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -105,6 +117,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         app = try c.decode(String.self, forKey: .app)
         version = try c.decodeIfPresent(String.self, forKey: .version) ?? ""
         buildCommit = try c.decodeIfPresent(String.self, forKey: .buildCommit)
+        buildID = try c.decodeIfPresent(String.self, forKey: .buildID)
         ghosttyCommit = try c.decodeIfPresent(String.self, forKey: .ghosttyCommit)
         protocolVersion = try c.decode(Int.self, forKey: .protocolVersion)
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
@@ -123,6 +136,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true
         launchSnapshotPath = try? c.decodeIfPresent(String.self, forKey: .launchSnapshotPath)
+        cliPath = (try? c.decodeIfPresent(String.self, forKey: .cliPath)).flatMap { $0 }.flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 }
 

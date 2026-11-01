@@ -11,11 +11,11 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
-import { Spinner } from "../conversation/icons";
+import { FileDoc, ImageIcon, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 
@@ -325,11 +325,22 @@ const InlineChip = memo(function InlineChip({
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
       >
         {pending!.failed ? (
-          <button type="button" className="acpmux-md-inline-retry" onClick={() => onRetry(id)}>
-            {t("composer.retryAttachment")}
-          </button>
-        ) : (
+          <>
+            {pending!.image ? (
+              <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
+            ) : (
+              <FileDoc size={14} className="acpmux-attachment-failed-icon" />
+            )}
+            <RetryButton
+              className="acpmux-attachment-retry acpmux-md-inline-retry"
+              reason={pending!.failed}
+              onRetry={() => onRetry(id)}
+            />
+          </>
+        ) : pending!.progress === undefined ? (
           <Spinner loading size={14} className="acpmux-md-inline-spinner" />
+        ) : (
+          <UploadProgress value={pending!.progress} name={name} size={14} />
         )}
         {remove}
       </span>

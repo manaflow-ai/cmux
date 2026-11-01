@@ -13,6 +13,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -368,6 +369,50 @@ def test_decide_checks_out_before_it_classifies() -> None:
     names = [step.get("id") or step.get("uses", "") for step in steps]
     checkout = next(i for i, n in enumerate(names) if n.startswith("actions/checkout@"))
     assert checkout < names.index("decide"), "decide must classify a checked-out tree"
+
+
+def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
+    """NEXT needs only its controls; other branches still classify the full tree."""
+    import yaml
+
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+    assert len(checkouts) == 2
+    sparse = next(step for step in checkouts if "sparse-checkout" in step["with"])
+    full = next(step for step in checkouts if "sparse-checkout" not in step["with"])
+    assert sparse["if"] == "github.ref == 'refs/heads/nightly-next'"
+    assert full["if"] == "github.ref != 'refs/heads/nightly-next'"
+    assert sparse["with"]["sparse-checkout-cone-mode"] is False
+    for checkout in checkouts:
+        assert checkout["with"]["ref"] == "${{ github.sha }}"
+        assert checkout["with"]["fetch-depth"] == 1
+        assert checkout["with"]["persist-credentials"] is False
+        assert steps.index(checkout) < next(i for i, step in enumerate(steps) if step.get("id") == "decide")
+
+    # Execute from precisely the declared files, without the full checkout on
+    # sys.path. Import-time dependencies must work even when no job is placed.
+    paths = sparse["with"]["sparse-checkout"].split()
+    # The pickers read the declared runner set (.github/runners.json, #30173) as data.
+    assert all(path.startswith("/scripts/ci/") and path.endswith(".py")
+               or path == "/.github/runners.json" for path in paths)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for path in paths:
+            relative = path.lstrip("/")
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+        marker = subprocess.run(
+            [sys.executable, "scripts/ci/nightly-publication-marker.py"],
+            cwd=root, input=f"<!-- cmux-published-sha: {HEAD_SHA} -->", text=True,
+            capture_output=True, check=True,
+        )
+        assert marker.stdout.strip() == HEAD_SHA
+        placement = subprocess.run(
+            [sys.executable, "scripts/ci/portable_job_placement.py"],
+            cwd=root, env={"JOBS": ""}, text=True, capture_output=True, check=True,
+        )
+        assert "portable placement:" in placement.stdout
 
 
 def test_a_failing_classifier_builds() -> None:

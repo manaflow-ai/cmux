@@ -165,7 +165,8 @@ public struct DaemonLauncher: Sendable {
     /// state in `stateDirectory`, shared by every build of one account. It
     /// spawns no terminals, so `server ensure` gets the process environment
     /// without any app or terminal identity, and it is never handed off to a
-    /// connecting build's binary.
+    /// connecting build's binary for being another build; only once an update
+    /// deleted its executable (`ChiefConversationOwner.restartIfReplaced`).
     public static func forChief(
         session: String,
         stateDirectory: URL,

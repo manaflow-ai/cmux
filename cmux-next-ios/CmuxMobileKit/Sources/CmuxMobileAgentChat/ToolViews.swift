@@ -24,15 +24,21 @@ extension EnvironmentValues {
 /// SPEC 6.4 tool row: 32 pt, 15 pt symbol, verb + mono object, chevron that rotates.
 struct ToolRowView: View {
     let call: ACPToolCall
-    @State private var expanded = false
+    @State private var localExpanded = false
     @Environment(\.openSessionFile) private var openFile
+    @Environment(\.chatDisclosures) private var disclosures
     @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
+
+    /// Kept by the transcript when it has a store (its rows are reused cells), else here.
+    private var expanded: Bool { disclosures?.isOpen("tool-\(call.id)") ?? localExpanded }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                toggleDisclosure(holdFold) { expanded.toggle() }
+                toggleDisclosure(holdFold) {
+                    if let disclosures { disclosures.set("tool-\(call.id)", !expanded) } else { localExpanded.toggle() }
+                }
             } label: {
                 header
             }
@@ -130,15 +136,19 @@ struct ToolGroupView: View {
     let calls: [ACPToolCall]
     let turnRunning: Bool
     @State private var userExpanded: Bool?
+    @Environment(\.chatDisclosures) private var disclosures
     @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
 
-    private var expanded: Bool { userExpanded ?? false }
+    private var key: String { "group-\(calls.first?.id ?? "")" }
+    private var expanded: Bool { (disclosures.map { $0.isOpen(key) } ?? userExpanded) ?? false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                toggleDisclosure(holdFold) { userExpanded = !expanded }
+                toggleDisclosure(holdFold) {
+                    if let disclosures { disclosures.set(key, !expanded) } else { userExpanded = !expanded }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: calls.contains(where: \.isFailed) ? "exclamationmark.triangle.fill" : "square.stack.3d.down.right")
@@ -204,7 +214,21 @@ struct ToolGroupView: View {
 struct ThoughtRow: View {
     let text: String
     let isLive: Bool
-    @State private var choice = DisclosureChoice()
+    /// The transcript's key for the person's choice (its rows are reused cells).
+    var id: String?
+    @State private var localChoice = DisclosureChoice()
+    @Environment(\.chatDisclosures) private var disclosures
+
+    private var choice: DisclosureChoice {
+        get {
+            guard let id, let disclosures else { return localChoice }
+            return DisclosureChoice(chosen: disclosures.isOpen("thought-\(id)"))
+        }
+        nonmutating set {
+            guard let id, let disclosures else { localChoice = newValue; return }
+            disclosures.set("thought-\(id)", newValue.chosen)
+        }
+    }
     @Environment(\.transcriptFoldHold) private var holdFold
 
     private var expanded: Bool { choice.isOpen(automatic: isLive) }
@@ -252,31 +276,63 @@ struct ThoughtRow: View {
 /// SPEC 6.8 `DiffSnippet`: header "Edited `File.swift` +12 −4 Open", text-colored unified lines, max 12.
 struct DiffSnippet: View {
     let call: ACPToolCall
-    let changeSet: DiffChangeSet
+    /// One file per diff of the call with its preview lines, computed once off the main
+    /// thread (`ChatDiffCache`); nil while it computes (the header shows, the lines follow).
+    let previews: [ChatDiffCache.EditPreview]?
+    /// The turn's changes, built when the diff opens (not per body), off the main thread.
+    let changeSet: () async -> DiffChangeSet
     @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
-    @State private var showAll = false
+    @Environment(\.chatDisclosures) private var disclosures
+    @State private var localShowAll = false
+    private var showAll: Bool { disclosures?.isOpen("diff-\(call.id)") ?? localShowAll }
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
     /// Settings → Terminal → Wrap code and diff lines.
     @AppStorage(CmuxMobilePreferences.Key.wrapCode) private var wrapCode = CmuxMobilePreferences.defaultWrapCode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(files, id: \.id) { file in
-                card(file)
+            if let previews {
+                ForEach(previews, id: \.file.id) { preview in
+                    card(preview)
+                }
+            } else {
+                ForEach(Array(call.diffs.enumerated()), id: \.offset) { _, diff in
+                    pendingCard(path: diff.path, added: diff.oldText == nil)
+                }
             }
         }
     }
 
-    private var files: [DiffFile] {
-        call.diffs.map { DiffFile(path: $0.path, edits: [($0.oldText, $0.newText)]) }
+    /// The card's header while the diff computes (a large rewrite takes a moment).
+    private func pendingCard(path: String, added: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: added ? "doc.badge.plus" : "pencil").font(.system(size: 13))
+            Text(added ? "Created" : "Edited").font(.footnote.weight(.medium))
+            Text((path as NSString).lastPathComponent).font(.footnote.monospaced().weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+            Spacer(minLength: 4)
+            ProgressView().controlSize(.mini)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
-    private func card(_ file: DiffFile) -> some View {
-        let preview = file.unifiedPreview(maxLines: showAll ? 400 : 12)
+    /// Opens the diff once the turn's changes are ready (the cache has them, or computes
+    /// them off the main thread).
+    private func open(_ fileID: String) {
+        let changeSet = changeSet
+        let openDiff = openDiff
+        Task { @MainActor in openDiff(await changeSet(), file: fileID) }
+    }
+
+    private func card(_ edit: ChatDiffCache.EditPreview) -> some View {
+        let file = edit.file
+        let preview = showAll ? edit.long : edit.short
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                openDiff(changeSet, file: file.id)
+                open(file.id)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: call.isRunning ? "pencil" : (file.status == .added ? "doc.badge.plus" : "pencil"))
@@ -317,7 +373,9 @@ struct DiffSnippet: View {
             .trailingOverflowFade()
             if preview.remaining > 0 {
                 Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
-                    withAnimation(.cmuxMobileSmooth) { showAll = true }
+                    withAnimation(.cmuxMobileSmooth) {
+                        if let disclosures { disclosures.set("diff-\(call.id)", true) } else { localShowAll = true }
+                    }
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -332,7 +390,7 @@ struct DiffSnippet: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
         }
         .contextMenu {
-            Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
             if openFile.isAvailable, file.status != .deleted {
                 Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
             }

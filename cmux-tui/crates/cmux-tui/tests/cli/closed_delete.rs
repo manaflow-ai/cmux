@@ -373,7 +373,7 @@ fn a_reopen_during_a_restart_does_not_wait_behind_other_adoptions() {
     server.wait_for_socket();
 
     let before_reopen = tab_ids(&server);
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let reopened = state_cli(&server, None, &["closed", &closed_id, "reopen"]);
     let took = started.elapsed();
     let restored_tab = new_tab(&before_reopen, &tab_ids(&server));
@@ -387,12 +387,12 @@ fn a_reopen_during_a_restart_does_not_wait_behind_other_adoptions() {
         .expect("reopened tab is present in the snapshot");
     assert_eq!(tab["content_id"], split_terminal.as_str(), "{restored}");
     assert!(
-        took < std::time::Duration::from_millis(3_000),
+        took < Duration::from_millis(3_000),
         "the reopen waited {took:?} for its kept terminal behind the other adoptions' turns"
     );
     // The busy workspace's terminals still adopt in held turns (two waves of
     // 5 s); the fixture can close them only once they are running.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let terminals = state_cli(&server, None, &["terminal", "list"]);
         let all_running =
@@ -400,8 +400,8 @@ fn a_reopen_during_a_restart_does_not_wait_behind_other_adoptions() {
         if all_running {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "terminals never adopted: {terminals}");
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(Instant::now() < deadline, "terminals never adopted: {terminals}");
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

@@ -218,7 +218,7 @@ import QuartzCore
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.detailedStatus = host.model.detailedStatus
         model.showsTimestamps = host.model.showsTimestamps
-        model.showsColors = host.model.showsColors
+        (model.showsColors, model.colorIndicator) = (host.model.showsColors, host.model.colorIndicator)
         model.showsLocalMachine = host.model.showsLocalMachine
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID

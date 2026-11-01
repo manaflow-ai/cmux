@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 /// `.build/palette-large-text.png` in the package) for the PR: Search on the left, the command
 /// list on the right.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteLargeTextTests {
     private struct Case {
         let tokens: DensityTokens
@@ -42,11 +43,11 @@ struct PaletteLargeTextTests {
         commands.show(.commands)
         await commands.model.settle()
         defer {
-            search.hide()
-            commands.hide()
+            search.closeForTest()
+            commands.closeForTest()
         }
         var windows: [NSWindow] = []
-        defer { windows.forEach { $0.close() } }
+        defer { windows.forEach { $0.closeAfterTest() } }
         var images: [(String, NSImage)] = []
         for item in Self.cases {
             try DensityTokens.$scoped.withValue(item.tokens) {
@@ -64,7 +65,7 @@ struct PaletteLargeTextTests {
         let search = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
         #expect(search.show(scope: PaletteScopeID.search))
         await search.model.settle()
-        defer { search.hide() }
+        defer { search.closeForTest() }
         try Self.checkLiveTextSizeChange(search.model, rows: 0)
     }
 
@@ -75,13 +76,13 @@ struct PaletteLargeTextTests {
         let commands = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
         commands.show(.commands)
         await commands.model.settle()
-        defer { commands.hide() }
+        defer { commands.closeForTest() }
         try Self.checkLiveTextSizeChange(commands.model, rows: 5)
     }
 
     private static func checkLiveTextSizeChange(_ model: PaletteModel, rows: Int) throws {
         var windows: [NSWindow] = []
-        defer { windows.forEach { $0.close() } }
+        defer { windows.forEach { $0.closeAfterTest() } }
         let view = DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let view = PaletteContentView(model: model)
             host(view, windows: &windows)

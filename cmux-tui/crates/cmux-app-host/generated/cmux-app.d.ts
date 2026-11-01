@@ -66,10 +66,10 @@ declare namespace Cmux {
   type CloudEnvironmentVariable = unknown
   type CloudGroup = { id: Cmux.GroupId; name: string; created_by: Cmux.UserId; created_at: number; archived: boolean; default_placement: "local" | "mini" | "cloud_vm"; item_count: number; role: "owner" | "edit" | "view" }
   type CloudGroupItem = { workspace: Cmux.GroupWorkspaceId; title?: string; placement: Cmux.GroupPlacement; position: number; added_by: Cmux.UserId; added_at: number }
-  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; revision: Cmux.Revision }
+  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; running_since?: number | null; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
-  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown; period_end: number } }
+  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; period_end: number } }
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; revision: Cmux.Revision }
   type CodeRef = { commit: Cmux.CommitSha; path: string; export?: string }
   type ColorHex = string
@@ -1693,7 +1693,7 @@ interface CmuxGlobal {
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
+    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
     /** `workspace.ensure_app` (mutation, scope `workspace:write`) */
     ensure_app: CmuxOp<{ machine?: string; session?: string; app: string; route?: string; name?: string }, Cmux.MutationResult<Cmux.CreatedWorkspaceOnly>>
     /** `workspace.ensure_home` (mutation, scope `workspace:write`) */

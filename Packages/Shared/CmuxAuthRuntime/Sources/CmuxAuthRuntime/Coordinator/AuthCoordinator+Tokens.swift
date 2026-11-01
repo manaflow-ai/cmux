@@ -41,6 +41,7 @@ extension AuthCoordinator {
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
+            authLog.error("Access token unavailable and no refresh token survives; clearing auth state and routing to login")
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }
@@ -351,6 +352,7 @@ extension AuthCoordinator {
             if sessionTokenTransitionIsActive {
                 throw AuthError.networkError
             }
+            authLog.error("Forced token refresh failed and no refresh token survives; clearing auth state and routing to login")
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }

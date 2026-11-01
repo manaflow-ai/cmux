@@ -2225,7 +2225,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let dy = y - lastScrollOffset
         lastScrollOffset = y
         if dy != 0 { morphs.values.forEach { $0.scroll(by: dy) }; fadingMorphs.values.forEach { $0.0.scroll(by: dy) } }
-        let back = max(0, pinnedOffset - y)
+        // cmux: an empty transcript is at its newest message wherever the clip is. A layout pass that
+        // moves the clip before a chat's first page (an unpinned Chief opened from Home's list) must
+        // not unpin it, or that page's rebuild lands at the top (https://github.com/manaflow-ai/cmux/issues/26397).
+        // A streaming first reply is something to scroll back through, so it does not count as empty.
+        let empty = store.state.conversation.messages.isEmpty && store.state.ui.streams.isEmpty
+        let back = empty ? 0 : max(0, pinnedOffset - y)
         let pinned = back < 1 && store.state.atNewest
         if pinned != store.state.ui.scroll.pinnedToBottom || abs(back - store.state.ui.scroll.offset) > 0.5 {
             store.dispatch(.setScroll(offset: back, pinned: pinned))

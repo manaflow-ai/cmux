@@ -33,7 +33,7 @@
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 136,
+   "acpmux": 134,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -161,7 +161,7 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,
     "CmuxNextCrashReporting": 11,
-    "CmuxNextDesign": 3,
+    "CmuxNextDesign": 5,
     "CmuxNextFiles": 2,
     "CmuxNextFilesUI": 1,
     "CmuxNextHome": 1,

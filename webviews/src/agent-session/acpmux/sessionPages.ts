@@ -5,6 +5,8 @@
 // session, so the list is always read to the end. A daemon that ignores `limit` answers the whole
 // list with no cursor, as before, or (past its largest reply) its first rows and a cursor.
 
+import { translate } from "./i18n";
+
 /** Sessions in one reply: the first page, and each later one. */
 export const SESSION_PAGE = 200;
 /** Later pages one list reads at most (a million sessions) before reading the whole list instead. */
@@ -12,6 +14,14 @@ const MAX_PAGES = 5000;
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
+
+/** A protocol failure whose user-facing text is localized while the wire log keeps its detail. */
+export class SessionPageError extends Error {
+  constructor(readonly detail: string) {
+    super(translate("error.connectFailed"));
+    this.name = "SessionPageError";
+  }
+}
 
 /** A page, and (a first page) the list it starts: its later pages end when a newer list starts.
  * `tab`: a chat on another machine's wire names the session that machine's daemon attached as the
@@ -35,9 +45,13 @@ function pageOf<S extends Summary>(reply: any): SessionPage<S> {
 function wholePageOf<S extends Summary>(reply: any, after?: string): SessionPage<S> {
   const cursor = reply?.nextCursor;
   if (cursor !== undefined && cursor !== null && typeof cursor !== "string")
-    throw new Error(`acpmux gave the page cursor ${JSON.stringify(cursor)}`);
+    throw new SessionPageError(
+      // l10n-allow: diagnostic detail is wire-log only; SessionPageError.message is localized
+      `acpmux gave the page cursor ${JSON.stringify(cursor)}`,
+    );
   if ((after !== undefined || typeof cursor === "string") && !Array.isArray(reply?.sessions))
-    throw new Error(
+    throw new SessionPageError(
+      // l10n-allow: diagnostic detail is wire-log only; SessionPageError.message is localized
       `the ${after === undefined ? "first page" : `page after cursor ${JSON.stringify(after)}`} lists no sessions`,
     );
   return { sessions: pageOf<S>(reply).sessions, ...(typeof cursor === "string" ? { next: cursor } : {}) };
@@ -85,7 +99,11 @@ export class SessionPager<S extends Summary> {
     const sessions = page.sessions;
     const seen = new Set<string>();
     for (let next = page.next; next !== undefined; next = page.next) {
-      if (seen.has(next)) throw new Error(`acpmux gave the page cursor ${JSON.stringify(next)} twice`);
+      if (seen.has(next))
+        throw new SessionPageError(
+          // l10n-allow: diagnostic detail is wire-log only; SessionPageError.message is localized
+          `acpmux gave the page cursor ${JSON.stringify(next)} twice`,
+        );
       seen.add(next);
       page = wholePageOf<S>(await this.request("_acpmux/sessions", { cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);

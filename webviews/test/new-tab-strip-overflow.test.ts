@@ -40,14 +40,17 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const colorScheme of ["light", "dark"] as const) {
-    test(`${colorScheme}: French quick actions at 320px (${phase})`, async () => {
-      page = await browser!.newPage({ viewport: { width: 320, height: 620 }, colorScheme });
+  const cases = [320, 760].flatMap((width) =>
+    (["light", "dark"] as const).map((colorScheme) => ({ width, colorScheme })),
+  );
+  for (const { width, colorScheme } of cases) {
+    test(`${colorScheme}: French quick actions at ${width}px (${phase})`, async () => {
+      page = await browser!.newPage({ viewport: { width, height: 620 }, colorScheme });
       try {
         const url = galleryFrame("agent-pane.new-tab", {
           variant,
           frame: "component",
-          width: 320,
+          width,
           height: 620,
           locale: "fr",
           colorScheme,
@@ -64,6 +67,13 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
           browserLabel,
         );
         await page.evaluate(() => document.fonts.ready);
+        // createStripFit.ts measures the labels and sets data-icons-only from its ResizeObserver;
+        // French needs icons at 320px and reads in full at 760px. Wait for that state to settle.
+        const iconsOnly = width <= 320;
+        await page.waitForFunction(
+          (icons) => document.querySelector(".nt-create-strip")?.hasAttribute("data-icons-only") === icons,
+          iconsOnly,
+        );
         const result = await page.evaluate(() => {
           const rows = document.querySelector<HTMLElement>(".nt-rows")!;
           const viewport = rows.getBoundingClientRect();
@@ -73,6 +83,9 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
             items: [...rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")].map((item) => {
               const rect = item.getBoundingClientRect();
               const glyph = item.querySelector<HTMLElement>(".nt-row-glyph")?.getBoundingClientRect();
+              const title = item.querySelector<HTMLElement>(".nt-row-title")!;
+              // Icon-only hides every title visually but keeps it measurable (screen.css).
+              const labelShown = !item.closest(".nt-create-strip")!.hasAttribute("data-icons-only");
               return {
                 left: rect.left,
                 right: rect.right,
@@ -81,6 +94,10 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
                 height: rect.height,
                 text: item.textContent,
                 label: item.getAttribute("aria-label"),
+                tooltip: item.getAttribute("title") ?? item.getAttribute("data-tooltip"),
+                labelShown,
+                // A label that shows but is wider than its box is cut with an ellipsis.
+                truncated: labelShown && title.scrollWidth > title.clientWidth + 1,
                 role: item.getAttribute("role"),
                 glyphWidth: glyph?.width ?? 0,
                 glyphHeight: glyph?.height ?? 0,
@@ -94,7 +111,7 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         if (captureDir) {
           await mkdir(captureDir, { recursive: true });
           await page.screenshot({
-            path: path.join(captureDir, `new-tab-strip-${phase}-${colorScheme}.png`),
+            path: path.join(captureDir, `new-tab-strip-${phase}-${width}-${colorScheme}.png`),
             animations: "disabled",
           });
         }
@@ -116,8 +133,14 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
           expect(item.right).toBeLessThanOrEqual(result.viewport.right + 1);
           expect(item.hit).toBe(true);
           expect(item.label).toBe(item.text);
+          // A label shows whole or not at all: at 320px the actions are icon-only, wide they read in full.
+          expect(item.truncated).toBe(false);
+          expect(item.labelShown).toBe(!iconsOnly);
         }
-        const browserAction = page.locator(".nt-create-strip-item").filter({ hasText: browserLabel });
+        // A label that reads in full needs no tooltip (#20375, ui/titleTooltips.ts repeatsLabel);
+        // an icon-only action shows its name in the shared tooltip.
+        if (!iconsOnly) return;
+        const browserAction = page.locator(`.nt-create-strip-item[aria-label="${browserLabel}"]`);
         await browserAction.hover();
         await page.waitForFunction(
           (label) =>

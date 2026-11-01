@@ -323,6 +323,7 @@ export function ImageViewer({
             src={image.src}
             alt={image.alt}
             draggable={false}
+            decoding="sync"
             style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
           />
         </div>

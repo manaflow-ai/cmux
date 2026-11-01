@@ -356,7 +356,7 @@ impl WindowState {
                 json!({"full": false, "keys": keys, "rows": changed})
             }
         };
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         let mut message = message;
         if let Some(object) = message.as_object_mut() {
             object.insert("window".into(), json!(self.spec.window));

@@ -426,15 +426,8 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
           }
         }
       };
-      // After the frame paints: a message posted from the frame's callback runs once it is drawn.
-      const after = new MessageChannel();
-      after.port1.onmessage = check;
-      const frame = () => {
-        after.port2.postMessage(0);
-        // raf-read: reads nothing here; the check runs from the MessageChannel message, after the frame paints.
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+      // After every painted frame (`open` installed the painted-frame reader).
+      window.cmuxAfterPaint(check);
     }, FIELD);
   const underButton = (page: Page) =>
     page.evaluate(() => (window as unknown as { underButton: { px: number; note: string } }).underButton);

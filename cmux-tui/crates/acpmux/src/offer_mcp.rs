@@ -20,6 +20,10 @@ pub const SERVER_NAME: &str = "cmux-sessions";
 pub const SESSION_ENV: &str = "ACPMUX_OFFER_SESSION";
 /// Most tasks one `suggest_tasks` call offers.
 pub const MAX_TASKS: usize = 5;
+/// Longest offer title, in characters after trimming (`hub/offers.rs` refuses longer).
+pub const MAX_TITLE_CHARS: usize = 80;
+/// Longest offer prompt, in characters after trimming.
+pub const MAX_PROMPT_CHARS: usize = 20_000;
 
 fn tools() -> Value {
     json!([{
@@ -28,7 +32,7 @@ fn tools() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "What the chip says: a few words, e.g. \"Fix the flaky upload test\" (at most 80 characters)."},
+                "title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS, "description": "What the chip says: a few words, e.g. \"Fix the flaky upload test\" (at most 80 characters)."},
                 "prompt": {"type": "string", "description": "The new chat's first message: the whole task, with the context it needs (files, what you saw). It starts with none of this chat's history."},
                 "worktree": {"type": "boolean", "description": "Start it in a new git worktree of this project, so its changes stay apart from this chat's. Default false."},
                 "cwd": {"type": "string", "description": "The folder it runs in, as an absolute path. Default: this chat's folder."},
@@ -51,7 +55,7 @@ fn tools() -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string", "description": "What the card says: a few words, e.g. \"Add tests for the cart total\" (at most 80 characters)."},
+                            "title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS, "description": "What the card says: a few words, e.g. \"Add tests for the cart total\" (at most 80 characters)."},
                             "prompt": {"type": "string", "description": "The new chat's first message: the whole task, with the context it needs (files, what you saw)."},
                             "worktree": {"type": "boolean", "description": "Start it in a new git worktree of this project, so its changes stay apart from this chat's. Default false."},
                             "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the user's default agent."},
@@ -100,7 +104,9 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             }
         }
         "suggest_tasks" => suggest_tasks(daemon, session, &request).await,
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 
@@ -110,8 +116,11 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
         Some(tasks) if (1..=MAX_TASKS).contains(&tasks.len()) => tasks,
         _ => return error_result(format!("tasks must list 1 to {MAX_TASKS} tasks")),
     };
-    if !tasks.iter().all(Value::is_object) {
-        return error_result("each task must be an object".to_owned());
+    // Checked before any is offered, so a bad task leaves no partial card.
+    for (n, task) in tasks.iter().enumerate() {
+        if let Err(e) = check_task(task) {
+            return error_result(format!("task {} {e} (none was offered)", n + 1));
+        }
     }
     let nonce: String = crate::hub::person::new_nonce().chars().take(16).collect();
     let group = format!("g-{nonce}");
@@ -131,7 +140,11 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
                 } else {
                     format!("the first {} were offered", offered.len())
                 };
-                return error_result(format!("task {} was refused ({done}): {e:#}", n + 1));
+                // The offers made stay open: say which, so the agent can tell the user.
+                let mut result =
+                    error_result(format!("task {} was refused ({done}): {e:#}", n + 1));
+                result.set("structuredContent", json!({"groupId": group, "offers": offered}));
+                return result;
             }
         }
     }
@@ -141,4 +154,48 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
     );
     let structured = json!({"groupId": group, "offers": offered});
     json!({"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": false})
+}
+
+/// Why the daemon would refuse `task`'s title or prompt, if it would.
+fn check_task(task: &Value) -> Result<(), String> {
+    if !task.is_object() {
+        return Err("must be an object".to_owned());
+    }
+    for (key, max) in [("title", MAX_TITLE_CHARS), ("prompt", MAX_PROMPT_CHARS)] {
+        let len = task[key].as_str().map(|text| text.trim().chars().count()).unwrap_or(0);
+        if !(1..=max).contains(&len) {
+            return Err(format!("{key} must be 1 to {max} characters"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_task_is_checked_as_the_daemon_checks_it() {
+        let task = |title: &str| json!({"title": title, "prompt": "Do it."});
+        assert_eq!(check_task(&task("Fix the flaky upload test")), Ok(()));
+        assert_eq!(check_task(&task(&"é".repeat(MAX_TITLE_CHARS))), Ok(()));
+        let long = check_task(&task(&"a".repeat(MAX_TITLE_CHARS + 1)));
+        assert_eq!(long, Err("title must be 1 to 80 characters".to_owned()));
+        assert!(check_task(&task("   ")).is_err());
+        assert!(check_task(&json!({"title": "No prompt"})).is_err());
+        assert!(check_task(&json!("Fix it")).is_err());
+    }
+
+    #[test]
+    fn both_titles_carry_the_limit_in_the_schema() {
+        let tools = tools();
+        let titles = [
+            &tools[0]["inputSchema"]["properties"]["title"],
+            &tools[1]["inputSchema"]["properties"]["tasks"]["items"]["properties"]["title"],
+        ];
+        for title in titles {
+            assert_eq!(title["maxLength"], MAX_TITLE_CHARS, "{title}");
+            assert_eq!(title["minLength"], 1, "{title}");
+        }
+    }
 }

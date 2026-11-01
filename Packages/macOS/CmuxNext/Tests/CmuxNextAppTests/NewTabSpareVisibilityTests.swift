@@ -64,7 +64,8 @@ struct NewTabSpareVisibilityTests {
             let view = try #require(pool.spare?.view), host = try #require(view.superview)
             // The first remembered cover also uses the injected snapshot, with no compositor.
             view.model.markPainted()
-            try await PasswordManagerRouteTests.until({ view.isHidden })
+            try await PasswordManagerRouteTests.until({ !snapshots.isEmpty })
+            #expect(!view.isHidden, "the parked spare must keep its renderer warm after its cover is captured")
             let frames = AgentPaneNewTabFrame.shared
             let appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
             let initial = try #require(snapshots.last)
@@ -79,13 +80,14 @@ struct NewTabSpareVisibilityTests {
             #expect(!view.isHidden, "the replacement cover cannot be captured from a suspended renderer")
             try await PasswordManagerRouteTests.until({ !nextFrames.isEmpty })
             nextFrames.removeFirst()()
-            try await PasswordManagerRouteTests.until({ !view.redraw.givesNewTabFrame && view.isHidden })
+            try await PasswordManagerRouteTests.until({ !view.redraw.givesNewTabFrame })
+            #expect(!view.isHidden, "the replacement cover must leave the parked renderer warm")
             let cover = try #require(frames.image(size: host.bounds.size, appearance: appearance))
             #expect(cover.isValid && cover.size == host.bounds.size, "the replacement must be a usable cover")
             try #require(snapshots.count == beforeReplacement + 2)
             #expect(cover === snapshots[beforeReplacement], "the shared cover must be the replacement snapshot")
             #expect(view.redraw.takeRememberedFrame(size: view.frame.size, appearance: appearance) === snapshots.last,
-                    "the parked page must remember its replacement cover before sleeping")
+                    "the parked page must remember its replacement cover while staying warm")
 
             // Adoption during another capture invalidates its eventual sleep callback.
             frames.chatsAnswered(.init(chats: [], nextCursor: nil, ready: true, enabled: true, design: captureID + "-adoption"),

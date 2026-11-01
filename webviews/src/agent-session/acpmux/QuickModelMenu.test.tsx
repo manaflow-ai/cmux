@@ -807,3 +807,280 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   expect(text).toBe("No models yet. Refresh to ask the agent again.");
   expect(text).not.toBe("No matching models");
 });
+
+// https://github.com/manaflow-ai/cmux/issues/29915: effort showed only as "Medium >" on the running
+// row; the chat's own tab drew a blank column on its other models until pointed at.
+test("every model row with levels names one at rest, on the chat's own tab too", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  function OwnTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          effort: {
+            current: "high",
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            onPick() {},
+          },
+          families: {
+            current: "claude",
+            onPick() {},
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [
+                  { id: "opus", name: "Opus", family: "claude", efforts: ["low", "high"] },
+                  {
+                    id: "sonnet",
+                    name: "Sonnet",
+                    family: "claude",
+                    efforts: ["low", "medium"],
+                    defaultEffort: "medium",
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OwnTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const rowOf = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+      node.querySelector(".acpmux-menu-label")?.textContent?.includes(name),
+    )!;
+  const opus = rowOf("Opus");
+  expect(opus.hasAttribute("data-running")).toBe(true);
+  expect(opus.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("High");
+  const sonnet = rowOf("Sonnet");
+  expect(sonnet.hasAttribute("data-held")).toBe(true);
+  expect(sonnet.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
+});
+
+// Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING FAST MODE FOR FUCKIGN CODEX". Another tab's
+// models get the same Fast mode row and effort column as the chat's own: the row holds the choice
+// (off as the menu opens) and a model picked there lands with it.
+test("another tab whose models honor Fast mode draws the Fast row and lands its pick with it", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const picks: QuickModel[] = [];
+  function OtherTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          fast: { checked: false, onChange() {} },
+          families: {
+            current: "claude",
+            onPick: (model) => picks.push(model),
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [{ id: "opus", name: "Opus", family: "claude", efforts: ["low", "medium"], canFast: true }],
+              },
+              {
+                id: "codex",
+                name: "Codex",
+                more: [],
+                models: [
+                  {
+                    id: "sol",
+                    name: "Sol",
+                    family: "codex",
+                    efforts: ["low", "medium", "high"],
+                    defaultEffort: "medium",
+                    canFast: true,
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OtherTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!.click());
+  await settle();
+  // The effort column names the level a pick lands, at rest.
+  const row = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  expect(row.hasAttribute("data-held")).toBe(true);
+  expect(row.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("aria-checked")).toBe("false");
+  await act(async () => fast.click());
+  await settle();
+  expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
+  const sol = [...document.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  await act(async () => sol.click());
+  await settle();
+  expect(picks.map(({ id, fast }) => ({ id, fast }))).toEqual([{ id: "sol", fast: true }]);
+});
+
+// Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS SEPARATE
+// HARNESSES" / "THE FUCKING APP SERVER THE FUCKING SR" / "WHERE IS THE FUCKING ACCOUNTS". The
+// symbols row has one tab per model family; a family's routes (direct CLI, the SR route, the app
+// server, a work login) are an Account choice in the menu, never tabs.
+const route = (id: string, name: string, group: string, extra: Partial<QuickFamily> = {}): QuickFamily => ({
+  id,
+  name,
+  group,
+  models: [{ id: `${id}-m`, name: `${name} model`, family: id }],
+  more: [],
+  ...extra,
+});
+const familyRail = [
+  route("claude", "Claude Code", "claude"),
+  route("claude-sr2", "Claude Code (sr2)", "claude"),
+  route("claude-work", "Claude Code (work)", "claude", { launch: true, models: [] }),
+  route("codex", "Codex", "openai"),
+  route("codex-app-server", "Codex (app-server)", "openai"),
+  route("vercel", "Vercel AI Gateway", "vercel"),
+];
+
+test("familyTabs: one tab per model family, its routes in rail order", async () => {
+  const { familyTabs } = await import("./QuickModelMenu");
+  const tabs = familyTabs(familyRail);
+  expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
+    ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
+    ["openai", "Codex", ["codex", "codex-app-server"]],
+    ["vercel", "Vercel AI Gateway", ["vercel"]],
+  ]);
+});
+
+test("searchGroups: a family's routes share one heading and list a model once", async () => {
+  const { searchGroups } = await import("./QuickModelMenu");
+  const found: QuickModel[] = [
+    { id: "opus", name: "Opus", family: "claude-sr2" },
+    { id: "opus", name: "Opus", family: "claude" },
+    { id: "sol", name: "Sol", family: "codex-app-server" },
+  ];
+  const groups = searchGroups(found, familyRail, "claude");
+  expect(groups.map((group) => [group.name, group.rows.map((row) => `${row.family}/${row.id}`)])).toEqual([
+    ["Claude Code", ["claude/opus"]],
+    ["Codex", ["codex-app-server/sol"]],
+  ]);
+});
+
+test("the symbols row draws one tab per family and the Account row switches its route", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const launched: string[] = [];
+  function FamilyHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          models: [],
+          current: "claude-sr2-m",
+          onModel() {},
+          harnessPlacement: "symbols",
+          families: { current: "claude-sr2", onPick() {}, onLaunch: (id) => launched.push(id), list: familyRail },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<FamilyHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const tabNames = () =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)")].map((tab) =>
+      tab.getAttribute("aria-label"),
+    );
+  expect(tabNames()).toEqual(["Claude Code", "Codex", "Vercel AI Gateway"]);
+  // The Claude tab opens on the chat's own route, and the Account row names it.
+  expect(document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.getAttribute("aria-label")).toBe(
+    "Claude Code",
+  );
+  expect(labels(list())).toContain("Claude Code (sr2) model");
+  const account = () => document.querySelector<HTMLElement>(".acpmux-quick-account")!;
+  expect(account().textContent).toContain("Claude Code (sr2)");
+  await act(async () => account().click());
+  await settle();
+  const routes = () => [...document.querySelectorAll<HTMLElement>(".acpmux-quick-route")];
+  expect(routes().map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    "Claude Code",
+    "Claude Code (sr2)",
+    "Claude Code (work)",
+  ]);
+  expect(routes()[1]!.getAttribute("aria-checked")).toBe("true");
+  await act(async () => routes()[0]!.click());
+  await settle();
+  expect(labels(list())).toContain("Claude Code model");
+  expect(labels(list())).not.toContain("Claude Code (sr2) model");
+  // A route with no models of its own starts its harness, as its tab did.
+  if (!document.querySelector(".acpmux-quick-route")) {
+    await act(async () => account().click());
+    await settle();
+  }
+  await act(async () => routes()[2]!.click());
+  await settle();
+  expect(launched).toEqual(["claude-work"]);
+  // Codex is one tab: its default route is its first.
+  if (!document.querySelector(".acpmux-quick-account")) {
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+    await settle();
+  }
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!.click());
+  await settle();
+  expect(labels(list())).toContain("Codex model");
+  expect(account().textContent).toContain("Codex");
+});

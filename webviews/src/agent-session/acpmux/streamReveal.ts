@@ -46,7 +46,7 @@ export class StreamReveal {
   private gaps: number[] = [];
   private smoothedRate = 0;
   private drainUntil: number | undefined;
-  private readonly reduceMotion: boolean;
+  private reduceMotion: boolean;
 
   constructor(options: StreamRevealOptions = {}) {
     this.shown = options.initial?.length ?? 0;
@@ -62,6 +62,16 @@ export class StreamReveal {
   /// Shows everything now (a hidden page, a session switch).
   flush(): void {
     this.shown = this.received;
+  }
+
+  /// Reduce Motion changed while the row is mounted: on, all of `text` (the latest, which may not
+  /// have reached `advance` yet) shows now and later text shows as it arrives; off, only text after
+  /// it is paced.
+  setReduceMotion(on: boolean, text: string): void {
+    this.reduceMotion = on;
+    if (!on) return;
+    this.received = Math.max(this.received, text.length);
+    this.flush();
   }
 
   /// The visible length of `text` for the frame at `now` (ms); `done` when the stream ended.

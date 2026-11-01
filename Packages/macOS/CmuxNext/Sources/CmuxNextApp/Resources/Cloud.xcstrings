@@ -2953,6 +2953,138 @@
         }
       }
     },
+    "cloud.progress.next.resuming": {
+      "comment": "The progress card's line under a Cloud machine that cmux Cloud is starting again after a pause.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud is starting this machine again. It connects once it runs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقوم cmux Cloud بتشغيل هذا الجهاز مرة أخرى. يتصل بمجرد تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ponovo pokreće ovu mašinu. Povezaće se čim se pokrene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud starter denne maskine igen. Den forbinder, så snart den kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud startet diese Maschine wieder. Sie verbindet sich, sobald sie läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud está iniciando esta máquina de nuevo. Se conecta en cuanto esté en marcha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud redémarre cette machine. Elle se connecte dès qu'elle tourne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sta riavviando questa macchina. Si connette appena è in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud がこのマシンを再び起動しています。起動するとすぐに接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud កំពុងចាប់ផ្ដើមម៉ាស៊ីននេះម្ដងទៀត។ វានឹងភ្ជាប់នៅពេលវាដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud가 이 머신을 다시 시작하고 있습니다. 실행되면 바로 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud starter denne maskinen igjen. Den kobler til så snart den kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ponownie uruchamia tę maszynę. Połączy się, gdy tylko zacznie działać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud está iniciando esta máquina novamente. Ela se conecta assim que estiver em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud снова запускает эту машину. Она подключится, как только заработает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud กำลังเริ่มเครื่องนี้อีกครั้ง เครื่องจะเชื่อมต่อทันทีที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu makineyi yeniden başlatıyor. Çalışır çalışmaz bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud знову запускає цю машину. Вона підключиться, щойно запрацює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud đang khởi động lại máy này. Máy sẽ kết nối ngay khi chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在再次启动该机器。它运行后即会连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在再次啟動此機器。它執行後即會連線。"
+          }
+        }
+      }
+    },
     "cloud.progress.stage.booting": {
       "extractionState": "manual",
       "localizations": {
@@ -3215,6 +3347,138 @@
         }
       }
     },
+    "cloud.progress.stage.pausing": {
+      "comment": "A Cloud machine's stage while cmux Cloud pauses it (the server accepted Pause Machine and the VM is not paused yet). Shown in the sidebar row and the progress card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausing…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الإيقاف المؤقت…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauziranje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sætter på pause…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird pausiert …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise en pause…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messa in pausa…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្អាក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일시 정지 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settes på pause …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymywanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановка…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังหยุดชั่วคราว…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупинення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tạm dừng…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在暂停…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在暫停…"
+          }
+        }
+      }
+    },
     "cloud.progress.stage.ready": {
       "extractionState": "manual",
       "localizations": {
@@ -3342,6 +3606,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "就緒"
+          }
+        }
+      }
+    },
+    "cloud.progress.stage.deleting": {
+      "comment": "A Cloud machine's stage while cmux Cloud deletes it (the server accepted Kill Machine and the VM is not gone yet). Shown in the sidebar row and the progress card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الحذف…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brisanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sletter…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gelöscht …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppression…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminazione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងលុប…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sletter …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuwanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluindo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаление…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังลบ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siliniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видалення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang xóa…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在删除…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在刪除…"
           }
         }
       }
@@ -4001,6 +4397,138 @@
         }
       }
     },
+    "cloud.progress.next.pausing": {
+      "comment": "The progress card's line under a Cloud machine that cmux Cloud is pausing. Resume is the Resume Machine action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud is pausing this machine. Its disk and session are kept. Resume works once it is paused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقوم cmux Cloud بإيقاف هذا الجهاز مؤقتًا. يتم الاحتفاظ بقرصه وجلسته. يعمل الاستئناف بعد إيقافه مؤقتًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud pauzira ovu mašinu. Njen disk i sesija su sačuvani. Nastavi radi kada bude pauzirana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sætter denne maskine på pause. Dens disk og session bevares. Genoptag virker, når den er sat på pause."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud pausiert diese Maschine. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ geht, sobald sie pausiert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud está pausando esta máquina. Se conservan su disco y su sesión. Reanudar funciona cuando esté en pausa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud met cette machine en pause. Son disque et sa session sont conservés. Reprendre fonctionne une fois qu'elle est en pause."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sta mettendo in pausa questa macchina. Il disco e la sessione sono conservati. Riprendi funziona quando è in pausa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud がこのマシンを一時停止しています。ディスクとセッションは保持されます。一時停止が完了すると「再開」できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud កំពុងផ្អាកម៉ាស៊ីននេះ។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត អាចប្រើបាននៅពេលវាផ្អាករួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud가 이 머신을 일시 정지하고 있습니다. 디스크와 세션은 유지됩니다. 일시 정지되면 재개할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud setter denne maskinen på pause. Disken og økten beholdes. Gjenoppta virker når den er satt på pause."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud wstrzymuje tę maszynę. Jej dysk i sesja są zachowane. Wznów zadziała, gdy będzie wstrzymana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud está pausando esta máquina. O disco e a sessão dela são mantidos. Retomar funciona quando ela estiver pausada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud приостанавливает эту машину. Её диск и сеанс сохранены. «Возобновить» сработает, когда она будет приостановлена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud กำลังหยุดเครื่องนี้ชั่วคราว ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อได้เมื่อหยุดชั่วคราวแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu makineyi duraklatıyor. Diski ve oturumu korunur. Sürdür, makine duraklatıldığında çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud призупиняє цю машину. Її диск і сеанс збережено. «Відновити» спрацює, коли її буде призупинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud đang tạm dừng máy này. Ổ đĩa và phiên của máy được giữ lại. Có thể Tiếp tục khi máy đã tạm dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在暂停该机器。它的磁盘和会话均会保留。暂停完成后即可“恢复”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在暫停此機器。它的磁碟和工作階段均會保留。暫停完成後即可「繼續」。"
+          }
+        }
+      }
+    },
     "cloud.progress.next.ready": {
       "extractionState": "manual",
       "localizations": {
@@ -4259,6 +4787,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增雲端工作區"
+          }
+        }
+      }
+    },
+    "cloud.progress.stage.resuming": {
+      "comment": "A Cloud machine's stage while cmux Cloud starts it again (the server accepted Resume Machine and the VM is not running yet). Shown in the sidebar row and the progress card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resuming…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستئناف…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavljanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genoptager…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird fortgesetzt …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprise…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripresa…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងបន្ត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopptar …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznawianie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возобновление…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังดำเนินการต่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sürdürülüyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновлення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tiếp tục…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在繼續…"
           }
         }
       }
@@ -14092,138 +14752,6 @@
         }
       }
     },
-    "cloud.upload.refused": {
-      "comment": "A Cloud chat upload refused before sending: too big, too many, or not a regular file. %1$@ is the per-file limit and %2$@ the total limit, as sizes (e.g. “32 MB”).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Mac won't send that file to the Cloud machine: send regular files of up to %1$@ each, %2$@ in all."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لن يرسل هذا الـ Mac ذلك الملف إلى جهاز Cloud: أرسل ملفات عادية لا يتجاوز كل منها %1$@، و%2$@ إجمالًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj Mac neće poslati tu datoteku na Cloud mašinu: šaljite obične datoteke do %1$@ svaka, ukupno do %2$@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne Mac sender ikke den fil til Cloud-maskinen: send almindelige filer på højst %1$@ hver og %2$@ i alt."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Mac sendet diese Datei nicht an die Cloud-Maschine: Sende normale Dateien bis %1$@ pro Datei und %2$@ insgesamt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este Mac no enviará ese archivo a la máquina de Cloud: envía archivos normales de hasta %1$@ cada uno y %2$@ en total."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce Mac n’enverra pas ce fichier à la machine Cloud : envoyez des fichiers ordinaires de %1$@ maximum chacun, %2$@ au total."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questo Mac non invierà quel file alla macchina Cloud: invia file normali fino a %1$@ ciascuno, %2$@ in totale."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac はそのファイルを Cloud マシンに送信しません。通常のファイルを 1 つあたり %1$@ まで、合計 %2$@ まで送信してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac នេះនឹងមិនផ្ញើឯកសារនោះទៅម៉ាស៊ីន Cloud ទេ៖ ផ្ញើឯកសារធម្មតាដែលមិនលើស %1$@ ក្នុងមួយឯកសារ និង %2$@ សរុប។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac은 해당 파일을 Cloud 머신으로 보내지 않습니다. 일반 파일을 파일당 %1$@, 합계 %2$@까지 보내세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne Macen sender ikke den filen til Cloud-maskinen: send vanlige filer på opptil %1$@ hver, %2$@ totalt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten Mac nie wyśle tego pliku do maszyny Cloud: wysyłaj zwykłe pliki do %1$@ każdy, łącznie do %2$@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este Mac não enviará esse arquivo para a máquina do Cloud: envie arquivos comuns de até %1$@ cada, %2$@ no total."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот Mac не отправит этот файл на машину Cloud: отправляйте обычные файлы размером до %1$@ каждый, всего до %2$@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac เครื่องนี้จะไม่ส่งไฟล์นั้นไปยังเครื่อง Cloud ส่งไฟล์ปกติได้ไฟล์ละไม่เกิน %1$@ รวมไม่เกิน %2$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac o dosyayı Cloud makinesine göndermeyecek: her biri en fazla %1$@, toplamda en fazla %2$@ olan normal dosyalar gönderin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей Mac не надішле цей файл на машину Cloud: надсилайте звичайні файли до %1$@ кожен, загалом до %2$@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máy Mac này sẽ không gửi tệp đó đến máy Cloud: hãy gửi tệp thông thường, tối đa %1$@ mỗi tệp và %2$@ tổng cộng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 不会将该文件发送到 Cloud 机器：请发送普通文件，每个不超过 %1$@，总计不超过 %2$@。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這台 Mac 不會將該檔案傳送到 Cloud 機器：請傳送一般檔案，每個不超過 %1$@，總計不超過 %2$@。"
-          }
-        }
-      }
-    },
     "chat.upload.localFailed": {
       "comment": "Agent chat composer notice when a dropped or pasted file could not be saved on this Mac for a local chat.",
       "extractionState": "manual",
@@ -14878,6 +15406,534 @@
           "stringUnit": {
             "state": "translated",
             "value": "此對話已移至 Cloud，但它在那裡的分頁未開啟。請重試以開啟。"
+          }
+        }
+      }
+    },
+    "cloud.machine.busy.deleting": {
+      "comment": "Why Pause, Resume or Kill Machine is unavailable while cmux Cloud is still deleting the Cloud machine. Shown as the disabled menu row's reason and as a refusal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is being deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم حذف هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mašina se briše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskine slettes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine wird gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina se está eliminando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en cours de suppression."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina è in fase di eliminazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは削除中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននេះកំពុងត្រូវបានលុប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신을 삭제하는 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskinen slettes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna jest usuwana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está sendo excluída."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта машина удаляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องนี้กำลังถูกลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makine siliniyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця машина видаляється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy này đang bị xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该机器正在删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器正在刪除。"
+          }
+        }
+      }
+    },
+    "cloud.machine.busy.pausing": {
+      "comment": "Why Pause, Resume or Kill Machine is unavailable while cmux Cloud is still pausing the Cloud machine. Shown as the disabled menu row's reason and as a refusal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is pausing. Try again once it is paused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم إيقاف هذا الجهاز مؤقتًا. حاول مرة أخرى بعد إيقافه مؤقتًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mašina se pauzira. Pokušajte ponovo kada bude pauzirana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskine sættes på pause. Prøv igen, når den er sat på pause."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine wird pausiert. Versuche es erneut, sobald sie pausiert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina se está pausando. Vuelve a intentarlo cuando esté en pausa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en cours de mise en pause. Réessayez une fois qu'elle est en pause."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina è in fase di pausa. Riprova quando è in pausa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは一時停止中です。一時停止が完了してからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននេះកំពុងផ្អាក។ សូមព្យាយាមម្ដងទៀតនៅពេលវាផ្អាករួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신을 일시 정지하는 중입니다. 일시 정지된 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskinen settes på pause. Prøv igjen når den er satt på pause."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna jest wstrzymywana. Spróbuj ponownie, gdy będzie wstrzymana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está sendo pausada. Tente novamente quando ela estiver pausada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта машина приостанавливается. Повторите попытку, когда она будет приостановлена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องนี้กำลังหยุดชั่วคราว ลองอีกครั้งเมื่อหยุดชั่วคราวแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makine duraklatılıyor. Duraklatıldığında yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця машина призупиняється. Спробуйте ще раз, коли її буде призупинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy này đang tạm dừng. Hãy thử lại khi máy đã tạm dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该机器正在暂停。请在暂停完成后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器正在暫停。請在暫停完成後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.machine.busy.resuming": {
+      "comment": "Why Pause or Resume Machine is unavailable while cmux Cloud is still starting the Cloud machine again. Shown as the disabled menu row's reason and as a refusal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is resuming. Try again once it is running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم استئناف هذا الجهاز. حاول مرة أخرى بعد تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mašina se nastavlja. Pokušajte ponovo kada bude pokrenuta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskine genoptages. Prøv igen, når den kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine wird fortgesetzt. Versuche es erneut, sobald sie läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina se está reanudando. Vuelve a intentarlo cuando esté en marcha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en cours de reprise. Réessayez une fois qu'elle tourne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina è in fase di ripresa. Riprova quando è in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは再開中です。起動してからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននេះកំពុងបន្ត។ សូមព្យាយាមម្ដងទៀតនៅពេលវាដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신을 재개하는 중입니다. 실행된 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne maskinen gjenopptas. Prøv igjen når den kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna jest wznawiana. Spróbuj ponownie, gdy będzie działać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está sendo retomada. Tente novamente quando ela estiver em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта машина возобновляется. Повторите попытку, когда она заработает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องนี้กำลังดำเนินการต่อ ลองอีกครั้งเมื่อเครื่องทำงานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makine sürdürülüyor. Çalıştığında yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця машина відновлюється. Спробуйте ще раз, коли вона запрацює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy này đang tiếp tục. Hãy thử lại khi máy đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该机器正在恢复。请在它运行后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器正在繼續。請在它執行後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.machine.changeFailed": {
+      "comment": "A line in a Cloud machine's sidebar header tooltip when cmux Cloud's last pause, resume or resize of it failed after the server accepted it; %@ is the server's reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The last change to this machine failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل آخر تغيير على هذا الجهاز: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posljednja promjena ove mašine nije uspjela: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den seneste ændring af denne maskine mislykkedes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die letzte Änderung an dieser Maschine ist fehlgeschlagen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falló el último cambio de esta máquina: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dernière modification de cette machine a échoué : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'ultima modifica a questa macchina non è riuscita: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンへの最後の変更に失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរចុងក្រោយលើម៉ាស៊ីននេះបានបរាជ័យ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신의 마지막 변경에 실패했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den siste endringen av denne maskinen mislyktes: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnia zmiana tej maszyny się nie powiodła: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A última alteração desta máquina falhou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последнее изменение этой машины не удалось: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนแปลงล่าสุดของเครื่องนี้ล้มเหลว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makinedeki son değişiklik başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остання зміна цієї машини не вдалася: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay đổi gần nhất của máy này không thành công: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对该机器的最近一次更改失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對此機器的最近一次變更失敗：%@"
           }
         }
       }
@@ -16189,6 +17245,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "此機器閒置一段時間後，cmux Cloud 已將其暫停。它的磁碟和工作階段均已保留。按一下「繼續」即可再次啟動。"
+          }
+        }
+      }
+    },
+    "cloud.progress.next.deleting": {
+      "comment": "The progress card's line under a Cloud machine that cmux Cloud is deleting (Kill Machine).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud is deleting this machine and its disk."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقوم cmux Cloud بحذف هذا الجهاز وقرصه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud briše ovu mašinu i njen disk."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sletter denne maskine og dens disk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud löscht diese Maschine und ihre Festplatte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud está eliminando esta máquina y su disco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud supprime cette machine et son disque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sta eliminando questa macchina e il suo disco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud がこのマシンとそのディスクを削除しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud កំពុងលុបម៉ាស៊ីននេះ និងថាសរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud가 이 머신과 디스크를 삭제하고 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sletter denne maskinen og disken dens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud usuwa tę maszynę i jej dysk."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud está excluindo esta máquina e o disco dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud удаляет эту машину и её диск."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud กำลังลบเครื่องนี้และดิสก์ของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu makineyi ve diskini siliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud видаляє цю машину та її диск."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud đang xóa máy này và ổ đĩa của máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在删除该机器及其磁盘。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 正在刪除此機器及其磁碟。"
           }
         }
       }

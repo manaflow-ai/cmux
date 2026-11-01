@@ -6,7 +6,10 @@
 // ("stopped by you", "interrupted by Send now"; subagentFold.ts `stopReasonOf`), nothing when it
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
-// hover row's buttons (conversation/MessageActions.tsx).
+// hover row's buttons (conversation/MessageActions.tsx). The line keeps the transcript's one row
+// grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, then the
+// trailing column, its duration, then the chevron, so the duration and the chevron line up with
+// the rows around it (Leo 2026-10-29: "this ui isn't consistent :(").
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
@@ -14,14 +17,16 @@
 // A refusal leaves a short note after the line until the row next changes.
 import { createContext, useContext, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { AgentTag } from "../conversation/AgentTag";
+import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { formatDuration } from "../conversation/turns";
-import { Retry, Spinner } from "../conversation/icons";
+import { ChevronRight, Retry, Spinner } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow } from "../model";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
+import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
@@ -80,16 +85,19 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
       ? restartSubagent
       : undefined;
-  const parts = waiting
+  const head = waiting
     ? [agent.name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
         ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
-        time,
-        // Why it failed, as acpmux recorded it, last: the line cuts it first.
-        ...(error ? [error] : []),
       ];
+  // Why it failed, as acpmux recorded it, last: the line cuts it first.
+  const parts = [...head, ...(error && !waiting ? [error] : [])];
+  const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
+  // The duration is the trailing column's, never part of the sentence; the tooltip and the
+  // button's name still read the whole line with it.
+  const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
   const run = () => {
     if (!retryAgent || shown?.busy) return;
@@ -111,64 +119,84 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     </button>
   );
   return (
-    <div className="cv-tools cv-subagent-done-row">
-      <button
-        type="button"
-        className="cv-tool cv-bgtask cv-subagent-done"
-        data-state={waiting ? "retrying" : agent.state}
-        {...(agent.stopReason && { "data-reason": agent.stopReason })}
-        disabled={!open}
-        onClick={() => open?.(agent.id)}
+    <div className="cv-tools">
+      <TranscriptActivityRowShell
+        className="cv-tool cv-subagent-done-row"
+        attributes={{ "data-state": waiting ? "retrying" : agent.state }}
       >
-        <span className="cv-tool__icon">
-          {waiting ? (
-            <Spinner size={16} loading />
-          ) : (
-            <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
-          )}
-        </span>
-        {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
-        <span className="cv-tool__text" title={parts.join(" · ")}>
-          {parts.join(" · ")}
-        </span>
-      </button>
-      {inline}
-      {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
-      {(restart || action) && (
-        <span className="cv-subagent-done__actions">
-          {restart && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-              aria-label={t("subagents.restart")}
-              title={t("subagents.restart")}
-              data-tooltip-detail={t("subagents.restartDetail")}
-              onClick={() => restart(agent)}
-            >
-              <Retry size={14} />
-            </button>
-          )}
-          {action && (
-            <Menu>
-              <MenuButton
-                className="cv-iconbtn cv-iconbtn--compact"
-                data-menu="subagent-done"
-                label={t("retry.menu")}
-                title={t("retry.menu")}
-                aria-haspopup="menu"
+        <button
+          type="button"
+          className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
+          data-state={waiting ? "retrying" : agent.state}
+          {...(agent.stopReason && { "data-reason": agent.stopReason })}
+          aria-label={whole}
+          disabled={!open}
+          onClick={() => open?.(agent.id)}
+        >
+          <span className="cv-tool__icon">
+            {waiting ? (
+              <Spinner size={16} loading />
+            ) : (
+              <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
+            )}
+          </span>
+          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
+          <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
+            {!waiting && before}
+            <AgentTag name={agent.name} />
+            {!waiting && after}
+            {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
+          </span>
+        </button>
+        {inline}
+        {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
+        {(restart || action) && (
+          <span className="cv-subagent-done__actions">
+            {restart && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+                aria-label={t("subagents.restart")}
+                title={t("subagents.restart")}
+                data-tooltip-detail={t("subagents.restartDetail")}
+                onClick={() => restart(agent)}
               >
-                <Icon name="action.more" size={14} />
-              </MenuButton>
-              <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                {/* The one Retry the row offers: acpmux's, or asking the chat's agent where acpmux can't. */}
-                <MenuItem className="acpmux-quick-item" onSelect={run}>
-                  {t(ACTION_LABEL[action])}
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          )}
+                <Retry size={14} />
+              </button>
+            )}
+            {action && (
+              <Menu>
+                <MenuButton
+                  className="cv-iconbtn cv-iconbtn--compact"
+                  data-menu="subagent-done"
+                  label={t("retry.menu")}
+                  title={t("retry.menu")}
+                  aria-haspopup="menu"
+                >
+                  <Icon name="action.more" size={14} />
+                </MenuButton>
+                <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
+                  {/* The one Retry the row offers: acpmux's, or asking the chat's agent where acpmux can't. */}
+                  <MenuItem className="acpmux-quick-item" onSelect={run}>
+                    {t(ACTION_LABEL[action])}
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            )}
+          </span>
+        )}
+        <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
+          {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
-      )}
+        {/* The chevron only marks that the line opens; the line's button is the one control. Its
+            column holds on a line that opens nothing, so the columns still line up. */}
+        <span
+          className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
+          aria-hidden
+        >
+          <ChevronRight size={14} strokeWidth={1.2} />
+        </span>
+      </TranscriptActivityRowShell>
     </div>
   );
 }

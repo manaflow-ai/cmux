@@ -40,11 +40,22 @@ public final class RowSwipeActions {
 
     /// Whether a visible `List` (table or collection view) under `root` has
     /// a row slid open on its swipe actions: a cell away from its laid-out place.
+    /// A vertical list's cells are not walked (no list of rows lives inside a
+    /// row): the walk runs on every touch-down that could open the drawer, and a
+    /// list's cells hold most of the screen's views.
     public static func hasOpenListRow(in root: UIView) -> Bool {
         guard !root.isHidden, root.alpha > 0.01, root.window != nil else { return false }
-        if let collection = root as? UICollectionView, hasOpenRow(collection) { return true }
-        if let table = root as? UITableView, hasOpenRow(table) { return true }
+        if let collection = root as? UICollectionView {
+            if hasOpenRow(collection) { return true }
+            if isVerticalList(collection) { return false }
+        }
+        if let table = root as? UITableView { return hasOpenRow(table) }
         return root.subviews.contains { hasOpenListRow(in: $0) }
+    }
+
+    /// No sideways scrolling: a List, not a grid row, pager or carousel.
+    private static func isVerticalList(_ collection: UICollectionView) -> Bool {
+        collection.bounds.width > 1 && collection.contentSize.width <= collection.bounds.width + 1
     }
 
     /// A list's cells share one leading edge; the open row's cell is slid

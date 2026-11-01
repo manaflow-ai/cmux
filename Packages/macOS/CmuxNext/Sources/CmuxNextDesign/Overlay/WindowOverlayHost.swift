@@ -319,6 +319,8 @@ public final class WindowOverlayHost {
         handles.forEach(layout)
         updateMouseRouting()
         placeAgentCursor()
+        // A copy: a callback may resize, move or end its overlay.
+        for handle in handles { handle.onWindowGeometryChange?() }
     }
 
     private func syncAppPanel() {

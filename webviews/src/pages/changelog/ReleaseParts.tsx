@@ -8,8 +8,7 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, IndexEntry, NewsLayout, WhatsNewCategory } from "./types";
-import { cardVersion } from "./UpdateSurfaces";
+import type { ChangeItem, NewsLayout, WhatsNewCategory } from "./types";
 import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
@@ -369,115 +368,6 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 }
 
 const CHANGES_PAGE = 20;
-
-/** The span's nightly reels as ONE video card (Leo 2026-10-21: one reel inline, not a row per
-    nightly; "this watch is kind aass also id like to be able to watch .mp4s direclty in cmux"):
-    the newest reel's first frame with a play button, its length and its title; a press plays it in
-    place, with controls. A row of nightly chips picks another. Only when the video cannot play
-    here (an app without the page's media-src) does a link open it as links do instead. Only an
-    https reel is shown. */
-export function ReelPlayer({
-  builds,
-  reels,
-  strings,
-}: {
-  builds: IndexEntry[];
-  reels: Record<string, string>;
-  strings: Strings;
-}) {
-  const [picked, setPicked] = useState<string | undefined>();
-  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
-  const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
-  const current = shown.find((b) => b.build === picked) ?? shown[0];
-  if (!current) return null;
-  const url = reels[current.build]!;
-  const version = cardVersion(current.shortVersion);
-  const label = strings.format("changelog.page.watchReel", version);
-  return (
-    <div className="cl-reel-player">
-      {!broken.has(url) && (
-        <ReelCard
-          key={url}
-          url={url}
-          title={strings.format("changelog.page.reelTitle", version)}
-          onError={() => setBroken((set) => new Set(set).add(url))}
-        />
-      )}
-      {(shown.length > 1 || broken.has(url)) && (
-        <div className="cl-reel-bar">
-          {shown.length > 1 && (
-            <div className="cl-reel-picker">
-              {shown.map((b) => (
-                <button
-                  key={b.build}
-                  type="button"
-                  className="cl-reel-chip"
-                  aria-pressed={b === current}
-                  onClick={() => setPicked(b.build)}
-                >
-                  {cardVersion(b.shortVersion)}
-                </button>
-              ))}
-            </div>
-          )}
-          {broken.has(url) && (
-            <a className="cl-reel" href={url} rel="noreferrer">
-              {label}
-            </a>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One reel as a card: its first frame (the `#t` fragment makes the video show it before it
-    plays), a play button and the reel's length over it, its title under it. A press plays it in
-    place with controls; the button goes away so the controls take the clicks. */
-function ReelCard({ url, title, onError }: { url: string; title: string; onError(): void }) {
-  const video = useRef<HTMLVideoElement | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [seconds, setSeconds] = useState<number | undefined>();
-  const play = () => {
-    setPlaying(true);
-    void video.current?.play()?.catch(() => undefined);
-  };
-  return (
-    <figure className="cl-reel-card">
-      <div className="cl-reel-stage">
-        <video
-          ref={video}
-          src={`${url}#t=0.1`}
-          aria-label={title}
-          controls={playing}
-          muted
-          playsInline
-          preload="auto"
-          onLoadedMetadata={(event) => {
-            const length = event.currentTarget.duration;
-            if (Number.isFinite(length) && length > 0) setSeconds(length);
-          }}
-          onError={onError}
-        />
-        {!playing && (
-          <button type="button" className="cl-reel-play" aria-label={title} onClick={play}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 5.5v13l10.5-6.5z" />
-            </svg>
-          </button>
-        )}
-        {!playing && seconds !== undefined && <span className="cl-reel-length">{clock(seconds)}</span>}
-      </div>
-      <figcaption className="cl-reel-title">{title}</figcaption>
-    </figure>
-  );
-}
-
-/** A video's length as m:ss ("0:07", "2:30"). */
-export function clock(seconds: number): string {
-  const whole = Math.max(1, Math.round(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {

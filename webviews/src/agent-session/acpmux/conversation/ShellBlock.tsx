@@ -82,7 +82,9 @@ export function ShellBlock({
           )}
         </span>
         <span className="cv-shell__actions">
-          <WrapButton kind="output" />
+          {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
+              so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
+          <WrapButton kind="output" className="cv-codeblock__action cv-shell__wrap" />
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>

@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemote
@@ -35,13 +36,13 @@ import Testing
 
     @Test func aSpentReconnectReadsOfflineNotConnecting() {
         for link: SSHConnectionMachine.Status in [.connecting, .connected, .reconnecting] {
-            #expect(SidebarBridge.sshStatus(link: link, startupFailed: false, daemonConnected: false, compatibility: nil,
+            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil,
                                             retriesSpent: true) == .offline, "\(link)")
-            #expect(SidebarBridge.sshStatus(link: link, startupFailed: false, daemonConnected: true, compatibility: nil,
+            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: true, compatibility: nil,
                                             retriesSpent: true) == (link == .reconnecting ? .reconnecting : .connected))
         }
-        #expect(SidebarBridge.sshStatus(link: .connecting, startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting)
-        #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: true, daemonConnected: false, compatibility: nil,
+        #expect(SSHConnectionMachine.Status.connecting.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting)
+        #expect(SSHConnectionMachine.Status.connected.sidebarStatus(startupFailed: true, daemonConnected: false, compatibility: nil,
                                         retriesSpent: true) == .failed, "A startup failure keeps its own word")
         #expect(MachineLinkState.reconnectsOnUse(.offline), "Using the machine reconnects it")
     }
