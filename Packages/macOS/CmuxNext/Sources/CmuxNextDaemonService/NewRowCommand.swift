@@ -38,11 +38,8 @@ public struct NewRowCommand: Sendable {
             try await RowCommands(connection).newRow(below: try await target(), height: height, options: sent)
         }
         return {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            guard case .success(let created) = answer else { throw PaneSplitFailure() }
+            // A failure is the real one (``NewTerminalTabCommand``, FC-1), never a fixed text that hides it.
+            let created = try await send().get()
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             await daemon.store.applied(transaction, connection: daemon.connection)
