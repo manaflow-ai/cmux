@@ -256,7 +256,7 @@ jobs:
              | if $b[0].nativeReceiver then del(.var) + {native_receiver: true, transport: "vm-api"} else . end' \
             > "$candidate"
           cat "$candidate"
-          if [ "$AUTO_PROMOTE" = true ]; then
+          if [ "$AUTO_PROMOTE" = true ] && [ -z "$NATIVE_RECEIVER" ]; then
             jq -n --arg var "$SNAPSHOT_VAR" --arg snapshot "$SNAPSHOT" '{auto_promote: true, var: $var, snapshot: $snapshot}' > "$OUT_DIR/auto-promote.json"
           fi
 
