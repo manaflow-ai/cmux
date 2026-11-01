@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import Foundation
 public import Observation
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
@@ -77,6 +78,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
     var machine = BrowserTabStateMachine()
+    /// The one automatic reload a memory end of the renderer owes (``BrowserExitRecovery``).
+    @ObservationIgnored var exitRecovery = BrowserExitRecovery()
+    /// The system's memory pressure, read when the renderer ends; a test gives a fixed level.
+    @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
@@ -310,13 +315,22 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.present(self, in: view)
         view.layoutContent()
         // A tab whose renderer ended while hidden shows the crash notice with its Reload button
-        // when shown; it never reloads by itself (it used to: a page could come back signed out
-        // or lose what the person typed, with no sign why).
+        // when shown; only a renderer the system ended for memory reloads, once (`exitRecovery`).
+        reloadOwedAfterExit()
+    }
+
+    /// Takes the one automatic reload a memory end owes, if the sad tab still shows.
+    func reloadOwedAfterExit() {
+        guard state.processExit != nil, exitRecovery.takeReload(now: .now) else { return }
+        runtime.logger.error("renderer ended tab=\(self.id.rawValue, privacy: .public): reloading once after a memory end")
+        reload()
     }
 
     /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab, now or when the tab is next shown; only its
-    /// Reload button (or the person's own reload) loads the page again.
+    /// pane shows the sad tab, now or when the tab is next shown; its Reload
+    /// button (or the person's own reload) loads the page again, except that
+    /// a renderer the system ended for memory reloads once by itself
+    /// (``BrowserExitRecovery``).
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard !isClosed else { return }
         // A new renderer need not keep the old one's media emulation, so forget
@@ -334,7 +348,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // in a dark theme.
         documentDidSettle()
         findRequests.cancel()
-        runtime.recordRendererExit(exit, tab: self)
+        let pressure = memoryPressure()
+        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
+        if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
 
     func contentDidDisappear() {
@@ -485,6 +502,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
         if visible { grantPendingFocusIfShown() }
+        if visible, host.visibleTab === self { reloadOwedAfterExit() }
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host

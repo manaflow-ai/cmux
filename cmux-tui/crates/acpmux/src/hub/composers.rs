@@ -244,11 +244,14 @@ impl Hub {
                     "prompt": q.preview,
                     "queuedAt": q.queued_at,
                     "held": q.held,
+                    "awaitingOwner": q.awaiting_owner,
+                    "revision": q.revision,
                     "fromAgent": q.run.agent,
                     "fromSessionId": from_session_id,
                     "fromHarness": from_harness,
                     "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
+                    "subagentRetry": super::subagent_retry::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })
             })

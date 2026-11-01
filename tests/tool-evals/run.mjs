@@ -442,6 +442,12 @@ async function runSample(testCase, surface, index) {
     for (const [file, body] of Object.entries(testCase.files ?? {})) {
       mkdirSync(dirname(join(session.work, file)), { recursive: true });
       writeFileSync(join(session.work, file), body);
+      // The terminals run on the daemon's host: the case's files are there too.
+      if (REMOTE) {
+        const path = join(session.work, file);
+        const script = `mkdir -p ${shq(dirname(path))} && echo ${shq(Buffer.from(body).toString("base64"))} | base64 -d > ${shq(path)}`;
+        await new Promise((ok, fail) => execFile("ssh", [...SSH_OPTS, REMOTE.host, script], (error) => (error ? fail(error) : ok())));
+      }
     }
     shellFixtures(sample);
     sample.base = HARNESS === "generic" ? buildGenericBase(surface, session) : buildBase(surface, session);
@@ -501,6 +507,8 @@ async function finishSample(sample, testCase, surface, index, before, name, tran
   const ctx = {
     before, after, origin: session.origin, aliases: session.aliases, answer: sample.text,
     calls: sample.cliCalls,
+    // What the stand-in app opened (session.mjs OPEN_ACTIONS): kind, what, pane, tab.
+    appOpens: existsSync(join(dir, "app-calls.jsonl")) ? readFileSync(join(dir, "app-calls.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [],
     markers: (await session.markers()) ?? Object.fromEntries(readdirSync(join(dir, "markers")).map((r) => [r, readFileSync(join(dir, "markers", r), "utf8").trim()])), session: { name, sockets: [session.socket, session.env.CMUX_SOCKET_PATH] }, posts: [],
   };
   const checks = [...gradeState(testCase.expect?.state, ctx), ...gradeCalls(testCase.expect ?? {}, sample)];

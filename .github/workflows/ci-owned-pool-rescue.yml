@@ -57,6 +57,7 @@ on:
       - Nightly macOS build
       - CI
       - iOS simulator tests
+      - cmux-next-ios kit tests
       - Iroh release gate
       - cmux NEXT DEV daily
       # Side lanes can create a gated Mac job after workflow_run(requested).
@@ -66,6 +67,7 @@ on:
       - Auth and session lifecycle
       - cmux-next base autofix
       - cmux-next batch queue
+      - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
       - cmux-next PR autofix
@@ -111,12 +113,14 @@ env:
     .github/workflows/nightly.yml
     .github/workflows/ci.yml
     .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
     .github/workflows/iroh-release-gate.yml
     .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/agent-brands.yml
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml
     .github/workflows/cmux-next-batch.yml
+    .github/workflows/stable-next.yml
     .github/workflows/cmux-next-frame-pacing.yml
     .github/workflows/cmux-next-media.yml
     .github/workflows/cmux-next-pr-autofix.yml

@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextDesign
 import Foundation
 
@@ -21,7 +22,7 @@ nonisolated enum FilePageRecovery {
 
     @concurrent static func restore(_ draft: RecoveryDraft) async -> Restore? {
         guard let url = document(of: draft) else { return nil }
-        let current = (try? Data(contentsOf: url)).map(FileDocument.hash) // concurrency-allow: @concurrent, off the main actor
+        let current = (try? Data(contentsOf: url)).map(FileDocument().hash) // concurrency-allow: @concurrent, off the main actor
         let conflict = current == nil || draft.base?.contentHash == nil || current != draft.base?.contentHash
         return Restore(url: url, text: String(decoding: draft.contents, as: UTF8.self), conflict: conflict)
     }

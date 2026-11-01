@@ -4,12 +4,13 @@ import AVFoundation
 import Foundation
 import Network
 import Testing
+import CmuxNextTestSupport
 
 /// ask-76f83a7020 (Leo: "id like to be able to watch .mp4s direclty in cmux next"): a web .mp4
 /// whose server sends it as a generic file, as raw.githubusercontent.com sends the nightly reel
 /// (`application/octet-stream`, `nosniff`), plays in the WebKit tab at its own address instead of
 /// downloading. Runs a real WebKit page against a local server that answers range requests.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct RemoteVideoPageTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct RemoteVideoPageTests {
     @Test func aVideoSentAsAGenericFilePlaysInTheTab() async throws {
         let server = try await VideoServer.start(video: try await Self.makeVideo())
         defer { server.stop() }

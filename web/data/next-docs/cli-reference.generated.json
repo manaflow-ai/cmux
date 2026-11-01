@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 760,
-    "mcp": 678
+    "verbs": 791,
+    "mcp": 707
   },
   "nouns": [
     {
@@ -133,6 +133,27 @@
           "mcpTool": "app_agent_fork_conversation_to_left"
         },
         {
+          "command": "cmux agent fork-conversation-to-new-column-left",
+          "title": "Fork Conversation to New Column Left",
+          "id": "palette.forkAgentConversationNewColumnLeft",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_column_left"
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-column-right",
+          "title": "Fork Conversation to New Column Right",
+          "id": "palette.forkAgentConversationNewColumnRight",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_column_right"
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-row",
+          "title": "Fork Conversation to New Row",
+          "id": "palette.forkAgentConversationNewRow",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_row"
+        },
+        {
           "command": "cmux agent fork-conversation-to-new-tab",
           "title": "Fork Conversation to New Tab",
           "id": "palette.forkAgentConversationNewTab",
@@ -259,6 +280,13 @@
           "mcpTool": "app_agent_reveal_cwd_in_finder"
         },
         {
+          "command": "cmux agent run-in-background",
+          "title": "Run in Background",
+          "id": "agentPane.runInBackground",
+          "mcp": true,
+          "mcpTool": "app_agent_run_in_background"
+        },
+        {
           "command": "cmux agent set-effort",
           "title": "Set Agent Chat Effort…",
           "id": "agentPane.setEffort",
@@ -278,6 +306,20 @@
           "id": "agentPane.setModel",
           "mcp": true,
           "mcpTool": "app_agent_set_model"
+        },
+        {
+          "command": "cmux agent show-background-tasks",
+          "title": "Show Background Tasks in Session Info",
+          "id": "agentPane.showBackgroundTasks",
+          "mcp": true,
+          "mcpTool": "app_agent_show_background_tasks"
+        },
+        {
+          "command": "cmux agent show-subagents",
+          "title": "Show Subagents in Session Info",
+          "id": "agentPane.showSubagents",
+          "mcp": true,
+          "mcpTool": "app_agent_show_subagents"
         },
         {
           "command": "cmux agent stop-computer-use",
@@ -334,6 +376,13 @@
           "id": "agentPane.togglePreview",
           "mcp": true,
           "mcpTool": "app_agent_toggle_preview"
+        },
+        {
+          "command": "cmux agent toggle-queueing",
+          "title": "Toggle Prompt Queueing",
+          "id": "agentPane.toggleQueueing",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_queueing"
         },
         {
           "command": "cmux agent toggle-session-info",
@@ -411,6 +460,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux app merge-all-windows",
+          "title": "Merge All Windows",
+          "id": "window.mergeAll",
+          "mcp": true,
+          "mcpTool": "app_merge_all_windows"
+        },
+        {
           "command": "cmux app new-incognito-window",
           "title": "New Incognito Window",
           "id": "newIncognitoWindow",
@@ -465,6 +521,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
@@ -545,6 +608,18 @@
           "id": "app.unhide",
           "mcp": true,
           "mcpTool": "app_apps_unhide"
+        }
+      ]
+    },
+    {
+      "noun": "automation",
+      "verbs": [
+        {
+          "command": "cmux automation show-page",
+          "title": "Automations",
+          "id": "automations.show",
+          "mcp": true,
+          "mcpTool": "app_automation_show_page"
         }
       ]
     },
@@ -886,6 +961,13 @@
           "mcpTool": "app_browser_set_site_permission"
         },
         {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
+        },
+        {
           "command": "cmux browser split-down",
           "title": "Split Browser Down",
           "id": "splitBrowserDown",
@@ -1083,17 +1165,59 @@
       "noun": "chief",
       "verbs": [
         {
+          "command": "cmux chief look-at-screen",
+          "title": "Chief: Look at Screen Now",
+          "id": "chief.screenShare.look",
+          "mcp": true,
+          "mcpTool": "app_chief_look_at_screen"
+        },
+        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
+        },
+        {
+          "command": "cmux chief share-screen",
+          "title": "Share Screen with Chief",
+          "id": "chief.screenShare.start",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux chief stop-sharing-screen",
+          "title": "Stop Sharing Screen with Chief",
+          "id": "chief.screenShare.stop",
+          "mcp": true,
+          "mcpTool": "app_chief_stop_sharing_screen"
+        },
+        {
+          "command": "cmux chief toggle-screen-share",
+          "title": "Chief: Toggle Screen Sharing",
+          "id": "chief.screenShare.toggle",
+          "mcp": false,
+          "mcpTool": null
         }
       ]
     },
     {
       "noun": "cloud",
       "verbs": [
+        {
+          "command": "cmux cloud api-key-list",
+          "title": "List Cloud API Keys",
+          "id": "cloudAPIKeyList",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_list"
+        },
+        {
+          "command": "cmux cloud api-key-revoke",
+          "title": "Revoke Cloud API Key",
+          "id": "cloudAPIKeyRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_revoke"
+        },
         {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
@@ -1368,6 +1492,13 @@
           "mcpTool": "app_cloud_promote_machine_to_template"
         },
         {
+          "command": "cmux cloud provision-api",
+          "title": "Provision API on Machine…",
+          "id": "cloudProvisionAPI",
+          "mcp": true,
+          "mcpTool": "app_cloud_provision_api"
+        },
+        {
           "command": "cmux cloud publication-list",
           "title": "List Cloud Publications",
           "id": "cloudPublicationList",
@@ -1410,11 +1541,25 @@
           "mcpTool": "app_cloud_set_idle_pause"
         },
         {
+          "command": "cmux cloud set-network-access",
+          "title": "Internet Access…",
+          "id": "cloudSetNetworkAccess",
+          "mcp": true,
+          "mcpTool": "app_cloud_set_network_access"
+        },
+        {
           "command": "cmux cloud setup-github",
           "title": "Set Up GitHub on This Machine",
           "id": "cloudSetupGitHub",
           "mcp": true,
           "mcpTool": "app_cloud_setup_github"
+        },
+        {
+          "command": "cmux cloud share-machine",
+          "title": "Share Machine…",
+          "id": "cloudShareMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_share_machine"
         },
         {
           "command": "cmux cloud sign-in",
@@ -1713,6 +1858,13 @@
           "id": "file.open",
           "mcp": true,
           "mcpTool": "app_file_open"
+        },
+        {
+          "command": "cmux file open-as-page",
+          "title": "Open as Page",
+          "id": "file.openAsPage",
+          "mcp": true,
+          "mcpTool": "app_file_open_as_page"
         }
       ]
     },
@@ -1816,6 +1968,13 @@
           "mcpTool": "app_home_enable_channels"
         },
         {
+          "command": "cmux home hide",
+          "title": "Delete Conversation from List",
+          "id": "home.hideConversation",
+          "mcp": true,
+          "mcpTool": "app_home_hide"
+        },
+        {
           "command": "cmux home invite",
           "title": "Invite to cmux-next…",
           "id": "home.invite",
@@ -1884,6 +2043,13 @@
           "id": "home.sendMessage",
           "mcp": true,
           "mcpTool": "app_home_send"
+        },
+        {
+          "command": "cmux home show-hidden",
+          "title": "Show Hidden Conversations",
+          "id": "home.showHiddenConversations",
+          "mcp": true,
+          "mcpTool": "app_home_show_hidden"
         },
         {
           "command": "cmux home switch-view",
@@ -3515,6 +3681,39 @@
       ]
     },
     {
+      "noun": "share",
+      "verbs": [
+        {
+          "command": "cmux share chat",
+          "title": "Share Chat with Guest…",
+          "id": "agent.share",
+          "mcp": true,
+          "mcpTool": "app_share_chat"
+        },
+        {
+          "command": "cmux share kick",
+          "title": "Remove Guest",
+          "id": "agent.share.kick",
+          "mcp": true,
+          "mcpTool": "app_share_kick"
+        },
+        {
+          "command": "cmux share list",
+          "title": "List Guest Links",
+          "id": "agent.share.list",
+          "mcp": true,
+          "mcpTool": "app_share_list"
+        },
+        {
+          "command": "cmux share revoke",
+          "title": "Revoke Guest Link",
+          "id": "agent.share.revoke",
+          "mcp": true,
+          "mcpTool": "app_share_revoke"
+        }
+      ]
+    },
+    {
       "noun": "sidebar",
       "verbs": [
         {
@@ -3802,6 +4001,13 @@
     {
       "noun": "space",
       "verbs": [
+        {
+          "command": "cmux space bring-here",
+          "title": "Move Space to This Window",
+          "id": "space.bringHere",
+          "mcp": true,
+          "mcpTool": "app_space_bring_here"
+        },
         {
           "command": "cmux space clear-color",
           "title": "Remove Space Color",
@@ -4203,6 +4409,13 @@
           "id": "moveSurfaceToPreviousPane",
           "mcp": true,
           "mcpTool": "app_tab_move_to_previous_pane"
+        },
+        {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
         },
         {
           "command": "cmux tab move-to-workspace",
@@ -4951,6 +5164,20 @@
           "mcpTool": "app_workspace_merge_into"
         },
         {
+          "command": "cmux workspace move-above",
+          "title": "Move Workspace Above…",
+          "id": "workspace.moveAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_above"
+        },
+        {
+          "command": "cmux workspace move-below",
+          "title": "Move Workspace Below…",
+          "id": "workspace.moveBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_below"
+        },
+        {
           "command": "cmux workspace move-down",
           "title": "Move Workspace Down",
           "id": "moveWorkspaceDown",
@@ -5549,6 +5776,6 @@
   "mcpExempt": {
     "credentials": 6,
     "endsApp": 4,
-    "systemChange": 72
+    "systemChange": 74
   }
 }

@@ -9,7 +9,7 @@ use rusqlite::types::ValueRef;
 use serde_json::{Value, json};
 
 use crate::entry::AdapterKind;
-use crate::lines::{WHOLE_FILE_MAX, contains, fold_lines, read_whole_json};
+use crate::lines::{WHOLE_FILE_MAX, contains, fold_newest_lines, read_whole_json};
 use crate::sqlite::{columns, open_read_only};
 use crate::time::parse_rfc3339_ms;
 
@@ -29,6 +29,10 @@ pub struct Turn {
 /// At most this many turns (the newest), and this much text per prompt and per answer.
 pub const MAX_TURNS: usize = 200;
 pub const MAX_TEXT: usize = 20_000;
+
+/// A JSONL store is read from its newest this many bytes (as adopt's reader reads a Claude Code or
+/// Codex transcript), so one read is bounded however large the file is or however fast it grows.
+const LINES_MAX: u64 = 64 << 20;
 
 /// Why a chat's turns could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +78,7 @@ pub fn read_turns(
     match kind {
         // JSONL: `{type:"message", timestamp, message:{role, content}}` per line.
         AdapterKind::Droid => {
-            fold_lines(path, 0, |line| {
+            fold_newest_lines(path, LINES_MAX, |line| {
                 if !contains(line, br#""type":"message""#) {
                     return;
                 }
@@ -109,7 +113,7 @@ pub fn read_turns(
             }
         }
         AdapterKind::CopilotCli => {
-            fold_lines(path, 0, |line| {
+            fold_newest_lines(path, LINES_MAX, |line| {
                 let role = if contains(line, br#""type":"user.message""#) {
                     "user"
                 } else if contains(line, br#""type":"assistant.message""#) {
@@ -157,7 +161,7 @@ pub fn read_turns(
             }
         }
         AdapterKind::Goose => {
-            fold_lines(path, 0, |line| {
+            fold_newest_lines(path, LINES_MAX, |line| {
                 let Ok(message) = serde_json::from_slice::<Value>(line) else { return };
                 let at = message.get("created").and_then(Value::as_i64).map(seconds_ms);
                 turns.add(&message, at);

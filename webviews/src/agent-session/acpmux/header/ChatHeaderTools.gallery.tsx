@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
@@ -147,9 +148,10 @@ const groupTreatment =
   };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
-// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a border or shadow, and only a pressed one draws a fill:
-// the selection fill on its own square, hovered or not, so the open panel's toggle reads as on (Leo,
+// just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
+// BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
+// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
+// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
 // 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -160,22 +162,23 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle loses its selection fill on hover");
+  if (!clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle draws a plate on hover");
+  const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
   await ctx.hover({ role: "menuitem", name: "Rename" });
   const menuButton = ctx.find({ role: "button", name: "Chat actions" });
   if (!menuButton.hasAttribute("data-popup-open")) throw new Error("the chat menu closed on pointer exit");
-  await ctx.waitFor(() => view.getComputedStyle(menuButton).color === view.getComputedStyle(panel).color);
+  // The open menu's trigger takes the text's ink, unlike a tool at rest (Browser is not pressed here).
+  const restInk = view.getComputedStyle(ctx.find({ selector: '[data-quick-action="browser"]' })).color;
+  await ctx.waitFor(() => view.getComputedStyle(menuButton).color !== restInk);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (pressed === clear(style.backgroundColor))
-      throw new Error(
-        `header tool ${name} ${pressed ? "is pressed with no fill" : "draws a fill"}: ${style.backgroundColor}`,
-      );
+    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
@@ -316,6 +319,15 @@ const keyboardMenu: Play = async (ctx) => {
       ctx.document.activeElement?.getAttribute("aria-label") === "Chat actions"
     );
   });
+};
+
+// The chat's grants, revocable with default settings: the chat menu's Revoke Granted Access lists
+// each one (header/grantsMenu.ts), now that the composer's mode menu lists the modes alone.
+const revokeAccessOpen: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Revoke Granted Access" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
 };
 
 const keyboardSubmenu: Play = async (ctx) => {
@@ -635,6 +647,23 @@ export default componentEntry<HeaderToolsProps>({
         },
       },
       play: openMenu,
+    },
+    "menu-revoke-access": {
+      height: 860,
+      note: "A chat whose folder is trusted and that allows a command for the chat: Revoke Granted Access ends the tools rows and lists each grant; a pick revokes it. Grants live here, in every chat with default settings, not in the composer's mode menu (Leo, 2026-10-29).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const revoke = revokeAccessRows([
+            { id: "folder-trust", label: "Trusted atlas", onRemove: noop },
+            { id: "chat-permission", label: "Allow for this chat", onRemove: noop },
+          ]);
+          return [...rows.slice(0, archive), ...revoke, "separator", ...rows.slice(archive)];
+        },
+      },
+      play: revokeAccessOpen,
     },
     "menu-cloud-machine-running": {
       height: 860,

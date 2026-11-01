@@ -4,12 +4,13 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 ("unnecessary multi-sidebar walks"): clicking between rows re-laid the sidebar out, and rows
 /// jumped, then settled. A click or a selection moves no row, and a move changes the order once, to where it
 /// lands. Manual order is the truth; attention order lives only in the Priority view.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarClickMovesNoRowTests {
     private static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
@@ -134,13 +135,13 @@ struct SidebarClickMovesNoRowTests {
         rows.show(start)
         record()
         let moving = [start[0].workspaces[2].id, start[0].workspaces[3].id]
-        let edit = rows.add(.reorder(moving, to: DropPosition(section: start[0].id, index: 0)))
+        let edit = rows.edits.add(.reorder(moving, to: DropPosition(section: start[0].id, index: 0)))
         record()
         rows.show(Self.reordered(start, [2, 0, 1, 3])) // the first command's echo
         record()
         rows.show(Self.reordered(start, [2, 3, 0, 1])) // the second's
         record()
-        rows.settle(edit)
+        rows.edits.settle(edit)
         record()
         #expect(orders == [["w1", "w2", "w3", "w4"], ["w3", "w4", "w1", "w2"]], "the move showed \(orders.count - 1) order changes: \(orders)")
     }

@@ -58,7 +58,6 @@ nonisolated enum SidebarSectionSettingsSchema {
                 kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.pinnedBandsScroll),
                 keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
-            SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.showChatsDescriptor(group: sidebar),
             SidebarSectionsSetting.sessionTreeDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
@@ -69,6 +68,7 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
             SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
             SidebarSectionsSetting.showColorsDescriptor(group: sidebar),
+            WorkspaceColorsSetting.indicatorStyleDescriptor(group: sidebar),
             SidebarSectionsSetting.showLocalMachineDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),

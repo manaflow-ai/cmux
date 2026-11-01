@@ -7,7 +7,7 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::task::BriefsCmd;
 
 #[derive(Parser)]
-#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
+#[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
@@ -37,8 +37,8 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Send a local brief to another harness on a peer (or the least-loaded
-    /// allowed host with `--host auto`) and record its identity.
+    /// Send a local brief to another harness on a machine (or the least-loaded
+    /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
@@ -103,8 +103,8 @@ pub enum Command {
         /// A preset from `acpmux preset`: harness plus model, effort, policy, env.
         #[arg(long, short)]
         preset: Option<String>,
-        /// Create on this peer when missing.
-        #[arg(long)]
+        /// Create on this machine when missing (`--host` still works).
+        #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
         host: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
@@ -147,6 +147,16 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
+    #[command(name = "trigger-chat", hide = true)]
+    TriggerChat {
+        /// Exact wire protocol required by the guest bridge.
+        #[arg(long, default_value = "trigger-chat-v1")]
+        protocol: String,
+        /// Read the guest principal envelope from this file descriptor (fd 0 only).
+        #[arg(long = "principal-fd", default_value_t = 0)]
+        principal_fd: i32,
+    },
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
@@ -361,8 +371,9 @@ pub enum Command {
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, ticket and more.
-    #[command(subcommand, aliases = ["hosts", "peer"])]
+    /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
+    /// The old spellings `host`, `hosts` and `peer` still work.
+    #[command(subcommand, name = "machine", aliases = ["host", "hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -416,6 +427,9 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
+    /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
+    #[command(hide = true)]
+    RepoMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
@@ -614,8 +628,8 @@ pub enum Command {
 pub struct DispatchArgs {
     /// Local Markdown/text brief file (use `-` for stdin).
     pub brief: PathBuf,
-    /// Host name, `auto` for least-loaded placement, or `local`.
-    #[arg(long, alias = "target", default_value = "auto")]
+    /// Machine name, `auto` for the least-loaded pick, or `local` (`--host` and `--target` still work).
+    #[arg(long = "machine", aliases = ["host", "target"], value_name = "MACHINE", default_value = "auto")]
     pub host: String,
     #[arg(long)]
     pub title: Option<String>,
@@ -636,6 +650,11 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum HarnessCmd {
+    /// Install or inspect cmux's opt-in managed Codex runtime.
+    CodexRuntime {
+        #[command(subcommand)]
+        action: CodexRuntimeCmd,
+    },
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
     List {
@@ -779,6 +798,14 @@ pub enum HarnessCmd {
 }
 
 #[derive(Subcommand)]
+pub enum CodexRuntimeCmd {
+    /// Download and verify the pinned official Codex release.
+    Install,
+    /// Print the managed runtime status.
+    Status,
+}
+
+#[derive(Subcommand)]
 pub enum SecretCmd {
     /// Store a value for ID's env KEY (Keychain on macOS, secret-tool
     /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
@@ -824,7 +851,7 @@ pub enum SessionCmd {
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app. On a machine a
-    /// person works at, a stopped chat first moves to a fleet host, as `session move --host
+    /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
     /// auto` does; when none takes it, it resumes here and says why.
     Resume {
         session: String,
@@ -878,17 +905,17 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
     },
-    /// Move chats to another machine's daemon (an ssh peer), with their history, queue and
+    /// Move chats to another machine's daemon (one you added), with their history, queue and
     /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
-    /// worktree, a plain folder under the home maps to the same path under the peer's home. The
+    /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move {
         /// The chats to move (ids or names); none with --all-idle.
         #[arg(required_unless_present = "all_idle")]
         sessions: Vec<String>,
-        /// The peer to move them to, or `auto`: the placement's pick among the peers (never a
-        /// reserved one), one host per checkout.
-        #[arg(long)]
+        /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
+        /// (never a reserved one), one machine per checkout. `--host` still works.
+        #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
         host: String,
         /// Every open chat here that is between turns.
         #[arg(long, conflicts_with = "sessions")]
@@ -899,7 +926,7 @@ pub enum SessionCmd {
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
-        /// Run the moved chats in this folder on the peer, as it is there: no worktree is made
+        /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
         /// and no branch pushed. For a folder outside this machine's home.
         #[arg(long, value_name = "PATH")]
         cwd: Option<String>,
@@ -951,7 +978,7 @@ pub enum SessionCmd {
     },
     /// How many of its sub-sessions run at once (more wait their turn), how many run and wait
     /// now, and its other sub-session limits. `--max N` sets it, `--clear` falls back to the
-    /// workspace's, the settings' or the default (16); setting takes the app or a parent session.
+    /// workspace's, the settings' or the default (1000); setting takes the app or a parent session.
     Limits {
         session: String,
         /// Most sub-sessions running at once (1 to 1000).
@@ -1183,15 +1210,15 @@ pub struct NewArgs {
     /// A preset from `acpmux preset`: harness plus model, effort, policy, env. `-m` and `-e` still win.
     #[arg(long, short)]
     pub preset: Option<String>,
-    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path
-    /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
-    /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
+    /// Create the session on this machine (see `acpmux machine ls`). `--cwd` is then a remote path
+    /// inside the machine's webRoots (made when missing; left out, a scratch folder). The machine
+    /// starts it asking: `--mode`, and a `--policy` other than ask from a machine that serves this
     /// machine as a remote client, are refused with the command that works instead.
-    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick. Left out on a
+    /// `auto` (`auto-build` for a build) takes `acpmux machine pick`'s choice. Left out on a
     /// machine the fleet registry marks interactive (a person's own Mac), the session is placed
     /// as with `auto`, off every such machine, unless `--cwd` or `-w` names a folder here;
-    /// `local` keeps it on this machine.
-    #[arg(long)]
+    /// `local` keeps it on this machine. `--host` still works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
     /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
@@ -1270,7 +1297,8 @@ pub struct NewArgs {
     pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
     /// (made when missing). Runs `cmux agent open` on this machine, including
-    /// with --host: the agent runs remotely, its workspace opens here.
+    /// with --machine: the agent runs remotely, its workspace opens here. A human
+    /// label, matched ignoring case and outer spaces; an id is refused (exit 2).
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
     /// When a session named --name already exists, use it instead of failing;
@@ -1429,6 +1457,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
+        ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
+        ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
+        ("cmux-cua skill", include_str!("../../../../../skills/cmux-cua/SKILL.md")),
+        ("docs/agent-surfaces.md", include_str!("../../docs/agent-surfaces.md")),
         ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
         ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
         ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
@@ -1531,6 +1564,10 @@ mod help_contract_tests {
                 if let Some(long) = argument.get_long() {
                     flags.insert(format!("--{long}"));
                 }
+                // A hidden alias (`--host` for `--machine`) still works, so docs may show it.
+                for alias in argument.get_all_aliases().into_iter().flatten() {
+                    flags.insert(format!("--{alias}"));
+                }
                 if let Some(short) = argument.get_short() {
                     flags.insert(format!("-{short}"));
                 }
@@ -1575,8 +1612,8 @@ mod help_contract_tests {
         }
         if words.get(start).is_some_and(|word| !word.starts_with('-')) {
             let mut candidate = vec![words[start].clone()];
-            if candidate[0] == "peer" {
-                candidate[0] = "host".to_owned();
+            if matches!(candidate[0].as_str(), "peer" | "host" | "hosts") {
+                candidate[0] = "machine".to_owned();
             }
             if !candidate[0].split('|').any(|name| {
                 let mut path = candidate.clone();
@@ -1591,7 +1628,11 @@ mod help_contract_tests {
         for word in command {
             let Some(candidate) = word.split('|').find(|candidate| {
                 let candidate =
-                    if path.is_empty() && *candidate == "peer" { "host" } else { candidate };
+                    if path.is_empty() && matches!(*candidate, "peer" | "host" | "hosts") {
+                        "machine"
+                    } else {
+                        candidate
+                    };
                 let mut next = path.clone();
                 next.push(candidate.to_owned());
                 shapes.keys().any(|known| known == &next)
@@ -1604,7 +1645,11 @@ mod help_contract_tests {
                 }
                 break;
             };
-            let candidate = if path.is_empty() && candidate == "peer" { "host" } else { candidate };
+            let candidate = if path.is_empty() && matches!(candidate, "peer" | "host" | "hosts") {
+                "machine"
+            } else {
+                candidate
+            };
             let mut next = path.clone();
             next.push(candidate.to_owned());
             path = next;
@@ -1645,6 +1690,51 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// The skills agents load teach the current names (`machine`, `machine pick`,
+    /// `machine dedicated`, `--machine`), not the hidden aliases kept for old scripts. The
+    /// acpmux skill's "Old spellings" bullet is the one place that names them.
+    #[test]
+    fn agent_skills_use_current_command_names() {
+        const SKILLS: &[&str] = &[
+            "acpmux skill",
+            "integrate-harness skill",
+            "cmux-acpmux skill",
+            "cmux skill",
+            "cmux-cua skill",
+            "docs/agent-surfaces.md",
+        ];
+        let mut stale = Vec::new();
+        for (source, text) in REMOTE_DOCS.iter().filter(|(source, _)| SKILLS.contains(source)) {
+            let text: String = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            for words in tokens(&text, "acpmux") {
+                let command: Vec<&str> = words
+                    .iter()
+                    .skip(1)
+                    .map(String::as_str)
+                    .filter(|word| !word.starts_with('-'))
+                    .take(2)
+                    .collect();
+                let old_verb =
+                    command.first().is_some_and(|verb| matches!(*verb, "host" | "hosts" | "peer"))
+                        || command.get(1).is_some_and(|verb| matches!(*verb, "place" | "vm-host"));
+                let old_flag = words.iter().any(|word| word.split('=').next() == Some("--host"));
+                if old_verb || old_flag {
+                    stale.push(format!("{source}: {}", words.join(" ")));
+                }
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "a skill teaches an old acpmux spelling; use machine, machine pick, machine dedicated, \
+             --machine:\n{}",
+            stale.join("\n")
+        );
     }
 
     /// `send --class`: the four classes only (`prompt_class.rs`).
@@ -1688,17 +1778,20 @@ mod help_contract_tests {
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
     }
 
-    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    /// `machine dedicated [NAME] [on|off]` (old spelling `host vm-host`): the state is on or
+    /// off only.
     #[test]
-    fn host_vm_host_takes_a_machine_and_on_or_off() {
-        for argv in [
-            &["acpmux", "host", "vm-host"][..],
-            &["acpmux", "host", "vm-host", "on"][..],
-            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
-        ] {
-            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+    fn machine_dedicated_takes_a_machine_and_on_or_off() {
+        for verb in [["machine", "dedicated"], ["host", "vm-host"], ["machine", "vm-host"]] {
+            for rest in [&[][..], &["on"][..], &["cloud-a", "off"][..]] {
+                let argv: Vec<&str> =
+                    ["acpmux"].into_iter().chain(verb).chain(rest.iter().copied()).collect();
+                assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?} did not parse");
+            }
+            let argv: Vec<&str> =
+                ["acpmux"].into_iter().chain(verb).chain(["cloud-a", "maybe"]).collect();
+            assert!(Cli::try_parse_from(&argv).is_err(), "{argv:?} parsed");
         }
-        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
     }
 
     /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
@@ -1726,6 +1819,69 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    /// docs/naming.md: `machine` is the command; `host`, `hosts` and `peer` stay hidden aliases
+    /// that parse to the same command, and `place` stays an alias of `pick`.
+    #[test]
+    fn machine_is_canonical_and_old_spellings_parse_the_same() {
+        use super::{Command, PeerCmd};
+        let top = Cli::command();
+        let machine = top.find_subcommand("machine").expect("acpmux machine exists");
+        let aliases: Vec<&str> = machine.get_all_aliases().collect();
+        for old in ["host", "hosts", "peer"] {
+            assert!(aliases.contains(&old), "{old} is not an alias of machine");
+        }
+        assert!(machine.get_visible_aliases().next().is_none(), "old spellings must stay hidden");
+        for word in ["machine", "host", "hosts", "peer"] {
+            for (verb, want_build) in [("pick", false), ("place", false), ("pick", true)] {
+                let mut argv = vec!["acpmux", word, verb];
+                if want_build {
+                    argv.push("--build");
+                }
+                match Cli::try_parse_from(&argv).map(|cli| cli.command) {
+                    Ok(Some(Command::Host(PeerCmd::Place { build }))) => {
+                        assert_eq!(build, want_build, "{argv:?}")
+                    }
+                    _ => panic!("{argv:?} is not machine pick"),
+                }
+            }
+            let argv = ["acpmux", word, "status"];
+            assert!(
+                matches!(
+                    Cli::try_parse_from(argv).map(|cli| cli.command),
+                    Ok(Some(Command::Host(PeerCmd::Status { .. })))
+                ),
+                "{argv:?} is not machine status"
+            );
+        }
+    }
+
+    /// `--machine` is the flag; `--host` stays a hidden alias (and `dispatch --target`), with the
+    /// same value grammar (`auto`, `auto-build`, `local`, NAME).
+    #[test]
+    fn machine_flag_and_host_alias_parse_the_same() {
+        for flag in ["--machine", "--host"] {
+            for value in ["auto", "auto-build", "local", "box"] {
+                for argv in [
+                    vec!["acpmux", "new", flag, value, "-m", "claude", "hi"],
+                    vec!["acpmux", "ensure", "lane", flag, value],
+                    vec!["acpmux", "dispatch", "brief.md", flag, value],
+                    vec!["acpmux", "ls", flag, value],
+                    vec!["acpmux", "session", "move", "chat", flag, value],
+                    vec!["acpmux", "session", "start", "lane", flag, value],
+                ] {
+                    assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?} did not parse");
+                }
+            }
+        }
+        assert!(Cli::try_parse_from(["acpmux", "dispatch", "brief.md", "--target", "box"]).is_ok());
+        let help = Cli::command().find_subcommand_mut("new").unwrap().render_help().to_string();
+        assert!(
+            help.contains("--machine <MACHINE>"),
+            "new --help does not show --machine:\n{help}"
+        );
+        assert!(!help.contains("--host <"), "new --help still lists --host:\n{help}");
     }
 
     /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and

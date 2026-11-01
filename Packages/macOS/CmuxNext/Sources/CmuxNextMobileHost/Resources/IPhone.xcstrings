@@ -1186,127 +1186,520 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to connect to this Mac?"
+            "value": "Allow “%1$@” (%2$@) to connect to this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تريد السماح لـ «%@» بالاتصال بهذا الـ Mac؟"
+            "value": "هل تريد السماح لـ «%1$@» (%2$@) بالاتصال بهذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da se „%@“ poveže s ovim Macom?"
+            "value": "Dozvoliti da se „%1$@“ (%2$@) poveže s ovim Macom?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillade, at “%@” forbinder til denne Mac?"
+            "value": "Vil du tillade, at “%1$@” (%2$@) forbinder til denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, sich mit diesem Mac zu verbinden?"
+            "value": "„%1$@“ (%2$@) erlauben, sich mit diesem Mac zu verbinden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” se conecte a este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à se connecter à ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à se connecter à ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di connettersi a questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di connettersi a questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac への接続を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac への接続を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” តភ្ជាប់ទៅ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) តភ្ជាប់ទៅ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» kobler til denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) kobler til denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na połączenie z tym Makiem?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na połączenie z tym Makiem?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” se conecte a este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» подключаться к этому Mac?"
+            "value": "Разрешить «%1$@» (%2$@) подключаться к этому Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’e bağlanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’e bağlanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» підключатися до цього Mac?"
+            "value": "Дозволити «%1$@» (%2$@) підключатися до цього Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” kết nối với máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) kết nối với máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”连接到这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）连接到这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」連線到這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）連線到這台 Mac 嗎？"
+          }
+        }
+      }
+    },
+"iphone.pair.phoneAccessTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow “%1$@” (%2$@) to use this Mac?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لـ «%1$@» (%2$@) باستخدام هذا الـ Mac؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoliti da „%1$@“ (%2$@) koristi ovaj Mac?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillade “%1$@” (%2$@) at bruge denne Mac?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%1$@“ (%2$@) erlauben, diesen Mac zu verwenden?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Permitir que “%1$@” (%2$@) use este Mac?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser « %1$@ » (%2$@) à utiliser ce Mac ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consentire a “%1$@” (%2$@) di usare questo Mac?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%1$@”（%2$@）にこの Mac の使用を許可しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) ប្រើ Mac នេះឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%1$@” (%2$@)이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du tillate at «%1$@» (%2$@) bruker denne Macen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na korzystanie z tego Maca?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que “%1$@” (%2$@) use este Mac?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить «%1$@» (%2$@) использовать этот Mac?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้ “%1$@” (%2$@) ใช้ Mac เครื่องนี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%1$@” (%2$@) bu Mac’i kullanabilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити «%1$@» (%2$@) використовувати цей Mac?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép “%1$@” (%2$@) sử dụng máy Mac này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许“%1$@”（%2$@）使用这台 Mac 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許「%1$@」（%2$@）使用這台 Mac 嗎？"
+          }
+        }
+      }
+    },
+"iphone.phone.transport.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        }
+      }
+    },
+"iphone.phone.transport.ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
           }
         }
       }
@@ -6416,6 +6809,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選擇「不允許」後，來自此帳號的新要求會在 10 分鐘內被忽略；同時出現過多要求時也會被忽略。"
+          }
+        }
+      }
+    },
+    "iphone.pair.irohBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It can use this Mac’s terminals and agent chats. Remove it in Settings > Mobile to ask again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكنه استخدام وحدات الطرفية ومحادثات الوكلاء على هذا الـ Mac. أزله من الإعدادات > الهاتف المحمول لطلب الإذن مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Može koristiti terminale i razgovore s agentima na ovom Macu. Uklonite ga u Postavke > Mobilni uređaji da biste ponovo zatražili dozvolu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den kan bruge terminaler og agentchats på denne Mac. Fjern den under Indstillinger > Mobil for at spørge igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es kann die Terminals und Agent-Chats dieses Macs verwenden. Entferne es unter Einstellungen > Mobil, damit erneut gefragt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede usar los terminales y chats de agentes de este Mac. Elimínalo en Ajustes > Móvil para volver a solicitar permiso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il peut utiliser les terminaux et les discussions avec les agents de ce Mac. Supprimez-le dans Réglages > Mobile pour demander à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Può usare i terminali e le chat degli agenti di questo Mac. Rimuovilo in Impostazioni > Dispositivi mobili per chiedere di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのターミナルとエージェントチャットを使用できます。もう一度確認するには「設定 > モバイル」で削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាអាចប្រើស្ថានីយ និងការជជែកជាមួយភ្នាក់ងាររបស់ Mac នេះ។ ដកវាចេញនៅក្នុងការកំណត់ > ទូរសព្ទ ដើម្បីសួរម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 터미널과 에이전트 채팅을 사용할 수 있습니다. 다시 묻도록 하려면 설정 > 모바일에서 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den kan bruke terminalene og agentchattene på denne Macen. Fjern den under Innstillinger > Mobil for å spørre på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Może korzystać z terminali i czatów agentów na tym Macu. Usuń go w Ustawienia > Urządzenia mobilne, aby ponownie zapytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ele pode usar os terminais e chats de agentes deste Mac. Remova-o em Ajustes > Dispositivos móveis para perguntar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Он может использовать терминалы и чаты агентов на этом Mac. Удалите его в Настройки > Мобильные устройства, чтобы снова запросить разрешение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์นี้สามารถใช้เทอร์มินัลและแชทของเอเจนต์บน Mac เครื่องนี้ได้ ลบอุปกรณ์ใน การตั้งค่า > มือถือ เพื่อให้ถามอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’in terminallerini ve aracı sohbetlerini kullanabilir. Yeniden sorulması için Ayarlar > Mobil bölümünden kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Він може використовувати термінали та чати агентів на цьому Mac. Видаліть його в Параметри > Мобільні пристрої, щоб знову запитати дозвіл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết bị có thể dùng các cửa sổ dòng lệnh và cuộc trò chuyện với tác nhân trên máy Mac này. Xóa thiết bị trong Cài đặt > Di động để hỏi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可以使用这台 Mac 的终端和智能体聊天。在“设置 > 移动设备”中移除它，即可再次询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可以使用這部 Mac 的終端機和代理程式聊天。在「設定 > 行動裝置」中移除它，即可再次詢問。"
           }
         }
       }

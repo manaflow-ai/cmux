@@ -70,6 +70,29 @@ export class AcpmuxError extends Error {
 /** The connection closed before the answer (not a refusal by acpmux). */
 export class AcpmuxClosedError extends AcpmuxError {}
 
+/** `_acpmux/sessions` and `_acpmux/watch`'s reply: a page of the list, and its cursor when more follow. */
+type SessionList = { sessions?: SessionSummary[]; nextCursor?: unknown };
+
+/** acpmux's order (hub/session_pages.rs `sort_session_summaries`): newest first, then by
+ * `sessionId`, then by `peer`, this daemon's own row (no `peer`) first. */
+function newestFirst(a: SessionSummary, b: SessionSummary): number {
+  const row = (session: SessionSummary) => session as unknown as Record<string, unknown>;
+  const updated = (session: SessionSummary) => {
+    const at = row(session).updatedAt;
+    return typeof at === "number" ? at : 0;
+  };
+  const text = (session: SessionSummary, key: string) => {
+    const value = row(session)[key];
+    return typeof value === "string" ? value : undefined;
+  };
+  const order = (x: string | undefined, y: string | undefined) =>
+    x === y ? 0 : x === undefined ? -1 : y === undefined ? 1 : x < y ? -1 : 1;
+  return (
+    updated(b) - updated(a) ||
+    order(text(a, "sessionId") ?? "", text(b, "sessionId") ?? "") ||
+    order(text(a, "peer"), text(b, "peer"))
+  );
+}
 type Pending = { method: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
 
 export class AcpmuxClient {
@@ -136,11 +159,40 @@ export class AcpmuxClient {
   }
 
   sessions(): Promise<SessionSummary[]> {
-    return this.request<{ sessions: SessionSummary[] }>("_acpmux/sessions").then((r) => r.sessions);
+    return this.wholeList("_acpmux/sessions", {}).then((r) => r.sessions ?? []);
   }
 
   watch(enabled = true): Promise<unknown> {
-    return this.request("_acpmux/watch", { enabled });
+    return this.wholeList("_acpmux/watch", { enabled });
+  }
+
+  /** A list asked without `limit`, whole: past acpmux's largest reply it answers its first rows
+   * and a `nextCursor`, and the rest comes from `_acpmux/sessions` with that cursor and the same
+   * params but `enabled`. A list that fits (and any older daemon) answers one reply, no cursor.
+   * As acpmux's own client (client.rs `whole_list`), a bad or repeated cursor, or a paged reply
+   * with no `sessions`, is an error: a short list would pass for the whole one. */
+  private async wholeList(method: string, params: Record<string, unknown>): Promise<SessionList> {
+    const reply = await this.request<SessionList>(method, params);
+    const rest = { ...params };
+    delete rest.enabled;
+    const seen = new Set<string>();
+    for (let next = reply.nextCursor; next !== undefined && next !== null; ) {
+      const cursor = JSON.stringify(next);
+      if (typeof next !== "string") throw new Error(`${method}: acpmux gave the page cursor ${cursor}`);
+      // A cursor that comes back would repeat forever.
+      if (seen.has(next)) throw new Error(`${method}: acpmux gave the page cursor ${cursor} twice`);
+      seen.add(next);
+      const page = await this.request<SessionList>("_acpmux/sessions", { ...rest, cursor: next });
+      // A watch reply with no list and no cursor still means "list after watch" (host.ts); a paged one has its list.
+      if (!Array.isArray(reply.sessions) || !Array.isArray(page.sessions))
+        throw new Error(`${method}: the page after cursor ${cursor} lists no sessions`);
+      for (const session of page.sessions) reply.sessions.push(session);
+      next = page.nextCursor;
+    }
+    delete reply.nextCursor;
+    // The pages come in an order updates do not change (hash order), not newest first.
+    if (seen.size > 0) reply.sessions?.sort(newestFirst);
+    return reply;
   }
 
   attach(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<{ session: SessionSummary; events: AcpmuxEvent[] }> {

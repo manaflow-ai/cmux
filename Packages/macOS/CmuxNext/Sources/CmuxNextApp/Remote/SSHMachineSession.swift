@@ -61,12 +61,16 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
+    /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
+    var waitsForUser: Bool { link.waitsForUser }
+    var retriesSpent: Bool { daemon.store.retriesSpent }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
     private(set) var connectionAttemptID: UInt64 = 0
     @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
+    @ObservationIgnored private var restartTask: Task<Void, Never>?
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
@@ -185,7 +189,22 @@ final class SSHMachineSession {
         // mirror moves now, so the new attempt never shows the old failure. The link
         // then reports `.connecting` (already mirrored) and the retry's own result.
         if linkStatus.needsRecovery { linkStatusChanged(.connecting) }
+        daemon.store.noteRetriesSpent(false)
         daemon.beginAttempt()
+    }
+
+    /// Disconnect then Connect, with a new retry budget: Reconnect once the retries are spent.
+    func restart() {
+        daemon.shutdownConnection()
+        beginConnectionAttempt()
+        linkStatus = .connecting
+        // task-owner: teardown hop; cancelled by the next restart and by close(), so a closed session never connects
+        restartTask?.cancel()
+        restartTask = Task { [weak self, link] in
+            await link.stop()
+            guard !Task.isCancelled, let self, self.autoConnect else { return }
+            self.connect()
+        }
     }
 
     /// Reopens a daemon attempt without disturbing an already-connected SSH transport.
@@ -207,6 +226,7 @@ final class SSHMachineSession {
 
     func disconnect(keepAutoConnect: Bool = false) {
         if !keepAutoConnect { autoConnect = false }
+        restartTask?.cancel()
         daemon.shutdownConnection()
         linkStatus = .offline
         let link = link

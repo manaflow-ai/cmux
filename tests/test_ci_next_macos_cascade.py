@@ -372,13 +372,21 @@ class FleetGateway(unittest.TestCase):
                                {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
         self.assertEqual(result.fleet_jobs, ("fast-tier",))
 
-    def test_gateway_output_is_reserved_without_wiring_raw_mac_jobs(self):
+    def test_no_tier_runs_on_the_gateway_itself(self):
+        """fleet_jobs never sends a whole Mac job (checkout, build) to gateway_runner: a listed tier's
+        <tier>-fleet client runs there (the checks-workflow guard GatewayRunsOnlyTheFleetClient)
+        and the tier only reports its verdict."""
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertEqual(jobs["macos-placement"]["outputs"]["fleet_jobs"], "${{ steps.place.outputs.fleet_jobs }}")
+        wiring = Wiring()
         for tier in (*CASCADED, *GUI_JOBS):
             self.assertNotIn("outputs.fleet_jobs", jobs[tier]["runs-on"])
-        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
-        self.assertNotIn("FLEET_CLIENT_JOBS", place["env"])
+            with self.subTest(tier=tier):
+                self.assertNotIn("gateway_runner", str(jobs[tier]["runs-on"]))
+                context = wiring.context()
+                context["needs"]["macos-placement"]["outputs"].update(
+                    fleet_jobs=f" {tier} ", gateway_runner="gateway-test", placed_attempt="1")
+                self.assertNotEqual(evaluate(jobs[tier]["runs-on"], context), "gateway-test")
 
     def test_gateway_reservation_is_empty_without_requested_jobs(self):
         shot = snapshot(minutes_old=1)
@@ -750,6 +758,7 @@ class Place(unittest.TestCase):
         self.assertEqual(lines["blacksmith_12_jobs"], " swift-canary ")
         self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile ")
         self.assertEqual(lines["retry_runner"], "")
+        self.assertEqual(lines["retry_jobs"], "")
         self.assertNotIn("hosted_jobs", lines)
 
     def test_side_lane_placement_reads_the_promotion_minis_load(self):
@@ -927,7 +936,9 @@ class Stall(unittest.TestCase):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
         # The fast tier and the canary keep their own budget: no cold hosted build needs 45 minutes.
-        self.assertEqual(jobs["fast-tier"]["timeout-minutes"], 20)
+        # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
+        fast = jobs["fast-tier"]["timeout-minutes"]
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 20)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
@@ -949,7 +960,7 @@ class FeedNeverHosted(unittest.TestCase):
     resolves to hosted macos-26: a run with FRESH_JOBS places nothing there, whatever Blacksmith's state."""
 
     def test_no_feed_run_places_a_job_on_hosted(self):
-        runs = " fast-tier swift-canary cmux-scheme-compile release-compile "
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
         waits = (0.0, float(cascade.FRESH_STALL_MINUTES), float(cascade.STALL_MINUTES) + 60)
         counts = (None, ({LARGE: 0, SMALL: 0}, None), ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}),
                   ({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), ({LARGE: 0, SMALL: 0}, {LARGE: 9, SMALL: 40}))
@@ -1077,11 +1088,16 @@ class Rerun(unittest.TestCase):
                 # The idle mini races for the canary; the scheme compile gets 12 vCPU either way.
                 self.assertEqual(lines["owned_jobs"], " fast-tier ")
                 self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-                routes = ("gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
-                          "fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
+                routes = ("fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
                 if attempt == "2":
-                    # The GUI, session, fast and gateway jobs keep the routes a re-run always had.
+                    # The fast and gateway jobs keep the routes a re-run always had.
                     self.assertEqual({key: lines[key] for key in routes if key in lines}, {})
+                    # No GUI or session runner is idle (the mini carries none), so the GUI jobs take Blacksmith.
+                    self.assertEqual({key: lines[key] for key in ("gui_runner", "session_runner", "free_gui_runner",
+                                                                    "free_session_runner")},
+                                     dict.fromkeys(("gui_runner", "session_runner", "free_gui_runner",
+                                                    "free_session_runner"), ""))
+                    self.assertEqual(lines["gui_overflow"], SMALL)
                     self.assertEqual(lines["retry_runner"], "")
                     self.assertEqual(lines["runner"], SIDE)
                 else:
@@ -1233,6 +1249,43 @@ class Rerun(unittest.TestCase):
                                         "GITHUB_RUN_ATTEMPT": attempt, "SIDE_LABEL": SIDE})
                     self.assertEqual(output.read_text(), written)
 
+    def test_a_placement_with_no_gui_decision_sends_the_gui_jobs_to_the_last_resort(self):
+        """Review of #28605 at 69c89e2c982: removing the `runner != ''` leg let a placement that names no GUI route
+        and no GUI overflow (a trusted base predating the sized gui_overflow, or a runner read that failed closed)
+        send attempt 1's GUI jobs to the owned GUI queue. The step's shell names Blacksmith 6 vCPU for them then."""
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        place = next(step for step in workflow["jobs"]["macos-placement"]["steps"] if step.get("id") == "place")
+        outputs = workflow["jobs"]["macos-placement"]["outputs"]
+        cases = (("runner=\ngui_runner=\ngui_overflow=\n", SMALL), ("", SMALL),
+                 (f"gui_runner={GUI}\n", GUI), (f"gui_overflow={LARGE}\n", LARGE))
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = Path(tmp) / "scripts/ci"
+            scripts.mkdir(parents=True)
+            output = Path(tmp) / "out"
+            for written, expected in cases:
+                with self.subTest(written=written):
+                    (scripts / "side_lane_placement.py").write_text(
+                        f"import os\nopen(os.environ['GITHUB_OUTPUT'], 'a').write({written!r})\n")
+                    output.write_text("")
+                    subprocess.run(["bash", "-e", "-c", place["run"]], check=True, cwd=tmp, capture_output=True,
+                                   env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output),
+                                        "GITHUB_RUN_ATTEMPT": "1", "SIDE_LABEL": SIDE,
+                                        "GUI_LAST_RESORT": evaluate(place["env"]["GUI_LAST_RESORT"],
+                                                                    self.route_context("1", "teamleaderleo"))})
+                    # GitHub keeps an output's last value.
+                    step = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    context = self.route_context("1", "teamleaderleo")
+                    # Display placement remains in use on pushes; PR jobs use the side cascade.
+                    context["github"]["event_name"] = "push"
+                    context["needs"] = {"macos-placement": {"outputs": {
+                        key: step.get(key, "") for key in ("runner", "gui_runner", "session_runner", "gui_overflow",
+                                                           "free_gui_runner", "free_session_runner",
+                                                           "session_lane_runner")}}}
+                    context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = evaluate(
+                        outputs["placed_attempt"], context)
+                    for name in ("swift-test", "daemon-test", "generated-files"):
+                        self.assertEqual(evaluate(workflow["jobs"][name]["runs-on"], context), expected, name)
+
     def test_a_rerun_of_failed_jobs_never_takes_a_carried_blacksmith_reading(self):
         """Run 40398277457 (2026-10-26, #25446): the rescue re-ran the failed jobs as attempt 2 by
         github-actions[bot], so macos-placement was carried from attempt 1 (started 20:44:52) with its
@@ -1299,6 +1352,7 @@ class Wiring(unittest.TestCase):
         context["needs"] = {"macos-placement": {"outputs": {
             "runner": runner, "gui_runner": GUI if runner else "", "fallback_jobs": "", "owned_jobs": " fast-tier ",
             "blacksmith_12_jobs": large, "blacksmith_6_jobs": small, "retry_runner": retry,
+            "retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files " if retry else "",
             "hosted_jobs": hosted, "hosted_runner": HOSTED if hosted else "",
             # The attempt the placement ran in: by default where it really runs (attempt 1, the bot's
             # attempt 2); any other attempt carries attempt 1's job and outputs.
@@ -1573,6 +1627,24 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
 
+    def test_retry_runner_is_limited_to_the_placement_retry_set(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        capped = self.context("2", BOT, retry=SMALL, runner="")
+        capped["needs"]["macos-placement"]["outputs"]["retry_jobs"] = " fast-tier swift-canary "
+        self.assertEqual(evaluate(runs_on, capped), SIDE)
+        capped["needs"]["macos-placement"]["outputs"]["retry_jobs"] = " release-compile "
+        self.assertEqual(evaluate(runs_on, capped), SMALL)
+
+    def test_retry_jobs_are_capped_by_the_placement_limit(self):
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
+        result = cascade.place(env(CASCADE_RUNS=runs,
+                                   CASCADE_JOBS="swift-test daemon-test generated-files",
+                                   JOBS="fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.retry_runner, SMALL)
+        self.assertEqual(result.retry_jobs, ())
+        self.assertLessEqual(len(result.jobs[SMALL]) + len(result.retry_jobs), cascade.MAX_PER_RUN)
+
     def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
         runs_on = self.jobs["fast-tier"]["runs-on"]
         self.assertEqual(evaluate(runs_on, self.context(fork=True, runner="", placed="1")), SMALL)
@@ -1618,12 +1690,14 @@ class Wiring(unittest.TestCase):
                                          **{"push-head-preflight": {"outputs": {"current": "true"}}})
                 self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
 
-    def test_gui_jobs_keep_their_route(self):
+    def test_display_jobs_keep_push_routes_and_take_allocated_pr_overflow(self):
         for name in GUI_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertNotIn("blacksmith_12_jobs", runs_on)
-                self.assertEqual(evaluate(runs_on, self.context(large=f" {name} ", small=f" {name} ")), GUI)
+                context = self.context(large=f" {name} ", small=f" {name} ")
+                self.assertEqual(evaluate(runs_on, context), LARGE)
+                context["github"]["event_name"] = "push"
+                self.assertEqual(evaluate(runs_on, context), GUI)
 
     def test_each_jobs_own_label_copy_matches_runs_on(self):
         for name in CASCADED:
@@ -1788,7 +1862,9 @@ class SaturatedOwnedPool(unittest.TestCase):
                     continue
                 found.append(name)
                 with self.subTest(job=name, attempt=attempt):
-                    self.assertIn(name, cascade.CASCADE_JOBS,
+                    place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+                    declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
+                    self.assertIn(name, declared,
                                   f"{name} can take the side label but the cascade never places it off it")
                     self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
                     self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)
@@ -1831,7 +1907,8 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
     RUNS = " fast-tier swift-canary cmux-scheme-compile release-compile "
 
     def shot(self, minutes_old: float, reserved_small: int = 1) -> dict:
-        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 20})
+        # A moving 6 vCPU queue (oldest 2 min when the snapshot was made): only the reservation holds it.
+        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 2})
         shot["pools"][SMALL]["reserved_queued"] = reserved_small
         return shot
 
@@ -1839,7 +1916,7 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
         late = cascade.QUEUE_SNAPSHOT_MINUTES + 10
         self.assertIsNone(cascade.seen(self.shot(late), NOW), "too old for counts")
         held = cascade.reserved_from(self.shot(late), NOW)
-        self.assertEqual(held, cascade.Seen(waits={}, age=float(late), reserved={SMALL: 1}, stale=True))
+        self.assertEqual(held, cascade.Seen(waits={SMALL: 2.0}, age=float(late), reserved={SMALL: 1}, stale=True))
         self.assertIsNone(cascade.reserved_from(self.shot(late, reserved_small=0), NOW), "nothing reserved")
         self.assertIsNone(cascade.reserved_from(self.shot(cascade.RESERVED_SNAPSHOT_MINUTES + 1), NOW))
         self.assertIsNone(cascade.reserved_from({"generated_at": "not a time", "pools": {}}, NOW))
@@ -1887,6 +1964,51 @@ class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
         self.assertIsNone(placement.route_wait(SIDE, runners, held))
         fresh = cascade.Seen(waits={}, owned={SIDE: 12.0})
         self.assertEqual(placement.route_wait(SIDE, runners, fresh), 12.0)
+
+
+class LateSnapshotStall(unittest.TestCase):
+    """Blacksmith is a stall-aware overflow only (rulebook, routing order: Linux, owned Macs, Blacksmith last).
+    On 2026-10-31 from about 04:00Z every cmux-next placement found no snapshot under 15 minutes ("no pool
+    snapshot under 15 min old to count Blacksmith's queue") and sent swift test, daemon tests, the fast tier
+    and the Release compile to blacksmith-6vcpu-macos-26 blind (run 41175923956), while the 06:17Z snapshot
+    showed it with 166 queued and its oldest job waiting 179 min. A snapshot up to RESERVED_SNAPSHOT_MINUTES
+    old still shows a queue that was already stalled when it was made (late_waits())."""
+
+    def read(self, shot: dict):
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = shot
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 12}):
+            return cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                pool, now=NOW, log=lambda _: None)
+
+    def test_a_late_snapshot_keeps_jobs_off_a_stalled_6_vcpu(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 179},
+                                                 small=166))
+        self.assertIsNone(waiting, "too old for the counts")
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.waits, {SMALL: 179.0})
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn(SMALL, result.fresh_stall)
+        self.assertIn("has waited 179 min", result.why)
+        # A feed's compile stays off it too, as with a fresh reading (fresh_stalled()).
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), live, None, seen).jobs, none_placed())
+
+    def test_a_late_snapshot_of_a_moving_queue_keeps_the_last_resort(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 2}, small=3))
+        self.assertEqual(seen.waits, {SMALL: 2.0}, "the snapshot's own figure, without its 25-min age")
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}), result.why)
+
+    def test_the_late_window(self):
+        stalled = {"oldest": {"small": 179}, "small": 1}
+        self.assertEqual(cascade.late_waits(snapshot(2, **stalled), NOW), {}, "fresh: seen() reads it, age added")
+        self.assertEqual(cascade.late_waits(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW), {})
+        self.assertEqual(cascade.late_waits(snapshot(20, oldest={"small": 179}), NOW), {}, "no queue, no wait")
+        self.assertEqual(cascade.late_waits(None, NOW), {})
+        self.assertEqual(cascade.late_waits({"generated_at": "not a time", "pools": {}}, NOW), {})
+        self.assertIsNone(cascade.stale_seen(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW))
 
 
 class DeadEndRoute(unittest.TestCase):
@@ -1953,6 +2075,15 @@ class DeadEndRoute(unittest.TestCase):
         seen = cascade.seen(snap, NOW)
         self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
         self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+        self.assertEqual(seen.unserved, frozenset())
+
+    def test_seen_reads_the_janitors_unserved_owned_labels(self):
+        # queue_janitor.py writes starved_labels.unserved(): fleet label keys, joined with "+" for a job asking
+        # for several. Only a single owned label says that label starts nothing.
+        snap = snapshot(minutes_old=5)
+        snap["unserved"] = ["glaeda-session-std-xcode-26.6", "glaeda-ios-sim+glaeda-std-xcode-26.6",
+                            "blacksmith-6vcpu-macos-26", 7]
+        self.assertEqual(cascade.seen(snap, NOW).unserved, frozenset({"glaeda-session-std-xcode-26.6"}))
 
 
 def observed_dead(minutes_old: float = 2, *, dead: str = LARGE, **overrides: dict) -> dict:
@@ -2034,6 +2165,107 @@ class DeadLabel(unittest.TestCase):
         spec.loader.exec_module(sign)
         snap = observed_dead(38)
         self.assertEqual(sign.dead(snap, NOW), set(cascade.dead(snap, NOW)))
+
+
+class FleetClientJobs(unittest.TestCase):
+    """With every owned and Blacksmith macOS label full or dead, only the jobs that have a build-fleet client
+    (FLEET_CLIENT_JOBS: cmux-next.yml's <job>-fleet) are listed in fleet_jobs; nothing is while any label
+    can take the job, and the workflow lists only jobs that have their client."""
+
+    LIVE, WAITING = {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}
+
+    def shot(self, **side: object) -> dict:
+        shot = snapshot(minutes_old=1, large=1, small=1)
+        for label in (LARGE, SMALL, SIDE):
+            shot["pools"][label] = {"cap": 1, "running": 1, "queued": 1,
+                                    "listening": 0, "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                                    "oldest_queued_s": 240, "as_of": "2026-10-19T21:59:00Z"}
+        shot["pools"][SIDE].update(side)
+        return shot
+
+    def place(self, owned=(), shot=None, live=None, **overrides):
+        return cascade.place(env(**overrides), owned, live or self.LIVE, self.WAITING,
+                             cascade.seen(shot or self.shot(), NOW), saturated=True)
+
+    def test_only_listed_jobs_take_the_fleet(self):
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ("fast-tier",))
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="fast-tier swift-canary").fleet_jobs,
+                         ("fast-tier", "swift-canary"))
+        self.assertEqual(self.place().fleet_jobs, ())
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="").fleet_jobs, ())
+
+    def test_nothing_is_listed_while_a_label_can_take_the_job(self):
+        # A Blacksmith label under its declared cap.
+        shot = self.shot()
+        shot["pools"][LARGE].update(cap=5, running=1)
+        self.assertEqual(self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs,
+                         ())
+        # The side label has a listener, by a fresh health record (a stale record or snapshot reads full).
+        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        listening = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
+        listening["generated_at"] = fresh
+        self.assertEqual(self.place(shot=listening, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ())
+        # No snapshot: nothing is known full.
+        self.assertEqual(cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None,
+                                       saturated=True).fleet_jobs, ())
+
+    def test_the_output_is_space_delimited_like_the_blacksmith_lists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            cascade.write(self.place(FLEET_CLIENT_JOBS="fast-tier"), {"GITHUB_OUTPUT": str(out)})
+            self.assertIn("fleet_jobs= fast-tier \n", out.read_text())
+
+    def test_the_workflow_lists_only_jobs_with_a_client(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        listed = str(place["env"]["FLEET_CLIENT_JOBS"]).split()
+        self.assertEqual(listed, ["fast-tier"])
+        for job in listed:
+            with self.subTest(job=job):
+                self.assertIn(job, cascade.CASCADE_JOBS, "only a cascade job is ever left unplaced")
+                self.assertIn(f"{job}-fleet", jobs, "a listed job needs its <job>-fleet client")
+
+
+class GuiOverflow(unittest.TestCase):
+    """The GUI jobs' Blacksmith leg (swift-test, daemon-test, generated-files): the largest size that starts them now.
+
+    Run 41123927916 (cmux#28497, 2026-10-30) sent swift-test to 6 vCPU on both attempts, where tests that take
+    under a second idle took 78-227 s and the 300 s stall watchdog cut them. 12 vCPU was stalled that day, so
+    6 vCPU was the right pick then; the leg was 6 vCPU whatever 12 vCPU's state, though.
+    """
+
+    MOVING = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0})
+
+    def free(self) -> dict:
+        return {LARGE: 0, SMALL: 0}
+
+    def test_the_large_size_while_it_moves_and_starts_every_gui_job(self):
+        self.assertEqual(cascade.gui_overflow_label(self.free(), self.free(), self.MOVING), LARGE)
+        self.assertEqual(cascade.gui_overflow_label({LARGE: 1, SMALL: 2}, self.free(), self.MOVING, jobs=3), LARGE)
+
+    def test_the_small_size_when_the_large_one_cannot_start_them_now(self):
+        cases = {
+            # Run 41123927916's attempt 1 placement: 0 in flight + 158 queued, oldest queued 1431 min.
+            "stalled": ({LARGE: 0, SMALL: 4}, {LARGE: 158, SMALL: 0},
+                        cascade.Seen(waits={LARGE: 1431.0, SMALL: 0.0})),
+            # A cleared queue on a label that started nothing for an hour reads as free slots.
+            "dead": (self.free(), self.free(), cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, dead=frozenset({LARGE}))),
+            "full": ({LARGE: 5, SMALL: 0}, self.free(), self.MOVING),
+            "no slot for each job": ({LARGE: 3, SMALL: 0}, self.free(), self.MOVING),
+            # Ten 6 vCPU jobs hold the 60 vCPU pool: twelve are not free at once.
+            "pool full": ({LARGE: 0, SMALL: 10}, self.free(), self.MOVING),
+            # A queued Blacksmith job takes each freed slot first (fits()).
+            "pool queue": ({LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1}, self.MOVING),
+            "freshness work queued for it": (self.free(), self.free(),
+                                             cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, reserved={LARGE: 1})),
+            "runner groups unread": (None, self.free(), self.MOVING),
+            "snapshot unread": (self.free(), None, None),
+            "no snapshot waits": (self.free(), self.free(), None),
+            "stale snapshot": (self.free(), self.free(), cascade.Seen(waits={}, stale=True)),
+        }
+        for name, (live, waiting, seen) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(cascade.gui_overflow_label(live, waiting, seen, jobs=3), SMALL)
 
 
 if __name__ == "__main__":

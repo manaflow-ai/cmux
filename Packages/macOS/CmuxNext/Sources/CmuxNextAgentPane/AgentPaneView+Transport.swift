@@ -1,11 +1,90 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import WebKit
 
 extension AgentPaneView {
+    func refreshQuestionKeyBinding() {
+        guard let page else { return }
+        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor else { return }
+        guard let session = model.sessionId, let connection = model.transport.connection else {
+            if questionKeyBinding != nil { page.bindQuestionKeyTargets([]) { _ in } }
+            questionKeyBinding = nil
+            model.transport.gestures.recordQuestionReturn(false)
+            return
+        }
+        let contexts = model.transport.decisions.questions(session: session)
+        let binding = QuestionKeyBinding(connection: connection, session: session, contexts: contexts)
+        let targets = contexts.keys.map {
+            PageQuestionKeyTarget(sessionID: session, permissionID: $0)
+        }
+        // The cache describes the requested binding, not the async install's outcome. A failed
+        // install or navigation can revoke the channel while native pending state is unchanged.
+        guard questionKeyBinding != binding || !page.hasQuestionKeyTargets(targets) else { return }
+        model.transport.gestures.recordQuestionReturn(false)
+        page.bindQuestionKeyTargets([]) { _ in }
+        let bound = page.bindQuestionKeyTargets(targets) { [weak self, weak page] snapshot in
+            guard let self, let page else { return }
+            let requestID = "question-key-" + UUID().uuidString
+            guard self.model.transport.beginQuestionKeyReply(connection: connection, requestID: requestID,
+                                                              target: snapshot.target) else { return }
+            guard self.model.sessionId == snapshot.target.sessionID,
+                  self.model.transport.connection == connection,
+                  let boundContext = binding.contexts[snapshot.target.permissionID],
+                  let context = self.model.transport.decisions.context(session: snapshot.target.sessionID,
+                                                                                permission: snapshot.target.permissionID),
+                  context == boundContext,
+                  context.isQuestion, let witness = self.model.transport.gestures.questionReturnWitness,
+                  let reply = try? JSONSerialization.jsonObject(with: Data(snapshot.replyJSON.utf8)) as? [String: Any],
+                  let option = reply["optionId"] as? String,
+                  let answers = reply["answers"] as? [String: Any] else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID, target: snapshot.target)
+                return
+            }
+            let annotations = reply["annotations"] as? [String: Any]
+            var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
+                                          "optionId": option, "answers": answers]
+            if let annotations { params["annotations"] = annotations }
+            let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
+                "params": params]])
+            guard let intent else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
+                                                             target: snapshot.target, error: .intentInvalid)
+                return
+            }
+            self.model.transport.offerQuestionKeyCredit(target: snapshot.target, intent: intent, context: context,
+                                                        connection: connection, witness: witness) {
+                await page.redeemQuestionKeySnapshot(snapshot)
+            }
+            guard let ticket = self.model.transport.reserveGesture(intent) else {
+                // Chromium has already prevented Return and the card is waiting on
+                // the host's correlated promise. Revoke this witness, release the
+                // isolated snapshot, and reject that promise so the card can retry.
+                self.model.transport.gestures.recordQuestionReturn(false)
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID, target: snapshot.target)
+                Task { @MainActor [weak page] in
+                    guard let page else { return }
+                    _ = await page.redeemQuestionKeySnapshot(snapshot)
+                }
+                return
+            }
+            params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID,
+                                            "method": "_acpmux/permission_respond", "params": params]
+            guard let text = AcpmuxRequestIds.encode(request) else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
+                                                             target: snapshot.target, error: .invalidFrame)
+                return
+            }
+            self.model.transport.submitQuestionKeyReply(connection: connection, requestID: requestID,
+                                                       target: snapshot.target, frame: text)
+        }
+        questionKeyBinding = bound ? binding : nil
+    }
     /// The pane's side of the host transport: the native sheet it asks for (a config option that is
     /// not free) and the delivery of its frames to the page.
     func installTransport() {
+        refreshQuestionKeyBinding()
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
@@ -28,10 +107,14 @@ extension AgentPaneView {
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
+        model.transport.onQuestionStateChanged = { [weak self] in self?.refreshQuestionKeyBinding() }
+        model.onQuestionKeySessionChange = { [weak self] in self?.refreshQuestionKeyBinding() }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
-                pageEvents.transportDidOpen(event.connection)
+                if event.connection == self.model.transport.current {
+                    pageEvents.transportDidOpen(event.connection)
+                }
                 // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
                     self.model.transport.close(connection: event.connection)
@@ -81,24 +164,29 @@ extension AgentPaneView {
         if let window, let eventWindow, eventWindow !== window, eventWindow.parent === window {
             return judgeChromium(event, eventWindow: eventWindow)
         }
-        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
+        guard let window, eventWindow === window else { return }
         switch event.type {
         case .keyDown:
             guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
+        // Repeats belong to the original press, whose DOM proof may still be redeeming.
+        // A new page event revokes it, even when posted input cannot grant a fresh witness.
+        model.transport.gestures.recordQuestionReturn(false)
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
     /// while the page has the keyboard, or a click on the page.
     private func judgeChromium(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
+        guard page?.showsChromium == true, let eventWindow else { return }
         switch event.type {
         case .keyDown:
             // CEF can leave its child window non-key while a native file picker or attachment
-            // handoff finishes. The event is still the person's physical key (checked above),
+            // handoff finishes. The event is still the person's physical key (checked below),
             // and the child is still this pane's page, so do not turn that brief focus transition
             // into a rejected send.
             guard !event.isARepeat,
@@ -106,6 +194,14 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
+        model.transport.gestures.recordQuestionReturn(false)
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+    }
+
+    /// Return on the main keyboard is key code 36; the numeric keypad's Enter is 76.
+    private static func isReturnKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 || event.keyCode == 76
     }
 }

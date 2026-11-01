@@ -11,9 +11,6 @@ final class UnreadBadgeView: NSView {
     private(set) var state: UnreadState = .none
     /// The look painted last.
     private(set) var look = NotificationBadgeLook.classic
-    /// A fixed look instead of the Debug Settings one: tab rows draw the quiet
-    /// (muted) dot under their workspace's badge (Lawrence 2026-10-14).
-    var fixedLook: NotificationBadgeLook? { didSet { if fixedLook != oldValue { needsDisplay = true } } }
     /// A dot in the unread blue of a workspace row (`Palette.statusUnread`) in every look: an
     /// item whose unread is a dot, not a count (Home, Lawrence 2026-10-23).
     var notificationDot = false { didSet { if notificationDot != oldValue { needsDisplay = true } } }
@@ -58,7 +55,7 @@ final class UnreadBadgeView: NSView {
     var preferredWidth: CGFloat {
         switch state {
         case .none: 0
-        case .dot: SidebarStyle.dotSize
+        case .dot: SidebarStyle.unreadDotSize
         case .count: max(SidebarStyle.badgeHeight + Metrics.space2, ceil(label.attributedStringValue.size().width) + Metrics.space4)
         }
     }
@@ -82,7 +79,7 @@ final class UnreadBadgeView: NSView {
 
     override func updateLayer() {
         guard let layer else { return }
-        look = fixedLook ?? observedLook()
+        look = observedLook()
         performWithTheme {
             var colors = self.paint(look, dot: state == .dot)
             if notificationDot, state == .dot { colors = Paint(fill: Palette.statusUnread, text: Palette.statusUnread) }

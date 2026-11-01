@@ -411,6 +411,140 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Starts a daemon on its own home `dir` whose owning app is `owner` (`ACPMUX_OWNER_APP_PID`, as
+/// the app's launcher sets it) and waits for its ready line. `harness`: a stand-in agent config.
+async fn owned_daemon(dir: &Path, owner: u32, harness: bool) -> std::process::Child {
+    let socket = dir.join("s.sock");
+    let mut cmd = if harness {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        std::fs::write(
+            dir.join("config.json"),
+            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
+        daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
+    } else {
+        daemon_env::acpmux(dir)
+    };
+    let mut child = cmd
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_OWNER_APP_PID", owner.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    if ready.is_none() {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    }
+    child
+}
+
+/// Waits up to `limit` for `child` to exit; kills it (and returns None) when it does not.
+async fn exits_within(
+    child: &mut std::process::Child,
+    limit: Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if start.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn end(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Quit leaves no helper processes (P0 journey quit-leaves-no-helpers: 5 s after a quit the app's
+/// acpmux still ran). The app starts its daemon detached so durable agents outlive it, and names
+/// itself in `ACPMUX_OWNER_APP_PID`. With a fake app (a `sleep` child): the daemon stays while the
+/// app runs and while a client is connected, and stops soon after the app is gone and the last
+/// client left, with no agent, turn or task to keep it.
+#[tokio::test]
+async fn quit_helpers_a_daemon_stops_soon_after_its_app_is_gone_and_its_last_client_left() {
+    let dir = scratch("own");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
+    let mut child = owned_daemon(&dir, owner.id(), false).await;
+    // The app runs, no client: the daemon stays.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    if child.try_wait().unwrap().is_some() {
+        end(&mut owner);
+        panic!("the daemon exited while its app runs");
+    }
+    // A client connects; then the app quits. The client keeps the daemon.
+    let mut client = Rpc::connect(&dir.join("s.sock")).await;
+    client.call("_acpmux/status", json!({})).await;
+    end(&mut owner);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    if child.try_wait().unwrap().is_some() {
+        panic!("the daemon exited while a client was connected");
+    }
+    // The last client leaves: nothing keeps the daemon.
+    drop(client);
+    let exited = exits_within(&mut child, Duration::from_secs(15)).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let status =
+        exited.expect("the daemon still ran 15 s after its app was gone and its last client left");
+    assert!(status.success(), "the daemon did not stop normally: {status:?}");
+}
+
+/// Keep Sessions Running (#29984): an agent still in its turn when the app quits keeps the daemon,
+/// with no client connected, until the turn is over.
+#[tokio::test]
+async fn quit_helpers_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
+    let dir = scratch("ownw");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
+    let mut child = owned_daemon(&dir, owner.id(), true).await;
+    let socket = dir.join("s.sock");
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "busy"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // A turn that never ends: a busy agent.
+    let line = json!({"jsonrpc": "2.0", "id": 99, "method": "session/prompt", "params": {"sessionId": id, "prompt": [{"type": "text", "text": "hang"}]}});
+    rpc.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut watcher = Rpc::connect(&socket).await;
+    let start = Instant::now();
+    while watcher.call("_acpmux/info", json!({"sessionId": id})).await["status"] != "running" {
+        assert!(start.elapsed() < Duration::from_secs(20), "the turn never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    drop(watcher);
+    drop(rpc);
+    end(&mut owner);
+    // No client and no app, but a turn runs: the daemon stays.
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    let alive = child.try_wait().unwrap().is_none();
+    end(&mut child);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(alive, "the daemon stopped under a running turn after its app quit");
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
@@ -806,6 +940,26 @@ async fn a_daemon_whose_socket_ancestor_is_retargeted_stops() {
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
     assert!(status.expect("retargeting a socket ancestor left the daemon running").success());
     assert_eq!(std::fs::read_dir(second).unwrap().count(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A socket removed on its own (a cleanup of the folder that holds it) leaves nothing that can
+/// reach the daemon: it stops. On a Mac the socket itself cannot be watched (kqueue opens no
+/// socket), and the daemon kept running there (cx-n1nrjk).
+#[tokio::test]
+async fn a_daemon_whose_socket_is_removed_stops() {
+    let dir = scratch("sockgone");
+    let home = dir.join("h");
+    let run = dir.join("run");
+    for path in [&home, &run] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let socket = run.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    std::fs::remove_file(&socket).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    assert!(status.expect("removing its socket left the daemon running").success());
+    assert!(home.exists(), "a lost socket removed the home");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

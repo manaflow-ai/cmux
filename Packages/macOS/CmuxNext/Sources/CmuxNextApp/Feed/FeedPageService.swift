@@ -43,15 +43,14 @@ final class FeedPageService: InternalPageProvider {
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
         feed.model.place = FeedPlace.lookup(services.daemon.store.place)
-        let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
         let replies = replies
         // Resolved once at startup: a reply runs no executable lookup or signature check.
         let environment = feed.acpmuxEnvironment
-        return FeedHostView(model: feed.model, layoutOverride: layout) { reply in
+        return FeedHostView(model: feed.model, layoutOverride: .inbox) { reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
-            // report rows; the command is a bounded local adapter for Labs.
+            // report rows; the command is a bounded local adapter.
             // The process runs off the main thread, to its exit or deadline (AcpmuxReplySender).
             await replies.send(session: reply.session, text: reply.text, promptID: reply.promptID, environment: environment)
         }

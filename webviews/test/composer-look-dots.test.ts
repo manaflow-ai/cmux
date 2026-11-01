@@ -6,15 +6,16 @@
 // - The New Tab page shows three dots under it (Leo 2026-10-23: "1 CLAUDE MINIMAL / 2 CLAUDE MINIMAL
 //   + NEW TAB/TERMINAL/WHATEVER / 3 CODEX MINIMAL"; newtab/tabDots.ts): Claude Minimal checked by
 //   default; the second adds the quick action pills under Claude's composer; the third gives the
-//   composer Codex's look (data-composer-look="codex"): the model stays in the shared footer,
-//   and no pills. Arrow keys move across the three. The pick is remembered
+//   composer Codex's look (data-composer-look="codex"): Claude's button layout, the mode and model in
+//   the quiet row under the box (Leo 2026-11-01: "we already have a good version"), Codex's tray over
+//   it, and no pills. Arrow keys move across the three. The pick is remembered
 //   across a reload.
 // - On another page style (Classic) the dots switch the look only: the page keeps its style, whose
 //   own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
 // - In a chat the same two dots sit in the composer's bottom area, unseen until the pointer is over
 //   that area. The second dot switches the chat composer's look: the form takes
-//   data-composer-look="codex", the mode and model move into the box, and the quiet row goes; the
-//   dots then sit in the box's internal dead-space row and the first dot brings Claude's look back.
+//   data-composer-look="codex", every control stays where it was (the mode and model in the quiet
+//   row, the dots over its middle), and the first dot brings Claude's look back.
 //
 // Real Chromium on the gallery stage. CI fails the file when it cannot launch it
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-look-dots.test.ts
@@ -93,7 +94,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await open(page, "agent-pane.new-tab", "minimal-default");
     expect(await dots(page, ".nt-style")).toEqual([
       { value: "claude", name: "Claude Minimal", checked: true },
-      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "claudeActions", name: "Claude Minimal + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: false },
     ]);
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
@@ -109,7 +110,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
 
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
-    // Codex's look keeps its styling, while the model stays in the same footer as Claude's.
+    // Codex's look lays the buttons out as Claude's: the mode and model in the quiet row under the box.
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
     expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     await page.waitForFunction(() => !document.querySelector(".nt-create"));
@@ -169,14 +170,14 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     // The three dots, then the page's styles (Minimal among them), each marking its own pick.
     expect(await dots(page, ".nt-look-dots")).toEqual([
       { value: "claude", name: "Claude Minimal", checked: false },
-      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "claudeActions", name: "Claude Minimal + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: true },
     ]);
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
 
     // The saved look holds when Classic opens again, and on Cards: the strip is Codex's tray over
-    // the box, the model in the footer, not Cards' pill.
+    // the box, the model in the quiet row under it, not Cards' pill.
     await page.reload();
     await ready(page);
     await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
@@ -185,7 +186,6 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await page.$(".nt-composer .nt-above")).not.toBeNull();
     expect(await page.$(".nt-composer .nt-toolbar")).toBeNull();
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
-    expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     await context.close();
   });
 
@@ -213,26 +213,17 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
 
     await pickDot(page, form, "codex");
     await page.waitForSelector(`${form}[data-composer-look="codex"]`);
+    // Codex's look lays the buttons out as Claude's: the mode and model stay in the quiet row, the
+    // dots over its middle, shown on hover there; the first dot goes back.
     expect(await page.$(`${form} .acpmux-composer-box .acpmux-model`)).toBeNull();
     expect(await page.$(`${form} .acpmux-composer-foot .acpmux-model`)).not.toBeNull();
     expect(await page.$(`${form} .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
-
-    // Codex's look: the dots sit in the box's internal dead-space row, shown on hover there; the first dot goes back.
     await page.mouse.move(1, 1);
     expect(await shown(page, form)).toBe(false);
-    const box = (await (await page.$(`${form} .acpmux-composer-box`))!.boundingBox())!;
-    const under = (await (await page.$(`${form} > .acpmux-composer-under`))!.boundingBox())!;
-    expect(Math.abs(under.x - box.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(under.width - box.width)).toBeLessThanOrEqual(1);
-    expect(under.y).toBeGreaterThanOrEqual(box.y);
-    expect(under.y + under.height).toBeLessThanOrEqual(box.y + box.height);
-    // The one-line Codex prompt must leave dead space for dots; the dots never cover controls.
-    const actions = (await (await page.$(`${form} .acpmux-composer-actions`))!.boundingBox())!;
-    expect(under.y).toBeGreaterThanOrEqual(actions.y + actions.height - 1);
-    const actualDots = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
-    expect(actualDots.y).toBeGreaterThanOrEqual(actions.y + actions.height);
-    expect(actualDots.y + actualDots.height).toBeLessThanOrEqual(box.y + box.height);
-    await page.mouse.move(under.x + under.width * 0.35, under.y + under.height / 2);
+    const codexRow = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
+    const codexDots = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
+    expect(codexDots.y >= codexRow.y && codexDots.y + codexDots.height <= codexRow.y + codexRow.height).toBe(true);
+    await page.mouse.move(codexDots.x + codexDots.width / 2, codexDots.y + codexDots.height / 2);
     expect(await shown(page, form)).toBe(true);
     await pickDot(page, form, "claude");
     await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
@@ -240,7 +231,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await context.close();
   });
 
-  test("a long Codex draft keeps the footer in a short chat pane", async () => {
+  test("a long Codex draft keeps the box's controls and the quiet row in a short chat pane", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 400 } });
     const page = await context.newPage();
     await open(page, "agent-pane.composer", "quiet-chips");
@@ -276,10 +267,19 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const bounds = await page.$eval(".acpmux-composer", (composer) => {
       const field = composer.querySelector(".acpmux-shell-field")!.getBoundingClientRect();
       const actions = composer.querySelector(".acpmux-composer-actions")!.getBoundingClientRect();
-      const footer = composer.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
-      return { fieldBottom: field.bottom, actionsTop: actions.top, footerBottom: footer.bottom };
+      const footer = composer.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+      return {
+        fieldBottom: field.bottom,
+        fieldRight:
+          field.right -
+          Number.parseFloat(getComputedStyle(composer.querySelector(".acpmux-shell-field")!).paddingRight),
+        actionsTop: actions.top,
+        actionsLeft: actions.left,
+        footerBottom: footer.bottom,
+      };
     });
-    expect(bounds.fieldBottom).toBeLessThanOrEqual(bounds.actionsTop);
+    // The actions stand right of the field (Claude's grid): they never overlap it.
+    expect(bounds.fieldRight <= bounds.actionsLeft || bounds.fieldBottom <= bounds.actionsTop).toBe(true);
     expect(bounds.footerBottom).toBeLessThanOrEqual(400);
     await context.close();
   });

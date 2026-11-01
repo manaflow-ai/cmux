@@ -45,9 +45,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own colors (never the app theme's), for "Use Ghostty Config"'s
-                // preview while appearance.theme is unset (null while it names a theme).
+                // "Use Ghostty Config"'s preview (the config's own colors, null while appearance.theme is set); the pair side the terminals use.
                 "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(services.themeStore.configInput) : .null,
+                "system_scheme": .string(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"),
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
@@ -68,7 +68,7 @@ extension SettingsWindowService {
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
             "derived": .object(pageDerivedNumbers()),
         ]
     }

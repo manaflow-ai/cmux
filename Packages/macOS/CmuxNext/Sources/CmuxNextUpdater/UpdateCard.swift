@@ -39,6 +39,9 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     case retry
     /// Show a failure's details (the update sheet).
     case details
+    /// Stop the running download: Sparkle deletes the partial file and the card goes back to the
+    /// found update, whose Update downloads it again (Leo 2026-10-31: "WHY CAN'T I CANCEL THE DOWNLOAD").
+    case cancelDownload = "cancel_download"
 
     public var title: String {
         switch self {
@@ -46,9 +49,21 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .releaseNotes: UpdaterStrings.releaseNotes
         case .retry: UpdaterStrings.retry
         case .details: UpdaterStrings.details
+        case .cancelDownload: UpdaterStrings.cancel
         }
     }
 
     /// The call to action (filled); the others are quiet.
     public var isProminent: Bool { self == .update }
+
+    /// The SF Symbol of an action drawn as the card's right-hand control (``UpdateCardPresentation/trailing``).
+    public var symbol: String {
+        switch self {
+        case .cancelDownload: "xmark.circle.fill"
+        case .update: "arrow.down.circle"
+        case .releaseNotes: "doc.text"
+        case .retry: "arrow.clockwise"
+        case .details: "info.circle"
+        }
+    }
 }

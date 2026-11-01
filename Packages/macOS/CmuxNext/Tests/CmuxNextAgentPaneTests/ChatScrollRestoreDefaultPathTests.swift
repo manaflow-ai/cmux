@@ -32,17 +32,18 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func aChatReopensWhereItRestedWithThePageHostOff() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-bridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": "user-42", "offset": 120.5]))
 
         // A fresh store — the next run after a crash, or another tab in this one — reads it back,
         // for that chat only.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         let place = Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) as? [String: Any]
         #expect(place?["rowId"] as? String == "user-42")
         #expect(place?["offset"] as? Double == 120.5)
@@ -50,7 +51,7 @@ struct ChatScrollRestoreDefaultPathTests {
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": NSNull(), "offset": 0]))
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
     }
 
@@ -60,11 +61,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func thePageHostAndThePanesOwnHostShareTheOneStore() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-shared-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
 
         // Written on the pane's own host, read on the page host.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-3", "rowId": "user-7", "offset": 8]))
@@ -87,11 +89,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func aRequestWithoutAChatIsRefusedAndNothingIsKept() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-refuse-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         #expect(Self.call("chat.scrollAnchor.get", [:])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor", ["sessionId": ""])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor.forget", ["sessionId": "s-5"])["ok"] as? Bool == false)
@@ -111,11 +114,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
 
         // What the host does with a page message, body and all: it writes, and it reads back.
         let wrote = try #require(AgentPaneBridge.chatPlaceReply(

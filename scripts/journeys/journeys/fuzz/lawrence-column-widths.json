@@ -1,0 +1,82 @@
+{
+ "id": "lawrence-column-widths",
+ "priority": "P1",
+ "title": "fuzz corpus: Lawrence's report as a fixed sequence (new_workspace new_terminal new_column new_column split_right split_down new_column new_column), every fuzz oracle after each burst",
+ "why": "Lawrence 2026-10-31 05:3xZ (STATUS 913) and cmux-ad 08:06Z: New Column (Ctrl-Cmd-D) never resizes an existing column; Cmd-D and Split Down split inside a column and no other column changes width (R3b).",
+ "source": "ext_fuzz.CORPUS (scripts/journeys/fuzz.py --corpus plays the same sequences)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    },
+    {
+     "a": "new_terminal",
+     "t": "slow"
+    },
+    {
+     "a": "new_column",
+     "t": "slow"
+    },
+    {
+     "a": "new_column",
+     "t": "slow"
+    },
+    {
+     "a": "split_right",
+     "t": "slow"
+    },
+    {
+     "a": "split_down",
+     "t": "slow"
+    },
+    {
+     "a": "new_column",
+     "t": "pair"
+    },
+    {
+     "a": "new_column",
+     "t": "slow"
+    }
+   ],
+   "shrink": false,
+   "budget_s": 190
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}

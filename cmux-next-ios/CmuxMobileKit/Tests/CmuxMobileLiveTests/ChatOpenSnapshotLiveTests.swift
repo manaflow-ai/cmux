@@ -84,6 +84,22 @@ import Testing
         events.compactMap { if case .userMessage(_, _, let turn, _, _) = $0 { turn } else { nil } }
     }
 
+    /// Every event, with batches opened.
+    static func flattened(_ events: some Sequence<AgentSessionEvent>) -> [AgentSessionEvent] {
+        events.flatMap { event -> [AgentSessionEvent] in if case .batch(let inner) = event { inner } else { [event] } }
+    }
+
+    /// Waits on the clock until `done`, for at most 10 s, with the main actor free. A count of
+    /// `Task.yield()`s is no deadline: in a full kit run the hub actor, the mock link and each
+    /// reader's own task may not have run when the yields run out (a reattach test saw the
+    /// store draw the catch-up while its collecting reader had not yet: `batches.count` 0).
+    static func waitUntil(_ done: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !done(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition until a deadline
+        }
+    }
+
     @Test func attachPageArrivesAsOneBatchThenLiveRecords() async throws {
         let attaches = Attaches()
         let hub = AcpmuxHub()
@@ -91,7 +107,7 @@ import Testing
         let source = hub.source(sessionID: "s1", summary: Self.summary)
         let (collected, task) = Self.collect(source.events())
         defer { task.cancel() }
-        for _ in 0..<2000 where !Self.userMessages(collected.events).contains("tl") { await Task.yield() }
+        await Self.waitUntil { Self.userMessages(collected.events).contains("tl") }
 
         // The first event is the whole history, as one change.
         guard case .batch(let history)? = collected.events.first else {
@@ -113,11 +129,11 @@ import Testing
         let source = hub.source(sessionID: "s1", summary: Self.summary)
         let (first, firstTask) = Self.collect(source.events())
         defer { firstTask.cancel() }
-        for _ in 0..<2000 where !Self.userMessages(first.events).contains("tl") { await Task.yield() }
+        await Self.waitUntil { Self.userMessages(first.events).contains("tl") }
 
         let (second, secondTask) = Self.collect(source.events())
         defer { secondTask.cancel() }
-        for _ in 0..<200 where second.events.isEmpty { await Task.yield() }
+        await Self.waitUntil { !second.events.isEmpty }
         #expect(second.events.count == 1)
         guard case .batch(let replay)? = second.events.first else {
             Issue.record("a second reader got loose records: \(second.events.prefix(3))")
@@ -135,18 +151,21 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let source = hub.source(sessionID: "s1", summary: Self.summary)
         let store = AgentChatStore(source: source)
-        for _ in 0..<2000 where store.turns.last?.id != "tl" { await Task.yield() }
+        await Self.waitUntil { store.turns.last?.id == "tl" }
         #expect(store.turns.count == Self.turns + 1)
         let (collected, task) = Self.collect(source.events())
         defer { task.cancel() }
-        for _ in 0..<200 where collected.events.isEmpty { await Task.yield() }
+        await Self.waitUntil { !collected.events.isEmpty }
         let before = collected.events.count
 
         // The link drops and comes back on a new channel.
         await hub.bind(nil)
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let missed = "t\(Self.turns + 1)"
-        for _ in 0..<2000 where store.turns.last?.id != missed { await Task.yield() }
+        // The store and the collecting reader each drain their own stream: wait for both.
+        await Self.waitUntil {
+            store.turns.last?.id == missed && Self.userMessages(Self.flattened(collected.events.dropFirst(before))).contains(missed)
+        }
 
         #expect(attaches.all == [0, Self.turns * 5 + 1])
         let after = Array(collected.events.dropFirst(before))
@@ -205,25 +224,27 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let source = hub.source(sessionID: "s1", summary: Self.summary)
         let store = AgentChatStore(source: source)
-        for _ in 0..<2000 where store.turns.count < Self.turns { await Task.yield() }
+        await Self.waitUntil { store.turns.count >= Self.turns }
         #expect(store.turns.count == Self.turns)
 
         await hub.bind(nil)
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let last = "t\(firstMissed + missedTurns - 1)"
-        for _ in 0..<4000 where store.turns.last?.id != last { await Task.yield() }
+        await Self.waitUntil { store.turns.last?.id == last }
 
         let missed = (firstMissed..<(firstMissed + missedTurns)).map { "t\($0)" }
         #expect(Array(store.turns.map(\.id).suffix(missedTurns)) == missed)
         #expect(store.turns.count == Self.turns + missedTurns)
     }
 
-    /// A chat whose history is longer than the attach keeps says so: its first turn shown
+    /// A chat whose history is longer than the attach's page says so: its first turn shown
     /// is not where the session started. It used to read "Session started <that turn>".
+    /// The open reads that one page; older ones come as the reader scrolls up
+    /// (`LongChatOpenLiveTests`).
     @Test(arguments: [true, false])
     func cappedHistorySaysEarlierMessagesExist(_ long: Bool) async throws {
-        // Pages of 80 turns (400 records), newest first; a long chat has more than the cap.
-        let total = long ? 1000 : 120
+        // Pages of 80 turns (400 records), newest first; a long chat has more than one page.
+        let total = long ? 1000 : 60
         let link = MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -252,9 +273,9 @@ import Testing
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
-        let shown = long ? 400 : total  // 2000 records kept: the newest 400 turns
-        // Five pages through the mock link: wait with the main actor free (a yield loop
-        // this long starves the other main-actor suites running beside it).
+        let shown = long ? 80 : total  // the newest page: 80 turns
+        // Wait with the main actor free (a yield loop this long starves the other
+        // main-actor suites running beside it).
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(30)
         while store.turns.count < shown, clock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
@@ -293,7 +314,7 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
         // Whichever lands first (the reply or the records sent ahead of it), the ask ends on t1.
-        for _ in 0..<2000 where store.turns.count < 2 || store.pendingPermission == nil { await Task.yield() }
+        await Self.waitUntil { store.turns.count >= 2 && store.pendingPermission != nil }
         #expect(store.turns.map(\.id) == ["t0", "t1"])
         #expect(store.pendingPermission?.request.id == "perm")
         let asks = store.turns.flatMap(\.items).filter { if case .permission = $0 { true } else { false } }
@@ -331,10 +352,10 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
         // Shown from the reply's pending list, on the page's last turn for now.
-        for _ in 0..<2000 where store.pendingPermission == nil { await Task.yield() }
+        await Self.waitUntil { store.pendingPermission != nil }
         #expect(store.turns.map(\.id) == ["t0"])
         _ = try await hub.request("_test/later", .object([:]))
-        for _ in 0..<2000 where store.turns.count < 2 || store.pendingPermission == nil { await Task.yield() }
+        await Self.waitUntil { store.turns.count >= 2 && store.pendingPermission != nil }
         #expect(store.turns.map(\.id) == ["t0", "t1"])
         #expect(store.pendingPermission?.request.id == "perm")
         let asks = store.turns.map { $0.items.filter { if case .permission = $0 { true } else { false } }.count }

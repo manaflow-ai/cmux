@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Tab bars at the bottom show no title strip above the panes (user, 2026-10-28: "when tabbar is
@@ -9,7 +10,7 @@ import Testing
 /// window's top edge; the traffic lights stay clear of them: on the sidebar's header when the
 /// sidebar shows on the left, otherwise in a row the main pane starts below. Rects are in window
 /// coordinates (y up).
-@MainActor @Suite(.serialized) struct BottomTabsTitleStripTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct BottomTabsTitleStripTests {
     /// Runs `body` with `tabs.barPosition` at `position`, the minimal title bar (the default) and the
     /// sidebar on `side`; restores the process-wide settings after.
     func with<T>(tabs position: TabBarPosition, side: SidebarSide = .left, _ body: () throws -> T) rethrows -> T {

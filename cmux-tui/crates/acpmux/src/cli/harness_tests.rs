@@ -105,6 +105,17 @@ async fn doctor_checks_a_folder_profile_only_when_enabled_and_inside_its_folder(
     assert!(step(&report, "profile").detail.contains("no harness"), "{}", report.text());
 }
 
+/// A managed Codex install reports whether it told a running daemon to read its profiles again,
+/// so a daemon that was running does not keep offering the catalog it had before the install.
+#[test]
+fn a_codex_runtime_install_reports_the_daemon_reload() {
+    let installed = json!({"version": "0.156.1", "ready": true});
+    let reloaded = with_daemon_reloaded(installed.clone(), true);
+    assert_eq!(reloaded["daemonReloaded"], true);
+    assert_eq!(reloaded["version"], "0.156.1");
+    assert_eq!(with_daemon_reloaded(installed, false)["daemonReloaded"], false);
+}
+
 /// `cmux harness add --example hermes` (or `hermes-agent`) writes a profile
 /// that loads as an ACP harness running `hermes acp`.
 #[test]

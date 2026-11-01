@@ -58,6 +58,10 @@ describe("chatUnavailable", () => {
     expect(
       chatUnavailable({ peers: { box: { connected: false, state: "reconnecting", attempts: 0 } }, waitedMs: 0 }).reason,
     ).toBe("connecting");
+    // A peer whose daemon announced a restart (acpmux peer_link.rs `Restarting`) is on its way back.
+    expect(
+      chatUnavailable({ peers: { box: { connected: false, state: "restarting", attempts: 0 } }, waitedMs: 0 }).reason,
+    ).toBe("connecting");
   });
 
   test("a machine that is down names itself and when it was last seen", () => {
@@ -148,7 +152,6 @@ describe("ChatUnavailableState", () => {
       { reason: "deleted" as const },
       { reason: "notFound" as const },
       { reason: "offline" as const, machine: "box" },
-      { reason: "connecting" as const, machine: "box" },
     ];
     for (const unavailable of cases) {
       const html = render(unavailable, "Studio");
@@ -158,5 +161,13 @@ describe("ChatUnavailableState", () => {
       expect(html.includes("Close Tab")).toBe(unavailable.reason !== "deleted");
       expect(html.includes("Remove from Sidebar")).toBe(unavailable.reason === "deleted");
     }
+  });
+
+  test("a chat still loading shows nothing: no session id, text or buttons", () => {
+    // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". Past the grace it is offline (above).
+    const html = render({ reason: "connecting", machine: "box" }, "Studio");
+    expect(html).toBe(
+      '<div class="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true"></div>',
+    );
   });
 });

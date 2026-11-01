@@ -36,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
@@ -819,6 +820,7 @@
   color: var(--page-text-2);
 }
 .lg-sheet-meta {
+  font-variant-numeric: tabular-nums;
   display: flex;
   flex-wrap: wrap;
   margin: 0;
@@ -1701,6 +1703,9 @@
   border-radius: 8px;
   background: var(--lg-fill);
 }
+.hc-att-meta.is-failed {
+  color: var(--lg-warn);
+}
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }
@@ -1910,6 +1915,7 @@
   gap: 6px;
 }
 .lg-picker-count {
+  font-variant-numeric: tabular-nums;
   min-height: var(--text-caption--line-height);
   margin: 0;
   font-size: var(--text-caption);
@@ -2064,4 +2070,27 @@
     border-inline-start: 0;
     box-shadow: none;
   }
+}
+
+/* A compact presentation choice; the conversation title gives up space first. */
+.lg-presentation {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.lg-presentation button {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px;
+  background: transparent;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-presentation button[aria-pressed="true"] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.lg-run-transcript {
+  margin: 8px 0;
+  min-height: 24px;
 }

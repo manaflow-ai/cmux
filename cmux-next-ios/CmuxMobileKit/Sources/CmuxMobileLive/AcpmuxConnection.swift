@@ -82,6 +82,49 @@ public actor AcpmuxConnection {
         }
     }
 
+    /// The whole `sessions` of a list call with no `limit` (`_acpmux/watch`, `_acpmux/sessions`).
+    /// acpmux answers a list past its largest reply with the first rows and a string `nextCursor`;
+    /// the rest comes from `_acpmux/sessions` with the same params (no `enabled`) and that cursor,
+    /// until a page has none (acpmux `Client::whole_list`). A list that fits is one reply with no
+    /// cursor, so an older daemon is read as before. A cursor that is not a string, a cursor sent
+    /// twice, or a page with no `sessions` throws: a caller reads a missing session as a gone one,
+    /// so a list cut short is never handed back. Each page is bounded by `timeout`.
+    public func wholeList(_ method: String, _ params: [String: JSONValue], timeout: Duration) async throws -> [JSONValue] {
+        var reply = try await request(method, .object(params), timeout: timeout)
+        var rows = try Self.pageRows(reply)
+        var rest = params
+        rest["enabled"] = nil
+        var seen: Set<String> = []
+        while let cursor = try Self.nextCursor(reply) {
+            guard seen.insert(cursor).inserted else {
+                throw RPCError(code: 0, message: "acpmux sent a session list cursor again", reason: "sessions.cursor_repeated")
+            }
+            rest["cursor"] = .string(cursor)
+            reply = try await request("_acpmux/sessions", .object(rest), timeout: timeout)
+            rows += try Self.pageRows(reply)
+        }
+        return rows
+    }
+
+    /// A list page's `sessions`; a page without the array is not a page of the list.
+    nonisolated static func pageRows(_ reply: JSONValue) throws -> [JSONValue] {
+        guard let rows = reply["sessions"]?.arrayValue else {
+            throw RPCError(code: 0, message: "acpmux sent a session list page with no sessions", reason: "sessions.bad_page")
+        }
+        return rows
+    }
+
+    /// A list page's `nextCursor`: a string continues (an empty page included), null or absent
+    /// ends the list, anything else throws.
+    nonisolated static func nextCursor(_ reply: JSONValue) throws -> String? {
+        switch reply["nextCursor"] {
+        case nil, .null?: return nil
+        case let .string(cursor)?: return cursor
+        case let other?:
+            throw RPCError(code: 0, message: "acpmux sent the session list cursor \(other)", reason: "sessions.bad_cursor")
+        }
+    }
+
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
         if let terminalError { throw terminalError }

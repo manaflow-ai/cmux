@@ -23,11 +23,6 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         return .terminal
     }
 
-    /// `tabs.terminalFirst`, cmux Classic Mode (#23021): a person's Cmd-T, Cmd-D, Cmd-Shift-D and Cmd-N open a terminal.
-    @MainActor static func terminalFirst(_ services: AppServices) -> Bool {
-        services.settings?.snapshot.terminalFirst ?? TerminalFirstSetting.fallback
-    }
-
     /// The action that opens this kind on its own, whose title New <Kind> Tab takes in a tab's menu.
     var newActionID: ActionID {
         switch self {

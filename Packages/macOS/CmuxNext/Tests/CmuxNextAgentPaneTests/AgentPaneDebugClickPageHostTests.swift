@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -11,7 +12,7 @@ import Testing
 /// element is found in the page the chat shows, not in the pane's own unused WebKit view, which
 /// holds no document (a capture slot answered "no visible element matches" for every selector,
 /// even `textarea`, while `chat_state` worked on the same pane).
-@Suite(.serialized)
+@Suite(.closesItsWindows, .serialized)
 @MainActor
 struct AgentPaneDebugClickPageHostTests {
     private actor NoHost: AgentPaneHostProviding {

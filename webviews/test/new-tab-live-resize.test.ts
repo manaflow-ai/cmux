@@ -253,18 +253,30 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       // fixed-wait: the stand-in list arrives after LIST_DELAY and its rows settle before the sweep.
       await page.waitForTimeout(LIST_DELAY + 1_000);
       // Focus, not click: a click waits for two equal frames, which a starved WebKit host may not give.
-      await frame.locator(".nt-field").focus();
+      // The field is MarkdownField: its editable element inside `.nt-field` takes the keyboard.
+      await frame.locator(".nt-field .ProseMirror").focus();
       await page.keyboard.type("fix the build");
       // fixed-wait: the typed draft lays out before the sweep measures its one-line height.
       await page.waitForTimeout(300);
       const stage = (await frame.locator(".nt-screen").getAttribute("data-layout")) === "stage";
       // One line of the field's text plus its insets (the Default template's 52px row).
+      // MarkdownField's `.nt-field` wrapper holds the insets and its editable (`.acpmux-md`) the
+      // line height, both of which the textarea held.
       const oneLine = await frame.locator(".nt-field").evaluate((node) => {
-        const style = getComputedStyle(node);
-        const insets = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-        if (style.lineHeight.endsWith("px")) return parseFloat(style.lineHeight) + insets;
+        const inset = getComputedStyle(node);
+        const text = getComputedStyle(node.querySelector(".acpmux-md")!);
+        const insets = parseFloat(inset.paddingTop) + parseFloat(inset.paddingBottom);
+        if (text.lineHeight.endsWith("px")) return parseFloat(text.lineHeight) + insets;
         return node.getBoundingClientRect().height;
       });
+      // The draft is in the field, so the sweep measures a field with text in it.
+      expect(
+        await frame
+          .locator(".nt-field")
+          .evaluate((node) =>
+            (node as Element & { acpmuxMarkdownField?: { value(): string } }).acpmuxMarkdownField?.value(),
+          ),
+      ).toBe("fix the build");
       // A page that measures and sets on every frame misses the timing budgets on every sweep.
       let best: { layout: string[]; timing: string[] } | undefined;
       for (let attempt = 1; attempt <= 3 && (best === undefined || best.timing.length > 0); attempt++) {

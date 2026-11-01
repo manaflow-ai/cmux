@@ -59,6 +59,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": 1790000301000,
                   "revision": "7"
                 },
                 {
@@ -84,6 +86,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": null,
                   "revision": "4"
                 }
               ],
@@ -140,6 +144,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": 1790000303000,
                   "revision": "5"
                 }
               ],
@@ -193,6 +199,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": 1790000301000,
                   "revision": "7"
                 },
                 {
@@ -218,6 +226,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": null,
                   "revision": "4"
                 },
                 {
@@ -243,6 +253,8 @@
                     "idle_seconds": 1800
                   },
                   "error": null,
+                  "hourly_rate_usd": 0.1322,
+                  "running_since": 1790000303000,
                   "revision": "5"
                 }
               ],
@@ -321,6 +333,8 @@
                 "idle_seconds": 1800
               },
               "error": null,
+              "hourly_rate_usd": 0.1322,
+              "running_since": 1790000301000,
               "revision": "7"
             },
             "stream": "cloud:team_t0000000000000000001",
@@ -427,6 +441,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "42"
               }
             },
@@ -470,6 +486,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "42"
               }
             },
@@ -592,6 +610,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "43"
               }
             },
@@ -902,6 +922,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": 1790000301000,
                 "revision": "47"
               }
             },
@@ -959,6 +981,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "48"
               }
             },
@@ -1056,6 +1080,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "49"
               }
             },
@@ -1194,6 +1220,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.2645,
+                "running_since": 1790000301000,
                 "revision": "50"
               }
             },
@@ -1339,6 +1367,8 @@
                   "idle_seconds": 3600
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": 1790000301000,
                 "revision": "51"
               }
             },
@@ -2214,6 +2244,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "44"
               }
             },
@@ -2257,6 +2289,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": null,
                 "revision": "44"
               }
             },
@@ -2642,6 +2676,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": 1790000307000,
                 "revision": "54"
               }
             },
@@ -2841,6 +2877,8 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
+                "hourly_rate_usd": 0.1322,
+                "running_since": 1790000301000,
                 "revision": "7"
               }
             },
@@ -3119,6 +3157,8 @@
             "idle_seconds": 1800
           },
           "error": null,
+          "hourly_rate_usd": 0.1322,
+          "running_since": null,
           "revision": "55"
         }
       }
@@ -3152,6 +3192,8 @@
             "idle_seconds": 1800
           },
           "error": null,
+          "hourly_rate_usd": 0.1322,
+          "running_since": 1790000301000,
           "revision": "6"
         }
       },
@@ -3186,6 +3228,8 @@
             "idle_seconds": 1800
           },
           "error": null,
+          "hourly_rate_usd": 0.1322,
+          "running_since": 1790000304000,
           "revision": "46"
         }
       },
@@ -3220,6 +3264,8 @@
             "idle_seconds": 1800
           },
           "error": null,
+          "hourly_rate_usd": 0.1322,
+          "running_since": null,
           "revision": "45"
         }
       }
@@ -3334,6 +3380,8 @@
             "idle_seconds": 1800
           },
           "error": null,
+          "hourly_rate_usd": 0.1322,
+          "running_since": null,
           "revision": "57",
           "pause_reason": "no_report"
         }

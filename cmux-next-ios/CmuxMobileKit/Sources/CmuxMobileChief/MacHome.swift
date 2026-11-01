@@ -126,6 +126,27 @@ public struct MacHomeList: Equatable, Sendable {
     }
 
     public var isEmpty: Bool { pinned.isEmpty && rows.isEmpty }
+
+    /// One list per change of the rows, the search or the Unread toggle: Home's
+    /// body reads it on every pass. `revision` moves only when the result does,
+    /// so the list animates on an integer, not on a comparison of every row.
+    public final class Memo {
+        private var last: (rows: [MacHomeRow], query: String, unreadOnly: Bool, list: MacHomeList)?
+        /// How many lists this memo built (tests).
+        public private(set) var builds = 0
+        public private(set) var revision = 0
+
+        public init() {}
+
+        public func list(_ rows: [MacHomeRow], query: String, unreadOnly: Bool) -> MacHomeList {
+            if let last, last.query == query, last.unreadOnly == unreadOnly, last.rows == rows { return last.list }
+            let list = MacHomeList(rows, query: query, unreadOnly: unreadOnly)
+            builds += 1
+            if last?.list != list { revision &+= 1 }
+            last = (rows, query, unreadOnly, list)
+            return list
+        }
+    }
 }
 
 /// The chosen Mac's Home list over its link: a `chief` channel of its own
@@ -165,6 +186,33 @@ public final class MacHomeFeed {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
 
     public init() {}
+
+    #if DEBUG
+    /// The list scroll rig (verify/listperf/): `count` rows shaped like a busy Mac's Home
+    /// (four pinned, some Chiefs working, long Markdown previews), with no link.
+    public func seedStressRows(count: Int, macID: String) {
+        let stamp = ISO8601DateFormatter()
+        let kinds = ["chief", "direct", "channel", "group"]
+        rows = (0..<count).compactMap { (index: Int) -> MacHomeRow? in
+            let isChief = index % 6 == 0
+            var wire: [String: Any] = [:]
+            wire["id"] = "stress-\(index)"
+            wire["kind"] = kinds[index % kinds.count]
+            wire["name"] = "Conversation \(index)"
+            wire["unread"] = index % 3 == 0 ? index % 5 + 1 : 0
+            wire["activity_at"] = stamp.string(from: Date().addingTimeInterval(-Double(index) * 900))
+            wire["preview"] = "**Done (#\(index)).** The dialer now retries with `backoff`, capped at 30 s. [Details](https://cmux.com) and 24 tests pass."
+            if isChief {
+                wire["chief"] = "chief-\(index)"
+                wire["chief_state"] = index % 12 == 0 ? "working" : "idle"
+            }
+            wire["pinned"] = index < 4
+            wire["pin_position"] = index
+            return MacHomeRow(wire: wire)
+        }
+        self.macID = macID
+    }
+    #endif
 
     /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
     /// as the Mac's Home picks it), from the owner's list: its row is the Mac Chief.

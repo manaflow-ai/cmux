@@ -36,8 +36,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 
-pub(super) const MAX_TITLE_CHARS: usize = 80;
-pub(super) const MAX_PROMPT_CHARS: usize = 20_000;
+use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
 pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
 /// Longest `groupId`, in bytes.
