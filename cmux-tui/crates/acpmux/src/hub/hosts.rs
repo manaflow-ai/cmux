@@ -536,6 +536,8 @@ impl Hub {
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
+        self.restore_launch(session, &child, &incarnation);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -1824,7 +1826,9 @@ impl Hub {
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
-        let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        let servers =
+            LaunchServers::read(&launch, meta.family.clone().unwrap_or_default(), profile.kind)
+                .await;
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());

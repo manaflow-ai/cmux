@@ -67,6 +67,7 @@ blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
+blob skills/cmux-acpmux/SKILL.md
 blob skills/cmux-browser/SKILL.md
 blob skills/cmux-browser/references/authentication.md
 blob skills/cmux-browser/references/commands.md
@@ -79,3 +80,4 @@ blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
 blob skills/cmux-cua/SKILL.md
+blob skills/cmux/SKILL.md
