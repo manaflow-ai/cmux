@@ -163,11 +163,11 @@ fn setup_personal_reads_the_kind_and_team_files() {
 #[test]
 fn only_development_has_a_platform_origin() {
     assert_eq!(
-        Env::Dev.platform_origin(),
+        Env::Dev.harness_login_origin(),
         Some("https://cmux-platform-development.debussy.workers.dev")
     );
-    assert_eq!(Env::Stg.platform_origin(), None);
-    assert_eq!(Env::Prod.platform_origin(), None);
+    assert_eq!(Env::Stg.harness_login_origin(), None);
+    assert_eq!(Env::Prod.harness_login_origin(), None);
 }
 
 // ---- wire shapes ----

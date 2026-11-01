@@ -20,6 +20,7 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
+//! [`github_repos`] (repository discovery through the platform connector),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
@@ -34,6 +35,7 @@ pub mod client;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
+pub mod github_repos;
 pub mod handoff;
 pub mod harness_login;
 #[cfg(unix)]
@@ -57,3 +59,6 @@ mod harness_login_tests;
 mod tests;
 #[cfg(test)]
 mod trajectory_tests;
+
+#[cfg(test)]
+mod github_repos_tests;

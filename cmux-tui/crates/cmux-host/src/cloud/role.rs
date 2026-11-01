@@ -208,6 +208,10 @@ impl Store for FileStore {
 pub struct PosterHttp(pub JsonPoster);
 
 impl Http for PosterHttp {
+    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.0.get(url, bearer)
+    }
+
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post(url, body, bearer)
     }
@@ -789,7 +793,7 @@ impl Worker {
     /// passed, so the first chat finds the person's login.
     fn harness_logins_bound(&self, bound: &Bound, key: &InstallKey) {
         let (Some(logins), Some(origin)) =
-            (self.harness_logins.as_ref(), bound.env.platform_origin())
+            (self.harness_logins.as_ref(), bound.env.harness_login_origin())
         else {
             return;
         };
@@ -1037,6 +1041,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
+    }
+    if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
+        return Some(super::github_repos::ReposAsk::from_json(ask).into());
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

@@ -1033,7 +1033,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>50</integer>
+			<integer>1000</integer>
 			<key>pfm_description</key>
 			<string>The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.</string>
 			<key>pfm_name</key>
@@ -1049,7 +1049,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>16</integer>
+			<integer>1000</integer>
 			<key>pfm_description</key>
 			<string>The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.</string>
 			<key>pfm_name</key>
@@ -5142,7 +5142,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1300</integer>
+			<integer>400</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>

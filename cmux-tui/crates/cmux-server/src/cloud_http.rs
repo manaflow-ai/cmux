@@ -36,6 +36,21 @@ impl JsonPoster {
         Ok(JsonPoster { client, allow_http })
     }
 
+    /// An authenticated JSON GET. The same HTTPS and time bounds as POST apply.
+    pub fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        check_url(url, self.allow_http).map_err(|e| e.to_string())?;
+        let mut request = self.client.get(url).header("accept", "application/json");
+        if let Some(token) = bearer {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().map_err(|e| format!("GET {url}: {e}"))?;
+        let status = response.status().as_u16();
+        let text = response.text().unwrap_or_default();
+        let parsed =
+            serde_json::from_str(&text).unwrap_or_else(|_| Value::Object(Default::default()));
+        Ok((status, parsed))
+    }
+
     /// `(status, body)`; a body that is not JSON reads as `{}`.
     pub fn post(
         &self,

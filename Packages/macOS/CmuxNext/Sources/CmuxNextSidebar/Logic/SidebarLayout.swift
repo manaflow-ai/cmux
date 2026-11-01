@@ -392,12 +392,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         return
                     }
-                    // An open group with nothing in it keeps one quiet member-sized row (user 9757): it reads as open
-                    // and empty, and a drop over it goes into the group. A drag's gap here takes its place.
-                    if members.isEmpty, o.gap?.group != group.id,
-                       Self.listsEmptyRow(group, filtering: filtering, hasSubgroups: subgroupParents.contains(group.id)) {
-                        y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
-                    }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
                                                  workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
